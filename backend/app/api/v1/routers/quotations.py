@@ -44,7 +44,10 @@ def create(
 
 @router.get("", response_model=list[QuotationOut])
 def list_quotations(
-    status: str | None = Query(default=None),
+    status: list[str] | None = Query(
+        default=None,
+        description="Filter by status. Repeat the param to combine (e.g. status=DRAFT&status=SENT).",
+    ),
     customer_id: UUID | None = Query(default=None),
     project_id: UUID | None = Query(default=None),
     limit: int = Query(default=200, le=500),
@@ -53,7 +56,7 @@ def list_quotations(
 ) -> list[Quotation]:
     stmt = select(Quotation).order_by(Quotation.created_at.desc()).limit(limit)
     if status:
-        stmt = stmt.where(Quotation.status == status)
+        stmt = stmt.where(Quotation.status.in_(status))
     if customer_id:
         stmt = stmt.where(Quotation.customer_id == customer_id)
     if project_id:

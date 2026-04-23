@@ -6,7 +6,8 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import Tag from "primevue/tag";
-import Dropdown from "primevue/dropdown";
+import TabView from "primevue/tabview";
+import TabPanel from "primevue/tabpanel";
 import { api } from "@/api/client";
 import { formatMoney } from "@/utils/money";
 
@@ -32,21 +33,23 @@ interface Customer {
 
 const router = useRouter();
 
-const statusFilter = ref<string | null>(null);
-const statusOptions = [
-  { label: "Any status", value: null },
-  { label: "Active", value: "ACTIVE" },
-  { label: "On hold", value: "ON_HOLD" },
-  { label: "Completed", value: "COMPLETED" },
-  { label: "Cancelled", value: "CANCELLED" },
-];
+// 0 = Active, 1 = On hold, 2 = All
+const activeTab = ref(0);
+const TAB_TO_STATUSES: Record<number, string[] | null> = {
+  0: ["ACTIVE"],
+  1: ["ON_HOLD"],
+  2: null,
+};
 
 const { data: projects, isLoading } = useQuery<Project[]>({
-  queryKey: ["projects", statusFilter],
+  queryKey: ["projects", activeTab],
   queryFn: async () => {
-    const params: Record<string, string> = {};
-    if (statusFilter.value) params.status = statusFilter.value;
-    return (await api.get<Project[]>("/projects", { params })).data;
+    const statuses = TAB_TO_STATUSES[activeTab.value];
+    const params = new URLSearchParams();
+    if (statuses) for (const s of statuses) params.append("status", s);
+    const qs = params.toString();
+    const url = qs ? `/projects?${qs}` : "/projects";
+    return (await api.get<Project[]>(url)).data;
   },
 });
 
@@ -93,18 +96,15 @@ function statusSeverity(s: string) {
         </p>
       </div>
       <div class="page-actions">
-        <Dropdown
-          v-model="statusFilter"
-          :options="statusOptions"
-          option-label="label"
-          option-value="value"
-          placeholder="Any status"
-          :show-clear="false"
-          style="min-width: 160px"
-        />
         <Button label="New project" icon="pi pi-plus" @click="openCreate" />
       </div>
     </header>
+
+    <TabView v-model:active-index="activeTab" class="status-tabs">
+      <TabPanel header="Active" />
+      <TabPanel header="On hold" />
+      <TabPanel header="All" />
+    </TabView>
 
     <DataTable :value="projects ?? []" :loading="isLoading" data-key="project_id" striped-rows>
       <template #empty>
@@ -164,4 +164,6 @@ code { background: var(--color-surface-alt); padding: 0.1rem 0.4rem; border-radi
 .row-actions { display: flex; gap: 0.15rem; }
 .num { font-variant-numeric: tabular-nums; }
 .page-actions { display: flex; gap: 0.5rem; align-items: center; }
+.status-tabs { margin-bottom: 0.5rem; }
+.status-tabs :deep(.p-tabview-panels) { display: none; }
 </style>

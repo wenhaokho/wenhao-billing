@@ -33,14 +33,17 @@ def create_bill(
 
 @router.get("", response_model=list[BillOut])
 def list_bills(
-    status: str | None = Query(default=None),
+    status: list[str] | None = Query(
+        default=None,
+        description="Filter by status. Repeat the param to combine (e.g. status=OPEN&status=PARTIAL).",
+    ),
     vendor_id: UUID | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> list[Bill]:
     stmt = select(Bill).order_by(Bill.created_at.desc())
     if status:
-        stmt = stmt.where(Bill.status == status)
+        stmt = stmt.where(Bill.status.in_(status))
     if vendor_id:
         stmt = stmt.where(Bill.vendor_id == vendor_id)
     return list(db.scalars(stmt))

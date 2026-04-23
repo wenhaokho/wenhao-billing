@@ -5,7 +5,8 @@ import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
-import Dropdown from "primevue/dropdown";
+import TabView from "primevue/tabview";
+import TabPanel from "primevue/tabpanel";
 import Tag from "primevue/tag";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
@@ -29,24 +30,23 @@ interface Quotation {
 
 const router = useRouter();
 
-const statusFilter = ref<string | null>(null);
-const statusOptions = [
-  { label: "All", value: null },
-  { label: "Draft", value: "DRAFT" },
-  { label: "Sent", value: "SENT" },
-  { label: "Accepted", value: "ACCEPTED" },
-  { label: "Declined", value: "DECLINED" },
-  { label: "Expired", value: "EXPIRED" },
-  { label: "Invoiced", value: "INVOICED" },
-  { label: "Void", value: "VOID" },
-];
+// 0 = Open (DRAFT + SENT), 1 = Accepted (ACCEPTED + INVOICED), 2 = All
+const activeTab = ref(0);
+const TAB_TO_STATUSES: Record<number, string[] | null> = {
+  0: ["DRAFT", "SENT"],
+  1: ["ACCEPTED", "INVOICED"],
+  2: null,
+};
 
 const { data: quotations, isLoading } = useQuery<Quotation[]>({
-  queryKey: ["quotations", statusFilter],
+  queryKey: ["quotations", activeTab],
   queryFn: async () => {
-    const params: Record<string, string> = {};
-    if (statusFilter.value) params.status = statusFilter.value;
-    return (await api.get<Quotation[]>("/quotations", { params })).data;
+    const statuses = TAB_TO_STATUSES[activeTab.value];
+    const params = new URLSearchParams();
+    if (statuses) for (const s of statuses) params.append("status", s);
+    const qs = params.toString();
+    const url = qs ? `/quotations?${qs}` : "/quotations";
+    return (await api.get<Quotation[]>(url)).data;
   },
 });
 
@@ -90,16 +90,11 @@ function statusSeverity(status: string) {
       </div>
     </header>
 
-    <div class="filters">
-      <Dropdown
-        v-model="statusFilter"
-        :options="statusOptions"
-        option-label="label"
-        option-value="value"
-        placeholder="Filter by status"
-        show-clear
-      />
-    </div>
+    <TabView v-model:active-index="activeTab" class="status-tabs">
+      <TabPanel header="Open" />
+      <TabPanel header="Accepted" />
+      <TabPanel header="All" />
+    </TabView>
 
     <DataTable
       :value="quotations ?? []"
@@ -144,7 +139,8 @@ function statusSeverity(status: string) {
 </template>
 
 <style scoped>
-.filters { margin: 0 0 1rem; }
+.status-tabs { margin-bottom: 0.5rem; }
+.status-tabs :deep(.p-tabview-panels) { display: none; }
 code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--color-text-muted, #64748b); }

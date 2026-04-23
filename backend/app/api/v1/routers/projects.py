@@ -62,7 +62,10 @@ def create_project(
 @router.get("", response_model=list[ProjectOut])
 def list_projects(
     customer_id: UUID | None = Query(default=None),
-    status: str | None = Query(default=None),
+    status: list[str] | None = Query(
+        default=None,
+        description="Filter by status. Repeat the param to combine (e.g. status=ACTIVE&status=ON_HOLD).",
+    ),
     active: bool | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
@@ -71,7 +74,7 @@ def list_projects(
     if customer_id:
         stmt = stmt.where(Project.customer_id == customer_id)
     if status:
-        stmt = stmt.where(Project.status == status)
+        stmt = stmt.where(Project.status.in_(status))
     if active is not None:
         stmt = stmt.where(Project.active.is_(active))
     return list(db.scalars(stmt))

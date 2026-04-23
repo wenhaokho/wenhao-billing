@@ -5,7 +5,8 @@ import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
-import Dropdown from "primevue/dropdown";
+import TabView from "primevue/tabview";
+import TabPanel from "primevue/tabpanel";
 import Tag from "primevue/tag";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
@@ -31,22 +32,23 @@ interface Bill {
 
 const router = useRouter();
 
-const statusFilter = ref<string | null>(null);
-const statusOptions = [
-  { label: "All", value: null },
-  { label: "Draft", value: "DRAFT" },
-  { label: "Open", value: "OPEN" },
-  { label: "Partial", value: "PARTIAL" },
-  { label: "Paid", value: "PAID" },
-  { label: "Void", value: "VOID" },
-];
+// 0 = Unpaid (OPEN + PARTIAL), 1 = Draft, 2 = All
+const activeTab = ref(0);
+const TAB_TO_STATUSES: Record<number, string[] | null> = {
+  0: ["OPEN", "PARTIAL"],
+  1: ["DRAFT"],
+  2: null,
+};
 
 const { data: bills, isLoading } = useQuery<Bill[]>({
-  queryKey: ["bills", statusFilter],
+  queryKey: ["bills", activeTab],
   queryFn: async () => {
-    const params: Record<string, string> = {};
-    if (statusFilter.value) params.status = statusFilter.value;
-    return (await api.get<Bill[]>("/bills", { params })).data;
+    const statuses = TAB_TO_STATUSES[activeTab.value];
+    const params = new URLSearchParams();
+    if (statuses) for (const s of statuses) params.append("status", s);
+    const qs = params.toString();
+    const url = qs ? `/bills?${qs}` : "/bills";
+    return (await api.get<Bill[]>(url)).data;
   },
 });
 
@@ -88,16 +90,11 @@ function statusSeverity(status: string) {
       </div>
     </header>
 
-    <div class="filters">
-      <Dropdown
-        v-model="statusFilter"
-        :options="statusOptions"
-        option-label="label"
-        option-value="value"
-        placeholder="Filter by status"
-        show-clear
-      />
-    </div>
+    <TabView v-model:active-index="activeTab" class="status-tabs">
+      <TabPanel header="Unpaid" />
+      <TabPanel header="Draft" />
+      <TabPanel header="All" />
+    </TabView>
 
     <DataTable
       :value="bills ?? []"
@@ -153,7 +150,8 @@ function statusSeverity(status: string) {
 </template>
 
 <style scoped>
-.filters { margin: 0 0 1rem; }
+.status-tabs { margin-bottom: 0.5rem; }
+.status-tabs :deep(.p-tabview-panels) { display: none; }
 code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--color-text-muted, #64748b); }
