@@ -15,6 +15,17 @@ node_modules/
 dist/
 .vite/
 
+# Stale TS/Vue compiled artifacts (we ship sources, not emit)
+frontend/src/**/*.vue.js
+frontend/src/**/*.vue.ts
+frontend/src/api/*.js
+frontend/src/components/*.js
+frontend/src/composables/*.js
+frontend/src/main.js
+frontend/src/router/*.js
+frontend/src/stores/*.js
+frontend/src/utils/*.js
+
 # IDE
 .vscode/
 .idea/
