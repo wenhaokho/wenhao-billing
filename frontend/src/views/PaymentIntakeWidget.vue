@@ -174,7 +174,7 @@ function timeAgo(iso: string) {
         <div class="stat-card" @click="router.push('/review')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
           <div class="stat-icon warn"><i class="pi pi-exclamation-triangle" /></div>
           <div>
-            <div class="stat-label">Awaiting Manual Review</div>
+            <div class="stat-label">Manual Review</div>
             <div class="stat-value">{{ stats.awaiting_review_count }}</div>
             <div class="stat-hint">Payments held by safe-stop</div>
           </div>

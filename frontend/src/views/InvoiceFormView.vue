@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
+import Checkbox from "primevue/checkbox";
 import Dropdown from "primevue/dropdown";
 import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
@@ -10,7 +11,6 @@ import DatePicker from "primevue/calendar";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import Tag from "primevue/tag";
-import SelectButton from "primevue/selectbutton";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 import {
@@ -25,6 +25,11 @@ import SendInvoiceDialog from "@/components/SendInvoiceDialog.vue";
 
 const props = defineProps<{ id?: string }>();
 const router = useRouter();
+const route = useRoute();
+
+// Route name is fixed at navigation time; used only to seed recurring mode on mount.
+const isRecurringRoute =
+  route.name === "invoice-recurring-new" || route.name === "invoice-recurring-edit";
 
 interface Customer {
   customer_id: string;
@@ -114,17 +119,31 @@ interface InvoiceOut {
 }
 
 const currencyOptions = ["IDR", "SGD", "USD"];
+const paymentTermsOptions = ["On Receipt", "Net 7", "Net 14", "Net 30", "Net 60"];
 
-type InvoiceKind = "STANDARD" | "MILESTONE";
-const invoiceKind = ref<InvoiceKind>("STANDARD");
-const kindOptions = [
-  { label: "Standard", value: "STANDARD" },
-  { label: "Milestone", value: "MILESTONE" },
+// ---- Recurring-template mode ----
+const isRecurring = ref<boolean>(isRecurringRoute);
+
+type Frequency = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
+type EndMode = "NEVER" | "ON_DATE" | "AFTER_N";
+const frequencyOptions: { label: string; value: Frequency }[] = [
+  { label: "Daily", value: "DAILY" },
+  { label: "Weekly", value: "WEEKLY" },
+  { label: "Monthly", value: "MONTHLY" },
+  { label: "Yearly", value: "YEARLY" },
 ];
-// Milestone-only fields
-const milestoneRef = ref<string>("");
-const milestoneAmount = ref<number | null>(null);
-const dueInDays = ref<number>(14);
+const endModeOptions: { label: string; value: EndMode }[] = [
+  { label: "Never", value: "NEVER" },
+  { label: "On date", value: "ON_DATE" },
+  { label: "After N cycles", value: "AFTER_N" },
+];
+
+const frequency = ref<Frequency>("MONTHLY");
+const interval = ref<number>(1);
+const endMode = ref<EndMode>("NEVER");
+const endDate = ref<Date | null>(null);
+const endAfterCycles = ref<number | null>(null);
+const footer = ref<string>("");
 
 const customerId = ref<string | null>(null);
 const projectId = ref<string | null>(null);
@@ -134,7 +153,7 @@ const issueDate = ref<Date | null>(new Date());
 const dueDate = ref<Date | null>(null);
 const currency = ref<string>("IDR");
 const notes = ref<string>("");
-const paymentTerms = ref<string>("On Receipt");
+const paymentTerms = ref<string>("Net 7");
 
 const discountEnabled = ref(false);
 const discountType = ref<DiscountType | null>(null);
@@ -173,12 +192,82 @@ const { data: catalog } = useQuery<CatalogItem[]>({
 
 const { data: existing } = useQuery<InvoiceOut | null>({
   queryKey: ["invoice", props.id],
-  enabled: isEdit,
+  enabled: () => isEdit.value && !isRecurring.value,
   queryFn: async () => {
     if (!props.id) return null;
     return (await api.get<InvoiceOut>(`/invoices/${props.id}`)).data;
   },
 });
+
+interface TemplateResponse {
+  customer_id: string | null;
+  project_id: string | null;
+  currency: string;
+  po_so_number: string | null;
+  payment_terms: string | null;
+  notes: string | null;
+  footer: string | null;
+  discount_type: "PERCENT" | "AMOUNT" | null;
+  discount_value: string | null;
+  billing_cycle_ref: {
+    frequency?: Frequency;
+    interval?: number;
+    start_date?: string;
+    end_mode?: EndMode;
+    end_date?: string | null;
+    end_after_cycles?: number | null;
+  } | null;
+  line_items: {
+    line_item_id: string;
+    item_id: string | null;
+    description: string;
+    quantity: string;
+    unit_price: string;
+    position: number;
+  }[];
+}
+
+const { data: templateData } = useQuery<TemplateResponse>({
+  queryKey: ["recurring-template", () => props.id],
+  enabled: () => isEdit.value && isRecurring.value && !!props.id,
+  queryFn: async () =>
+    (await api.get<TemplateResponse>(`/invoices/recurring-templates/${props.id}`)).data,
+});
+
+watch(
+  templateData,
+  (t) => {
+    if (!t) return;
+    customerId.value = t.customer_id;
+    projectId.value = t.project_id;
+    currency.value = t.currency;
+    poSoNumber.value = t.po_so_number ?? "";
+    paymentTerms.value = t.payment_terms ?? "On Receipt";
+    notes.value = t.notes ?? "";
+    footer.value = t.footer ?? "";
+    if (t.discount_type) {
+      discountEnabled.value = true;
+      discountType.value = t.discount_type;
+      discountValue.value = t.discount_value ? Number(t.discount_value) : null;
+    }
+    const cfg = t.billing_cycle_ref ?? {};
+    if (cfg.frequency) frequency.value = cfg.frequency;
+    if (cfg.interval) interval.value = cfg.interval;
+    if (cfg.start_date) issueDate.value = new Date(cfg.start_date + "T00:00:00");
+    if (cfg.end_mode) endMode.value = cfg.end_mode;
+    if (cfg.end_date) endDate.value = new Date(cfg.end_date + "T00:00:00");
+    if (cfg.end_after_cycles) endAfterCycles.value = cfg.end_after_cycles;
+    lineItems.value = t.line_items
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((ln) => ({
+        item_id: ln.item_id,
+        description: ln.description,
+        quantity: Number(ln.quantity),
+        unit_price: Number(ln.unit_price),
+      })) as LineItemRow[];
+  },
+);
 
 const { data: businessProfile } = useQuery<{ default_notes: string | null }>({
   queryKey: ["business-profile"],
@@ -288,6 +377,21 @@ const selectedCustomer = computed(() => {
   return (customers.value ?? []).find((c) => c.customer_id === customerId.value) ?? null;
 });
 
+const selectedProject = computed(() => {
+  if (!projectId.value) return null;
+  return (customerProjects.value ?? []).find((p) => p.project_id === projectId.value) ?? null;
+});
+
+const projectPickerRef = ref<InstanceType<typeof Dropdown> | null>(null);
+const projectPickerOpen = ref(false);
+function openProjectPicker() {
+  projectPickerOpen.value = true;
+  setTimeout(() => projectPickerRef.value?.show?.(), 0);
+}
+watch(projectId, () => {
+  projectPickerOpen.value = false;
+});
+
 // Auto-default currency from selected customer on new invoices
 watch(customerId, (newId, oldId) => {
   // If customer changed, clear project pick so we don't keep a stale cross-customer project
@@ -381,37 +485,82 @@ function buildPayload() {
   };
 }
 
-function buildMilestonePayload() {
+function buildTemplatePayload() {
+  const clean = (lineItems.value as LineItemRow[])
+    .filter((ln) => (ln.description && ln.description.trim()) || ln.item_id)
+    .map((ln, idx) => ({
+      item_id: ln.item_id,
+      description: ln.description,
+      quantity: Number(ln.quantity ?? 0),
+      unit_price: Number(ln.unit_price ?? 0),
+      position: idx,
+    }));
   return {
     customer_id: customerId.value,
     project_id: projectId.value,
     currency: currency.value,
-    amount: milestoneAmount.value,
-    milestone_ref: milestoneRef.value,
-    issue_date: toISODate(issueDate.value),
-    due_in_days: dueInDays.value,
+    po_so_number: poSoNumber.value || null,
+    payment_terms: paymentTerms.value,
+    notes: notes.value || null,
+    footer: footer.value || null,
+    discount_type: discountEnabled.value ? discountType.value : null,
+    discount_value: discountEnabled.value ? discountValue.value : null,
+    line_items: clean,
+    schedule: {
+      frequency: frequency.value,
+      interval: interval.value ?? 1,
+      start_date: toISODate(issueDate.value),
+      end_mode: endMode.value,
+      end_date: endMode.value === "ON_DATE" ? toISODate(endDate.value) : null,
+      end_after_cycles: endMode.value === "AFTER_N" ? endAfterCycles.value ?? null : null,
+    },
   };
 }
 
 const save = useMutation({
   mutationFn: async () => {
+    if (isRecurring.value) {
+      const body = buildTemplatePayload();
+      if (isEdit.value) {
+        return (await api.put(`/invoices/recurring-templates/${props.id}`, body)).data;
+      }
+      return (await api.post("/invoices/recurring-template", body)).data;
+    }
     if (isEdit.value) {
       return (await api.patch<InvoiceOut>(`/invoices/${props.id}`, buildPayload())).data;
-    }
-    if (invoiceKind.value === "MILESTONE") {
-      return (await api.post<InvoiceOut>("/invoices/milestone", buildMilestonePayload())).data;
     }
     return (await api.post<InvoiceOut>("/invoices", buildPayload())).data;
   },
   onSuccess: () => {
-    router.push("/invoices");
+    router.push(isRecurring.value ? "/invoices/recurring" : "/invoices");
   },
+});
+
+function addPeriod(d: Date, freq: Frequency, n: number): Date {
+  const out = new Date(d);
+  if (freq === "DAILY") out.setDate(out.getDate() + n);
+  else if (freq === "WEEKLY") out.setDate(out.getDate() + 7 * n);
+  else if (freq === "MONTHLY") out.setMonth(out.getMonth() + n);
+  else out.setFullYear(out.getFullYear() + n);
+  return out;
+}
+
+const nextInvoiceDate = computed<string>(() => {
+  if (!issueDate.value) return "—";
+  const n = interval.value && interval.value > 0 ? interval.value : 1;
+  const d = addPeriod(issueDate.value, frequency.value, n);
+  return toISODate(d) ?? "—";
 });
 
 const canSave = computed(() => {
   if (!currency.value) return false;
-  if (!isEdit.value && invoiceKind.value === "MILESTONE") {
-    return !!customerId.value && !!milestoneRef.value && !!milestoneAmount.value;
+  if (isRecurring.value) {
+    if (!paymentTerms.value || !issueDate.value) return false;
+    if (endMode.value === "ON_DATE" && !endDate.value) return false;
+    if (endMode.value === "AFTER_N" && !(endAfterCycles.value && endAfterCycles.value > 0)) {
+      return false;
+    }
+    return lineItems.value.some((ln) => ln.description?.trim() || ln.item_id);
   }
   return lineItems.value.some((ln) => (ln.description?.trim() || ln.item_id));
 });
@@ -425,19 +574,16 @@ const canSave = computed(() => {
 
     <header class="page-header sticky-header">
       <div class="header-title">
-        <h1>{{ isEdit ? "Edit invoice" : "New invoice" }}</h1>
+        <h1>
+          {{
+            isRecurring
+              ? (isEdit ? "Edit recurring invoice" : "New recurring invoice")
+              : (isEdit ? "Edit invoice" : "New invoice")
+          }}
+        </h1>
         <p v-if="readOnly" class="readonly-note">
           Read-only — {{ existing?.status }} invoices cannot be edited
         </p>
-        <SelectButton
-          v-if="!isEdit && !readOnly"
-          v-model="invoiceKind"
-          :options="kindOptions"
-          option-label="label"
-          option-value="value"
-          :allow-empty="false"
-          class="kind-picker"
-        />
       </div>
       <div class="page-actions">
         <Tag
@@ -524,6 +670,56 @@ const canSave = computed(() => {
                 <i class="pi pi-map-marker" />
                 <span>{{ composedBillingAddress(selectedCustomer) }}</span>
               </div>
+              <div class="customer-project">
+                <template v-if="selectedProject && !projectPickerOpen">
+                  <i class="pi pi-briefcase" />
+                  <span class="customer-project-name">
+                    <code>{{ selectedProject.code }}</code> {{ selectedProject.name }}
+                  </span>
+                  <Button
+                    v-if="!readOnly"
+                    icon="pi pi-pencil"
+                    text
+                    rounded
+                    size="small"
+                    aria-label="Change project"
+                    class="customer-project-btn"
+                    @click="openProjectPicker"
+                  />
+                  <Button
+                    v-if="!readOnly"
+                    icon="pi pi-times"
+                    text
+                    rounded
+                    size="small"
+                    aria-label="Unlink project"
+                    class="customer-project-btn"
+                    @click="projectId = null"
+                  />
+                </template>
+                <Button
+                  v-else-if="!selectedProject && !projectPickerOpen && !readOnly"
+                  label="Link to a project"
+                  icon="pi pi-link"
+                  text
+                  size="small"
+                  class="customer-project-link"
+                  @click="openProjectPicker"
+                />
+                <Dropdown
+                  v-if="projectPickerOpen"
+                  ref="projectPickerRef"
+                  v-model="projectId"
+                  :options="customerProjects ?? []"
+                  :option-label="(p: ProjectLite) => `${p.code} · ${p.name}`"
+                  option-value="project_id"
+                  placeholder="Choose a project"
+                  show-clear
+                  filter
+                  class="customer-project-picker"
+                  @hide="projectPickerOpen = false"
+                />
+              </div>
             </template>
             <Dropdown
               v-else
@@ -565,20 +761,8 @@ const canSave = computed(() => {
           <label class="meta-label">Invoice number</label>
           <InputText
             v-model="invoiceNumber"
-            :placeholder="`Auto (WH${new Date().getFullYear()}####)`"
-            :disabled="readOnly"
-          />
-
-          <label class="meta-label">Project</label>
-          <Dropdown
-            v-model="projectId"
-            :options="customerProjects ?? []"
-            :option-label="(p: ProjectLite) => `${p.code} · ${p.name}`"
-            option-value="project_id"
-            placeholder="(none)"
-            :disabled="readOnly || !customerId"
-            show-clear
-            filter
+            :placeholder="isRecurring ? 'Auto-generated each cycle' : `Auto (WH${new Date().getFullYear()}####)`"
+            :disabled="readOnly || isRecurring"
           />
 
           <label class="meta-label">P.O. / S.O. number</label>
@@ -587,49 +771,25 @@ const canSave = computed(() => {
           <label class="meta-label">Invoice date</label>
           <DatePicker v-model="issueDate" date-format="yy-mm-dd" show-icon :disabled="readOnly" />
 
-          <label class="meta-label">Payment due</label>
-          <div class="meta-stack">
-            <DatePicker v-model="dueDate" date-format="yy-mm-dd" show-icon :disabled="readOnly" />
-            <span class="helper">On Receipt if left blank</span>
-          </div>
+          <template v-if="!isRecurring">
+            <label class="meta-label">Payment due</label>
+            <DatePicker
+              v-model="dueDate"
+              date-format="yy-mm-dd"
+              show-icon
+              placeholder="On Receipt if left blank"
+              :disabled="readOnly"
+            />
+          </template>
+          <template v-else>
+            <label class="meta-label">Payment due</label>
+            <Dropdown v-model="paymentTerms" :options="paymentTermsOptions" />
+          </template>
         </div>
       </div>
     </div>
 
-    <!-- Milestone-only: simplified amount + reference -->
-    <div
-      v-if="!isEdit && invoiceKind === 'MILESTONE'"
-      class="card card-pad milestone-card"
-    >
-      <div class="milestone-title">Milestone</div>
-      <div class="milestone-grid">
-        <label class="field">
-          <span>Milestone reference</span>
-          <InputText v-model="milestoneRef" placeholder="e.g. Phase 2 kickoff" />
-        </label>
-        <label class="field">
-          <span>Amount</span>
-          <InputNumber
-            v-model="milestoneAmount"
-            mode="decimal"
-            :min-fraction-digits="currency === 'IDR' ? 0 : 2"
-            :max-fraction-digits="currency === 'IDR' ? 0 : 2"
-            :use-grouping="true"
-          />
-        </label>
-        <label class="field">
-          <span>Due in (days)</span>
-          <InputNumber v-model="dueInDays" :min="0" :max="365" />
-        </label>
-        <label class="field">
-          <span>Currency</span>
-          <Dropdown v-model="currency" :options="currencyOptions" />
-        </label>
-      </div>
-    </div>
-
     <InvoiceLineItemsTable
-      v-if="isEdit || invoiceKind === 'STANDARD'"
       v-model="lineItems"
       :catalog="catalog ?? []"
       :currency="currency"
@@ -638,7 +798,69 @@ const canSave = computed(() => {
       @remove="(i) => removeLine(i)"
     />
 
-    <div v-if="isEdit || invoiceKind === 'STANDARD'" class="totals-wrap">
+    <div class="totals-wrap">
+      <div
+        v-if="!readOnly"
+        class="card recurring-card"
+        :class="{ 'is-active': isRecurring }"
+      >
+        <label class="recurring-toggle">
+          <Checkbox
+            v-model="isRecurring"
+            :binary="true"
+            input-id="isRecurring"
+            :disabled="isEdit"
+          />
+          <span>Recurring</span>
+        </label>
+        <div v-if="isRecurring" class="schedule-grid">
+          <label class="meta-label">Frequency</label>
+          <Dropdown
+            v-model="frequency"
+            :options="frequencyOptions"
+            option-label="label"
+            option-value="value"
+            class="schedule-freq"
+          />
+
+          <label class="meta-label">Every</label>
+          <div class="inline-row">
+            <InputNumber v-model="interval" :min="1" :max="99" class="schedule-interval" />
+            <span class="muted small">{{
+              frequency === "DAILY"
+                ? interval === 1 ? "day" : "days"
+                : frequency === "WEEKLY"
+                  ? interval === 1 ? "week" : "weeks"
+                  : frequency === "MONTHLY"
+                    ? interval === 1 ? "month" : "months"
+                    : interval === 1 ? "year" : "years"
+            }}</span>
+          </div>
+
+          <label class="meta-label">Next invoice</label>
+          <span class="auto">{{ nextInvoiceDate }}</span>
+
+          <label class="meta-label">Ends</label>
+          <Dropdown
+            v-model="endMode"
+            :options="endModeOptions"
+            option-label="label"
+            option-value="value"
+          />
+
+          <template v-if="endMode === 'ON_DATE'">
+            <label class="meta-label">End date</label>
+            <DatePicker v-model="endDate" date-format="yy-mm-dd" show-icon />
+          </template>
+          <template v-else-if="endMode === 'AFTER_N'">
+            <label class="meta-label">After</label>
+            <div class="inline-row">
+              <InputNumber v-model="endAfterCycles" :min="1" class="schedule-interval" />
+              <span class="muted small">cycles</span>
+            </div>
+          </template>
+        </div>
+      </div>
       <div class="card totals">
         <div class="totals-row">
           <div class="totals-label">Subtotal</div>
@@ -715,6 +937,16 @@ const canSave = computed(() => {
       />
     </div>
 
+    <div v-if="isRecurring" class="card notes-card">
+      <label class="section-label">Footer</label>
+      <Textarea
+        v-model="footer"
+        rows="3"
+        placeholder="Footer shown on every generated invoice."
+        class="notes-textarea"
+      />
+    </div>
+
     <Message v-if="save.error.value" severity="error" :closable="false">
       {{ (save.error.value as any)?.response?.data?.detail ?? 'Save failed' }}
     </Message>
@@ -752,19 +984,48 @@ const canSave = computed(() => {
 
 .back { margin-bottom: -0.5rem; }
 
-.kind-picker { margin-top: 0.5rem; }
-.kind-picker :deep(.p-button) { font-size: 0.82rem; padding: 0.4rem 0.9rem; }
+.recurring-card {
+  max-width: 340px;
+  width: 100%;
+  align-self: flex-start;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  transition: border-color 120ms ease;
+}
+.recurring-card.is-active {
+  align-self: stretch;
+}
+.recurring-card.is-active {
+  border-color: var(--color-border-strong);
+}
+.recurring-toggle {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  font-size: 0.95rem; font-weight: 600; color: var(--color-text);
+  cursor: pointer; user-select: none;
+}
+.schedule-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.6rem 0.75rem;
+  align-items: center;
+}
+.schedule-freq { width: 100%; }
+.schedule-interval { width: 80px; }
+.schedule-interval :deep(.p-inputnumber-input) { width: 100%; text-align: center; }
+.schedule-grid :deep(.p-dropdown),
+.schedule-grid :deep(.p-calendar),
+.schedule-grid :deep(.p-datepicker-input) { width: 100%; }
+.inline-row { display: flex; align-items: center; gap: 0.5rem; }
+.muted { color: var(--color-text-muted); }
+.small { font-size: 0.8rem; }
 
-.milestone-card { display: flex; flex-direction: column; gap: 0.75rem; }
-.milestone-title { font-weight: 600; font-size: 0.85rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.milestone-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 1rem; }
-.milestone-grid .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; }
-.milestone-grid .field > span { font-weight: 600; font-size: 0.8rem; color: var(--color-text); }
-.milestone-grid :deep(.p-inputtext),
-.milestone-grid :deep(.p-inputnumber),
-.milestone-grid :deep(.p-inputnumber-input),
-.milestone-grid :deep(.p-dropdown) { width: 100%; }
-@media (max-width: 800px) { .milestone-grid { grid-template-columns: 1fr 1fr; } }
+.auto {
+  color: var(--color-text-subtle);
+  font-style: italic;
+  font-size: 0.85rem;
+}
 
 .sticky-header {
   position: sticky;
@@ -901,6 +1162,42 @@ const canSave = computed(() => {
 .customer-edit {
   padding: 0.25rem 0.5rem;
 }
+.customer-project {
+  margin-top: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.75rem;
+}
+.customer-project > .pi-briefcase {
+  color: var(--color-text-subtle);
+  font-size: 0.85rem;
+  min-width: 14px;
+}
+.customer-project-name {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.customer-project-name code {
+  background: var(--color-surface-alt);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.78em;
+  margin-right: 0.3rem;
+}
+.customer-project-btn { padding: 0.2rem 0.35rem; }
+.customer-project-link {
+  padding: 0.15rem 0.25rem !important;
+  font-size: 0.82rem !important;
+  color: var(--color-text-muted) !important;
+}
+.customer-project-link :deep(.p-button-icon) { font-size: 0.8rem; }
+.customer-project-picker { flex: 1; min-width: 0; }
+.customer-project-picker :deep(.p-dropdown) { width: 100%; }
 
 /* Meta card */
 .meta-card {
@@ -939,11 +1236,12 @@ const canSave = computed(() => {
 .totals-wrap {
   display: flex;
   justify-content: flex-end;
+  align-items: stretch;
+  gap: 1rem;
 }
 .totals {
   max-width: 380px;
   width: 100%;
-  margin-left: auto;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;

@@ -67,12 +67,12 @@ const router = createRouter({
     {
       path: "/invoices/recurring/new",
       name: "invoice-recurring-new",
-      component: () => import("@/views/RecurringInvoiceFormView.vue"),
+      component: () => import("@/views/InvoiceFormView.vue"),
     },
     {
       path: "/invoices/recurring/:id/edit",
       name: "invoice-recurring-edit",
-      component: () => import("@/views/RecurringInvoiceFormView.vue"),
+      component: () => import("@/views/InvoiceFormView.vue"),
       props: true,
     },
     {
