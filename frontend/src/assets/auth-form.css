@@ -1,0 +1,69 @@
+/* Shared styles for auth form inputs/buttons. Scoped via .auth-form class. */
+.auth-form { display: flex; flex-direction: column; gap: 1.1rem; }
+.auth-form .field { display: flex; flex-direction: column; gap: 0.4rem; }
+.auth-form .field-label {
+  font-size: 0.78rem;
+  color: var(--color-text);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.auth-form .field-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.auth-form .field-hint {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+.auth-form .forgot-link {
+  font-size: 0.75rem;
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.auth-form .forgot-link:hover { text-decoration: underline; }
+
+.auth-form .p-inputtext {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--radius-md);
+  font-size: 0.92rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.auth-form .p-inputtext:focus {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  border-color: var(--color-primary);
+}
+.auth-form .p-password,
+.auth-form .p-password-input { width: 100%; }
+
+.auth-form .submit-btn {
+  margin-top: 0.4rem;
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  justify-content: center;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  border: none;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.25);
+  transition: transform 0.08s ease, box-shadow 0.15s ease;
+}
+.auth-form .submit-btn:hover {
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.35);
+}
+.auth-form .submit-btn:active { transform: translateY(1px); }
+
+.auth-status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+}
+.auth-status-dot::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px var(--color-success-soft);
+}

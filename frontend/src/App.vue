@@ -134,10 +134,15 @@ const userInitials = computed(() => {
 });
 
 const isAuthed = computed(() => !!auth.user);
+
+const mobileNavOpen = ref(false);
+function toggleMobileNav() { mobileNavOpen.value = !mobileNavOpen.value; }
+function closeMobileNav() { mobileNavOpen.value = false; }
 </script>
 
 <template>
-  <div v-if="isAuthed" class="shell">
+  <div v-if="isAuthed" class="shell" :class="{ 'nav-open': mobileNavOpen }">
+    <div class="nav-scrim" @click="closeMobileNav" />
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark">WB</div>
@@ -155,6 +160,7 @@ const isAuthed = computed(() => !!auth.user);
             :key="item.to"
             :to="item.to"
             class="nav-item"
+            @click="closeMobileNav"
           >
             <i :class="item.icon" />
             <span>{{ item.label }}</span>
@@ -173,6 +179,14 @@ const isAuthed = computed(() => !!auth.user);
     <div class="main-col">
       <header class="topbar">
         <div class="topbar-left">
+          <button
+            type="button"
+            class="nav-toggle"
+            aria-label="Open navigation"
+            @click="toggleMobileNav"
+          >
+            <i class="pi pi-bars" />
+          </button>
           <h2 class="topbar-title">{{ pageTitle }}</h2>
         </div>
         <div class="topbar-right">
@@ -298,8 +312,33 @@ const isAuthed = computed(() => !!auth.user);
   top: 0;
   z-index: 10;
 }
-.topbar-title { margin: 0; font-size: 1rem; font-weight: 600; color: var(--color-text); }
+.topbar-left { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.topbar-title { margin: 0; font-size: 1rem; font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar-right { display: flex; align-items: center; gap: 0.75rem; }
+
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.15s;
+}
+.nav-toggle:hover { background: var(--color-border); }
+
+.nav-scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 20;
+}
 
 .user-chip {
   display: flex; align-items: center; gap: 0.6rem;
@@ -327,13 +366,35 @@ const isAuthed = computed(() => !!auth.user);
   margin: 0 auto;
 }
 
-.anon-shell { min-height: 100vh; display: grid; place-items: center; }
+.anon-shell { min-height: 100vh; display: flex; }
+.anon-shell > :deep(*) { flex: 1; }
 
-@media (max-width: 900px) {
-  .shell { grid-template-columns: 64px 1fr; }
-  .sidebar { padding: 1rem 0.4rem; }
+@media (max-width: 1100px) and (min-width: 721px) {
+  .shell { grid-template-columns: 72px 1fr; }
+  .sidebar { padding: 1rem 0.5rem; }
   .brand-text, .nav-group-label, .sidebar-footer, .nav-item span { display: none; }
-  .nav-item { justify-content: center; }
+  .nav-item { justify-content: center; padding: 0.6rem 0.4rem; }
+  .nav-item i { width: auto; }
   .user-meta { display: none; }
+}
+
+@media (max-width: 720px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 260px;
+    z-index: 30;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  }
+  .nav-open .sidebar { transform: translateX(0); }
+  .nav-open .nav-scrim { display: block; }
+  .nav-toggle { display: inline-flex; }
+  .topbar { padding: 0 1rem; }
+  .page { padding: 1.25rem 1rem; }
+  .user-meta { display: none; }
+  .user-chip { padding: 0.25rem; }
 }
 </style>

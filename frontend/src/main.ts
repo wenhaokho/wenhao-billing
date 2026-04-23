@@ -11,6 +11,7 @@ import router from "./router";
 import "primevue/resources/themes/aura-light-blue/theme.css";
 import "primeicons/primeicons.css";
 import "@/assets/app.css";
+import "@/assets/auth-form.css";
 
 const app = createApp(App);
 app.use(createPinia());
