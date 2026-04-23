@@ -281,7 +281,7 @@ const canSave = computed(
 .header h1 { margin: 0; font-size: 1.5rem; text-transform: uppercase; letter-spacing: 0.02em; }
 .actions { display: flex; gap: 0.5rem; }
 .card {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 12px;
   padding: 1.25rem;
@@ -291,7 +291,7 @@ const canSave = computed(
   gap: 0.85rem;
   max-width: 760px;
 }
-.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: #334155; }
+.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: var(--color-text); }
 .field > span { font-weight: 600; font-size: 0.85rem; }
 .hint { font-weight: 400; color: var(--color-text-muted); font-size: 0.78rem; }
 .field :deep(.p-inputtext),

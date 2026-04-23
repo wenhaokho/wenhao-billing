@@ -443,7 +443,7 @@ function openPdfPreview() {
 .page-actions { display: flex; gap: 0.5rem; align-items: center; }
 .readonly-note { color: #b91c1c; font-size: 0.82rem; margin: 0.25rem 0 0; }
 
-.card { background: #fff; border: 1px solid var(--color-border, #e2e8f0); border-radius: 12px; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+.card { background: var(--color-surface); border: 1px solid var(--color-border, #e2e8f0); border-radius: 12px; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
 .card-pad { padding: 1.25rem 1.5rem; }
 .section-label { font-weight: 600; font-size: 0.85rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.5rem; }
 .full-w { width: 100%; }

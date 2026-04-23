@@ -759,7 +759,7 @@ const canSave = computed(() => {
 .milestone-title { font-weight: 600; font-size: 0.85rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .milestone-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 1rem; }
 .milestone-grid .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; }
-.milestone-grid .field > span { font-weight: 600; font-size: 0.8rem; color: #334155; }
+.milestone-grid .field > span { font-weight: 600; font-size: 0.8rem; color: var(--color-text); }
 .milestone-grid :deep(.p-inputtext),
 .milestone-grid :deep(.p-inputnumber),
 .milestone-grid :deep(.p-inputnumber-input),
@@ -818,7 +818,7 @@ const canSave = computed(() => {
 }
 .customer-card.is-empty {
   border: 1.5px dashed #cbd5e1;
-  background: #f8fafc;
+  background: var(--color-surface-alt);
 }
 .customer-empty {
   display: flex;

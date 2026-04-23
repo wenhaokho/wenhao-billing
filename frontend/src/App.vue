@@ -7,6 +7,9 @@ import Menu from "primevue/menu";
 import type { MenuItem } from "primevue/menuitem";
 import ConfirmDialog from "primevue/confirmdialog";
 import { useAuthStore } from "@/stores/auth";
+import { useTheme } from "@/composables/useTheme";
+
+const { theme, toggle: toggleTheme } = useTheme();
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -141,6 +144,7 @@ function closeMobileNav() { mobileNavOpen.value = false; }
 </script>
 
 <template>
+  <a class="skip-link" href="#main-content">Skip to content</a>
   <div v-if="isAuthed" class="shell" :class="{ 'nav-open': mobileNavOpen }">
     <div class="nav-scrim" @click="closeMobileNav" />
     <aside class="sidebar">
@@ -192,6 +196,15 @@ function closeMobileNav() { mobileNavOpen.value = false; }
         <div class="topbar-right">
           <button
             type="button"
+            class="theme-toggle"
+            :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+            :title="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+            @click="toggleTheme"
+          >
+            <i :class="theme === 'dark' ? 'pi pi-sun' : 'pi pi-moon'" />
+          </button>
+          <button
+            type="button"
             class="user-chip"
             aria-haspopup="true"
             aria-label="Open account menu"
@@ -207,7 +220,7 @@ function closeMobileNav() { mobileNavOpen.value = false; }
           <Menu ref="userMenu" :model="userMenuItems" :popup="true" />
         </div>
       </header>
-      <main class="page">
+      <main id="main-content" class="page" tabindex="-1">
         <RouterView />
       </main>
     </div>
@@ -276,6 +289,7 @@ function closeMobileNav() { mobileNavOpen.value = false; }
   transition: background 0.15s, color 0.15s;
 }
 .nav-item:hover { background: #1e293b; color: #f1f5f9; }
+.nav-item:focus-visible { outline: none; box-shadow: 0 0 0 2px #60a5fa; background: #1e293b; color: #f1f5f9; }
 .nav-item i { font-size: 0.95rem; width: 16px; text-align: center; color: #94a3b8; }
 .nav-item.router-link-active {
   background: #1d4ed8;
@@ -330,6 +344,45 @@ function closeMobileNav() { mobileNavOpen.value = false; }
   transition: background 0.15s;
 }
 .nav-toggle:hover { background: var(--color-border); }
+.nav-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px; height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+.theme-toggle:hover { background: var(--color-border); }
+.theme-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.skip-link {
+  position: fixed;
+  top: 0.5rem;
+  left: 0.5rem;
+  transform: translateY(-150%);
+  background: var(--color-primary);
+  color: white;
+  padding: 0.55rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  z-index: 100;
+  transition: transform 0.15s;
+}
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+.page:focus { outline: none; }
 
 .nav-scrim {
   display: none;

@@ -133,7 +133,7 @@ function submit() {
 .rp-grid { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.25rem 0 0.5rem; }
 .rp-balance { font-size: 0.88rem; color: var(--color-text-muted); padding-bottom: 0.25rem; border-bottom: 1px solid var(--color-border); margin-bottom: 0.25rem; }
 .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
-.field > span { font-weight: 600; color: #334155; }
+.field > span { font-weight: 600; color: var(--color-text); }
 .field .muted { font-weight: 400; color: var(--color-text-muted); font-size: 0.78rem; }
 .field :deep(.p-inputtext),
 .field :deep(.p-inputnumber),

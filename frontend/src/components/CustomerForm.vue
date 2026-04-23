@@ -395,7 +395,7 @@ function onToggleSameAsBilling(v: boolean) {
 }
 
 .card {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 12px;
   padding: 1.25rem 1.25rem 1rem;
@@ -416,7 +416,7 @@ function onToggleSameAsBilling(v: boolean) {
   flex-direction: column;
   gap: 0.3rem;
   font-size: 0.875rem;
-  color: #334155;
+  color: var(--color-text);
   min-width: 0;
 }
 .field :deep(.p-inputtext),
@@ -426,7 +426,7 @@ function onToggleSameAsBilling(v: boolean) {
 }
 .field-label {
   font-weight: 600;
-  color: #334155;
+  color: var(--color-text);
   font-size: 0.85rem;
 }
 .field-label.muted {
@@ -470,7 +470,7 @@ function onToggleSameAsBilling(v: boolean) {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: #334155;
+  color: var(--color-text);
   cursor: pointer;
   user-select: none;
 }

@@ -171,7 +171,7 @@ function timeAgo(iso: string) {
     <template v-else-if="stats">
       <!-- stat cards -->
       <div class="stat-grid">
-        <div class="stat-card" @click="router.push('/review')" role="button">
+        <div class="stat-card" @click="router.push('/review')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
           <div class="stat-icon warn"><i class="pi pi-exclamation-triangle" /></div>
           <div>
             <div class="stat-label">Awaiting Manual Review</div>
@@ -180,7 +180,7 @@ function timeAgo(iso: string) {
           </div>
         </div>
 
-        <div class="stat-card" @click="router.push('/queue')" role="button">
+        <div class="stat-card" @click="router.push('/queue')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
           <div class="stat-icon info"><i class="pi pi-inbox" /></div>
           <div>
             <div class="stat-label">DRAFT Invoices</div>
@@ -189,7 +189,7 @@ function timeAgo(iso: string) {
           </div>
         </div>
 
-        <div class="stat-card" @click="router.push('/invoices')" role="button">
+        <div class="stat-card" @click="router.push('/invoices')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
           <div class="stat-icon primary"><i class="pi pi-send" /></div>
           <div>
             <div class="stat-label">SENT Invoices</div>
@@ -198,7 +198,7 @@ function timeAgo(iso: string) {
           </div>
         </div>
 
-        <div class="stat-card" @click="router.push('/quotations')" role="button">
+        <div class="stat-card" @click="router.push('/quotations')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
           <div class="stat-icon quote"><i class="pi pi-file-edit" /></div>
           <div>
             <div class="stat-label">Open Quotations</div>
@@ -207,7 +207,7 @@ function timeAgo(iso: string) {
           </div>
         </div>
 
-        <div class="stat-card" @click="router.push('/customers')" role="button">
+        <div class="stat-card" @click="router.push('/customers')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
           <div class="stat-icon neutral"><i class="pi pi-users" /></div>
           <div>
             <div class="stat-label">Customers</div>
@@ -312,6 +312,11 @@ function timeAgo(iso: string) {
   box-shadow: var(--shadow-md);
   border-color: var(--color-border-strong);
   transform: translateY(-1px);
+}
+.stat-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--color-primary);
 }
 .stat-icon {
   width: 40px; height: 40px; border-radius: 10px;

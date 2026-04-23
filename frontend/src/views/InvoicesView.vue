@@ -270,7 +270,7 @@ function statusSeverity(status: string) {
   margin: 0 0 1.25rem;
 }
 .tile {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 10px;
   padding: 0.85rem 1rem;
@@ -298,7 +298,7 @@ function statusSeverity(status: string) {
 .filters { margin: 0 0 1rem; }
 .status-tabs { margin-bottom: 0.5rem; }
 .status-tabs :deep(.p-tabview-panels) { display: none; }
-code { background: #f1f5f9; padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
+code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--color-text-muted, #64748b); }
 :deep(.p-datatable-tbody > tr) { cursor: pointer; }

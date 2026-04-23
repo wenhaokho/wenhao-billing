@@ -46,7 +46,15 @@ async function submit() {
         />
       </label>
 
-      <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
+      <Message
+        v-if="error"
+        severity="error"
+        :closable="false"
+        role="alert"
+        aria-live="assertive"
+      >
+        {{ error }}
+      </Message>
 
       <Button
         type="submit"

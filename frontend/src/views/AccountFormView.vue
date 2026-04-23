@@ -139,7 +139,7 @@ function cancel() {
 .header h1 { margin: 0; font-size: 1.5rem; text-transform: uppercase; letter-spacing: 0.02em; }
 .actions { display: flex; gap: 0.5rem; }
 .card {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 12px;
   padding: 1.25rem;
@@ -149,7 +149,7 @@ function cancel() {
   gap: 0.85rem;
   max-width: 560px;
 }
-.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: #334155; }
+.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: var(--color-text); }
 .field > span { font-weight: 600; font-size: 0.85rem; }
 .field :deep(.p-inputtext), .field :deep(.p-dropdown) { width: 100%; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; min-width: 0; }

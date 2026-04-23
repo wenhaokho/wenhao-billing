@@ -660,7 +660,7 @@ function toggleMoreMenu(event: Event) {
   min-height: 140px;
 }
 .step.active { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
-.step.done { background: #f8fafc; }
+.step.done { background: var(--color-surface-alt); }
 .step.disabled { opacity: 0.55; }
 .step.skipped { opacity: 0.55; }
 
@@ -717,7 +717,7 @@ function toggleMoreMenu(event: Event) {
 }
 .kv dt { color: #64748b; }
 .kv dd { margin: 0; color: #0f172a; }
-code { background: #f1f5f9; padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
+code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
 .muted { color: #94a3b8; }
 
 .items-table {
@@ -737,5 +737,5 @@ code { background: #f1f5f9; padding: 0.05rem 0.35rem; border-radius: 4px; font-s
 .items-table tfoot td { border-bottom: none; color: #64748b; padding-top: 0.7rem; }
 .items-table tfoot .total-row td { font-weight: 700; color: #0f172a; font-size: 1rem; border-top: 2px solid #e2e8f0; }
 
-.notes-body { margin: 0; white-space: pre-wrap; color: #334155; font-size: 0.9rem; line-height: 1.5; }
+.notes-body { margin: 0; white-space: pre-wrap; color: var(--color-text); font-size: 0.9rem; line-height: 1.5; }
 </style>

@@ -316,7 +316,7 @@ function openInvoice(row: Invoice) {
 
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.85rem; }
 .stat {
-  background: #fff; border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface); border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 10px; padding: 0.85rem 1rem;
 }
 .stat-label { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); }
@@ -324,12 +324,12 @@ function openInvoice(row: Invoice) {
 .stat-sub { font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.2rem; }
 
 .card {
-  background: #fff; border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface); border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 12px; padding: 1rem 1.25rem;
 }
 .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
 .card h3 { margin: 0; font-size: 1rem; }
-.notes { white-space: pre-wrap; color: #334155; }
+.notes { white-space: pre-wrap; color: var(--color-text); }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--color-text-muted); }
 

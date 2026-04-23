@@ -145,7 +145,7 @@ function statusSeverity(status: string) {
 
 <style scoped>
 .filters { margin: 0 0 1rem; }
-code { background: #f1f5f9; padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
+code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--color-text-muted, #64748b); }
 :deep(.p-datatable-tbody > tr) { cursor: pointer; }

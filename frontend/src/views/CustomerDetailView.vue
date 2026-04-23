@@ -691,7 +691,7 @@ code { background: var(--color-surface-alt); padding: 0.1rem 0.4rem; border-radi
   position: sticky;
   top: 0;
   z-index: 5;
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 10px;
   padding: 0.75rem 1rem;

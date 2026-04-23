@@ -580,7 +580,7 @@ const canSave = computed(() => {
 }
 .customer-card.is-empty {
   border: 1.5px dashed #cbd5e1;
-  background: #f8fafc;
+  background: var(--color-surface-alt);
 }
 .customer-empty {
   display: flex;

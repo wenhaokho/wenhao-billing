@@ -302,7 +302,7 @@ function cancel() {
 .header h1 { margin: 0; font-size: 1.5rem; text-transform: uppercase; letter-spacing: 0.02em; }
 .actions { display: flex; gap: 0.5rem; }
 .card {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-border, #e2e8f0);
   border-radius: 12px;
   padding: 1.25rem;
@@ -312,7 +312,7 @@ function cancel() {
   gap: 0.85rem;
   max-width: 760px;
 }
-.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: #334155; }
+.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: var(--color-text); }
 .field > span { font-weight: 600; font-size: 0.85rem; }
 .field :deep(.p-inputtext),
 .field :deep(.p-inputtextarea),
@@ -323,6 +323,6 @@ function cancel() {
 .two-col > .field { min-width: 0; }
 .sub { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.75rem 0; border-top: 1px dashed var(--color-border, #e2e8f0); }
 .sub:first-of-type { border-top: none; padding-top: 0.25rem; }
-.check { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; color: #334155; cursor: pointer; }
+.check { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; color: var(--color-text); cursor: pointer; }
 .sub-body { padding-left: 1.75rem; display: flex; flex-direction: column; gap: 0.75rem; }
 </style>

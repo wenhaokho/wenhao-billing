@@ -169,7 +169,7 @@ function rowAmount(row: LineItemRow): number {
   align-items: start;
 }
 .lines-header {
-  background: #f1f5f9;
+  background: var(--color-bg);
   color: #64748b;
   font-size: 0.7rem;
   font-weight: 600;

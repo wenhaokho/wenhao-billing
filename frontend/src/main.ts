@@ -8,10 +8,10 @@ import ConfirmationService from "primevue/confirmationservice";
 import App from "./App.vue";
 import router from "./router";
 
-import "primevue/resources/themes/aura-light-blue/theme.css";
 import "primeicons/primeicons.css";
 import "@/assets/app.css";
 import "@/assets/auth-form.css";
+import "@/composables/useTheme";
 
 const app = createApp(App);
 app.use(createPinia());
