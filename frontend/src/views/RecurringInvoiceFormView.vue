@@ -386,10 +386,7 @@ const canSave = computed(() => {
           <InputNumber
             v-model="interval"
             :min="1"
-            show-buttons
-            button-layout="horizontal"
-            decrement-button-class="p-button-secondary"
-            increment-button-class="p-button-secondary"
+            :max="99"
             class="schedule-interval"
           />
           <span class="muted small">{{
@@ -579,7 +576,7 @@ const canSave = computed(() => {
   position: relative;
 }
 .customer-card.is-empty {
-  border: 1.5px dashed #cbd5e1;
+  border: 1.5px dashed var(--color-border-strong);
   background: var(--color-surface-alt);
 }
 .customer-empty {
@@ -708,8 +705,8 @@ const canSave = computed(() => {
 .totals-row.due {
   margin-top: 0.25rem;
   padding: 0.75rem 0.9rem;
-  border-top: 3px double #cbd5e1;
-  background: #eff6ff;
+  border-top: 3px double var(--color-border-strong);
+  background: var(--color-primary-soft);
   border-radius: 8px;
   font-size: 1.125rem;
   font-weight: 700;
@@ -730,7 +727,8 @@ const canSave = computed(() => {
 .discount-value { flex: 1; }
 .discount-value :deep(.p-inputnumber),
 .discount-value :deep(.p-inputnumber-input) { width: 100%; }
-.ccy-select { width: 90px; }
+.ccy-select { width: 110px; }
+.ccy-select :deep(.p-dropdown-label) { padding-right: 0.25rem; }
 .num { font-variant-numeric: tabular-nums; }
 
 .notes-card {
@@ -754,9 +752,9 @@ const canSave = computed(() => {
   align-items: center;
   max-width: 560px;
 }
-.schedule-freq { width: 180px; }
-.schedule-interval { width: 110px; }
-.schedule-interval :deep(.p-inputnumber-input) { width: 70px; }
+.schedule-freq { width: 200px; }
+.schedule-interval { width: 90px; }
+.schedule-interval :deep(.p-inputnumber-input) { width: 100%; text-align: center; }
 .inline-row { display: flex; align-items: center; gap: 0.5rem; }
 .muted { color: var(--color-text-muted); }
 .small { font-size: 0.8rem; }

@@ -964,7 +964,7 @@ const canSave = computed(() => {
   align-items: center;
 }
 .ccy-select {
-  width: 84px;
+  width: 110px;
   flex: 0 0 auto;
 }
 .ccy-select :deep(.p-dropdown-label) {
@@ -972,6 +972,7 @@ const canSave = computed(() => {
   font-size: 0.82rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  padding-right: 0.25rem;
 }
 .ccy-select :deep(.p-dropdown-trigger) {
   width: 1.75rem;
@@ -995,8 +996,8 @@ const canSave = computed(() => {
 .totals-row.due {
   margin-top: 0.25rem;
   padding: 0.75rem 0.9rem;
-  border-top: 3px double #cbd5e1;
-  background: #eff6ff;
+  border-top: 3px double var(--color-border-strong);
+  background: var(--color-primary-soft);
   border-radius: 8px;
   font-size: 1.125rem;
   font-weight: 700;
@@ -1019,7 +1020,7 @@ const canSave = computed(() => {
 .discount-value :deep(.p-inputnumber-input) {
   width: 100%;
 }
-.ccy-select { width: 90px; }
+.ccy-select { width: 110px; }
 .num { font-variant-numeric: tabular-nums; }
 
 /* Notes */
