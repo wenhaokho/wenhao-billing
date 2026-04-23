@@ -206,7 +206,7 @@ function confirmDeactivate(row: Customer) {
 </template>
 
 <style scoped>
-.muted { color: #94a3b8; }
+.muted { color: var(--color-text-subtle); }
 .small { font-size: 0.8rem; }
 .num { font-variant-numeric: tabular-nums; }
 .balance-cell { display: flex; flex-direction: column; gap: 0.1rem; }

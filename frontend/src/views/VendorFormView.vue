@@ -55,6 +55,16 @@ function emptyForm(): FormShape {
 const form = ref<FormShape>(emptyForm());
 const isEdit = computed(() => !!props.vendorId);
 const saveError = ref<string | null>(null);
+const touched = ref(false);
+
+const nameTrimmed = computed(() => form.value.name.trim());
+const showNameError = computed(() => touched.value && !nameTrimmed.value);
+const emailInvalid = computed(() => {
+  const v = form.value.contact_email.trim();
+  if (!v) return false;
+  return !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+});
+const canSave = computed(() => !!nameTrimmed.value && !emailInvalid.value);
 
 const { data: existing, isLoading: loadingExisting } = useQuery<Vendor>({
   queryKey: ["vendor", () => props.vendorId],
@@ -107,6 +117,8 @@ const save = useMutation({
 });
 
 function submit() {
+  touched.value = true;
+  if (!canSave.value) return;
   saveError.value = null;
   save.mutate();
 }
@@ -128,22 +140,30 @@ function cancel() {
         <Button label="Cancel" text @click="cancel" />
         <Button
           :label="isEdit ? 'Save changes' : 'Create vendor'"
-          :disabled="!form.name"
+          :disabled="!canSave"
           :loading="save.isPending.value"
           @click="submit"
         />
       </div>
     </div>
 
-    <Message v-if="saveError" severity="error" :closable="true" @close="saveError = null">
+    <Message v-if="saveError" severity="error" role="alert" aria-live="assertive" :closable="true" @close="saveError = null">
       {{ saveError }}
     </Message>
 
     <div v-if="loadingExisting && isEdit" class="card">Loading…</div>
     <div v-else class="card">
       <label class="field">
-        <span>Vendor name</span>
-        <InputText v-model="form.name" autofocus />
+        <span class="required">Vendor name</span>
+        <InputText
+          v-model="form.name"
+          autofocus
+          :aria-invalid="showNameError || undefined"
+          aria-describedby="vendor-name-error"
+        />
+        <span v-if="showNameError" id="vendor-name-error" class="field-error">
+          <i class="pi pi-exclamation-circle" /> Name is required.
+        </span>
       </label>
       <div class="two-col">
         <label class="field">
@@ -152,7 +172,15 @@ function cancel() {
         </label>
         <label class="field">
           <span>Contact email</span>
-          <InputText v-model="form.contact_email" type="email" />
+          <InputText
+            v-model="form.contact_email"
+            type="email"
+            :aria-invalid="emailInvalid || undefined"
+            aria-describedby="vendor-email-error"
+          />
+          <span v-if="emailInvalid" id="vendor-email-error" class="field-error">
+            <i class="pi pi-exclamation-circle" /> Enter a valid email.
+          </span>
         </label>
       </div>
       <div class="two-col">

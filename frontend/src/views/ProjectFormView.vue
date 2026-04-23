@@ -196,7 +196,7 @@ const canSave = computed(
       </div>
     </div>
 
-    <Message v-if="saveError" severity="error" :closable="true" @close="saveError = null">
+    <Message v-if="saveError" severity="error" role="alert" aria-live="assertive" :closable="true" @close="saveError = null">
       {{ saveError }}
     </Message>
 

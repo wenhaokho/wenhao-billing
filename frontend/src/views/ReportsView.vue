@@ -253,7 +253,7 @@ function typeSeverity(t: string) {
           · Equity
           <span class="num">{{ formatAmount(balanceSheet.data.value.equity_total_base, balanceSheet.data.value.base_currency) }}</span>
         </div>
-        <div v-if="balanceSheet.isLoading.value" class="empty-state">Loading…</div>
+        <div v-if="balanceSheet.isLoading.value" class="empty-mini">Loading…</div>
         <div v-else-if="!(balanceSheet.data.value?.groups?.length)" class="empty-state">
           <i class="pi pi-inbox" />
           <div>No balances as of this date.</div>
@@ -450,8 +450,8 @@ function typeSeverity(t: string) {
 </template>
 
 <style scoped>
-.as-of { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #475569; }
-.meta { font-size: 0.85rem; color: #475569; margin: 0 0 0.75rem; }
+.as-of { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted); }
+.meta { font-size: 0.85rem; color: var(--color-text-muted); margin: 0 0 0.75rem; }
 .meta .num { font-weight: 600; color: var(--color-text); }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--color-text-muted); }

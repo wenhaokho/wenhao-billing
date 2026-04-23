@@ -154,7 +154,7 @@ function onToggleSameAsBilling(v: boolean) {
       </header>
 
       <label class="field">
-        <span class="field-label">Customer</span>
+        <span class="field-label required">Customer</span>
         <InputText v-model="local.name" placeholder="Acme Pte. Ltd." />
         <small class="help">Name of a business or person.</small>
       </label>

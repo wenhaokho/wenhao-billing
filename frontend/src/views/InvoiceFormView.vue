@@ -785,7 +785,7 @@ const canSave = computed(() => {
 .readonly-note {
   margin: 0.25rem 0 0;
   font-size: 0.78rem;
-  color: #64748b;
+  color: var(--color-text-muted);
 }
 .page-actions {
   display: flex;
@@ -825,17 +825,17 @@ const canSave = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 0.6rem;
-  color: #64748b;
+  color: var(--color-text-muted);
   width: 100%;
 }
 .customer-empty .pi {
   font-size: 1.6rem;
-  color: #94a3b8;
+  color: var(--color-text-subtle);
 }
 .customer-empty-title {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--color-text);
 }
 .customer-dropdown {
   width: min(280px, 100%);
@@ -868,14 +868,14 @@ const canSave = computed(() => {
 .customer-label {
   font-size: 0.72rem;
   font-weight: 500;
-  color: #64748b;
+  color: var(--color-text-muted);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .customer-name {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--color-text);
   margin-bottom: 0.25rem;
 }
 .customer-detail {
@@ -883,11 +883,11 @@ const canSave = computed(() => {
   gap: 0.5rem;
   align-items: flex-start;
   font-size: 0.875rem;
-  color: #475569;
+  color: var(--color-text-muted);
   line-height: 1.35;
 }
 .customer-detail i {
-  color: #94a3b8;
+  color: var(--color-text-subtle);
   font-size: 0.85rem;
   margin-top: 0.15rem;
   min-width: 14px;
@@ -916,7 +916,7 @@ const canSave = computed(() => {
 .meta-label {
   font-size: 0.8rem;
   font-weight: 500;
-  color: #64748b;
+  color: var(--color-text-muted);
   letter-spacing: 0.01em;
   text-align: right;
 }
@@ -927,7 +927,7 @@ const canSave = computed(() => {
 }
 .helper {
   font-size: 0.72rem;
-  color: #94a3b8;
+  color: var(--color-text-subtle);
 }
 .meta-grid :deep(.p-inputtext),
 .meta-grid :deep(.p-datepicker-input),
@@ -957,7 +957,7 @@ const canSave = computed(() => {
   min-height: 2rem;
 }
 .totals-label {
-  color: #64748b;
+  color: var(--color-text-muted);
   font-size: 0.85rem;
   display: flex;
   gap: 0.5rem;
@@ -978,7 +978,7 @@ const canSave = computed(() => {
 }
 .totals-value {
   font-variant-numeric: tabular-nums;
-  color: #0f172a;
+  color: var(--color-text);
   text-align: right;
 }
 .totals-row.total {
@@ -989,7 +989,7 @@ const canSave = computed(() => {
   font-weight: 600;
 }
 .totals-row.total .totals-label {
-  color: #0f172a;
+  color: var(--color-text);
   font-size: 1rem;
 }
 .totals-row.due {
@@ -1000,10 +1000,10 @@ const canSave = computed(() => {
   border-radius: 8px;
   font-size: 1.125rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-text);
 }
 .totals-row.due .totals-label {
-  color: #0f172a;
+  color: var(--color-text);
   font-weight: 700;
   font-size: 1rem;
 }
@@ -1031,7 +1031,7 @@ const canSave = computed(() => {
 .section-label {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--color-text);
   letter-spacing: 0.01em;
 }
 .notes-textarea {

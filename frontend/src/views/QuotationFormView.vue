@@ -454,18 +454,18 @@ function openPdfPreview() {
 @media (max-width: 900px) { .top-grid { grid-template-columns: 1fr; } }
 
 .meta-grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.6rem 1rem; align-items: center; }
-.meta-label { font-size: 0.8rem; color: #64748b; font-weight: 500; text-align: right; }
+.meta-label { font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500; text-align: right; }
 .meta-grid :deep(.p-inputtext), .meta-grid :deep(.p-calendar), .meta-grid :deep(.p-dropdown) { width: 100%; }
 
 .totals-wrap { display: flex; justify-content: flex-end; }
 .totals { max-width: 380px; width: 100%; padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
 .totals-row { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; min-height: 2rem; }
-.totals-label { color: #64748b; font-size: 0.85rem; display: flex; gap: 0.5rem; align-items: center; }
+.totals-label { color: var(--color-text-muted); font-size: 0.85rem; display: flex; gap: 0.5rem; align-items: center; }
 .ccy-select { width: 84px; flex: 0 0 auto; }
 .ccy-select :deep(.p-dropdown-label) { padding: 0.35rem 0.5rem; font-size: 0.82rem; font-weight: 600; }
 .ccy-select :deep(.p-dropdown-trigger) { width: 1.75rem; }
 .totals-row.total { border-top: 1px solid var(--color-border); padding-top: 0.75rem; font-weight: 600; font-size: 1rem; }
-.totals-row.total .totals-label { color: #0f172a; font-size: 1rem; }
+.totals-row.total .totals-label { color: var(--color-text); font-size: 1rem; }
 .discount-input { display: flex; gap: 0.5rem; align-items: center; width: 100%; }
 .discount-type { width: 110px; }
 .discount-value { flex: 1; }

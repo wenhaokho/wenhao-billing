@@ -576,7 +576,7 @@ watch(
               <Message v-if="saveOk" severity="success" :closable="true" @close="saveOk = false">
                 Customer updated.
               </Message>
-              <Message v-if="saveError" severity="error" :closable="true" @close="saveError = null">
+              <Message v-if="saveError" severity="error" role="alert" aria-live="assertive" :closable="true" @close="saveError = null">
                 {{ saveError }}
               </Message>
 
@@ -675,7 +675,6 @@ watch(
 .muted { color: var(--color-text-muted); }
 .small { font-size: 0.82rem; }
 .chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-.empty-mini { padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.88rem; }
 .num { font-variant-numeric: tabular-nums; }
 .ccy { color: var(--color-text-muted); font-size: 0.8rem; margin-left: 0.15rem; }
 .text-danger { color: #dc2626; }

@@ -212,7 +212,7 @@ function openInvoice(row: Invoice) {
         </div>
         <DataTable :value="invoices ?? []" data-key="invoice_id" striped-rows>
           <template #empty>
-            <div class="empty-state">No invoices tagged to this project yet.</div>
+            <div class="empty-mini">No invoices tagged to this project yet.</div>
           </template>
           <Column field="invoice_number" header="Number">
             <template #body="{ data: row }">
@@ -256,7 +256,7 @@ function openInvoice(row: Invoice) {
         </div>
         <DataTable :value="quotations ?? []" data-key="quotation_id" striped-rows>
           <template #empty>
-            <div class="empty-state">No quotations tagged to this project yet.</div>
+            <div class="empty-mini">No quotations tagged to this project yet.</div>
           </template>
           <Column header="Quote #">
             <template #body="{ data: row }">

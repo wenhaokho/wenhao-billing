@@ -421,7 +421,7 @@ function fmtDate(iso?: string) {
 .identity-sub { color: var(--color-text-muted); font-size: 0.82rem; margin-top: 0.1rem; }
 
 .form { display: flex; flex-direction: column; gap: 1rem; }
-.form label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; color: #475569; font-weight: 500; }
+.form label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500; }
 .form small { color: var(--color-text-muted); font-size: 0.75rem; font-weight: 400; }
 .form :deep(.p-password), .form :deep(.p-password-input), .form :deep(.pw-input) { width: 100%; }
 

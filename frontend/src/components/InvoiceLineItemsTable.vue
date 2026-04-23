@@ -170,7 +170,7 @@ function rowAmount(row: LineItemRow): number {
 }
 .lines-header {
   background: var(--color-bg);
-  color: #64748b;
+  color: var(--color-text-muted);
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -211,7 +211,7 @@ function rowAmount(row: LineItemRow): number {
   padding: 0.6rem 0.6rem 0 0;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--color-text);
 }
 .col-action {
   display: flex;

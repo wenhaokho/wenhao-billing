@@ -203,7 +203,7 @@ function fmtDate(d: string | null) {
 </template>
 
 <style scoped>
-.muted { color: #94a3b8; }
+.muted { color: var(--color-text-subtle); }
 .small { font-size: 0.8rem; }
 .num { font-variant-numeric: tabular-nums; }
 .row-actions { display: flex; gap: 0.15rem; align-items: center; }

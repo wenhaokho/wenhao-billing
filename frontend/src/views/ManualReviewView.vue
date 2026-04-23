@@ -218,7 +218,7 @@ dl { display: grid; grid-template-columns: 110px 1fr; gap: 0.4rem 0.75rem; margi
 dt { color: var(--color-text-muted); }
 dd { margin: 0; color: var(--color-text); }
 dd.num { font-variant-numeric: tabular-nums; font-weight: 500; }
-.reasons { padding-left: 1.1rem; color: #475569; margin: 0; font-size: 0.88rem; }
+.reasons { padding-left: 1.1rem; color: var(--color-text-muted); margin: 0; font-size: 0.88rem; }
 .reasons li { margin-bottom: 0.2rem; }
 .muted { color: var(--color-text-muted); font-size: 0.85rem; margin: 0; }
 .approve-row { display: flex; gap: 0.5rem; }

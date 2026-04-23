@@ -587,17 +587,17 @@ const canSave = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 0.6rem;
-  color: #64748b;
+  color: var(--color-text-muted);
   width: 100%;
 }
 .customer-empty .pi {
   font-size: 1.6rem;
-  color: #94a3b8;
+  color: var(--color-text-subtle);
 }
 .customer-empty-title {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--color-text);
 }
 .customer-dropdown { width: min(280px, 100%); }
 .customer-dropdown-hidden { display: none; }
@@ -615,14 +615,14 @@ const canSave = computed(() => {
 .customer-label {
   font-size: 0.72rem;
   font-weight: 500;
-  color: #64748b;
+  color: var(--color-text-muted);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .customer-name {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--color-text);
   margin-bottom: 0.25rem;
 }
 .customer-detail {
@@ -630,11 +630,11 @@ const canSave = computed(() => {
   gap: 0.5rem;
   align-items: flex-start;
   font-size: 0.875rem;
-  color: #475569;
+  color: var(--color-text-muted);
   line-height: 1.35;
 }
 .customer-detail i {
-  color: #94a3b8;
+  color: var(--color-text-subtle);
   font-size: 0.85rem;
   margin-top: 0.15rem;
   min-width: 14px;
@@ -654,12 +654,12 @@ const canSave = computed(() => {
 .meta-label {
   font-size: 0.8rem;
   font-weight: 500;
-  color: #64748b;
+  color: var(--color-text-muted);
   letter-spacing: 0.01em;
   text-align: right;
 }
 .auto {
-  color: #94a3b8;
+  color: var(--color-text-subtle);
   font-style: italic;
   font-size: 0.85rem;
 }
@@ -686,7 +686,7 @@ const canSave = computed(() => {
   min-height: 2rem;
 }
 .totals-label {
-  color: #64748b;
+  color: var(--color-text-muted);
   font-size: 0.85rem;
   display: flex;
   gap: 0.5rem;
@@ -694,7 +694,7 @@ const canSave = computed(() => {
 }
 .totals-value {
   font-variant-numeric: tabular-nums;
-  color: #0f172a;
+  color: var(--color-text);
   text-align: right;
 }
 .totals-row.total {
@@ -704,7 +704,7 @@ const canSave = computed(() => {
   font-size: 1rem;
   font-weight: 600;
 }
-.totals-row.total .totals-label { color: #0f172a; font-size: 1rem; }
+.totals-row.total .totals-label { color: var(--color-text); font-size: 1rem; }
 .totals-row.due {
   margin-top: 0.25rem;
   padding: 0.75rem 0.9rem;
@@ -713,10 +713,10 @@ const canSave = computed(() => {
   border-radius: 8px;
   font-size: 1.125rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-text);
 }
 .totals-row.due .totals-label {
-  color: #0f172a;
+  color: var(--color-text);
   font-weight: 700;
   font-size: 1rem;
 }
@@ -741,7 +741,7 @@ const canSave = computed(() => {
 .section-label {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--color-text);
   letter-spacing: 0.01em;
 }
 .notes-textarea { width: 100%; }
@@ -758,6 +758,6 @@ const canSave = computed(() => {
 .schedule-interval { width: 110px; }
 .schedule-interval :deep(.p-inputnumber-input) { width: 70px; }
 .inline-row { display: flex; align-items: center; gap: 0.5rem; }
-.muted { color: #64748b; }
+.muted { color: var(--color-text-muted); }
 .small { font-size: 0.8rem; }
 </style>
