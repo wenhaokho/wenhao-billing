@@ -165,7 +165,6 @@ function statusSeverity(status: string) {
       <div class="page-actions">
         <Button label="Recurring templates" icon="pi pi-replay" severity="secondary" outlined @click="router.push('/invoices/recurring')" />
         <Button label="New invoice" icon="pi pi-plus" @click="router.push('/invoices/new')" />
-        <Button label="New recurring" icon="pi pi-refresh" severity="secondary" @click="router.push('/invoices/recurring/new')" />
       </div>
     </header>
 
