@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.cloudflare_target import CloudflareTarget
     from app.models.invoice_line_item import InvoiceLineItem
 
 
@@ -21,12 +22,6 @@ class Invoice(Base):
     )
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=True
-    )
-    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("hosting_subscriptions.subscription_id"),
-        nullable=True,
-        index=True,
     )
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("projects.project_id"), nullable=True, index=True
@@ -56,6 +51,21 @@ class Invoice(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     footer: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_template: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_hosting: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    hosting_service_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    hosting_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    hosting_grace_days: Mapped[int | None] = mapped_column(nullable=True)
+    hosting_suspension_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    hosting_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    hosting_last_paid_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )
+    hosting_last_action_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )
+    hosting_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), server_default=func.current_timestamp()
     )
@@ -64,5 +74,12 @@ class Invoice(Base):
         "InvoiceLineItem",
         cascade="all, delete-orphan",
         order_by="InvoiceLineItem.position",
+        lazy="selectin",
+    )
+    cloudflare_target: Mapped["CloudflareTarget | None"] = relationship(
+        "CloudflareTarget",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        uselist=False,
         lazy="selectin",
     )

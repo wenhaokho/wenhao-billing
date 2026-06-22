@@ -122,7 +122,6 @@ class InvoiceOut(BaseModel):
 
     invoice_id: UUID
     customer_id: UUID | None
-    subscription_id: UUID | None
     project_id: UUID | None
     source_quote_id: UUID | None = None
     invoice_type: str

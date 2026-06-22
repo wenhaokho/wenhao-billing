@@ -28,7 +28,7 @@ class CloudflareTargetOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     target_id: UUID
-    subscription_id: UUID
+    invoice_id: UUID
     zone_id: str
     record_id: str
     record_name: str
@@ -75,12 +75,18 @@ class HostingSubscriptionUpdate(BaseModel):
 
 
 class HostingSubscriptionOut(BaseModel):
+    """Projection of a hosting recurring-invoice template.
+
+    `subscription_id` is the template invoice's id — it's the stable identity
+    of the hosting deal as far as API consumers are concerned.
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     subscription_id: UUID
-    customer_id: UUID
+    template_invoice_id: UUID
+    customer_id: UUID | None
     project_id: UUID | None
-    template_invoice_id: UUID | None
     item_id: UUID | None
     service_name: str
     domain_name: str
@@ -94,5 +100,4 @@ class HostingSubscriptionOut(BaseModel):
     last_invoice_id: UUID | None
     last_paid_at: datetime | None
     created_at: datetime
-    updated_at: datetime
     cloudflare_target: CloudflareTargetOut | None = None

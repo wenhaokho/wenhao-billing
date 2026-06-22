@@ -1,12 +1,10 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import current_admin
 from app.db.session import get_db
-from app.models.hosting_subscription import HostingSubscription
 from app.models.user import User
 from app.schemas.hosting_subscription import (
     HostingSubscriptionCreate,
@@ -15,7 +13,10 @@ from app.schemas.hosting_subscription import (
 )
 from app.services.hosting_subscriptions import (
     HostingSubscriptionError,
+    _require_hosting_template,
     create_hosting_subscription,
+    list_hosting_templates,
+    project_hosting_subscription,
     update_hosting_subscription,
 )
 
@@ -27,14 +28,14 @@ def create_subscription(
     payload: HostingSubscriptionCreate,
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
-) -> HostingSubscription:
+) -> dict:
     try:
-        subscription = create_hosting_subscription(db, payload)
+        template = create_hosting_subscription(db, payload)
     except HostingSubscriptionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     db.commit()
-    db.refresh(subscription)
-    return subscription
+    db.refresh(template)
+    return project_hosting_subscription(db, template)
 
 
 @router.get("", response_model=list[HostingSubscriptionOut])
@@ -43,13 +44,9 @@ def list_subscriptions(
     status: str | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
-) -> list[HostingSubscription]:
-    stmt = select(HostingSubscription).order_by(HostingSubscription.created_at.desc())
-    if customer_id is not None:
-        stmt = stmt.where(HostingSubscription.customer_id == customer_id)
-    if status is not None:
-        stmt = stmt.where(HostingSubscription.status == status.upper())
-    return list(db.scalars(stmt))
+) -> list[dict]:
+    templates = list_hosting_templates(db, customer_id=customer_id, status=status)
+    return [project_hosting_subscription(db, t) for t in templates]
 
 
 @router.get("/{subscription_id}", response_model=HostingSubscriptionOut)
@@ -57,11 +54,12 @@ def get_subscription(
     subscription_id: UUID,
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
-) -> HostingSubscription:
-    subscription = db.get(HostingSubscription, subscription_id)
-    if subscription is None:
+) -> dict:
+    try:
+        template = _require_hosting_template(db, subscription_id)
+    except HostingSubscriptionError:
         raise HTTPException(status_code=404, detail="subscription not found")
-    return subscription
+    return project_hosting_subscription(db, template)
 
 
 @router.patch("/{subscription_id}", response_model=HostingSubscriptionOut)
@@ -70,11 +68,11 @@ def patch_subscription(
     payload: HostingSubscriptionUpdate,
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
-) -> HostingSubscription:
+) -> dict:
     try:
-        subscription = update_hosting_subscription(db, subscription_id, payload)
+        template = update_hosting_subscription(db, subscription_id, payload)
     except HostingSubscriptionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     db.commit()
-    db.refresh(subscription)
-    return subscription
+    db.refresh(template)
+    return project_hosting_subscription(db, template)

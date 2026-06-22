@@ -90,7 +90,6 @@ interface ProjectLite {
 interface InvoiceOut {
   invoice_id: string;
   customer_id: string | null;
-  subscription_id: string | null;
   project_id: string | null;
   invoice_type: string;
   invoice_number: string | null;
@@ -588,7 +587,7 @@ const canSave = computed(() => {
           Read-only — {{ existing?.status }} invoices cannot be edited
         </p>
         <p
-          v-if="existing?.subscription_id && existing?.coverage_start && existing?.coverage_end"
+          v-if="existing?.coverage_start && existing?.coverage_end"
           class="readonly-note"
         >
           Hosting coverage {{ existing.coverage_start }} to {{ existing.coverage_end }}
