@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # absolute reset-password links in outgoing emails.
     app_base_url: str = Field(default="http://localhost:5173")
 
+    cloudflare_api_token: str | None = Field(default=None)
+    cloudflare_api_base_url: str = Field(default="https://api.cloudflare.com/client/v4")
+    cloudflare_timeout_seconds: float = Field(default=15.0)
+
 
 @lru_cache
 def get_settings() -> Settings:

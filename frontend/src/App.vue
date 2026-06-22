@@ -61,6 +61,7 @@ const navGroups = [
     items: [
       { to: "/customers", icon: "pi pi-users", label: "Customers" },
       { to: "/projects", icon: "pi pi-folder", label: "Projects" },
+      { to: "/hosting-subscriptions", icon: "pi pi-globe", label: "Hosting" },
       { to: "/quotations", icon: "pi pi-file-edit", label: "Quotations" },
       { to: "/invoices", icon: "pi pi-file", label: "Invoices" },
     ],
@@ -104,6 +105,7 @@ const pageTitle = computed(() => {
     items: "Products & Services",
     "chart-of-accounts": "Chart of Accounts",
     projects: "Projects",
+    "hosting-subscriptions": "Hosting",
     "project-new": "New project",
     "project-edit": "Edit project",
     "project-detail": "Project",

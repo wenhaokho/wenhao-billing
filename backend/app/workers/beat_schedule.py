@@ -9,4 +9,8 @@ BEAT_SCHEDULE = {
         "task": "app.workers.tasks.usage_lock.cutoff_scan",
         "schedule": crontab(hour=3, minute=0),
     },
+    "hosting-overdue-enforcement": {
+        "task": "app.workers.tasks.hosting_enforcement.daily_hosting_enforcement",
+        "schedule": crontab(hour=4, minute=0),
+    },
 }

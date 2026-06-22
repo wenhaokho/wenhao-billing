@@ -269,6 +269,7 @@ def create_recurring_template(db: Session, payload: RecurringTemplateCreate) -> 
     )
     invoice = Invoice(
         customer_id=payload.customer_id,
+        project_id=payload.project_id,
         invoice_type="RECURRING",
         invoice_number=None,
         po_so_number=payload.po_so_number,
@@ -312,6 +313,7 @@ def update_recurring_template(
         payload.line_items, payload.discount_type, payload.discount_value
     )
     template.customer_id = payload.customer_id
+    template.project_id = payload.project_id
     template.currency = payload.currency
     template.po_so_number = payload.po_so_number
     template.payment_terms = payload.payment_terms
@@ -358,9 +360,12 @@ def trigger_recurring_cycle(
 
     existing = db.scalar(
         select(Invoice)
-        .where(Invoice.customer_id == template.customer_id)
         .where(Invoice.invoice_type == "RECURRING")
         .where(Invoice.is_template.is_(False))
+        .where(
+            Invoice.billing_cycle_ref["template_invoice_id"].astext
+            == str(template.invoice_id)
+        )
         .where(Invoice.billing_cycle_ref["cycle_key"].astext == cycle_key)
     )
     if existing is not None:
@@ -370,6 +375,7 @@ def trigger_recurring_cycle(
     due_days = _parse_payment_terms_days(template.payment_terms)
     invoice = Invoice(
         customer_id=template.customer_id,
+        project_id=template.project_id,
         invoice_type="RECURRING",
         invoice_number=generate_invoice_number(db),
         po_so_number=template.po_so_number,
@@ -403,6 +409,12 @@ def trigger_recurring_cycle(
         for ln in template.line_items
     ]
     db.add(invoice)
+    db.flush()
+    from app.services.hosting_subscriptions import apply_generated_invoice_subscription_fields
+
+    apply_generated_invoice_subscription_fields(
+        db, template=template, invoice=invoice, cycle_key=cycle_key
+    )
     db.flush()
     return invoice
 

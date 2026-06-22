@@ -57,6 +57,10 @@ const canSubmit = computed(
     !!amount.value && amount.value > 0 && amount.value <= balanceNum.value && !!paymentDate.value,
 );
 
+function fillFullBalance() {
+  amount.value = balanceNum.value;
+}
+
 function close() {
   emit("update:visible", false);
 }
@@ -89,14 +93,22 @@ function submit() {
       </div>
       <label class="field">
         <span>Amount</span>
-        <InputNumber
-          v-model="amount"
-          :min-fraction-digits="0"
-          :max-fraction-digits="4"
-          :use-grouping="true"
-          :min="0"
-          :max="balanceNum"
-        />
+        <div class="field-control">
+          <InputNumber
+            v-model="amount"
+            :min-fraction-digits="0"
+            :max-fraction-digits="4"
+            :use-grouping="true"
+            :min="0"
+            :max="balanceNum"
+          />
+          <Button
+            label="Full balance"
+            icon="pi pi-arrow-down-left"
+            :disabled="loading || balanceNum <= 0"
+            @click.prevent="fillFullBalance"
+          />
+        </div>
       </label>
       <label class="field">
         <span>Payment date</span>
@@ -134,6 +146,21 @@ function submit() {
 .rp-balance { font-size: 0.88rem; color: var(--color-text-muted); padding-bottom: 0.25rem; border-bottom: 1px solid var(--color-border); margin-bottom: 0.25rem; }
 .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
 .field > span { font-weight: 600; color: var(--color-text); }
+.field-control { display: flex; align-items: stretch; width: 100%; }
+.field-control :deep(.p-inputnumber) { flex: 1 1 auto; }
+.field-control :deep(.p-inputtext),
+.field-control :deep(.p-inputnumber-input) {
+  width: 100%;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+}
+.field-control :deep(.p-button) {
+  flex: 0 0 auto;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  white-space: nowrap;
+}
 .field .muted { font-weight: 400; color: var(--color-text-muted); font-size: 0.78rem; }
 .field :deep(.p-inputtext),
 .field :deep(.p-inputnumber),

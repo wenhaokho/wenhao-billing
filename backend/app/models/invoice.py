@@ -22,6 +22,12 @@ class Invoice(Base):
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=True
     )
+    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("hosting_subscriptions.subscription_id"),
+        nullable=True,
+        index=True,
+    )
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("projects.project_id"), nullable=True, index=True
     )
@@ -44,6 +50,8 @@ class Invoice(Base):
     billing_cycle_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     issue_date: Mapped[date | None] = mapped_column(nullable=True)
     due_date: Mapped[date | None] = mapped_column(nullable=True)
+    coverage_start: Mapped[date | None] = mapped_column(nullable=True)
+    coverage_end: Mapped[date | None] = mapped_column(nullable=True)
     payment_terms: Mapped[str | None] = mapped_column(String(30), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     footer: Mapped[str | None] = mapped_column(Text, nullable=True)

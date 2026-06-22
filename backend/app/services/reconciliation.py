@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Iterable
 from uuid import UUID
 
 from sqlalchemy import select
@@ -22,6 +21,7 @@ from app.models.journal import JournalEntry
 from app.models.payment import Payment
 from app.models.recon_log import ReconciliationLog
 from app.services import ledger
+from app.services.hosting_subscriptions import ensure_subscription_restored
 from app.services.matching_engine import (
     AdjustmentType,
     IncomingPayment,
@@ -127,6 +127,7 @@ def process_incoming_payment(
         invoice.balance_due = Decimal("0")
         if invoice.status != "PAID":
             invoice.status = "PAID"
+        ensure_subscription_restored(db, invoice)
 
     _log_action(db, payment.payment_id, result, actor_user_id)
     return payment
@@ -170,6 +171,7 @@ def approve_manual_match(
         invoice.balance_due = Decimal("0")
     if invoice.balance_due == Decimal("0"):
         invoice.status = "PAID"
+        ensure_subscription_restored(db, invoice)
 
     db.add(
         ReconciliationLog(

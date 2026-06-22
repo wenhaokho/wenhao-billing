@@ -3,7 +3,9 @@ from app.models.bill_line_item import BillLineItem
 from app.models.business_profile import BusinessProfile
 from app.models.coa import ChartOfAccount
 from app.models.customer import Customer
+from app.models.cloudflare_target import CloudflareTarget
 from app.models.fx import FxRate
+from app.models.hosting_subscription import HostingSubscription
 from app.models.invoice import Invoice
 from app.models.invoice_line_item import InvoiceLineItem
 from app.models.item import Item
@@ -22,7 +24,9 @@ __all__ = [
     "BusinessProfile",
     "ChartOfAccount",
     "Customer",
+    "CloudflareTarget",
     "FxRate",
+    "HostingSubscription",
     "Invoice",
     "InvoiceLineItem",
     "Item",

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -37,6 +37,7 @@ from app.schemas.invoice import (
 from app.schemas.payment import PaymentOut, RecordPaymentRequest
 from app.services import invoicing
 from app.services.email import send_email
+from app.services.hosting_subscriptions import ensure_subscription_restored
 from app.services.invoice_pdf import render_invoice_pdf
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -130,7 +131,6 @@ def list_recurring_template_rows(
 ) -> list[RecurringTemplateRow]:
     """Enriched list for the Recurring Invoices view: schedule description,
     next run date, and latest generated child's issue date."""
-    today = date.today()
     templates = list(
         db.scalars(
             select(Invoice)
@@ -446,6 +446,7 @@ def record_payment(
     if invoice.balance_due <= 0:
         invoice.balance_due = Decimal("0")
         invoice.status = "PAID"
+        ensure_subscription_restored(db, invoice)
     else:
         invoice.status = "PARTIAL"
 

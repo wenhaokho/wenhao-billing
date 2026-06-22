@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: billing
       POSTGRES_DB: billing
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,27 +18,12 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
-
-  # One-shot: run Alembic migrations, then exit 0. backend/worker wait on it.
-  migrate:
-    build:
-      context: ./backend
-    environment:
-      DATABASE_URL: postgresql+psycopg://billing:billing@db:5432/billing
-    depends_on:
-      db:
-        condition: service_healthy
-    command: ["alembic", "upgrade", "head"]
-    volumes:
-      - ./backend/app:/app/app
-      - ./backend/alembic:/app/alembic
-      - ./backend/alembic.ini:/app/alembic.ini
 
   backend:
     build:
@@ -51,17 +36,34 @@ services:
       EMAIL_WEBHOOK_TOKEN: dev-email-token-change-me
       CORS_ORIGINS: '["http://localhost:5173"]'
     ports:
-      - "8000:8000"
+      - "${BACKEND_HOST_PORT:-8000}:8000"
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs', timeout=2).read()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
     volumes:
       - ./backend/app:/app/app
       - ./backend/alembic:/app/alembic
       - ./backend/scripts:/app/scripts
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command:
+      [
+        "sh",
+        "-c",
+        "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+      ]
 
   worker:
     build:
@@ -70,8 +72,8 @@ services:
       DATABASE_URL: postgresql+psycopg://billing:billing@db:5432/billing
       REDIS_URL: redis://redis:6379/0
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      backend:
+        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
@@ -88,9 +90,10 @@ services:
       # Bind-mounts on Windows/WSL2 often need polling for file watching.
       CHOKIDAR_USEPOLLING: "true"
     ports:
-      - "5173:5173"
+      - "${FRONTEND_HOST_PORT:-5173}:5173"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/index.html:/app/index.html

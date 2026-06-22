@@ -96,6 +96,7 @@ class RecurringSchedule(BaseModel):
 
 class RecurringTemplateCreate(BaseModel):
     customer_id: UUID | None = None
+    project_id: UUID | None = None
     currency: str = Field(min_length=3, max_length=3)
     po_so_number: str | None = None
     payment_terms: str
@@ -121,6 +122,7 @@ class InvoiceOut(BaseModel):
 
     invoice_id: UUID
     customer_id: UUID | None
+    subscription_id: UUID | None
     project_id: UUID | None
     source_quote_id: UUID | None = None
     invoice_type: str
@@ -136,6 +138,8 @@ class InvoiceOut(BaseModel):
     billing_cycle_ref: dict[str, Any] | None
     issue_date: date | None
     due_date: date | None
+    coverage_start: date | None
+    coverage_end: date | None
     payment_terms: str | None
     notes: str | None
     footer: str | None
