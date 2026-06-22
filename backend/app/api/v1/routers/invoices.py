@@ -37,7 +37,7 @@ from app.schemas.invoice import (
 from app.schemas.payment import PaymentOut, RecordPaymentRequest
 from app.services import invoicing
 from app.services.email import send_email
-from app.services.hosting_subscriptions import ensure_subscription_restored
+from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
 from app.services.invoice_pdf import render_invoice_pdf
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])

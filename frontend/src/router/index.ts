@@ -207,11 +207,6 @@ const router = createRouter({
       props: true,
     },
     {
-      path: "/hosting-subscriptions",
-      name: "hosting-subscriptions",
-      component: () => import("@/views/HostingSubscriptionsView.vue"),
-    },
-    {
       path: "/chart-of-accounts",
       name: "chart-of-accounts",
       component: () => import("@/views/ChartOfAccountsView.vue"),

@@ -3,19 +3,16 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+from app.models.cloudflare_target import CloudflareTarget
 from app.models.customer import Customer
-from app.models.invoice import Invoice
 from app.models.item import Item
-from app.schemas.hosting_subscription import (
-    CloudflareTargetIn,
-    HostingSubscriptionCreate,
+from app.schemas.invoice import (
+    InvoiceLineItemIn,
+    RecurringSchedule,
+    RecurringTemplateCreate,
 )
 from app.services import invoicing, reconciliation
-from app.services.hosting_subscriptions import (
-    create_hosting_subscription,
-    ensure_subscription_restored,
-    latest_child_invoice,
-)
+from app.services.hosting import ensure_hosting_restored
 from app.workers.tasks.hosting_enforcement import run_hosting_enforcement
 
 
@@ -26,76 +23,77 @@ def _mk_customer(db: object) -> Customer:
     return customer
 
 
-def _mk_item(db: object) -> Item:
+def _mk_hosting_item(db: object) -> Item:
     item = Item(
-        name="Managed hosting",
+        name="Acme hosting",
         item_type="SERVICE",
         default_currency="USD",
         default_unit_price=Decimal("240.0000"),
         is_sold=True,
         is_purchased=False,
         active=True,
+        is_hosting=True,
+        hosting_domain="example.com",
+        hosting_grace_days=3,
+        hosting_suspension_enabled=True,
+        hosting_status="ACTIVE",
+    )
+    item.cloudflare_target = CloudflareTarget(
+        zone_id="zone_123",
+        record_id="record_123",
+        record_name="example.com",
+        record_type="CNAME",
+        live_content="live.example.net",
+        maintenance_content="maintenance.example.net",
+        proxied=True,
     )
     db.add(item)
     db.flush()
     return item
 
 
-def _mk_payload(customer: Customer, item: Item) -> HostingSubscriptionCreate:
-    return HostingSubscriptionCreate(
+def _mk_template(db: object, customer: Customer, item: Item) -> object:
+    payload = RecurringTemplateCreate(
         customer_id=customer.customer_id,
-        item_id=item.item_id,
-        service_name="Primary hosting",
-        domain_name="example.com",
         currency="USD",
-        bundle_months=3,
         payment_terms="Net 7",
-        billing_anchor_date=date(2026, 6, 1),
-        grace_days=3,
-        suspension_enabled=True,
-        cloudflare_target=CloudflareTargetIn(
-            zone_id="zone_123",
-            record_id="record_123",
-            record_name="example.com",
-            record_type="CNAME",
-            live_content="live.example.net",
-            maintenance_content="maintenance.example.net",
-            proxied=True,
+        line_items=[
+            InvoiceLineItemIn(
+                item_id=item.item_id,
+                description=f"{item.name} - {item.hosting_domain}",
+                quantity=Decimal("1.0000"),
+                unit_price=Decimal("240.0000"),
+                position=0,
+            )
+        ],
+        schedule=RecurringSchedule(
+            frequency="MONTHLY",
+            interval=3,
+            start_date=date(2026, 6, 1),
+            end_mode="NEVER",
         ),
     )
+    template = invoicing.create_recurring_template(db, payload)
+    db.flush()
+    return template
 
 
-def test_create_hosting_subscription_creates_template_and_target(db):
-    customer = _mk_customer(db)
-    item = _mk_item(db)
-
-    template = create_hosting_subscription(db, _mk_payload(customer, item))
+def test_hosting_item_creates_with_cloudflare_target(db):
+    item = _mk_hosting_item(db)
     db.flush()
 
-    assert template.is_template is True
-    assert template.is_hosting is True
-    assert template.hosting_status == "ACTIVE"
-    assert template.hosting_domain == "example.com"
-    assert template.hosting_service_name == "Primary hosting"
-    assert template.hosting_grace_days == 3
-    assert template.hosting_suspension_enabled is True
-    assert template.invoice_type == "RECURRING"
-    assert template.project_id is None
-    assert template.billing_cycle_ref["frequency"] == "MONTHLY"
-    assert template.billing_cycle_ref["interval"] == 3
-    assert template.billing_cycle_ref["start_date"] == "2026-06-01"
-    assert template.line_items[0].item_id == item.item_id
-    assert "example.com" in template.line_items[0].description
-    assert template.cloudflare_target is not None
-    assert template.cloudflare_target.record_name == "example.com"
-    assert template.cloudflare_target.provider_status == "ACTIVE"
+    assert item.is_hosting is True
+    assert item.hosting_status == "ACTIVE"
+    assert item.hosting_domain == "example.com"
+    assert item.cloudflare_target is not None
+    assert item.cloudflare_target.record_name == "example.com"
+    assert item.cloudflare_target.provider_status == "ACTIVE"
 
 
-def test_trigger_recurring_cycle_stamps_coverage(db):
+def test_trigger_recurring_cycle_stamps_coverage_on_hosting_invoice(db):
     customer = _mk_customer(db)
-    item = _mk_item(db)
-    template = create_hosting_subscription(db, _mk_payload(customer, item))
-    db.flush()
+    item = _mk_hosting_item(db)
+    template = _mk_template(db, customer, item)
 
     invoice = invoicing.trigger_recurring_cycle(
         db,
@@ -106,19 +104,15 @@ def test_trigger_recurring_cycle_stamps_coverage(db):
 
     assert invoice.coverage_start == date(2026, 6, 1)
     assert invoice.coverage_end == date(2026, 8, 31)
-    assert invoice.project_id == template.project_id
     assert "Coverage: 2026-06-01 to 2026-08-31" in invoice.line_items[0].description
-    assert invoice.billing_cycle_ref["template_invoice_id"] == str(template.invoice_id)
-
-    assert latest_child_invoice(db, template).invoice_id == invoice.invoice_id
 
 
 def test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates(
     db, monkeypatch
 ):
     customer = _mk_customer(db)
-    item = _mk_item(db)
-    template = create_hosting_subscription(db, _mk_payload(customer, item))
+    item = _mk_hosting_item(db)
+    template = _mk_template(db, customer, item)
     invoice = invoicing.trigger_recurring_cycle(
         db,
         template_invoice_id=template.invoice_id,
@@ -142,10 +136,10 @@ def test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates(
     result = run_hosting_enforcement(db, today=date(2026, 6, 12))
     assert result["suspended"] == 1
 
-    db.refresh(template)
+    db.refresh(item)
     db.refresh(invoice)
-    assert template.hosting_status == "SUSPENDED"
-    assert template.cloudflare_target.provider_status == "SUSPENDED"
+    assert item.hosting_status == "SUSPENDED"
+    assert item.cloudflare_target.provider_status == "SUSPENDED"
     assert calls == [("suspend", "record_123")]
 
     payment = reconciliation.process_incoming_payment(
@@ -160,23 +154,23 @@ def test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates(
             external_ref="host-240",
         ),
     )
-    ensure_subscription_restored(db, invoice)
+    ensure_hosting_restored(db, invoice)
     db.flush()
 
     db.refresh(payment)
     db.refresh(invoice)
-    db.refresh(template)
+    db.refresh(item)
     assert payment.status == "CLEARED"
     assert invoice.status == "PAID"
-    assert template.hosting_status == "ACTIVE"
-    assert template.cloudflare_target.provider_status == "ACTIVE"
+    assert item.hosting_status == "ACTIVE"
+    assert item.cloudflare_target.provider_status == "ACTIVE"
     assert calls == [("suspend", "record_123"), ("restore", "record_123")]
 
 
 def test_enforcement_suspend_failure_marks_provider_error(db, monkeypatch):
     customer = _mk_customer(db)
-    item = _mk_item(db)
-    template = create_hosting_subscription(db, _mk_payload(customer, item))
+    item = _mk_hosting_item(db)
+    template = _mk_template(db, customer, item)
     invoice = invoicing.trigger_recurring_cycle(
         db,
         template_invoice_id=template.invoice_id,
@@ -194,17 +188,17 @@ def test_enforcement_suspend_failure_marks_provider_error(db, monkeypatch):
     result = run_hosting_enforcement(db, today=date(2026, 6, 12))
     assert result == {"suspended": 0, "restored": 0, "errors": 1}
 
-    db.refresh(template)
-    assert template.hosting_status == "SUSPEND_PENDING"
-    assert template.cloudflare_target.provider_status == "ERROR"
-    assert template.cloudflare_target.last_error == "cloudflare 500"
-    assert template.cloudflare_target.last_action_at is not None
+    db.refresh(item)
+    assert item.hosting_status == "SUSPEND_PENDING"
+    assert item.cloudflare_target.provider_status == "ERROR"
+    assert item.cloudflare_target.last_error == "cloudflare 500"
+    assert item.cloudflare_target.last_action_at is not None
 
 
-def test_enforcement_is_idempotent_for_already_suspended_subscription(db, monkeypatch):
+def test_enforcement_is_idempotent_for_already_suspended_hosting_item(db, monkeypatch):
     customer = _mk_customer(db)
-    item = _mk_item(db)
-    template = create_hosting_subscription(db, _mk_payload(customer, item))
+    item = _mk_hosting_item(db)
+    template = _mk_template(db, customer, item)
     invoice = invoicing.trigger_recurring_cycle(
         db,
         template_invoice_id=template.invoice_id,
@@ -227,23 +221,23 @@ def test_enforcement_is_idempotent_for_already_suspended_subscription(db, monkey
     first = run_hosting_enforcement(db, today=date(2026, 6, 12))
     assert first["suspended"] == 1
     assert calls == ["record_123"]
-    db.refresh(template)
-    first_action_at = template.cloudflare_target.last_action_at
+    db.refresh(item)
+    first_action_at = item.cloudflare_target.last_action_at
 
     second = run_hosting_enforcement(db, today=date(2026, 6, 13))
     assert second == {"suspended": 0, "restored": 0, "errors": 0}
     assert calls == ["record_123"]
 
-    db.refresh(template)
-    assert template.hosting_status == "SUSPENDED"
-    assert template.cloudflare_target.provider_status == "SUSPENDED"
-    assert template.cloudflare_target.last_action_at == first_action_at
+    db.refresh(item)
+    assert item.hosting_status == "SUSPENDED"
+    assert item.cloudflare_target.provider_status == "SUSPENDED"
+    assert item.cloudflare_target.last_action_at == first_action_at
 
 
 def test_enforcement_ignores_non_overdue_invoice(db, monkeypatch):
     customer = _mk_customer(db)
-    item = _mk_item(db)
-    template = create_hosting_subscription(db, _mk_payload(customer, item))
+    item = _mk_hosting_item(db)
+    template = _mk_template(db, customer, item)
     invoice = invoicing.trigger_recurring_cycle(
         db,
         template_invoice_id=template.invoice_id,
@@ -261,9 +255,5 @@ def test_enforcement_ignores_non_overdue_invoice(db, monkeypatch):
     result = run_hosting_enforcement(db, today=date(2026, 6, 12))
     assert result["suspended"] == 0
 
-    db.refresh(template)
-    assert template.hosting_status == "ACTIVE"
-    # Template still exists and is still flagged as hosting.
-    reloaded = db.get(Invoice, template.invoice_id)
-    assert reloaded is not None
-    assert reloaded.is_hosting is True
+    db.refresh(item)
+    assert item.hosting_status == "ACTIVE"

@@ -410,7 +410,7 @@ def trigger_recurring_cycle(
     ]
     db.add(invoice)
     db.flush()
-    from app.services.hosting_subscriptions import apply_generated_invoice_hosting_fields
+    from app.services.hosting import apply_generated_invoice_hosting_fields
 
     apply_generated_invoice_hosting_fields(
         db, template=template, invoice=invoice, cycle_key=cycle_key

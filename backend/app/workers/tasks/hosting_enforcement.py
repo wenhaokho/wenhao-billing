@@ -6,11 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
-from app.models.invoice import Invoice
-from app.services.hosting_subscriptions import (
+from app.models.item import Item
+from app.services.hosting import (
     resolve_overdue_invoice,
-    restore_subscription_if_eligible,
-    suspend_subscription,
+    restore_hosting_if_eligible,
+    suspend_hosting,
 )
 from app.workers.celery_app import celery_app
 
@@ -18,24 +18,23 @@ from app.workers.celery_app import celery_app
 def run_hosting_enforcement(db: Session, today: date | None = None) -> dict[str, int]:
     day = today or date.today()
     counts = {"suspended": 0, "restored": 0, "errors": 0}
-    templates = list(
+    items = list(
         db.scalars(
-            select(Invoice)
-            .where(Invoice.is_hosting.is_(True))
-            .where(Invoice.is_template.is_(True))
-            .where(Invoice.hosting_suspension_enabled.is_(True))
-            .where(Invoice.hosting_status.in_(("ACTIVE", "SUSPEND_PENDING", "SUSPENDED")))
-            .order_by(Invoice.created_at.asc())
+            select(Item)
+            .where(Item.is_hosting.is_(True))
+            .where(Item.hosting_suspension_enabled.is_(True))
+            .where(Item.hosting_status.in_(("ACTIVE", "SUSPEND_PENDING", "SUSPENDED")))
+            .order_by(Item.created_at.asc())
         )
     )
-    for template in templates:
+    for item in items:
         try:
-            overdue_invoice = resolve_overdue_invoice(db, template, day)
+            overdue_invoice = resolve_overdue_invoice(db, item, day)
             if overdue_invoice is not None:
-                if suspend_subscription(db, template, overdue_invoice):
+                if suspend_hosting(db, item, overdue_invoice):
                     counts["suspended"] += 1
                 continue
-            if restore_subscription_if_eligible(db, template):
+            if restore_hosting_if_eligible(db, item):
                 counts["restored"] += 1
         except Exception:
             counts["errors"] += 1

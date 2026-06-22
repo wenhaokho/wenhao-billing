@@ -21,7 +21,7 @@ from app.models.journal import JournalEntry
 from app.models.payment import Payment
 from app.models.recon_log import ReconciliationLog
 from app.services import ledger
-from app.services.hosting_subscriptions import ensure_subscription_restored
+from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
 from app.services.matching_engine import (
     AdjustmentType,
     IncomingPayment,

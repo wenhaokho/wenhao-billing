@@ -1,12 +1,16 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.item import Item
 
 
 class InvoiceLineItem(Base):
@@ -32,3 +36,5 @@ class InvoiceLineItem(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), server_default=func.current_timestamp()
     )
+
+    item: Mapped["Item | None"] = relationship("Item", lazy="selectin")

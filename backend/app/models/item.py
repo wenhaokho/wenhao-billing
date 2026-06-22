@@ -1,12 +1,16 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.cloudflare_target import CloudflareTarget
 
 
 class Item(Base):
@@ -33,6 +37,28 @@ class Item(Base):
     is_sold: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_purchased: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_hosting: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    hosting_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    hosting_grace_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hosting_suspension_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    hosting_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    hosting_last_paid_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )
+    hosting_last_action_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )
+    hosting_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), server_default=func.current_timestamp()
+    )
+
+    cloudflare_target: Mapped["CloudflareTarget | None"] = relationship(
+        "CloudflareTarget",
+        back_populates="item",
+        cascade="all, delete-orphan",
+        uselist=False,
+        lazy="selectin",
     )

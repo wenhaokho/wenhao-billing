@@ -8,7 +8,6 @@ from app.api.v1.routers import (
     bills,
     business_profile,
     customers,
-    hosting_subscriptions,
     invoices,
     items,
     payments,
@@ -47,7 +46,6 @@ def create_app() -> FastAPI:
     app.include_router(invoices.router, prefix=prefix)
     app.include_router(bills.router, prefix=prefix)
     app.include_router(customers.router, prefix=prefix)
-    app.include_router(hosting_subscriptions.router, prefix=prefix)
     app.include_router(payments.router, prefix=prefix)
     app.include_router(recon.router, prefix=prefix)
     app.include_router(stats.router, prefix=prefix)

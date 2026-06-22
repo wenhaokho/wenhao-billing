@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
-    from app.models.invoice import Invoice
+    from app.models.item import Item
 
 
 class CloudflareTarget(Base):
@@ -18,9 +18,9 @@ class CloudflareTarget(Base):
     target_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    invoice_id: Mapped[uuid.UUID] = mapped_column(
+    item_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("invoices.invoice_id", ondelete="CASCADE"),
+        ForeignKey("items.item_id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
     )
@@ -47,8 +47,8 @@ class CloudflareTarget(Base):
         onupdate=func.current_timestamp(),
     )
 
-    invoice: Mapped["Invoice"] = relationship(
-        "Invoice",
+    item: Mapped["Item"] = relationship(
+        "Item",
         back_populates="cloudflare_target",
         lazy="selectin",
     )
