@@ -95,7 +95,10 @@ stream open — the reverse proxy in front of `billing.wenhao.id` must:
 ## Configuration reference
 
 Set in `.env` (see `.env.example`) and picked up by the `backend` service
-in `docker-compose.yml`:
+in `docker-compose.yml`. These vars are also mirrored onto the `worker`
+service for config consistency (`docker-compose.yml`); MCP token/OAuth
+validation only happens in the backend process — the worker does not
+currently read them.
 
 | Variable | Purpose |
 | --- | --- |
