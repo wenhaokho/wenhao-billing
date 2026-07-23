@@ -10,10 +10,12 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker as _sessionmaker
 
 from app.config import get_settings
+from app.mcp.db import reset_tool_session_factory, set_tool_session_factory
 from app.models.fx import FxRate
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -120,6 +122,56 @@ def admin_session(client, db):
     )
     assert r.status_code == 200, r.text
     return client
+
+
+@pytest.fixture()
+def seed_admin(db):
+    """Insert one admin User into `db`; return its user_id."""
+    from passlib.context import CryptContext
+
+    from app.models.user import User
+
+    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    user = User(
+        email="mcp-tool-admin@example.com",
+        password_hash=pwd.hash("test-password"),
+        role="admin",
+    )
+    db.add(user)
+    db.flush()
+    return user.user_id
+
+
+@pytest.fixture()
+def mcp_tool_db(db):
+    """Bind app.mcp.db.tool_session to the test's rolled-back connection.
+
+    The tool's session.commit() releases a SAVEPOINT (not the outer txn); an
+    event listener restarts the SAVEPOINT so subsequent tool calls stay
+    nested. Everything unwinds when the `db` fixture rolls back the outer
+    transaction.
+    """
+    connection = db.connection()
+    connection.begin_nested()  # initial SAVEPOINT
+
+    factory = _sessionmaker(bind=connection, autoflush=False, expire_on_commit=False)
+
+    # SQLAlchemy's "after_transaction_end" is a SessionEvents event, not a
+    # ConnectionEvents one — attach it to the sessionmaker so it fires for
+    # every Session `tool_session()` creates from `factory`, and restart the
+    # SAVEPOINT at the connection level (shared across those sessions) once
+    # it has been released by a tool's commit().
+    @event.listens_for(factory, "after_transaction_end")
+    def _restart_savepoint(session, transaction):  # noqa: ANN001
+        if not connection.in_nested_transaction():
+            connection.begin_nested()
+
+    set_tool_session_factory(factory)
+    try:
+        yield
+    finally:
+        event.remove(factory, "after_transaction_end", _restart_savepoint)
+        reset_tool_session_factory()
 
 
 def _seed_test_fx_rates(session: Session) -> None:
