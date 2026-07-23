@@ -1,14 +1,14 @@
 """add payment_instructions to business_profile
 
 Revision ID: business_pay_instr
-Revises: mcp_oauth
+Revises: 0019_hosting_on_item
 Create Date: 2026-07-24
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "business_pay_instr"
-down_revision = "mcp_oauth"
+down_revision = "0019_hosting_on_item"
 branch_labels = None
 depends_on = None
 

@@ -1,7 +1,7 @@
 """mcp oauth clients + refresh tokens
 
 Revision ID: mcp_oauth
-Revises: 0019_hosting_on_item
+Revises: business_pay_instr
 Create Date: 2026-07-23
 """
 from __future__ import annotations
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "mcp_oauth"
-down_revision = "0019_hosting_on_item"
+down_revision = "business_pay_instr"
 branch_labels = None
 depends_on = None
 
