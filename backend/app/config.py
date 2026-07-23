@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     # Public origin the MCP endpoint is served from (for OAuth metadata URLs).
     mcp_public_base_url: str = Field(default="http://localhost:8000")
 
+    # --- PDF rendering ---
+    # "html" = Playwright/Chromium HTML→PDF (falls back to reportlab on error);
+    # "reportlab" = force the legacy renderer.
+    pdf_engine: str = Field(default="html")
+    pdf_render_timeout_ms: int = Field(default=15000)
+
 
 @lru_cache
 def get_settings() -> Settings:
