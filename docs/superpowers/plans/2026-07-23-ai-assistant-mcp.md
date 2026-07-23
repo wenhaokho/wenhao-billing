@@ -20,6 +20,22 @@
 - Alembic revision ids **< 32 chars**.
 - Tests require a real Postgres and skip when `TEST_DATABASE_URL` is unset.
 
+**Canonical test command (use verbatim; run from repo root, not `backend/`):** the backend container does not mount `tests/`, so tests run in a one-off container off the backend image with the test dir mounted and the test DB wired:
+
+```bash
+docker compose run --rm --no-deps \
+  -v "D:/Development/wenhao-billing/backend/tests:/app/tests" \
+  -e TEST_DATABASE_URL=postgresql+psycopg://billing:billing@db:5432/billing_test \
+  backend python -m pytest -q <TEST_PATH>
+```
+
+- The `wenhao-billing-db-1` Postgres and the `billing_test` database already exist and are healthy.
+- `conftest.py` auto-applies migrations to `billing_test` (`alembic upgrade head`) once per session, so new migrations need no manual apply for tests.
+- **Do NOT** run bare `pytest` on the host (deps/DB absent → silent skips).
+- New third-party deps require the image be rebuilt (`docker compose build backend`) before they're importable in the test container — the controller handles this after Task 0; implementers assume deps are present.
+
+**Test isolation (binds the injectable session factory):** MCP tools obtain their `Session` from an overridable module-level factory (Task 3). A `mcp_tool_db` autouse fixture (added in Task 3) binds that factory to the test's rollback connection via SAVEPOINT so tool `commit()`s are rolled back per-test. Tool tests call the undecorated function and rely on this fixture for isolation — they never let a tool open its own `SessionLocal`.
+
 ---
 
 ## Phase 0 — Dependencies & config
@@ -449,9 +465,10 @@ git commit -m "feat(mcp): OAuth 2.1 authorization layer backed by existing login
 **Interfaces:**
 - Consumes: `verify_access_token` (Task 2), `SessionLocal` (`app/db/session.py`).
 - Produces:
-  - `tool_session() -> ContextManager[Session]` in `db.py` — commits on success, rolls back on exception, always closes.
+  - `tool_session() -> ContextManager[Session]` in `db.py` — pulls a session from an **overridable module-level factory** (`_session_factory`, defaults to `SessionLocal`); commits on success, rolls back on exception, always closes.
+  - `set_tool_session_factory(factory)` / `reset_tool_session_factory()` in `db.py` — lets tests inject a factory bound to the test connection.
   - `mcp` (the `FastMCP` instance) and `mcp_http_app` in `server.py`.
-  - `current_tool_user(db: Session) -> User` in `context.py`.
+  - `current_tool_user(db: Session, user_id: UUID) -> User` in `context.py`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -461,11 +478,12 @@ from app.mcp.db import tool_session
 from app.models.user import User
 
 
-def test_tool_session_commits_and_closes(seed_admin):
-    # seed_admin: fixture inserting one admin User; returns its id
-    with tool_session() as db:
-        u = db.get(User, seed_admin)
-        assert u is not None
+def test_tool_session_uses_injected_factory(db, mcp_tool_db, seed_admin):
+    # mcp_tool_db (autouse in conftest) binds tool_session to the test connection.
+    # seed_admin: fixture inserting one admin User into `db`; returns its id.
+    with tool_session() as s:
+        u = s.get(User, seed_admin)
+        assert u is not None  # tool sees fixture-seeded data via shared connection
 
 
 def test_mcp_app_importable():
@@ -475,28 +493,45 @@ def test_mcp_app_importable():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && python -m pytest tests/integration/test_mcp_server.py -v`
+Run (canonical command): `... backend python -m pytest -q tests/integration/test_mcp_server.py`
 Expected: FAIL — `app.mcp.db` not found.
 
 - [ ] **Step 3: Implement `backend/app/mcp/db.py`**
 
 ```python
-"""Per-tool DB session: commit on success, rollback on error, always close.
+"""Per-tool DB session with an OVERRIDABLE factory.
 
-Tools run outside FastAPI's request scope, so they manage their own session."""
+Production: sessions come from SessionLocal (app.db.session). Tests inject a
+factory bound to the rollback connection via set_tool_session_factory, so tool
+commits are contained in a SAVEPOINT and rolled back per-test.
+
+Commit on success, rollback on error, always close."""
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 
+_session_factory: Callable[[], Session] = SessionLocal
+
+
+def set_tool_session_factory(factory: Callable[[], Session]) -> None:
+    """Override the session factory (tests bind it to the test connection)."""
+    global _session_factory
+    _session_factory = factory
+
+
+def reset_tool_session_factory() -> None:
+    global _session_factory
+    _session_factory = SessionLocal
+
 
 @contextmanager
 def tool_session() -> Iterator[Session]:
-    db = SessionLocal()
+    db = _session_factory()
     try:
         yield db
         db.commit()
@@ -506,6 +541,43 @@ def tool_session() -> Iterator[Session]:
     finally:
         db.close()
 ```
+
+- [ ] **Step 3a: Add the `mcp_tool_db` isolation fixture to `backend/tests/conftest.py`**
+
+This binds `tool_session` to the same connection as the `db` fixture, using a SAVEPOINT that auto-restarts so a tool's `commit()` does not escape the outer per-test transaction.
+
+```python
+# add imports at top of conftest.py:
+from sqlalchemy import event
+from sqlalchemy.orm import sessionmaker as _sessionmaker
+from app.mcp.db import set_tool_session_factory, reset_tool_session_factory
+
+
+@pytest.fixture()
+def mcp_tool_db(db):
+    """Bind app.mcp.db.tool_session to the test's rolled-back connection.
+
+    The tool's session.commit() releases a SAVEPOINT (not the outer txn); an
+    event listener restarts the SAVEPOINT so subsequent tool calls stay nested.
+    Everything unwinds when the `db` fixture rolls back the outer transaction."""
+    connection = db.connection()
+    connection.begin_nested()  # initial SAVEPOINT
+
+    @event.listens_for(connection.sync_connection, "after_transaction_end")
+    def _restart_savepoint(conn, trans):  # noqa: ANN001
+        if trans.nested and not trans._parent.nested:
+            connection.begin_nested()
+
+    factory = _sessionmaker(bind=connection, autoflush=False, expire_on_commit=False)
+    set_tool_session_factory(factory)
+    try:
+        yield
+    finally:
+        event.remove(connection.sync_connection, "after_transaction_end", _restart_savepoint)
+        reset_tool_session_factory()
+```
+
+> Verify the event target during implementation: for a sync `Session`/`Connection`, listen on the `Connection` (or `connection.engine`) — adjust `connection.sync_connection` to the actual sync connection object if the attribute differs. The behavior to preserve: tool commits roll back with the test.
 
 - [ ] **Step 4: Implement `backend/app/mcp/context.py`**
 
@@ -1094,27 +1166,33 @@ git commit -m "feat(mcp): autonomous invoice write tools over invoicing service"
 - Modify: `backend/app/mcp/tools/__init__.py`
 - Test: `backend/tests/integration/test_mcp_writes_all.py`
 
-**Interfaces — each tool wraps the named service function / router logic, following the Task 7 pattern (build schema → call service → `db.flush()` → `to_dict`, wrap `*Error` as `{"error": ...}`):**
+**Approach (no duplication):** modules that already have a service layer (`billing_ap.py`, `quoting.py`, `reconciliation.py`) — the tool calls the service directly. Modules with logic living only in the router (customers, projects, items, vendors) — **first extract a thin service function**, refactor the router to call it (behavior-preserving), then the tool calls the same service function. No logic is copied into the tool layer.
 
-| Tool | Service / source |
-|------|------------------|
-| `create_customer(name, contact_email=None, ...)` / `update_customer(customer_id, changes)` | customer create/update in `routers/customers.py` (no service layer → replicate the router's model write) |
-| `create_bill(...)` / `update_bill(bill_id, changes)` | `services/billing_ap.py` |
-| `create_quotation(...)` / `update_quotation(id, changes)` | `services/quoting.py` |
-| `create_project(...)` / `update_project(id, changes)` | `routers/projects.py` |
-| `create_item(...)` / `update_item(id, changes)` | `routers/items.py` |
-| `create_vendor(...)` / `update_vendor(id, changes)` | `routers/vendors.py` |
-| `resolve_reconciliation_match(payment_id, invoice_id)` | `services/reconciliation.py` / `routers/recon.py` — MUST honor safe-stop: never auto-resolve on currency/amount mismatch; return `{"error": ...}` if the service refuses |
+**Interfaces — each tool follows the Task 7 pattern (build args → call service → `db.flush()` → `to_dict`, wrap `*Error` as `{"error": ...}`):**
 
-- [ ] **Step 1: For each tool, write a test** in `test_mcp_writes_all.py` asserting the created/updated row has expected values, and (for `resolve_reconciliation_match`) a test that a currency mismatch returns `{"error": ...}` and does NOT change payment status.
+| Tool | Service function it calls | Extraction needed? |
+|------|---------------------------|--------------------|
+| `create_customer` / `update_customer` | `services/customers.py::create_customer/update_customer` | **Yes** — create `services/customers.py`, refactor `routers/customers.py` to call it |
+| `create_project` / `update_project` | `services/projects.py::create_project/update_project` | **Yes** — create `services/projects.py`, refactor `routers/projects.py` |
+| `create_item` / `update_item` | `services/items.py::create_item/update_item` | **Yes** — create `services/items.py`, refactor `routers/items.py` |
+| `create_vendor` / `update_vendor` | `services/vendors.py::create_vendor/update_vendor` | **Yes** — create `services/vendors.py`, refactor `routers/vendors.py` |
+| `create_bill` / `update_bill` | `services/billing_ap.py` (existing) | No |
+| `create_quotation` / `update_quotation` | `services/quoting.py` (existing) | No |
+| `resolve_reconciliation_match(payment_id, invoice_id)` | `services/reconciliation.py` (existing) — MUST honor safe-stop: never auto-resolve on currency/amount mismatch; return `{"error": ...}` if the service refuses | No |
 
-- [ ] **Step 2: Run → FAIL.**
-Run: `cd backend && python -m pytest tests/integration/test_mcp_writes_all.py -v`
+**Sub-task per extracted module (customers, projects, items, vendors) — do these BEFORE the tool:**
 
-- [ ] **Step 3: Implement each module** per the table, following Task 7's pattern. Where a module has no service layer (customers, projects, items, vendors), copy the exact model-write logic from its router into the tool (do not call the HTTP endpoint).
+- [ ] **A: Write a service test** (`tests/unit/test_<module>_service.py`) asserting the new `create_/update_` function creates/edits the row with expected fields, using the `db` fixture. Run → FAIL.
+- [ ] **B: Extract the service** — move the exact model-write logic out of the router body into `services/<module>.py` as `create_<x>(db, payload)/update_<x>(db, id, payload)` (same Pydantic schemas the router already uses). Keep behavior identical.
+- [ ] **C: Refactor the router** to call the new service function (thin controller: call service, `db.commit()`, return). Run the module's existing router tests to confirm no behavior change.
+- [ ] **D: Commit** the extraction (`refactor(<module>): extract create/update into service`) before writing the tool — keeps the refactor reviewable on its own.
 
-- [ ] **Step 4: Register in `__init__.py`, run → PASS.**
-Run: `cd backend && python -m pytest tests/integration/test_mcp_writes_all.py -v`
+- [ ] **Step 1: For each tool, write a test** in `test_mcp_writes_all.py` asserting the created/updated row has expected values, and (for `resolve_reconciliation_match`) a test that a currency mismatch returns `{"error": ...}` and does NOT change payment status. Run → FAIL.
+
+- [ ] **Step 2: Implement each write tool** as a thin wrapper calling the service function from the table (Task 7 pattern). No model-write logic in the tool layer.
+
+- [ ] **Step 3: Register in `__init__.py`, run → PASS.**
+Run (canonical command): `... backend python -m pytest -q tests/integration/test_mcp_writes_all.py`
 
 - [ ] **Step 5: Commit**
 
