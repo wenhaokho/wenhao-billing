@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ doc_title | title }} {{ ref }}</title>
+<style>
+  {{ font_face_css }}
+  :root{
+    --navy:#071A3D; --blue:#145BFF; --azure:#008FF5; --cyan:#00D9F5;
+    --bg:#F7FAFC; --soft:#EAF1F8; --ink:#14213D; --muted:#64748B;
+    --border:#D7E1EC; --paid:#0DBF9B; --overdue:#EF5B5B; --draft:#94A3B8;
+    --grad:linear-gradient(135deg,#145BFF 0%,#008FF5 55%,#00D9F5 100%);
+    --sans:"Inter", ui-sans-serif, system-ui, sans-serif;
+    --display:"Manrope", "Inter", sans-serif;
+    --mono:"JetBrains Mono", ui-monospace, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{font-family:var(--sans); color:var(--ink); background:var(--bg);
+    -webkit-font-smoothing:antialiased; padding:40px 20px; line-height:1.5;}
+  .sheet{width:100%; max-width:840px; margin:0 auto; background:#fff;
+    border:1px solid var(--border); border-radius:14px; overflow:hidden;}
+  .head{position:relative; background:var(--navy); color:#fff; padding:20px 40px; overflow:hidden;}
+  .head::before{content:""; position:absolute; inset:0 0 auto 0; height:4px; background:var(--grad);}
+  .head::after{content:""; position:absolute; top:-120px; right:-120px; width:340px; height:340px;
+    background:radial-gradient(circle at center, rgba(0,143,245,.30), rgba(0,217,245,0) 62%); pointer-events:none;}
+  .head-row{position:relative; display:flex; justify-content:space-between; align-items:center; gap:24px}
+  .brand img{height:76px; width:auto; display:block}
+  .doc{text-align:right}
+  .doc h1{font-family:var(--display); font-weight:800; font-size:32px; margin:0;
+    letter-spacing:.14em; line-height:1; color:#fff;}
+  .doc .refno{font-family:var(--mono); font-size:12.5px; color:#AFC6E8; margin-top:10px; display:inline-block;}
+  .doc .badge{margin-top:12px}
+  .badge{display:inline-flex; align-items:center; gap:7px; font-family:var(--display);
+    font-weight:700; font-size:11px; letter-spacing:.09em; text-transform:uppercase;
+    padding:6px 12px; border-radius:999px; border:1px solid transparent; white-space:nowrap;}
+  .badge .dot{width:7px; height:7px; border-radius:50%; background:currentColor}
+  .badge--draft  {color:#CBD5E1; background:rgba(148,163,184,.14); border-color:rgba(148,163,184,.35)}
+  .badge--sent   {color:#7FB2FF; background:rgba(20,91,255,.16);  border-color:rgba(20,91,255,.45)}
+  .badge--paid   {color:#0DBF9B; background:rgba(13,191,155,.14); border-color:rgba(13,191,155,.45)}
+  .badge--partial{color:#00D9F5; background:rgba(0,143,245,.16);  border-color:rgba(0,217,245,.45)}
+  .badge--overdue{color:#FF8A8A; background:rgba(239,91,91,.16);  border-color:rgba(239,91,91,.5)}
+  .badge.on-light.badge--draft  {color:#5B6b7f; background:#EEF2F7}
+  .badge.on-light.badge--sent   {color:#145BFF; background:#E7EFFF}
+  .badge.on-light.badge--paid   {color:#0a8f76; background:#E1F7F1}
+  .badge.on-light.badge--partial{color:#0378c4; background:#E2F1FB}
+  .badge.on-light.badge--overdue{color:#d83b3b; background:#FCE9E9}
+  .body{padding:16px 40px 4px}
+  .section-label{font-family:var(--display); font-weight:700; font-size:11px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 6px;}
+  .meta{display:grid; grid-template-columns:repeat(4,1fr); border:1px solid var(--border);
+    border-radius:12px; overflow:hidden; background:var(--soft); margin-bottom:12px;}
+  .meta .cell{padding:10px 16px; background:#fff}
+  .meta .cell + .cell{border-left:1px solid var(--border)}
+  .meta .k{font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:600}
+  .meta .v{font-family:var(--mono); font-size:14px; color:var(--ink); margin-top:6px; font-weight:500}
+  .meta .cell.status{display:flex; flex-direction:column}
+  .parties{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:12px}
+  .party{border:1px solid var(--border); border-radius:12px; padding:12px 16px; background:#fff}
+  .party.to{background:linear-gradient(180deg,#FBFDFF,#F4F8FD)}
+  .party .name{font-family:var(--display); font-weight:700; font-size:16px; color:var(--navy); margin:1px 0 6px}
+  .party .line{font-size:13px; color:var(--muted); margin:1px 0}
+  .table-wrap{border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:12px}
+  table{width:100%; border-collapse:collapse}
+  thead th{font-family:var(--display); font-weight:700; font-size:10.5px; letter-spacing:.08em;
+    text-transform:uppercase; color:#C9D8EC; background:var(--navy); text-align:left; padding:9px 18px;}
+  thead th.num{text-align:right}
+  tbody td{padding:8px 18px; border-top:1px solid var(--border); font-size:13.5px; vertical-align:top}
+  tbody tr:nth-child(even) td{background:#FBFCFE}
+  td .desc{font-weight:600; color:var(--ink)}
+  td.num{text-align:right; font-family:var(--mono); font-size:13px; color:#334155; white-space:nowrap}
+  td.amt{text-align:right; font-family:var(--mono); font-size:13px; font-weight:600; color:var(--navy); white-space:nowrap}
+  td.idx{color:var(--muted); font-family:var(--mono); font-size:12px; width:34px}
+  .lower{display:grid; grid-template-columns:1.1fr .9fr; gap:22px; align-items:start; margin-bottom:16px}
+  .terms{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .panel{border:1px solid var(--border); border-radius:12px; padding:15px 18px; background:#fff}
+  .panel.pay{background:var(--soft); border-color:#CBDAEC}
+  .note-text{font-size:12.5px; color:#475569; margin:0; white-space:pre-wrap}
+  .summary{border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#fff}
+  .summary .row{display:flex; justify-content:space-between; align-items:center; padding:9px 18px; font-size:13.5px}
+  .summary .row + .row{border-top:1px solid #EDF2F8}
+  .summary .row .lbl{color:var(--muted)}
+  .summary .row .val{font-family:var(--mono); font-size:13px; color:var(--ink); font-weight:500}
+  .summary .row.discount .val{color:var(--paid)}
+  .summary .row.paid .val{color:var(--azure)}
+  .summary .row.total .lbl,.summary .row.total .val{color:var(--ink); font-weight:700}
+  .total-due{background:var(--grad); color:#fff; padding:16px 20px;
+    display:flex; justify-content:space-between; align-items:center;}
+  .total-due .lbl{font-family:var(--display); font-weight:700; font-size:12px; letter-spacing:.1em;
+    text-transform:uppercase; opacity:.95; white-space:nowrap}
+  .total-due .amt{font-family:var(--mono); font-weight:600; font-size:26px}
+  .total-due .amt .cur{font-family:var(--display); font-size:13px; font-weight:700; opacity:.9; margin-left:6px}
+  .foot{margin-top:14px; background:var(--navy); color:#9FB4D6; padding:13px 40px;
+    display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; font-size:12px;}
+  .foot .fbrand{font-family:var(--display); font-weight:700; color:#fff}
+  .foot .fmeta{font-family:var(--mono); font-size:11.5px; display:flex; gap:14px; flex-wrap:wrap}
+  @page{size:A4; margin:0}
+  @media print{
+    html,body{background:#fff; padding:0}
+    .sheet{max-width:none; width:auto; border:none; border-radius:0}
+    .party,.panel,.meta,.table-wrap,.summary,.terms{break-inside:avoid}
+    tr{break-inside:avoid}
+  }
+  *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <header class="head">
+      <div class="head-row">
+        <div class="brand"><img src="{{ logo }}" alt="{{ from_name }}"></div>
+        <div class="doc">
+          <h1>{{ doc_title }}</h1>
+          <span class="refno">{{ ref }}</span>
+          <div class="badge badge--{{ status_class }}"><span class="dot"></span>{{ status_label }}</div>
+        </div>
+      </div>
+    </header>
+    <div class="body">
+      <div class="meta">
+        {% for k, v in meta %}
+        <div class="cell"><div class="k">{{ k }}</div><div class="v">{{ v }}</div></div>
+        {% endfor %}
+        <div class="cell status"><div class="k">Status</div>
+          <div class="badge on-light badge--{{ status_class }}" style="align-self:flex-start; margin-top:6px"><span class="dot"></span>{{ status_label }}</div>
+        </div>
+      </div>
+      <div class="parties">
+        <div class="party from">
+          <div class="section-label">Bill From</div>
+          <div class="name">{{ from_name }}</div>
+          {% for line in from_lines %}<div class="line">{{ line }}</div>{% endfor %}
+        </div>
+        <div class="party to">
+          <div class="section-label">Bill To</div>
+          <div class="name">{{ to_name }}</div>
+          {% for line in to_lines %}<div class="line">{{ line }}</div>{% endfor %}
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th class="idx">#</th><th>Description</th>
+            <th class="num">Qty</th><th class="num">Rate</th>
+            <th class="num">Amount · {{ currency }}</th>
+          </tr></thead>
+          <tbody>
+            {% for it in items %}
+            <tr>
+              <td class="idx">{{ "%02d"|format(loop.index) }}</td>
+              <td><div class="desc">{{ it.desc }}</div></td>
+              <td class="num">{{ it.qty }}</td>
+              <td class="num">{{ it.rate }}</td>
+              <td class="amt">{{ it.amount }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="lower">
+        {% if payment_instructions %}
+        <div class="panel pay">
+          <div class="section-label">Payment Instructions</div>
+          <p class="note-text">{{ payment_instructions }}</p>
+        </div>
+        {% else %}<div></div>{% endif %}
+        <div class="summary">
+          {% for r in summary_rows %}
+          <div class="row {{ r.cls }}"><span class="lbl">{{ r.label }}</span><span class="val">{{ r.value }}</span></div>
+          {% endfor %}
+          <div class="total-due">
+            <span class="lbl">{{ hero_label }}</span>
+            <span class="amt">{{ hero_amount }}<span class="cur">{{ currency }}</span></span>
+          </div>
+        </div>
+      </div>
+      {% if notes or terms %}
+      <div class="terms">
+        {% if notes %}<div class="panel"><div class="section-label">Notes</div><p class="note-text">{{ notes }}</p></div>{% endif %}
+        {% if terms %}<div class="panel"><div class="section-label">Terms</div><p class="note-text">{{ terms }}</p></div>{% endif %}
+      </div>
+      {% endif %}
+    </div>
+    <footer class="foot">
+      <div class="fbrand">{{ foot_name }}</div>
+      <div class="fmeta">{% for m in foot_meta %}<span>{{ m }}</span>{% endfor %}</div>
+    </footer>
+  </div>
+</body>
+</html>
