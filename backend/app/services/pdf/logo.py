@@ -27,6 +27,8 @@ def resolve_logo(business) -> str:
             resp = httpx.get(url, timeout=5.0)
             resp.raise_for_status()
             mime = resp.headers.get("content-type", "image/png").split(";")[0]
+            if not mime.startswith("image/"):
+                mime = "image/png"
             return f"data:{mime};base64," + b64encode(resp.content).decode("ascii")
         except Exception:
             log.warning("failed to fetch logo %s; using default", url, exc_info=True)
