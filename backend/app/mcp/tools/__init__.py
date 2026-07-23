@@ -1,5 +1,6 @@
 """Importing this package registers all tools on the FastMCP instance."""
 from app.mcp.tools import (  # noqa: F401
+    gated_email,
     read_bills,
     read_catalog,
     read_customers,

@@ -209,6 +209,29 @@ def seed_invoice(db, seed_customer):
 
 
 @pytest.fixture()
+def seed_sent_invoice(db, seed_customer):
+    """Insert one non-template SENT invoice for `seed_customer` into `db`;
+    return (invoice_id, customer_id). Used by gated-action tests (e.g.
+    send_invoice_email) that need a real, sendable invoice."""
+    from decimal import Decimal
+
+    from app.models.invoice import Invoice
+
+    invoice = Invoice(
+        customer_id=seed_customer,
+        invoice_type="MILESTONE",
+        invoice_number="INV-0002",
+        currency="USD",
+        amount=Decimal("1000.0000"),
+        balance_due=Decimal("1000.0000"),
+        status="SENT",
+    )
+    db.add(invoice)
+    db.flush()
+    return invoice.invoice_id, seed_customer
+
+
+@pytest.fixture()
 def seed_vendor(db):
     """Insert one Vendor named 'Acme Vendor Pte Ltd' into `db`; return its vendor_id."""
     from app.models.vendor import Vendor
