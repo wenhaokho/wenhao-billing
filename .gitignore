@@ -15,16 +15,12 @@ node_modules/
 dist/
 .vite/
 
-# Stale TS/Vue compiled artifacts (we ship sources, not emit)
+# Emitted TS/Vue artifacts — the frontend ships .ts/.vue sources; Vite bundles and
+# vue-tsc only type-checks (noEmit). Any .js/.vue.js under src is a stale compile output.
+frontend/src/**/*.js
 frontend/src/**/*.vue.js
 frontend/src/**/*.vue.ts
-frontend/src/api/*.js
-frontend/src/components/*.js
-frontend/src/composables/*.js
-frontend/src/main.js
-frontend/src/router/*.js
-frontend/src/stores/*.js
-frontend/src/utils/*.js
+*.tsbuildinfo
 
 # IDE
 .vscode/
