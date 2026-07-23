@@ -24,13 +24,15 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import html
+import secrets
 import time
 from urllib.parse import urlencode
 from uuid import UUID
 
 import jwt
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -43,6 +45,12 @@ from app.mcp.tokens import (
     verify_refresh_token,
 )
 from app.models.oauth_client import OAuthClient, OAuthRefreshToken
+from app.models.user import User
+
+# Session key under which the per-authorize CSRF token is stashed. The consent
+# POST must echo it back; an attacker's cross-site form cannot read it (it lives
+# in the operator's session cookie, SameSite=Lax) so it cannot forge the POST.
+_CSRF_SESSION_KEY = "oauth_authorize_csrf"
 
 _ALG = "HS256"
 # Authorization codes are single-use and short-lived; PKCE is what actually
@@ -70,6 +78,129 @@ def _pkce_s256_matches(verifier: str, challenge: str) -> bool:
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     expected = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
     return hmac.compare_digest(expected, challenge)
+
+
+def _validate_authorize_request(
+    db: Session,
+    *,
+    response_type: str | None,
+    client_id: str | None,
+    redirect_uri: str | None,
+    code_challenge: str | None,
+    code_challenge_method: str,
+) -> tuple[JSONResponse | None, OAuthClient | None]:
+    """Validate the shared authorize parameters (used by both the GET consent
+    render and the POST approval). Returns ``(error_response, None)`` on any
+    failure, else ``(None, client)``. Never redirects to an unvalidated URI —
+    that is the open-redirect / code-exfiltration sink.
+    """
+    if response_type != "code":
+        return _oauth_error("unsupported_response_type", "response_type must be 'code'"), None
+    if not client_id or not redirect_uri:
+        return _oauth_error("invalid_request", "client_id and redirect_uri are required"), None
+    # PKCE is mandatory for OAuth 2.1 public clients — and S256 only.
+    if not code_challenge:
+        return _oauth_error("invalid_request", "code_challenge is required (PKCE)"), None
+    if code_challenge_method != "S256":
+        return _oauth_error("invalid_request", "code_challenge_method must be 'S256'"), None
+
+    # SECURITY (OAuth 2.1 §4.1.2.1 / RFC 9700): the client_id MUST be a
+    # registered client and the redirect_uri MUST exactly match one of its
+    # registered URIs. On failure we reject WITHOUT redirecting.
+    client = db.get(OAuthClient, client_id)
+    if client is None:
+        return _oauth_error("invalid_client", "unknown client_id", status_code=401), None
+    if redirect_uri not in client.redirect_uris.split():
+        return (
+            _oauth_error(
+                "invalid_request", "redirect_uri is not registered for this client"
+            ),
+            None,
+        )
+    return None, client
+
+
+def _admin_session_user(request: Request, db: Session) -> User | None:
+    """Return the logged-in User iff the session belongs to an admin, else None.
+
+    A non-admin (or absent) session must never mint an MCP token — the MCP
+    surface is admin-only, mirroring app.mcp.context.current_tool_user.
+    """
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return None
+    user = db.get(User, UUID(str(user_id)))
+    if user is None or user.role != "admin":
+        return None
+    return user
+
+
+def _hidden(name: str, value: str | None) -> str:
+    if value is None:
+        return ""
+    return f'<input type="hidden" name="{html.escape(name, quote=True)}" value="{html.escape(value, quote=True)}">'
+
+
+def _render_consent_page(
+    *,
+    client: OAuthClient,
+    csrf_token: str,
+    response_type: str,
+    client_id: str,
+    redirect_uri: str,
+    code_challenge: str,
+    code_challenge_method: str,
+    state: str | None,
+) -> str:
+    """Minimal, self-contained consent page. The form POSTs same-origin to
+    /oauth/authorize/consent carrying the session-bound CSRF token; no code is
+    minted on this GET."""
+    client_label = html.escape(client.client_name or client_id, quote=True)
+    hidden_fields = "".join(
+        _hidden(n, v)
+        for n, v in (
+            ("response_type", response_type),
+            ("client_id", client_id),
+            ("redirect_uri", redirect_uri),
+            ("code_challenge", code_challenge),
+            ("code_challenge_method", code_challenge_method),
+            ("state", state),
+            ("csrf_token", csrf_token),
+        )
+    )
+    return f"""<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize MCP access</title>
+<style>
+  body {{ font-family: system-ui, -apple-system, sans-serif; max-width: 30rem; margin: 3rem auto; padding: 0 1rem; }}
+  .card {{ border: 1px solid #d0d0d0; border-radius: 8px; padding: 1.5rem; }}
+  .client {{ font-weight: 600; }}
+  .scope {{ background: #f5f5f5; border-radius: 6px; padding: .75rem 1rem; margin: 1rem 0; }}
+  button {{ font-size: 1rem; padding: .6rem 1.2rem; border-radius: 6px; border: 1px solid #888; cursor: pointer; }}
+  button.approve {{ background: #1a7f37; color: #fff; border-color: #1a7f37; }}
+  .actions {{ display: flex; gap: .75rem; margin-top: 1rem; }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Authorize access</h1>
+    <p><span class="client">{client_label}</span> is requesting access to your wenhao-billing account via the AI assistant (MCP).</p>
+    <div class="scope">
+      <strong>Scope:</strong> read and write access to your billing data
+      (customers, invoices, bills, reconciliation) on your behalf.
+    </div>
+    <p>Approve only if you initiated this connection.</p>
+    <form method="post" action="/oauth/authorize/consent">
+      {hidden_fields}
+      <div class="actions">
+        <button type="submit" name="decision" value="approve" class="approve">Approve</button>
+        <button type="submit" name="decision" value="deny">Deny</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>"""
 
 
 def _mint_code(
@@ -193,6 +324,10 @@ def build_oauth_router() -> APIRouter:
 
     @router.get("/oauth/authorize")
     def authorize(request: Request, db: Session = Depends(get_db)):
+        # SECURITY (phishing defense): a cross-site GET on a live operator
+        # session must NOT silently mint a code. This endpoint only ever
+        # *renders* a consent page; the actual code is minted by the
+        # same-origin, CSRF-protected POST to /oauth/authorize/consent.
         params = request.query_params
         response_type = params.get("response_type")
         client_id = params.get("client_id")
@@ -201,37 +336,20 @@ def build_oauth_router() -> APIRouter:
         code_challenge_method = params.get("code_challenge_method", "S256")
         state = params.get("state")
 
-        if response_type != "code":
-            return _oauth_error("unsupported_response_type", "response_type must be 'code'")
-        if not client_id or not redirect_uri:
-            return _oauth_error("invalid_request", "client_id and redirect_uri are required")
-        # PKCE is mandatory for OAuth 2.1 public clients — and S256 only.
-        if not code_challenge:
-            return _oauth_error("invalid_request", "code_challenge is required (PKCE)")
-        if code_challenge_method != "S256":
-            return _oauth_error(
-                "invalid_request", "code_challenge_method must be 'S256'"
-            )
+        error, client = _validate_authorize_request(
+            db,
+            response_type=response_type,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+        )
+        if error is not None:
+            return error
 
-        # SECURITY (OAuth 2.1 §4.1.2.1 / RFC 9700): the client_id MUST be a
-        # registered client and the redirect_uri MUST exactly match one of its
-        # registered URIs. The requester controls both the redirect_uri and the
-        # PKCE pair, so neither the code signature nor PKCE prevents an attacker
-        # from redeeming a code delivered to an attacker-chosen redirect_uri.
-        # On failure we reject WITHOUT redirecting (never bounce to an
-        # unvalidated URI — that is the open-redirect / code-exfil sink).
-        client = db.get(OAuthClient, client_id)
-        if client is None:
-            return _oauth_error("invalid_client", "unknown client_id", status_code=401)
-        if redirect_uri not in client.redirect_uris.split():
-            return _oauth_error(
-                "invalid_request", "redirect_uri is not registered for this client"
-            )
-
-        user_id = request.session.get("user_id")
-        if not user_id:
+        if not request.session.get("user_id"):
             # Not logged in: bounce to the frontend login, asking it to return
-            # the browser to this exact authorize URL afterwards.
+            # the browser to this exact authorize URL afterwards (unchanged).
             settings = get_settings()
             return_to = str(request.url)
             login_url = (
@@ -240,14 +358,82 @@ def build_oauth_router() -> APIRouter:
             )
             return RedirectResponse(url=login_url, status_code=302)
 
+        # Logged in — but the MCP surface is admin-only. A non-admin session
+        # must not be able to mint an MCP token.
+        if _admin_session_user(request, db) is None:
+            return _oauth_error("access_denied", "admin role required", status_code=403)
+
+        # Bind a fresh CSRF token to the session and render the consent page.
+        # No code is minted here.
+        csrf_token = secrets.token_urlsafe(32)
+        request.session[_CSRF_SESSION_KEY] = csrf_token
+        page = _render_consent_page(
+            client=client,
+            csrf_token=csrf_token,
+            response_type="code",
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+            state=state,
+        )
+        return HTMLResponse(page)
+
+    @router.post("/oauth/authorize/consent")
+    def authorize_consent(
+        request: Request,
+        db: Session = Depends(get_db),
+        response_type: str = Form(...),
+        client_id: str = Form(...),
+        redirect_uri: str = Form(...),
+        code_challenge: str = Form(...),
+        code_challenge_method: str = Form("S256"),
+        state: str | None = Form(default=None),
+        csrf_token: str | None = Form(default=None),
+        decision: str = Form(...),
+    ):
+        # Must still be a logged-in admin (session could have expired between
+        # the GET render and this POST).
+        user = _admin_session_user(request, db)
+        if user is None:
+            return _oauth_error("access_denied", "admin session required", status_code=403)
+
+        # CSRF: the posted token must match the one bound to this session on the
+        # authorize GET. A cross-site POST cannot carry it. Mismatch mints
+        # nothing. Consume it either way (single use).
+        session_csrf = request.session.pop(_CSRF_SESSION_KEY, None)
+        if (
+            not session_csrf
+            or not csrf_token
+            or not hmac.compare_digest(str(session_csrf), str(csrf_token))
+        ):
+            return _oauth_error("invalid_request", "invalid or missing CSRF token")
+
+        # A denial mints nothing.
+        if decision != "approve":
+            return _oauth_error("access_denied", "authorization denied by operator", status_code=400)
+
+        # Re-validate the request params (client, redirect_uri, PKCE) before
+        # minting — never trust the POST body alone.
+        error, _client = _validate_authorize_request(
+            db,
+            response_type=response_type,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+        )
+        if error is not None:
+            return error
+
         code = _mint_code(
-            user_id=str(user_id),
+            user_id=str(user.user_id),
             client_id=client_id,
             redirect_uri=redirect_uri,
             code_challenge=code_challenge,
         )
         q = {"code": code}
-        if state is not None:
+        if state:
             q["state"] = state
         sep = "&" if "?" in redirect_uri else "?"
         return RedirectResponse(url=f"{redirect_uri}{sep}{urlencode(q)}", status_code=302)

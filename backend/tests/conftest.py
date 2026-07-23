@@ -16,6 +16,10 @@ from sqlalchemy.orm import sessionmaker as _sessionmaker
 
 from app.config import get_settings
 from app.mcp.db import reset_tool_session_factory, set_tool_session_factory
+from app.mcp.verifier import (
+    reset_verifier_session_factory,
+    set_verifier_session_factory,
+)
 from app.models.fx import FxRate
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -453,10 +457,15 @@ def mcp_tool_db(db):
         join_transaction_mode="create_savepoint",
     )
     set_tool_session_factory(factory)
+    # The MCP TokenVerifier's admin re-check (app.mcp.verifier) also needs to
+    # see the user seeded in this per-test transaction — bind its session
+    # factory to the same connection, and restore the real default on teardown.
+    set_verifier_session_factory(factory)
     try:
         yield
     finally:
         set_tool_session_factory(_poison_tool_session)
+        reset_verifier_session_factory()
 
 
 def _seed_test_fx_rates(session: Session) -> None:

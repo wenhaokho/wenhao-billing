@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 import time
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
@@ -126,21 +127,123 @@ def test_authorize_redirects_to_login_when_anonymous(client):
     assert "code=" not in r.headers["location"]
 
 
-def test_authorize_requires_login_then_issues_code(client, admin_session):
+def _authorize_params(cid, *, redirect_uri=_REDIRECT_URI, state=None):
+    params = {
+        "response_type": "code",
+        "client_id": cid,
+        "redirect_uri": redirect_uri,
+        "code_challenge": _challenge_for(_VERIFIER),
+        "code_challenge_method": "S256",
+    }
+    if state is not None:
+        params["state"] = state
+    return params
+
+
+def _csrf_from(page_html: str) -> str:
+    m = re.search(r'name="csrf_token" value="([^"]+)"', page_html)
+    assert m, f"no csrf_token in consent page: {page_html[:400]}"
+    return m.group(1)
+
+
+def _consent_form_data(cid, csrf, *, redirect_uri=_REDIRECT_URI, state=None, decision="approve"):
+    data = {
+        "response_type": "code",
+        "client_id": cid,
+        "redirect_uri": redirect_uri,
+        "code_challenge": _challenge_for(_VERIFIER),
+        "code_challenge_method": "S256",
+        "csrf_token": csrf,
+        "decision": decision,
+    }
+    if state is not None:
+        data["state"] = state
+    return data
+
+
+def test_authorize_get_renders_consent_and_mints_no_code(client, admin_session):
+    """A GET on /oauth/authorize (even with a live admin session) must only
+    render the consent page — it must NOT mint a code or redirect. This is the
+    phishing defense: a cross-site GET link cannot silently obtain a code."""
     cid = _register(client)
-    r = client.get(
-        "/oauth/authorize",
-        params={
-            "response_type": "code",
-            "client_id": cid,
-            "redirect_uri": _REDIRECT_URI,
-            "code_challenge": _challenge_for(_VERIFIER),
-            "code_challenge_method": "S256",
-        },
+    r = client.get("/oauth/authorize", params=_authorize_params(cid), follow_redirects=False)
+    assert r.status_code == 200
+    assert "location" not in {k.lower() for k in r.headers}
+    assert "code=" not in r.text
+    assert "csrf_token" in r.text
+    assert _csrf_from(r.text)  # a token is present
+
+
+def test_consent_post_without_csrf_mints_nothing(client, admin_session):
+    cid = _register(client)
+    client.get("/oauth/authorize", params=_authorize_params(cid))  # sets session csrf
+    data = _consent_form_data(cid, csrf="")  # empty CSRF
+    r = client.post("/oauth/authorize/consent", data=data, follow_redirects=False)
+    assert r.status_code == 400
+    assert "location" not in {k.lower() for k in r.headers}
+
+
+def test_consent_post_with_wrong_csrf_mints_nothing(client, admin_session):
+    cid = _register(client)
+    client.get("/oauth/authorize", params=_authorize_params(cid))
+    data = _consent_form_data(cid, csrf="not-the-real-token")
+    r = client.post("/oauth/authorize/consent", data=data, follow_redirects=False)
+    assert r.status_code == 400
+    assert "location" not in {k.lower() for k in r.headers}
+
+
+def test_consent_post_deny_mints_nothing(client, admin_session):
+    cid = _register(client)
+    page = client.get("/oauth/authorize", params=_authorize_params(cid))
+    csrf = _csrf_from(page.text)
+    data = _consent_form_data(cid, csrf, decision="deny")
+    r = client.post("/oauth/authorize/consent", data=data, follow_redirects=False)
+    assert r.status_code == 400
+    assert "location" not in {k.lower() for k in r.headers}
+
+
+def test_full_consent_flow_mints_code(client, admin_session):
+    """GET consent -> POST approve with the session CSRF token -> 302 with code."""
+    cid = _register(client)
+    page = client.get("/oauth/authorize", params=_authorize_params(cid, state="xyz"))
+    csrf = _csrf_from(page.text)
+    r = client.post(
+        "/oauth/authorize/consent",
+        data=_consent_form_data(cid, csrf, state="xyz"),
         follow_redirects=False,
     )
     assert r.status_code in (302, 307)
-    assert "code=" in r.headers["location"]
+    qs = parse_qs(urlparse(r.headers["location"]).query)
+    assert qs["state"] == ["xyz"]
+    assert "code" in qs
+
+
+def test_authorize_refuses_non_admin_session(client, db):
+    """A logged-in but non-admin user must not be able to mint an MCP token."""
+    from passlib.context import CryptContext
+
+    from app.models.user import User
+
+    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    db.add(
+        User(
+            email="staff-authorize@example.com",
+            password_hash=pwd.hash("test-password"),
+            role="staff",
+        )
+    )
+    db.flush()
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "staff-authorize@example.com", "password": "test-password"},
+    )
+    assert login.status_code == 200, login.text
+
+    cid = _register(client)
+    r = client.get("/oauth/authorize", params=_authorize_params(cid), follow_redirects=False)
+    assert r.status_code == 403
+    assert "location" not in {k.lower() for k in r.headers}
+    assert r.json()["error"] == "access_denied"
 
 
 def test_authorize_rejects_unknown_client(client, admin_session):
@@ -185,19 +288,20 @@ def test_authorize_rejects_unregistered_redirect_uri(client, admin_session):
 
 
 def _authorize_and_get_code(client, *, client_id: str, redirect_uri: str) -> str:
-    r = client.get(
+    """Two-step consent flow: GET the consent page, extract the session-bound
+    CSRF token, POST approval, and return the minted code from the redirect."""
+    page = client.get(
         "/oauth/authorize",
-        params={
-            "response_type": "code",
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "code_challenge": _challenge_for(_VERIFIER),
-            "code_challenge_method": "S256",
-            "state": "xyz",
-        },
+        params=_authorize_params(client_id, redirect_uri=redirect_uri, state="xyz"),
+    )
+    assert page.status_code == 200, page.text
+    csrf = _csrf_from(page.text)
+    r = client.post(
+        "/oauth/authorize/consent",
+        data=_consent_form_data(client_id, csrf, redirect_uri=redirect_uri, state="xyz"),
         follow_redirects=False,
     )
-    assert r.status_code in (302, 307)
+    assert r.status_code in (302, 307), r.text
     qs = parse_qs(urlparse(r.headers["location"]).query)
     assert qs["state"] == ["xyz"]
     return qs["code"][0]
@@ -263,17 +367,48 @@ def test_register_authorize_token_refresh_revoke(client, admin_session):
 # ---------------------------------------------------------------------------
 
 
-def test_token_verifier_accepts_valid_access_token():
+def test_token_verifier_accepts_valid_access_token_for_admin(db, mcp_tool_db, seed_admin):
     import asyncio
 
     from app.mcp.verifier import BillingTokenVerifier
 
-    uid = uuid4()
-    tok = mint_access_token(uid, now=int(time.time()))
+    tok = mint_access_token(seed_admin, now=int(time.time()))
     at = asyncio.run(BillingTokenVerifier().verify_token(tok))
     assert at is not None
-    assert at.subject == str(uid)
-    assert at.claims["user_id"] == str(uid)
+    assert at.subject == str(seed_admin)
+    assert at.claims["user_id"] == str(seed_admin)
+
+
+def test_token_verifier_rejects_non_admin_subject(db, mcp_tool_db):
+    """A validly-signed token whose subject is a non-admin user is rejected
+    (returns None -> 401): a signature is necessary but not sufficient."""
+    import asyncio
+
+    from passlib.context import CryptContext
+
+    from app.models.user import User
+    from app.mcp.verifier import BillingTokenVerifier
+
+    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    staff = User(
+        email="staff-verifier@example.com",
+        password_hash=pwd.hash("x"),
+        role="staff",
+    )
+    db.add(staff)
+    db.flush()
+    tok = mint_access_token(staff.user_id, now=int(time.time()))
+    assert asyncio.run(BillingTokenVerifier().verify_token(tok)) is None
+
+
+def test_token_verifier_rejects_deleted_subject(db, mcp_tool_db):
+    """A validly-signed token whose subject no longer exists is rejected."""
+    import asyncio
+
+    from app.mcp.verifier import BillingTokenVerifier
+
+    tok = mint_access_token(uuid4(), now=int(time.time()))  # no such user
+    assert asyncio.run(BillingTokenVerifier().verify_token(tok)) is None
 
 
 def test_token_verifier_rejects_bad_token():

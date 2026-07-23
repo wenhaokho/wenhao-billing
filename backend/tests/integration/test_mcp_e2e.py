@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import re
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -55,7 +56,9 @@ def _obtain_access_token(client) -> str:
     assert reg.status_code == 201, reg.text
     cid = reg.json()["client_id"]
 
-    auth = client.get(
+    # Two-step consent flow: GET renders the consent page (no code), the
+    # session-bound CSRF token is extracted, then a same-origin POST approves.
+    page = client.get(
         "/oauth/authorize",
         params={
             "response_type": "code",
@@ -64,6 +67,24 @@ def _obtain_access_token(client) -> str:
             "code_challenge": _challenge_for(_VERIFIER),
             "code_challenge_method": "S256",
             "state": "e2e",
+        },
+    )
+    assert page.status_code == 200, page.text
+    m = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+    assert m, page.text[:400]
+    csrf = m.group(1)
+
+    auth = client.post(
+        "/oauth/authorize/consent",
+        data={
+            "response_type": "code",
+            "client_id": cid,
+            "redirect_uri": _REDIRECT_URI,
+            "code_challenge": _challenge_for(_VERIFIER),
+            "code_challenge_method": "S256",
+            "state": "e2e",
+            "csrf_token": csrf,
+            "decision": "approve",
         },
         follow_redirects=False,
     )
@@ -168,3 +189,33 @@ def test_e2e_send_invoice_email_requires_confirmation_over_transport(
     assert data["action"] == "send_invoice_email"
     assert "confirm_token" in data
     assert data["recipient"] == "a@b.com"
+
+
+def test_e2e_non_admin_token_rejected(client, db, mcp_tool_db):
+    """A validly-signed access token whose subject is a non-admin user must be
+    rejected at the /mcp transport (401) — the admin-role gate in
+    BillingTokenVerifier, not just a good signature, decides access."""
+    import time
+
+    from passlib.context import CryptContext
+
+    from app.mcp.tokens import mint_access_token
+    from app.models.user import User
+
+    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    staff = User(
+        email="staff-e2e@example.com", password_hash=pwd.hash("x"), role="staff"
+    )
+    db.add(staff)
+    db.flush()
+    tok = mint_access_token(staff.user_id, now=int(time.time()))
+
+    r = client.post(
+        "/mcp/",
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Authorization": f"Bearer {tok}",
+        },
+    )
+    assert r.status_code == 401
