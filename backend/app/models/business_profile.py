@@ -18,6 +18,7 @@ class BusinessProfile(Base):
     invoice_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payment_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),
         server_default=func.current_timestamp(),

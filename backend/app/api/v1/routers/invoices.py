@@ -18,6 +18,7 @@ from app.services.recurring_schedule import (
 
 from app.api.deps import current_admin
 from app.db.session import get_db
+from app.models.business_profile import BusinessProfile
 from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.payment import Payment
@@ -38,7 +39,7 @@ from app.schemas.payment import PaymentOut, RecordPaymentRequest
 from app.services import invoicing
 from app.services.email import send_email
 from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
-from app.services.invoice_pdf import render_invoice_pdf
+from app.services.pdf import render_invoice_pdf
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -479,7 +480,8 @@ def invoice_pdf(
     if invoice is None:
         raise HTTPException(status_code=404, detail="invoice not found")
     customer = db.get(Customer, invoice.customer_id) if invoice.customer_id else None
-    pdf_bytes = render_invoice_pdf(invoice, customer)
+    business = db.get(BusinessProfile, 1)
+    pdf_bytes = render_invoice_pdf(invoice, customer, business)
     filename = f"invoice-{invoice.invoice_number or str(invoice.invoice_id)[:8]}.pdf"
     return Response(
         content=pdf_bytes,
@@ -512,7 +514,8 @@ def send_invoice(
             detail="no recipient: provide to_email or set a contact_email on the customer",
         )
 
-    pdf_bytes = render_invoice_pdf(invoice, customer)
+    business = db.get(BusinessProfile, 1)
+    pdf_bytes = render_invoice_pdf(invoice, customer, business)
     filename = f"invoice-{invoice.invoice_number or str(invoice.invoice_id)[:8]}.pdf"
     subject = payload.subject or (
         f"Invoice {invoice.invoice_number}" if invoice.invoice_number else "Invoice"
