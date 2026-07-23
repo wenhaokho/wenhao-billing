@@ -8,4 +8,5 @@ from app.mcp.tools import (  # noqa: F401
     read_projects,
     read_quotations,
     read_recon,
+    write_invoices,
 )
