@@ -142,6 +142,26 @@ def seed_admin(db):
     return user.user_id
 
 
+@pytest.fixture()
+def seed_business_profile(db):
+    """Populate the singleton BusinessProfile row (id=1) in `db`; return its id.
+
+    Migration 0010_business_profile already INSERTs an all-NULL id=1 row (a
+    `ck_business_profile_singleton` check constraint enforces id = 1), so
+    this fixture updates that existing row rather than inserting a new one.
+    """
+    from app.models.business_profile import BusinessProfile
+
+    profile = db.get(BusinessProfile, 1)
+    assert profile is not None, "expected migration 0010 to have seeded id=1"
+    profile.name = "Wenhao Studio"
+    profile.address = "1 Raffles Place, Singapore"
+    profile.contact_email = "hello@wenhao.example"
+    profile.contact_phone = "+65 6000 0000"
+    db.flush()
+    return profile.id
+
+
 _POISON_MESSAGE = (
     "app.mcp.db.tool_session() was called without the `mcp_tool_db` isolation "
     "fixture — add `mcp_tool_db` to this test's arguments to bind tool_session "

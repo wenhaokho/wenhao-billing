@@ -18,6 +18,8 @@ def ping() -> str:
     return "pong"
 
 
+import app.mcp.tools  # noqa: E402,F401  (registers all tool modules)
+
 # Build the ASGI app for streamable-HTTP transport. path="/" so that once
 # app.main mounts this sub-app at "/mcp", the effective route is "/mcp"
 # (not "/mcp/mcp" — FastMCP's default internal path is itself "/mcp").
