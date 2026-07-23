@@ -208,6 +208,115 @@ def seed_invoice(db, seed_customer):
     return invoice.invoice_id
 
 
+@pytest.fixture()
+def seed_vendor(db):
+    """Insert one Vendor named 'Acme Vendor Pte Ltd' into `db`; return its vendor_id."""
+    from app.models.vendor import Vendor
+
+    vendor = Vendor(name="Acme Vendor Pte Ltd")
+    db.add(vendor)
+    db.flush()
+    return vendor.vendor_id
+
+
+@pytest.fixture()
+def seed_two_acme_vendors(db):
+    """Insert two Vendors whose names both match 'Acme' into `db`;
+    return a list of their vendor_ids (order not significant)."""
+    from app.models.vendor import Vendor
+
+    v1 = Vendor(name="Acme Vendor Pte Ltd")
+    v2 = Vendor(name="Acme Global Supplies")
+    db.add_all([v1, v2])
+    db.flush()
+    return [v1.vendor_id, v2.vendor_id]
+
+
+@pytest.fixture()
+def seed_bill(db, seed_vendor):
+    """Insert one OPEN Bill for `seed_vendor` into `db`; return its bill_id."""
+    from app.models.bill import Bill
+
+    bill = Bill(
+        vendor_id=seed_vendor,
+        bill_number="BILL-0001",
+        currency="USD",
+        amount=Decimal("500.0000"),
+        balance_due=Decimal("500.0000"),
+        status="OPEN",
+    )
+    db.add(bill)
+    db.flush()
+    return bill.bill_id
+
+
+@pytest.fixture()
+def seed_quotation(db, seed_customer):
+    """Insert one DRAFT Quotation for `seed_customer` into `db`; return its quotation_id."""
+    from app.models.quotation import Quotation
+
+    quotation = Quotation(
+        customer_id=seed_customer,
+        quotation_number="QUO-0001",
+        currency="USD",
+        amount=Decimal("750.0000"),
+        status="DRAFT",
+    )
+    db.add(quotation)
+    db.flush()
+    return quotation.quotation_id
+
+
+@pytest.fixture()
+def seed_project(db, seed_customer):
+    """Insert one ACTIVE Project for `seed_customer` into `db`; return its project_id."""
+    from app.models.project import Project
+
+    project = Project(
+        customer_id=seed_customer,
+        code="ATLAS-26",
+        name="Atlas Project",
+        currency="USD",
+    )
+    db.add(project)
+    db.flush()
+    return project.project_id
+
+
+@pytest.fixture()
+def seed_item(db):
+    """Insert one active SERVICE Item named 'Web Hosting' into `db`; return its item_id."""
+    from app.models.item import Item
+
+    item = Item(
+        name="Web Hosting",
+        item_type="SERVICE",
+        default_currency="USD",
+        default_unit_price=Decimal("100.0000"),
+    )
+    db.add(item)
+    db.flush()
+    return item.item_id
+
+
+@pytest.fixture()
+def seed_payment_pending_review(db):
+    """Insert one Payment with status PENDING_MANUAL_REVIEW into `db`; return its payment_id."""
+    from app.models.payment import Payment
+
+    payment = Payment(
+        amount=Decimal("250.0000"),
+        currency="USD",
+        payer_name="Ambiguous Payer",
+        payment_date=date(2026, 1, 15),
+        intake_source="EMAIL",
+        status="PENDING_MANUAL_REVIEW",
+    )
+    db.add(payment)
+    db.flush()
+    return payment.payment_id
+
+
 _POISON_MESSAGE = (
     "app.mcp.db.tool_session() was called without the `mcp_tool_db` isolation "
     "fixture — add `mcp_tool_db` to this test's arguments to bind tool_session "
