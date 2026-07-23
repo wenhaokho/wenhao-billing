@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm import sessionmaker as _sessionmaker
 
@@ -142,36 +142,80 @@ def seed_admin(db):
     return user.user_id
 
 
+_POISON_MESSAGE = (
+    "app.mcp.db.tool_session() was called without the `mcp_tool_db` isolation "
+    "fixture — add `mcp_tool_db` to this test's arguments to bind tool_session "
+    "to the rollback-safe test connection. (Without it, tool commits would hit "
+    "the real database.)"
+)
+
+
+def _poison_tool_session():
+    """Default tool-session factory for the whole test process (see
+    ``_tool_session_poison_guard`` below): raises immediately instead of
+    silently opening a session on the real dev/prod database.
+    """
+    raise RuntimeError(_POISON_MESSAGE)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _tool_session_poison_guard():
+    """Fail-loud default for app.mcp.db.tool_session() across the whole test
+    session: any test that calls a tool (directly or via a future MCP tool
+    test) without requesting `mcp_tool_db` gets an immediate, clear
+    RuntimeError instead of a silent write to the real database.
+
+    `mcp_tool_db` (function-scoped) temporarily swaps in the real
+    test-connection-bound factory for tests that opt in, and restores this
+    poison factory — not app.mcp.db's SessionLocal default — when it tears
+    down, so the guarantee holds between every pair of tests all session
+    long.
+    """
+    set_tool_session_factory(_poison_tool_session)
+    yield
+    reset_tool_session_factory()  # restore the real module default on exit
+
+
 @pytest.fixture()
 def mcp_tool_db(db):
     """Bind app.mcp.db.tool_session to the test's rolled-back connection.
 
-    The tool's session.commit() releases a SAVEPOINT (not the outer txn); an
-    event listener restarts the SAVEPOINT so subsequent tool calls stay
-    nested. Everything unwinds when the `db` fixture rolls back the outer
-    transaction.
+    Uses the exact same ``join_transaction_mode="create_savepoint"`` join
+    style as the `db` fixture itself, bound to the *same* connection. Each
+    Session `tool_session()` creates (one per `with tool_session():` block)
+    nests its own transaction as a SAVEPOINT via SQLAlchemy's own external-
+    transaction-joining machinery and releases it on commit, without ending
+    the outer per-test transaction — precisely mirroring how `db` composes
+    with `session.commit()` calls from application code under test.
+
+    This is what makes `mcp_tool_db` safely composable with `client` /
+    `admin_session`: those also commit against `db`, sharing this
+    connection. (An earlier version of this fixture manually called
+    `connection.begin_nested()` and layered a raw-Connection event listener
+    on top — mixing that bookkeeping with `db`'s own ORM-level savepoint
+    tracking corrupted the connection's transaction stack and produced
+    `SAWarning: nested transaction already deassociated from connection`
+    whenever `db.commit()` ran while a tool_session was active. Letting both
+    sides use the same supported `join_transaction_mode` avoids that
+    entirely — no manual savepoint bookkeeping is needed.)
+
+    Everything unwinds when the `db` fixture rolls back the outer
+    transaction at teardown; this fixture's own teardown restores the
+    fail-loud poison factory (see `_tool_session_poison_guard`) rather than
+    app.mcp.db's SessionLocal default.
     """
     connection = db.connection()
-    connection.begin_nested()  # initial SAVEPOINT
-
-    factory = _sessionmaker(bind=connection, autoflush=False, expire_on_commit=False)
-
-    # SQLAlchemy's "after_transaction_end" is a SessionEvents event, not a
-    # ConnectionEvents one — attach it to the sessionmaker so it fires for
-    # every Session `tool_session()` creates from `factory`, and restart the
-    # SAVEPOINT at the connection level (shared across those sessions) once
-    # it has been released by a tool's commit().
-    @event.listens_for(factory, "after_transaction_end")
-    def _restart_savepoint(session, transaction):  # noqa: ANN001
-        if not connection.in_nested_transaction():
-            connection.begin_nested()
-
+    factory = _sessionmaker(
+        bind=connection,
+        autoflush=False,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
     set_tool_session_factory(factory)
     try:
         yield
     finally:
-        event.remove(factory, "after_transaction_end", _restart_savepoint)
-        reset_tool_session_factory()
+        set_tool_session_factory(_poison_tool_session)
 
 
 def _seed_test_fx_rates(session: Session) -> None:
