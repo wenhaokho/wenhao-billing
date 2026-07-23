@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     cloudflare_api_base_url: str = Field(default="https://api.cloudflare.com/client/v4")
     cloudflare_timeout_seconds: float = Field(default=15.0)
 
+    # --- MCP assistant ---
+    mcp_enabled: bool = Field(default=True)
+    # HMAC secret for stateless confirm-tokens (email / delete gating).
+    mcp_confirm_secret: str = Field(default="dev-mcp-confirm-secret-change-me", min_length=16)
+    # Signing secret for OAuth access/refresh tokens.
+    mcp_token_secret: str = Field(default="dev-mcp-token-secret-change-me", min_length=16)
+    mcp_access_token_ttl_seconds: int = Field(default=3600)
+    mcp_refresh_token_ttl_seconds: int = Field(default=60 * 60 * 24 * 30)
+    # Public origin the MCP endpoint is served from (for OAuth metadata URLs).
+    mcp_public_base_url: str = Field(default="http://localhost:8000")
+
 
 @lru_cache
 def get_settings() -> Settings:
