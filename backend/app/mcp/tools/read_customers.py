@@ -22,7 +22,7 @@ _CUSTOMER_FIELDS = ["customer_id", "name", "contact_email"]
 def list_customers(query: str | None = None, limit: int = 200) -> list[dict]:
     """List customers, optionally filtered by a name substring."""
     with tool_session() as db:
-        stmt = select(Customer).order_by(Customer.name).limit(limit)
+        stmt = select(Customer).order_by(Customer.name).limit(min(limit, 500))
         if query:
             stmt = stmt.where(Customer.name.ilike(f"%{query}%"))
         return [to_dict(c, _CUSTOMER_FIELDS) for c in db.scalars(stmt)]

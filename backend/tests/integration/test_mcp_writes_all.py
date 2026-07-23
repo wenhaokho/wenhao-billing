@@ -125,6 +125,38 @@ def test_update_vendor_edits_fields(mcp_tool_db, seed_vendor, db):
     assert row.notes == "Preferred"
 
 
+def test_create_item_duplicate_sku_returns_error(mcp_tool_db, db):
+    """A duplicate SKU (unique constraint) must surface as {"error": ...}
+    rather than propagating the DB IntegrityError, and must not persist a
+    second row."""
+    from app.models.item import Item
+
+    first = create_item(name="First", item_type="SERVICE", sku="DUP-SKU-1")
+    assert "error" not in first
+    out = create_item(name="Second", item_type="SERVICE", sku="DUP-SKU-1")
+    assert "error" in out
+
+    db.expire_all()
+    assert db.query(Item).filter(Item.sku == "DUP-SKU-1").count() == 1
+
+
+def test_create_vendor_integrity_error_returns_error(mcp_tool_db):
+    """A DB IntegrityError raised while creating a vendor is wrapped as
+    {"error": ...} rather than propagating (vendors have no unique constraint,
+    so the constraint violation is simulated at the service boundary)."""
+    from unittest.mock import patch
+
+    from sqlalchemy.exc import IntegrityError
+
+    from app.mcp.tools import write_catalog
+
+    boom = IntegrityError("INSERT INTO vendors ...", {}, Exception("duplicate vendor"))
+    with patch.object(write_catalog.vendor_service, "create_vendor", side_effect=boom):
+        out = create_vendor(name="Acme Supplies")
+    assert "error" in out
+    assert "duplicate vendor" in out["error"]
+
+
 # ---------------------------------------------------------------------------
 # bills
 # ---------------------------------------------------------------------------

@@ -23,7 +23,6 @@ performs the actual write (ledger post + payment/invoice update).
 """
 from __future__ import annotations
 
-from decimal import Decimal
 from uuid import UUID
 
 from fastmcp.server.dependencies import get_access_token
@@ -35,7 +34,7 @@ from app.mcp.tools.read_recon import _PAYMENT_FIELDS
 from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.services import reconciliation
-from app.services.matching_engine import AMOUNT_EPSILON
+from app.services.matching_engine import is_exact_match
 
 
 def _actor_user_id() -> UUID | None:
@@ -63,15 +62,19 @@ def resolve_reconciliation_match(payment_id: str, invoice_id: str) -> dict:
             if invoice is None:
                 return {"error": f"invoice {invoice_id} not found"}
 
-            if payment.currency.upper() != invoice.currency.upper():
-                return {
-                    "error": (
-                        f"currency mismatch: payment {payment.currency} vs "
-                        f"invoice {invoice.currency} — refusing autonomous "
-                        "resolution, route to manual review"
-                    )
-                }
-            if abs(Decimal(payment.amount) - Decimal(invoice.balance_due)) > AMOUNT_EPSILON:
+            # Safe-stop: only an exact currency+amount match may auto-resolve;
+            # the exactness predicate is shared with the matching engine so the
+            # two can never drift. On any mismatch we return {"error": ...} with
+            # a specific reason and take no action (payment status unchanged).
+            if not is_exact_match(payment, invoice):
+                if payment.currency.upper() != invoice.currency.upper():
+                    return {
+                        "error": (
+                            f"currency mismatch: payment {payment.currency} vs "
+                            f"invoice {invoice.currency} — refusing autonomous "
+                            "resolution, route to manual review"
+                        )
+                    }
                 return {
                     "error": (
                         f"amount mismatch: payment {payment.amount} vs invoice "

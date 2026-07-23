@@ -34,20 +34,20 @@ def create_customer(
     notes: str | None = None,
 ) -> dict:
     """Create a customer. Autonomous."""
-    try:
-        payload = CustomerCreate(
-            name=name,
-            contact_email=contact_email,
-            contact_name=contact_name,
-            default_currency=default_currency,
-            notes=notes,
-        )
-        with tool_session() as db:
-            customer = customer_service.create_customer(db, payload)
-            db.flush()
-            return to_dict(customer, _CUSTOMER_FIELDS)
-    except customer_service.CustomerError as e:
-        return {"error": str(e)}
+    # No try/except: the customer service's create path never raises
+    # CustomerError (only update does, on not-found), so wrapping it here would
+    # be dead code.
+    payload = CustomerCreate(
+        name=name,
+        contact_email=contact_email,
+        contact_name=contact_name,
+        default_currency=default_currency,
+        notes=notes,
+    )
+    with tool_session() as db:
+        customer = customer_service.create_customer(db, payload)
+        db.flush()
+        return to_dict(customer, _CUSTOMER_FIELDS)
 
 
 @mcp.tool

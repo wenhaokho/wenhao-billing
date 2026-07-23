@@ -9,7 +9,7 @@ Safe-stop policy (PRD §3, §6):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from difflib import SequenceMatcher
 from enum import Enum
@@ -55,6 +55,22 @@ class InvoiceCandidate:
     issue_date: date
     due_date: date
     status: str
+
+
+def is_exact_match(payment, invoice) -> bool:
+    """True iff ``payment`` and ``invoice`` agree on currency AND on amount
+    (``payment.amount`` vs ``invoice.balance_due``) within ``AMOUNT_EPSILON``.
+
+    This is THE reconciliation exact-match predicate — the single condition
+    under which a payment may auto-clear against an invoice without a human
+    override. It is shared by this engine's CLEARED gate and the MCP
+    ``resolve_reconciliation_match`` safe-stop guard so the definition lives in
+    exactly one place. Duck-typed: works for both this module's dataclasses and
+    the ORM ``Payment``/``Invoice`` models (all expose the same attributes).
+    """
+    currency_ok = payment.currency.upper() == invoice.currency.upper()
+    amount_ok = abs(Decimal(payment.amount) - Decimal(invoice.balance_due)) <= AMOUNT_EPSILON
+    return currency_ok and amount_ok
 
 
 @dataclass(frozen=True)
@@ -141,6 +157,7 @@ def match_payment(
 
     amount_mismatch = abs(payment.amount - best.balance_due) > AMOUNT_EPSILON
     currency_mismatch = payment.currency.upper() != best.currency.upper()
+    exact_match = is_exact_match(payment, best)
 
     reasons: list[str] = []
     if currency_mismatch:
@@ -153,8 +170,9 @@ def match_payment(
     if confidence < AUTO_CLEAR_THRESHOLD:
         reasons.append(f"confidence {confidence} below threshold {AUTO_CLEAR_THRESHOLD}")
 
-    # Safe-stop: any mismatch OR sub-threshold => manual review, no ledger update.
-    if amount_mismatch or currency_mismatch or confidence < AUTO_CLEAR_THRESHOLD:
+    # Safe-stop: not an exact match OR sub-threshold => manual review, no ledger
+    # update. (``not exact_match`` == ``amount_mismatch or currency_mismatch``.)
+    if not exact_match or confidence < AUTO_CLEAR_THRESHOLD:
         if currency_mismatch:
             adjustment = AdjustmentType.NONE  # hard reject per PRD §2
         elif payment.amount < best.balance_due:

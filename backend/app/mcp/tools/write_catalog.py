@@ -13,6 +13,8 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
+
 from app.mcp.db import tool_session
 from app.mcp.serialize import to_dict
 from app.mcp.server import mcp
@@ -52,10 +54,17 @@ def create_item(
         is_purchased=is_purchased,
         active=active,
     )
-    with tool_session() as db:
-        item = item_service.create_item(db, payload)
-        db.flush()
-        return to_dict(item, _ITEM_FIELDS)
+    # A DB constraint violation (e.g. duplicate SKU) is returned as
+    # {"error": ...} rather than propagating — the tool_session already rolled
+    # back on the raised exception, so returning here is safe (same pattern as
+    # the invoice write tools).
+    try:
+        with tool_session() as db:
+            item = item_service.create_item(db, payload)
+            db.flush()
+            return to_dict(item, _ITEM_FIELDS)
+    except IntegrityError as e:
+        return {"error": str(e.orig) if e.orig is not None else str(e)}
 
 
 @mcp.tool
@@ -92,10 +101,13 @@ def create_vendor(
         tax_id=tax_id,
         notes=notes,
     )
-    with tool_session() as db:
-        vendor = vendor_service.create_vendor(db, payload)
-        db.flush()
-        return to_dict(vendor, _VENDOR_FIELDS)
+    try:
+        with tool_session() as db:
+            vendor = vendor_service.create_vendor(db, payload)
+            db.flush()
+            return to_dict(vendor, _VENDOR_FIELDS)
+    except IntegrityError as e:
+        return {"error": str(e.orig) if e.orig is not None else str(e)}
 
 
 @mcp.tool
