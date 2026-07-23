@@ -15,6 +15,7 @@ from app.models.payment import Payment
 from app.models.user import User
 from app.schemas.customer import CustomerCreate, CustomerOut, CustomerUpdate
 from app.schemas.invoice import InvoiceOut
+from app.services import customers as customer_service
 from app.services.stats import compute_customer_balances
 
 router = APIRouter(prefix="/customers", tags=["customers"])
@@ -79,9 +80,7 @@ def create_customer(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> Customer:
-    data = payload.model_dump(exclude_unset=True)
-    customer = Customer(**data)
-    db.add(customer)
+    customer = customer_service.create_customer(db, payload)
     db.commit()
     db.refresh(customer)
     return customer
@@ -106,11 +105,10 @@ def update_customer(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> Customer:
-    customer = db.get(Customer, customer_id)
-    if customer is None:
+    try:
+        customer = customer_service.update_customer(db, customer_id, payload)
+    except customer_service.CustomerError:
         raise HTTPException(status_code=404, detail="customer not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
-        setattr(customer, k, v)
     db.commit()
     db.refresh(customer)
     return customer
