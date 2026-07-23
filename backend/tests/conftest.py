@@ -56,10 +56,21 @@ def migrated_engine(db_url: str):
 
 @pytest.fixture()
 def db(migrated_engine) -> Session:
-    """Transactional rollback per test — leaves no residue between cases."""
+    """Transactional rollback per test — leaves no residue between cases.
+
+    ``join_transaction_mode="create_savepoint"`` lets code under test call
+    ``session.commit()`` (the OAuth endpoints do) without ending the outer
+    transaction: each commit releases a SAVEPOINT, and the outer
+    ``trans.rollback()`` still discards everything at teardown.
+    """
     connection = migrated_engine.connect()
     trans = connection.begin()
-    TestSession = sessionmaker(bind=connection, autoflush=False, expire_on_commit=False)
+    TestSession = sessionmaker(
+        bind=connection,
+        autoflush=False,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
     session = TestSession()
     _seed_test_fx_rates(session)
     try:
@@ -68,6 +79,47 @@ def db(migrated_engine) -> Session:
         session.close()
         trans.rollback()
         connection.close()
+
+
+@pytest.fixture()
+def client(db):
+    """FastAPI TestClient whose ``get_db`` is pinned to the per-test session,
+    so seeded rows are visible to the app and everything rolls back."""
+    from fastapi.testclient import TestClient
+
+    from app.db.session import get_db
+    from app.main import create_app
+
+    app = create_app()
+    app.dependency_overrides[get_db] = lambda: db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def admin_session(client, db):
+    """Seed an admin user and log in through the real ``/api/v1/auth/login``
+    endpoint so the session cookie is set on ``client``."""
+    from passlib.context import CryptContext
+
+    from app.models.user import User
+
+    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    user = User(
+        email="oauth-admin@example.com",
+        password_hash=pwd.hash("test-password"),
+        role="admin",
+    )
+    db.add(user)
+    db.flush()
+
+    r = client.post(
+        "/api/v1/auth/login",
+        json={"email": "oauth-admin@example.com", "password": "test-password"},
+    )
+    assert r.status_code == 200, r.text
+    return client
 
 
 def _seed_test_fx_rates(session: Session) -> None:

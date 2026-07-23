@@ -19,6 +19,7 @@ from app.api.v1.routers import (
     vendors,
 )
 from app.config import get_settings
+from app.mcp.oauth import build_oauth_router
 
 
 def create_app() -> FastAPI:
@@ -56,6 +57,11 @@ def create_app() -> FastAPI:
     app.include_router(business_profile.router, prefix=prefix)
     app.include_router(projects.router, prefix=prefix)
     app.include_router(quotations.router, prefix=prefix)
+
+    # MCP OAuth authorization server — mounted at the root (well-known + /oauth/*),
+    # not under /api/v1, so discovery URLs match the public base origin.
+    if settings.mcp_enabled:
+        app.include_router(build_oauth_router())
 
     return app
 
