@@ -73,14 +73,6 @@ const navGroups = [
     ],
   },
   {
-    label: "Operations",
-    items: [
-      { to: "/queue", icon: "pi pi-inbox", label: "Awaiting Finalization" },
-      { to: "/review", icon: "pi pi-exclamation-triangle", label: "Manual Review" },
-      { to: "/audit-log", icon: "pi pi-history", label: "Audit Log" },
-    ],
-  },
-  {
     label: "Accounting",
     items: [
       { to: "/items", icon: "pi pi-tags", label: "Products & Services" },
@@ -90,8 +82,18 @@ const navGroups = [
     ],
   },
   {
+    label: "Operations",
+    items: [
+      { to: "/queue", icon: "pi pi-inbox", label: "Awaiting Finalization" },
+      { to: "/review", icon: "pi pi-exclamation-triangle", label: "Manual Review" },
+    ],
+  },
+  {
     label: "Admin",
-    items: [{ to: "/users", icon: "pi pi-user", label: "Users" }],
+    items: [
+      { to: "/users", icon: "pi pi-user", label: "Users" },
+      { to: "/audit-log", icon: "pi pi-history", label: "Audit Log" },
+    ],
   },
 ];
 
