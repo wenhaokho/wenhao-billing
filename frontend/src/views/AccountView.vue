@@ -137,6 +137,48 @@ async function saveCompany() {
 
 onMounted(loadCompany);
 
+// ----- logo upload -----
+// Stored as a base64 data URI in company.logo_url and persisted via the
+// existing PUT /business-profile — no separate upload endpoint.
+const LOGO_MAX_BYTES = 1024 * 1024; // 1 MB
+const LOGO_TYPES = ["image/png", "image/jpeg", "image/svg+xml"];
+const logoInput = ref<HTMLInputElement | null>(null);
+
+function triggerLogoPicker() {
+  companyError.value = null;
+  logoInput.value?.click();
+}
+
+function onLogoSelect(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  if (!LOGO_TYPES.includes(file.type)) {
+    companyError.value = "Logo must be a PNG, JPEG, or SVG image.";
+    input.value = "";
+    return;
+  }
+  if (file.size > LOGO_MAX_BYTES) {
+    companyError.value = "Logo must be 1 MB or smaller.";
+    input.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    company.value.logo_url = String(reader.result);
+  };
+  reader.onerror = () => {
+    companyError.value = "Failed to read the selected image.";
+  };
+  reader.readAsDataURL(file);
+  input.value = ""; // allow re-selecting the same file
+}
+
+function removeLogo() {
+  company.value.logo_url = "";
+  if (logoInput.value) logoInput.value.value = "";
+}
+
 // ----- password form -----
 const pw = ref({ current: "", next: "", confirm: "" });
 const pwSaving = ref(false);
@@ -269,10 +311,46 @@ function fmtDate(iso?: string) {
               <Textarea v-model="company.invoice_summary" rows="3" />
               <small>Short blurb shown under the title (e.g. tagline, engagement scope).</small>
             </label>
-            <label>
-              Logo URL
-              <InputText v-model="company.logo_url" placeholder="https://..." />
-            </label>
+            <div class="logo-field">
+              <span class="logo-label">Logo</span>
+              <div class="logo-row">
+                <div v-if="company.logo_url" class="logo-preview">
+                  <img :src="company.logo_url" alt="Company logo preview" />
+                </div>
+                <div v-else class="logo-preview logo-empty">
+                  <i class="pi pi-image" />
+                </div>
+                <div class="logo-buttons">
+                  <Button
+                    type="button"
+                    :label="company.logo_url ? 'Replace image' : 'Choose image'"
+                    icon="pi pi-upload"
+                    severity="secondary"
+                    outlined
+                    size="small"
+                    @click="triggerLogoPicker"
+                  />
+                  <Button
+                    v-if="company.logo_url"
+                    type="button"
+                    label="Remove"
+                    icon="pi pi-times"
+                    severity="danger"
+                    text
+                    size="small"
+                    @click="removeLogo"
+                  />
+                </div>
+              </div>
+              <input
+                ref="logoInput"
+                type="file"
+                accept="image/png,image/jpeg,image/svg+xml"
+                class="logo-input-hidden"
+                @change="onLogoSelect"
+              />
+              <small>PNG, JPEG, or SVG · up to 1 MB.</small>
+            </div>
             <label>
               Default notes / terms
               <Textarea v-model="company.default_notes" rows="10" />
@@ -426,6 +504,23 @@ function fmtDate(iso?: string) {
 .form :deep(.p-password), .form :deep(.p-password-input), .form :deep(.pw-input) { width: 100%; }
 
 .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
+
+.logo-field { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500; }
+.logo-label { color: var(--color-text-muted); }
+.logo-row { display: flex; align-items: center; gap: 1rem; }
+.logo-preview {
+  width: 96px; height: 64px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  display: grid; place-items: center;
+  overflow: hidden;
+  background: var(--color-surface-alt, #f8fafc);
+  flex-shrink: 0;
+}
+.logo-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.logo-empty { color: var(--color-text-muted); font-size: 1.4rem; }
+.logo-buttons { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; }
+.logo-input-hidden { display: none; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .muted { color: var(--color-text-muted, #64748b); }
 .small { font-size: 0.82rem; margin-bottom: 1rem; }
