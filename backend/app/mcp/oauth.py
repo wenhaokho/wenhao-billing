@@ -105,6 +105,20 @@ def _decode_code(code: str) -> dict:
     return payload
 
 
+def _revoke_user_family(db: Session, user_id: str) -> None:
+    """Revoke every live refresh token for a user (reuse-detection blast radius).
+
+    The model has no explicit family/chain column, so the family is scoped to
+    the user: on reuse of a rotated-out token we invalidate all of that user's
+    still-valid refresh tokens, forcing a fresh authorization.
+    """
+    db.query(OAuthRefreshToken).filter(
+        OAuthRefreshToken.user_id == user_id,
+        OAuthRefreshToken.revoked.is_(False),
+    ).update({OAuthRefreshToken.revoked: True}, synchronize_session=False)
+    db.commit()
+
+
 def _token_response(user_id: UUID, db: Session) -> dict:
     """Mint an access + (persisted) refresh token pair for ``user_id``."""
     s = get_settings()
@@ -178,7 +192,7 @@ def build_oauth_router() -> APIRouter:
         }
 
     @router.get("/oauth/authorize")
-    def authorize(request: Request):
+    def authorize(request: Request, db: Session = Depends(get_db)):
         params = request.query_params
         response_type = params.get("response_type")
         client_id = params.get("client_id")
@@ -197,6 +211,21 @@ def build_oauth_router() -> APIRouter:
         if code_challenge_method != "S256":
             return _oauth_error(
                 "invalid_request", "code_challenge_method must be 'S256'"
+            )
+
+        # SECURITY (OAuth 2.1 §4.1.2.1 / RFC 9700): the client_id MUST be a
+        # registered client and the redirect_uri MUST exactly match one of its
+        # registered URIs. The requester controls both the redirect_uri and the
+        # PKCE pair, so neither the code signature nor PKCE prevents an attacker
+        # from redeeming a code delivered to an attacker-chosen redirect_uri.
+        # On failure we reject WITHOUT redirecting (never bounce to an
+        # unvalidated URI — that is the open-redirect / code-exfil sink).
+        client = db.get(OAuthClient, client_id)
+        if client is None:
+            return _oauth_error("invalid_client", "unknown client_id", status_code=401)
+        if redirect_uri not in client.redirect_uris.split():
+            return _oauth_error(
+                "invalid_request", "redirect_uri is not registered for this client"
             )
 
         user_id = request.session.get("user_id")
@@ -238,6 +267,10 @@ def build_oauth_router() -> APIRouter:
                 return _oauth_error(
                     "invalid_request", "code and code_verifier are required"
                 )
+            # Public client (token_endpoint_auth_method=none): client_id is
+            # REQUIRED and must match the code, since there is no client secret.
+            if not client_id:
+                return _oauth_error("invalid_request", "client_id is required")
             try:
                 payload = _decode_code(code)
             except TokenError as e:
@@ -245,7 +278,7 @@ def build_oauth_router() -> APIRouter:
 
             if redirect_uri != payload["redirect_uri"]:
                 return _oauth_error("invalid_grant", "redirect_uri mismatch")
-            if client_id is not None and client_id != payload["client_id"]:
+            if client_id != payload["client_id"]:
                 return _oauth_error("invalid_grant", "client_id mismatch")
             if not _pkce_s256_matches(code_verifier, payload["code_challenge"]):
                 return _oauth_error("invalid_grant", "PKCE verification failed")
@@ -261,8 +294,15 @@ def build_oauth_router() -> APIRouter:
                 return _oauth_error("invalid_grant", f"invalid refresh token: {e}")
 
             row = db.get(OAuthRefreshToken, jti)
-            if row is None or row.revoked:
-                return _oauth_error("invalid_grant", "refresh token revoked or unknown")
+            if row is None:
+                return _oauth_error("invalid_grant", "unknown refresh token")
+            if row.revoked:
+                # Reuse detection (RFC 9700 §4.14.2): a revoked (rotated-out)
+                # token was replayed — the chain may be compromised. Revoke the
+                # entire family (all this user's live refresh tokens) so any
+                # in-flight successor is killed too.
+                _revoke_user_family(db, str(user_id))
+                return _oauth_error("invalid_grant", "refresh token reuse detected")
 
             # Rotate: revoke the presented token, issue a fresh pair.
             row.revoked = True

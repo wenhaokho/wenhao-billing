@@ -25,7 +25,7 @@ def upgrade() -> None:
             "created_at",
             sa.DateTime(timezone=True),
             server_default=sa.func.now(),
-            nullable=True,
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("client_id"),
     )
@@ -38,7 +38,7 @@ def upgrade() -> None:
             "created_at",
             sa.DateTime(timezone=True),
             server_default=sa.func.now(),
-            nullable=True,
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("jti"),
     )
