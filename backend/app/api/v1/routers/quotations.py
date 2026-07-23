@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import current_admin
 from app.db.session import get_db
+from app.models.business_profile import BusinessProfile
 from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.quotation import Quotation
@@ -22,7 +23,7 @@ from app.schemas.quotation import (
 )
 from app.services import quoting
 from app.services.email import send_email
-from app.services.quotation_pdf import render_quotation_pdf
+from app.services.pdf import render_quotation_pdf
 
 router = APIRouter(prefix="/quotations", tags=["quotations"])
 
@@ -172,7 +173,8 @@ def quotation_pdf(
     if q is None:
         raise HTTPException(status_code=404, detail="quotation not found")
     customer = db.get(Customer, q.customer_id) if q.customer_id else None
-    pdf_bytes = render_quotation_pdf(q, customer)
+    business = db.get(BusinessProfile, 1)
+    pdf_bytes = render_quotation_pdf(q, customer, business)
     filename = f"quotation-{q.quotation_number or str(q.quotation_id)[:8]}.pdf"
     return Response(
         content=pdf_bytes,
@@ -196,6 +198,7 @@ def send(
             status_code=400, detail=f"cannot send a {q.status} quotation"
         )
     customer = db.get(Customer, q.customer_id) if q.customer_id else None
+    business = db.get(BusinessProfile, 1)
     to_email = payload.to_email or (customer.contact_email if customer else None)
     if not to_email:
         raise HTTPException(
@@ -203,7 +206,7 @@ def send(
             detail="no recipient: provide to_email or set a contact_email on the customer",
         )
 
-    pdf_bytes = render_quotation_pdf(q, customer)
+    pdf_bytes = render_quotation_pdf(q, customer, business)
     filename = f"quotation-{q.quotation_number or str(q.quotation_id)[:8]}.pdf"
     subject = payload.subject or (
         f"Quotation {q.quotation_number}" if q.quotation_number else "Quotation"

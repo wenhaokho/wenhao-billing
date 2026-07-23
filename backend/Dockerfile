@@ -17,6 +17,9 @@ RUN apt-get update \
 COPY pyproject.toml ./
 RUN pip install -e ".[dev]"
 
+# Headless Chromium for HTML→PDF invoice/quotation rendering (Playwright).
+RUN python -m playwright install --with-deps chromium
+
 # App source is bind-mounted in dev via docker-compose; copy for prod-style builds.
 COPY . .
 

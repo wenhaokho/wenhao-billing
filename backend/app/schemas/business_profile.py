@@ -12,6 +12,7 @@ class BusinessProfileUpdate(BaseModel):
     invoice_summary: str | None = None
     logo_url: str | None = None
     default_notes: str | None = None
+    payment_instructions: str | None = None
 
 
 class BusinessProfileOut(BaseModel):
@@ -25,4 +26,5 @@ class BusinessProfileOut(BaseModel):
     invoice_summary: str | None
     logo_url: str | None
     default_notes: str | None
+    payment_instructions: str | None
     updated_at: datetime
