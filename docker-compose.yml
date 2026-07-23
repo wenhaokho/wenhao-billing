@@ -35,6 +35,12 @@ services:
       WEBHOOK_HMAC_SECRET: dev-webhook-secret-change-me
       EMAIL_WEBHOOK_TOKEN: dev-email-token-change-me
       CORS_ORIGINS: '["http://localhost:5173"]'
+      MCP_ENABLED: ${MCP_ENABLED:-true}
+      MCP_CONFIRM_SECRET: ${MCP_CONFIRM_SECRET:-dev-mcp-confirm-secret-change-me}
+      MCP_TOKEN_SECRET: ${MCP_TOKEN_SECRET:-dev-mcp-token-secret-change-me}
+      MCP_PUBLIC_BASE_URL: ${MCP_PUBLIC_BASE_URL:-http://localhost:8000}
+      MCP_ACCESS_TOKEN_TTL_SECONDS: ${MCP_ACCESS_TOKEN_TTL_SECONDS:-3600}
+      MCP_REFRESH_TOKEN_TTL_SECONDS: ${MCP_REFRESH_TOKEN_TTL_SECONDS:-2592000}
     ports:
       - "${BACKEND_HOST_PORT:-8000}:8000"
     depends_on:
