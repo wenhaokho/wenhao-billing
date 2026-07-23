@@ -232,6 +232,29 @@ def seed_sent_invoice(db, seed_customer):
 
 
 @pytest.fixture()
+def seed_draft_invoice(db, seed_customer):
+    """Insert one DRAFT invoice for `seed_customer` into `db`; return its
+    invoice_id. Used by gated-delete tests (invoicing.delete_invoice only
+    allows deleting DRAFT invoices)."""
+    from decimal import Decimal
+
+    from app.models.invoice import Invoice
+
+    invoice = Invoice(
+        customer_id=seed_customer,
+        invoice_type="MILESTONE",
+        invoice_number="INV-0003",
+        currency="USD",
+        amount=Decimal("1000.0000"),
+        balance_due=Decimal("1000.0000"),
+        status="DRAFT",
+    )
+    db.add(invoice)
+    db.flush()
+    return invoice.invoice_id
+
+
+@pytest.fixture()
 def seed_vendor(db):
     """Insert one Vendor named 'Acme Vendor Pte Ltd' into `db`; return its vendor_id."""
     from app.models.vendor import Vendor
@@ -267,6 +290,26 @@ def seed_bill(db, seed_vendor):
         amount=Decimal("500.0000"),
         balance_due=Decimal("500.0000"),
         status="OPEN",
+    )
+    db.add(bill)
+    db.flush()
+    return bill.bill_id
+
+
+@pytest.fixture()
+def seed_draft_bill(db, seed_vendor):
+    """Insert one DRAFT Bill for `seed_vendor` into `db`; return its
+    bill_id. Used by gated-delete tests (only DRAFT bills can be
+    hard-deleted, mirroring invoicing.delete_invoice's guard)."""
+    from app.models.bill import Bill
+
+    bill = Bill(
+        vendor_id=seed_vendor,
+        bill_number="BILL-0002",
+        currency="USD",
+        amount=Decimal("500.0000"),
+        balance_due=Decimal("500.0000"),
+        status="DRAFT",
     )
     db.add(bill)
     db.flush()

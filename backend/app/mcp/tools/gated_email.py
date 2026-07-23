@@ -20,12 +20,22 @@ from app.services.email import send_email
 from app.services.invoice_pdf import render_invoice_pdf
 
 _ACTION = "send_invoice_email"
+_REMINDER_ACTION = "send_payment_reminder"
 
 
 def _payload(invoice: Invoice, to_email: str) -> dict:
     return {
         "target_id": str(invoice.invoice_id),
         "amount": str(invoice.amount),
+        "currency": invoice.currency,
+        "recipient": to_email,
+    }
+
+
+def _reminder_payload(invoice: Invoice, to_email: str) -> dict:
+    return {
+        "target_id": str(invoice.invoice_id),
+        "amount": str(invoice.balance_due),
         "currency": invoice.currency,
         "recipient": to_email,
     }
@@ -86,4 +96,59 @@ def send_invoice_email(
         if inv.status == "DRAFT":
             inv.status = "SENT"
         db.flush()
+        return {"sent": True, "invoice_id": str(inv.invoice_id), "recipient": recipient}
+
+
+@mcp.tool
+def send_payment_reminder(
+    invoice_id: str,
+    to_email: str | None = None,
+    confirm_token: str | None = None,
+) -> dict:
+    """Email a payment reminder for an outstanding invoice. GATED: first
+    call (no confirm_token) previews the send and returns a confirm_token;
+    call again passing that confirm_token to actually send. Bound to the
+    invoice's current balance_due (not the original amount) so a partial
+    payment between preview and confirm invalidates a stale token. No PDF
+    is attached — a plain-text/HTML reminder only."""
+    with tool_session() as db:
+        inv = db.get(Invoice, UUID(invoice_id))
+        if inv is None:
+            return {"error": "invoice not found"}
+        if inv.status in ("VOID", "PAID"):
+            return {"error": f"cannot remind on a {inv.status} invoice"}
+        cust = db.get(Customer, inv.customer_id) if inv.customer_id else None
+        recipient = to_email or (cust.contact_email if cust else None)
+        if not recipient:
+            return {"error": "no recipient: pass to_email or set customer contact_email"}
+
+        payload = _reminder_payload(inv, recipient)
+        if confirm_token is None:
+            return {
+                "requires_confirmation": True,
+                "action": _REMINDER_ACTION,
+                "invoice_id": str(inv.invoice_id),
+                "invoice_number": inv.invoice_number,
+                "recipient": recipient,
+                "amount": str(inv.balance_due),
+                "currency": inv.currency,
+                "confirm_token": make_confirm_token(_REMINDER_ACTION, payload),
+            }
+
+        try:
+            verify_confirm_token(confirm_token, _REMINDER_ACTION, payload)
+        except ConfirmError as e:
+            return {"error": str(e)}
+
+        subject = f"Payment reminder: invoice {inv.invoice_number}" if inv.invoice_number else "Payment reminder"
+        body = (
+            f"This is a reminder that invoice {inv.invoice_number or inv.invoice_id} "
+            f"has an outstanding balance of {inv.balance_due} {inv.currency}."
+        )
+        send_email(
+            to_email=recipient,
+            cc_email=None,
+            subject=subject,
+            body_text=body,
+        )
         return {"sent": True, "invoice_id": str(inv.invoice_id), "recipient": recipient}

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from app.mcp.tools.gated_email import send_invoice_email
+from app.mcp.tools.gated_email import send_invoice_email, send_payment_reminder
 
 
 def test_first_call_returns_preview_and_sends_nothing(mcp_tool_db, seed_sent_invoice):
@@ -51,6 +51,49 @@ def test_tampered_token_refuses(mcp_tool_db, seed_sent_invoice):
     preview = send_invoice_email(invoice_id=str(inv_id), to_email="a@b.com")
     with patch("app.mcp.tools.gated_email.send_email") as mock_send:
         out = send_invoice_email(
+            invoice_id=str(inv_id),
+            to_email="DIFFERENT@x.com",
+            confirm_token=preview["confirm_token"],
+        )
+    assert "error" in out
+    mock_send.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# send_payment_reminder — same two-phase shape as send_invoice_email, but
+# composes a reminder body (bound to inv.balance_due) instead of attaching
+# a PDF.
+# ---------------------------------------------------------------------------
+
+
+def test_reminder_first_call_returns_preview_and_sends_nothing(mcp_tool_db, seed_sent_invoice):
+    inv_id, _ = seed_sent_invoice
+    with patch("app.mcp.tools.gated_email.send_email") as mock_send:
+        out = send_payment_reminder(invoice_id=str(inv_id), to_email="a@b.com")
+    assert out["requires_confirmation"] is True
+    assert "confirm_token" in out
+    assert out["recipient"] == "a@b.com"
+    mock_send.assert_not_called()
+
+
+def test_reminder_second_call_with_token_sends(mcp_tool_db, seed_sent_invoice):
+    inv_id, _ = seed_sent_invoice
+    preview = send_payment_reminder(invoice_id=str(inv_id), to_email="a@b.com")
+    with patch("app.mcp.tools.gated_email.send_email") as mock_send:
+        out = send_payment_reminder(
+            invoice_id=str(inv_id),
+            to_email="a@b.com",
+            confirm_token=preview["confirm_token"],
+        )
+    mock_send.assert_called_once()
+    assert out["sent"] is True
+
+
+def test_reminder_tampered_token_refuses(mcp_tool_db, seed_sent_invoice):
+    inv_id, _ = seed_sent_invoice
+    preview = send_payment_reminder(invoice_id=str(inv_id), to_email="a@b.com")
+    with patch("app.mcp.tools.gated_email.send_email") as mock_send:
+        out = send_payment_reminder(
             invoice_id=str(inv_id),
             to_email="DIFFERENT@x.com",
             confirm_token=preview["confirm_token"],
