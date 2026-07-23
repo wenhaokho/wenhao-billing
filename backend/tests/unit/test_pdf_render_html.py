@@ -45,6 +45,10 @@ def test_invoice_html_is_self_contained_and_populated():
     # fully self-contained: no external stylesheet/font/script hosts
     assert "https://" not in html
     assert "http://" not in html
+    # font_face_css must render with real quotes, not HTML-entity-encoded
+    # (entities are invalid inside <style>, a raw-text element)
+    assert "&#39;" not in html
+    assert "font-family:'Inter'" in html
 
 
 def test_quotation_html_renders_total():

@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <title>{{ doc_title | title }} {{ ref }}</title>
 <style>
-  {{ font_face_css }}
+  {{ font_face_css | safe }}
   :root{
     --navy:#071A3D; --blue:#145BFF; --azure:#008FF5; --cyan:#00D9F5;
     --bg:#F7FAFC; --soft:#EAF1F8; --ink:#14213D; --muted:#64748B;
