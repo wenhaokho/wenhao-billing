@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.models.vendor import Vendor
 from app.schemas.vendor import VendorCreate, VendorOut, VendorUpdate
+from app.services import vendors as vendor_service
 
 router = APIRouter(prefix="/vendors", tags=["vendors"])
 
@@ -31,8 +32,7 @@ def create_vendor(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> Vendor:
-    vendor = Vendor(**payload.model_dump())
-    db.add(vendor)
+    vendor = vendor_service.create_vendor(db, payload)
     db.commit()
     db.refresh(vendor)
     return vendor
@@ -57,11 +57,10 @@ def update_vendor(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> Vendor:
-    vendor = db.get(Vendor, vendor_id)
-    if vendor is None:
+    try:
+        vendor = vendor_service.update_vendor(db, vendor_id, payload)
+    except vendor_service.VendorError:
         raise HTTPException(status_code=404, detail="vendor not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
-        setattr(vendor, k, v)
     db.commit()
     db.refresh(vendor)
     return vendor

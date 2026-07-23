@@ -12,8 +12,14 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker as _sessionmaker
 
 from app.config import get_settings
+from app.mcp.db import reset_tool_session_factory, set_tool_session_factory
+from app.mcp.verifier import (
+    reset_verifier_session_factory,
+    set_verifier_session_factory,
+)
 from app.models.fx import FxRate
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -56,10 +62,21 @@ def migrated_engine(db_url: str):
 
 @pytest.fixture()
 def db(migrated_engine) -> Session:
-    """Transactional rollback per test — leaves no residue between cases."""
+    """Transactional rollback per test — leaves no residue between cases.
+
+    ``join_transaction_mode="create_savepoint"`` lets code under test call
+    ``session.commit()`` (the OAuth endpoints do) without ending the outer
+    transaction: each commit releases a SAVEPOINT, and the outer
+    ``trans.rollback()`` still discards everything at teardown.
+    """
     connection = migrated_engine.connect()
     trans = connection.begin()
-    TestSession = sessionmaker(bind=connection, autoflush=False, expire_on_commit=False)
+    TestSession = sessionmaker(
+        bind=connection,
+        autoflush=False,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
     session = TestSession()
     _seed_test_fx_rates(session)
     try:
@@ -68,6 +85,387 @@ def db(migrated_engine) -> Session:
         session.close()
         trans.rollback()
         connection.close()
+
+
+@pytest.fixture()
+def client(db):
+    """FastAPI TestClient whose ``get_db`` is pinned to the per-test session,
+    so seeded rows are visible to the app and everything rolls back."""
+    from fastapi.testclient import TestClient
+
+    from app.db.session import get_db
+    from app.main import create_app
+
+    app = create_app()
+    app.dependency_overrides[get_db] = lambda: db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def admin_session(client, db):
+    """Seed an admin user and log in through the real ``/api/v1/auth/login``
+    endpoint so the session cookie is set on ``client``."""
+    from passlib.context import CryptContext
+
+    from app.models.user import User
+
+    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    user = User(
+        email="oauth-admin@example.com",
+        password_hash=pwd.hash("test-password"),
+        role="admin",
+    )
+    db.add(user)
+    db.flush()
+
+    r = client.post(
+        "/api/v1/auth/login",
+        json={"email": "oauth-admin@example.com", "password": "test-password"},
+    )
+    assert r.status_code == 200, r.text
+    return client
+
+
+@pytest.fixture()
+def seed_admin(db):
+    """Insert one admin User into `db`; return its user_id."""
+    from passlib.context import CryptContext
+
+    from app.models.user import User
+
+    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    user = User(
+        email="mcp-tool-admin@example.com",
+        password_hash=pwd.hash("test-password"),
+        role="admin",
+    )
+    db.add(user)
+    db.flush()
+    return user.user_id
+
+
+@pytest.fixture()
+def seed_business_profile(db):
+    """Populate the singleton BusinessProfile row (id=1) in `db`; return its id.
+
+    Migration 0010_business_profile already INSERTs an all-NULL id=1 row (a
+    `ck_business_profile_singleton` check constraint enforces id = 1), so
+    this fixture updates that existing row rather than inserting a new one.
+    """
+    from app.models.business_profile import BusinessProfile
+
+    profile = db.get(BusinessProfile, 1)
+    assert profile is not None, "expected migration 0010 to have seeded id=1"
+    profile.name = "Wenhao Studio"
+    profile.address = "1 Raffles Place, Singapore"
+    profile.contact_email = "hello@wenhao.example"
+    profile.contact_phone = "+65 6000 0000"
+    db.flush()
+    return profile.id
+
+
+@pytest.fixture()
+def seed_customer(db):
+    """Insert one Customer named 'Acme Pte Ltd' into `db`; return its customer_id."""
+    from app.models.customer import Customer
+
+    customer = Customer(name="Acme Pte Ltd", matching_aliases=["Acme"])
+    db.add(customer)
+    db.flush()
+    return customer.customer_id
+
+
+@pytest.fixture()
+def seed_two_acme(db):
+    """Insert two Customers whose names both match 'Acme' into `db`;
+    return a list of their customer_ids (order not significant)."""
+    from app.models.customer import Customer
+
+    c1 = Customer(name="Acme Pte Ltd", matching_aliases=["Acme"])
+    c2 = Customer(name="Acme Global Inc", matching_aliases=["Acme"])
+    db.add_all([c1, c2])
+    db.flush()
+    return [c1.customer_id, c2.customer_id]
+
+
+@pytest.fixture()
+def seed_invoice(db, seed_customer):
+    """Insert one non-template SENT invoice for `seed_customer` into `db`;
+    return its invoice_id."""
+    from decimal import Decimal
+
+    from app.models.invoice import Invoice
+
+    invoice = Invoice(
+        customer_id=seed_customer,
+        invoice_type="MILESTONE",
+        invoice_number="INV-0001",
+        currency="USD",
+        amount=Decimal("1000.0000"),
+        balance_due=Decimal("1000.0000"),
+        status="SENT",
+    )
+    db.add(invoice)
+    db.flush()
+    return invoice.invoice_id
+
+
+@pytest.fixture()
+def seed_sent_invoice(db, seed_customer):
+    """Insert one non-template SENT invoice for `seed_customer` into `db`;
+    return (invoice_id, customer_id). Used by gated-action tests (e.g.
+    send_invoice_email) that need a real, sendable invoice."""
+    from decimal import Decimal
+
+    from app.models.invoice import Invoice
+
+    invoice = Invoice(
+        customer_id=seed_customer,
+        invoice_type="MILESTONE",
+        invoice_number="INV-0002",
+        currency="USD",
+        amount=Decimal("1000.0000"),
+        balance_due=Decimal("1000.0000"),
+        status="SENT",
+    )
+    db.add(invoice)
+    db.flush()
+    return invoice.invoice_id, seed_customer
+
+
+@pytest.fixture()
+def seed_draft_invoice(db, seed_customer):
+    """Insert one DRAFT invoice for `seed_customer` into `db`; return its
+    invoice_id. Used by gated-delete tests (invoicing.delete_invoice only
+    allows deleting DRAFT invoices)."""
+    from decimal import Decimal
+
+    from app.models.invoice import Invoice
+
+    invoice = Invoice(
+        customer_id=seed_customer,
+        invoice_type="MILESTONE",
+        invoice_number="INV-0003",
+        currency="USD",
+        amount=Decimal("1000.0000"),
+        balance_due=Decimal("1000.0000"),
+        status="DRAFT",
+    )
+    db.add(invoice)
+    db.flush()
+    return invoice.invoice_id
+
+
+@pytest.fixture()
+def seed_vendor(db):
+    """Insert one Vendor named 'Acme Vendor Pte Ltd' into `db`; return its vendor_id."""
+    from app.models.vendor import Vendor
+
+    vendor = Vendor(name="Acme Vendor Pte Ltd")
+    db.add(vendor)
+    db.flush()
+    return vendor.vendor_id
+
+
+@pytest.fixture()
+def seed_two_acme_vendors(db):
+    """Insert two Vendors whose names both match 'Acme' into `db`;
+    return a list of their vendor_ids (order not significant)."""
+    from app.models.vendor import Vendor
+
+    v1 = Vendor(name="Acme Vendor Pte Ltd")
+    v2 = Vendor(name="Acme Global Supplies")
+    db.add_all([v1, v2])
+    db.flush()
+    return [v1.vendor_id, v2.vendor_id]
+
+
+@pytest.fixture()
+def seed_bill(db, seed_vendor):
+    """Insert one OPEN Bill for `seed_vendor` into `db`; return its bill_id."""
+    from app.models.bill import Bill
+
+    bill = Bill(
+        vendor_id=seed_vendor,
+        bill_number="BILL-0001",
+        currency="USD",
+        amount=Decimal("500.0000"),
+        balance_due=Decimal("500.0000"),
+        status="OPEN",
+    )
+    db.add(bill)
+    db.flush()
+    return bill.bill_id
+
+
+@pytest.fixture()
+def seed_draft_bill(db, seed_vendor):
+    """Insert one DRAFT Bill for `seed_vendor` into `db`; return its
+    bill_id. Used by gated-delete tests (only DRAFT bills can be
+    hard-deleted, mirroring invoicing.delete_invoice's guard)."""
+    from app.models.bill import Bill
+
+    bill = Bill(
+        vendor_id=seed_vendor,
+        bill_number="BILL-0002",
+        currency="USD",
+        amount=Decimal("500.0000"),
+        balance_due=Decimal("500.0000"),
+        status="DRAFT",
+    )
+    db.add(bill)
+    db.flush()
+    return bill.bill_id
+
+
+@pytest.fixture()
+def seed_quotation(db, seed_customer):
+    """Insert one DRAFT Quotation for `seed_customer` into `db`; return its quotation_id."""
+    from app.models.quotation import Quotation
+
+    quotation = Quotation(
+        customer_id=seed_customer,
+        quotation_number="QUO-0001",
+        currency="USD",
+        amount=Decimal("750.0000"),
+        status="DRAFT",
+    )
+    db.add(quotation)
+    db.flush()
+    return quotation.quotation_id
+
+
+@pytest.fixture()
+def seed_project(db, seed_customer):
+    """Insert one ACTIVE Project for `seed_customer` into `db`; return its project_id."""
+    from app.models.project import Project
+
+    project = Project(
+        customer_id=seed_customer,
+        code="ATLAS-26",
+        name="Atlas Project",
+        currency="USD",
+    )
+    db.add(project)
+    db.flush()
+    return project.project_id
+
+
+@pytest.fixture()
+def seed_item(db):
+    """Insert one active SERVICE Item named 'Web Hosting' into `db`; return its item_id."""
+    from app.models.item import Item
+
+    item = Item(
+        name="Web Hosting",
+        item_type="SERVICE",
+        default_currency="USD",
+        default_unit_price=Decimal("100.0000"),
+    )
+    db.add(item)
+    db.flush()
+    return item.item_id
+
+
+@pytest.fixture()
+def seed_payment_pending_review(db):
+    """Insert one Payment with status PENDING_MANUAL_REVIEW into `db`; return its payment_id."""
+    from app.models.payment import Payment
+
+    payment = Payment(
+        amount=Decimal("250.0000"),
+        currency="USD",
+        payer_name="Ambiguous Payer",
+        payment_date=date(2026, 1, 15),
+        intake_source="EMAIL",
+        status="PENDING_MANUAL_REVIEW",
+    )
+    db.add(payment)
+    db.flush()
+    return payment.payment_id
+
+
+_POISON_MESSAGE = (
+    "app.mcp.db.tool_session() was called without the `mcp_tool_db` isolation "
+    "fixture — add `mcp_tool_db` to this test's arguments to bind tool_session "
+    "to the rollback-safe test connection. (Without it, tool commits would hit "
+    "the real database.)"
+)
+
+
+def _poison_tool_session():
+    """Default tool-session factory for the whole test process (see
+    ``_tool_session_poison_guard`` below): raises immediately instead of
+    silently opening a session on the real dev/prod database.
+    """
+    raise RuntimeError(_POISON_MESSAGE)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _tool_session_poison_guard():
+    """Fail-loud default for app.mcp.db.tool_session() across the whole test
+    session: any test that calls a tool (directly or via a future MCP tool
+    test) without requesting `mcp_tool_db` gets an immediate, clear
+    RuntimeError instead of a silent write to the real database.
+
+    `mcp_tool_db` (function-scoped) temporarily swaps in the real
+    test-connection-bound factory for tests that opt in, and restores this
+    poison factory — not app.mcp.db's SessionLocal default — when it tears
+    down, so the guarantee holds between every pair of tests all session
+    long.
+    """
+    set_tool_session_factory(_poison_tool_session)
+    yield
+    reset_tool_session_factory()  # restore the real module default on exit
+
+
+@pytest.fixture()
+def mcp_tool_db(db):
+    """Bind app.mcp.db.tool_session to the test's rolled-back connection.
+
+    Uses the exact same ``join_transaction_mode="create_savepoint"`` join
+    style as the `db` fixture itself, bound to the *same* connection. Each
+    Session `tool_session()` creates (one per `with tool_session():` block)
+    nests its own transaction as a SAVEPOINT via SQLAlchemy's own external-
+    transaction-joining machinery and releases it on commit, without ending
+    the outer per-test transaction — precisely mirroring how `db` composes
+    with `session.commit()` calls from application code under test.
+
+    This is what makes `mcp_tool_db` safely composable with `client` /
+    `admin_session`: those also commit against `db`, sharing this
+    connection. (An earlier version of this fixture manually called
+    `connection.begin_nested()` and layered a raw-Connection event listener
+    on top — mixing that bookkeeping with `db`'s own ORM-level savepoint
+    tracking corrupted the connection's transaction stack and produced
+    `SAWarning: nested transaction already deassociated from connection`
+    whenever `db.commit()` ran while a tool_session was active. Letting both
+    sides use the same supported `join_transaction_mode` avoids that
+    entirely — no manual savepoint bookkeeping is needed.)
+
+    Everything unwinds when the `db` fixture rolls back the outer
+    transaction at teardown; this fixture's own teardown restores the
+    fail-loud poison factory (see `_tool_session_poison_guard`) rather than
+    app.mcp.db's SessionLocal default.
+    """
+    connection = db.connection()
+    factory = _sessionmaker(
+        bind=connection,
+        autoflush=False,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+    set_tool_session_factory(factory)
+    # The MCP TokenVerifier's admin re-check (app.mcp.verifier) also needs to
+    # see the user seeded in this per-test transaction — bind its session
+    # factory to the same connection, and restore the real default on teardown.
+    set_verifier_session_factory(factory)
+    try:
+        yield
+    finally:
+        set_tool_session_factory(_poison_tool_session)
+        reset_verifier_session_factory()
 
 
 def _seed_test_fx_rates(session: Session) -> None:

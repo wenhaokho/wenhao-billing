@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -11,13 +11,11 @@ from app.config import get_settings
 
 from app.api.deps import current_admin
 from app.db.session import get_db
-from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.payment import Payment
-from app.models.quotation import Quotation
 from app.models.recon_log import ReconciliationLog
 from app.models.user import User
-from app.services.stats import compute_invoices_summary
+from app.services.stats import compute_dashboard_stats, compute_invoices_summary
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -75,56 +73,15 @@ def dashboard(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> DashboardStats:
-    awaiting_review_count = db.scalar(
-        select(func.count(Payment.payment_id)).where(
-            Payment.status == "PENDING_MANUAL_REVIEW"
-        )
-    ) or 0
-
-    draft_count = db.scalar(
-        select(func.count(Invoice.invoice_id)).where(Invoice.status == "DRAFT")
-    ) or 0
-
-    sent_count = db.scalar(
-        select(func.count(Invoice.invoice_id)).where(Invoice.status == "SENT")
-    ) or 0
-
-    customer_count = db.scalar(select(func.count(Customer.customer_id))) or 0
-
-    # Cleared payments in last 30 days
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-    auto_cleared_last_30d = db.scalar(
-        select(func.count(Payment.payment_id)).where(
-            Payment.status == "CLEARED",
-            Payment.created_at >= thirty_days_ago,
-        )
-    ) or 0
-
-    # Open AR = sum of balance_due where status in SENT/PARTIAL, grouped by currency
-    ar_rows = db.execute(
-        select(Invoice.currency, func.sum(Invoice.balance_due))
-        .where(Invoice.status.in_(("SENT", "PARTIAL")))
-        .group_by(Invoice.currency)
-    ).all()
-    open_ar = [CurrencyAmount(currency=c, amount=a or Decimal("0")) for c, a in ar_rows]
-
-    # Open quotations = SENT + ACCEPTED (not yet INVOICED / DECLINED / EXPIRED / VOID)
-    open_quote_statuses = ("SENT", "ACCEPTED")
-    open_quotation_count = db.scalar(
-        select(func.count(Quotation.quotation_id)).where(
-            Quotation.status.in_(open_quote_statuses)
-        )
-    ) or 0
-    quote_rows = db.execute(
-        select(Quotation.currency, func.sum(Quotation.amount))
-        .where(Quotation.status.in_(open_quote_statuses))
-        .group_by(Quotation.currency)
-    ).all()
+    # Counts + open AR/quotation totals: shared with the MCP `get_stats`
+    # tool via app.services.stats.compute_dashboard_stats so the two never
+    # drift (see that function's docstring for the AR/quotation query
+    # details and status filters).
+    stats = compute_dashboard_stats(db)
+    open_ar = [CurrencyAmount(**row) for row in stats["open_ar_by_currency"]]
     open_quotation_pipeline = [
-        CurrencyAmount(currency=c, amount=a or Decimal("0")) for c, a in quote_rows
+        CurrencyAmount(**row) for row in stats["open_quotation_pipeline"]
     ]
-    # Sort largest total first so the dashboard hint shows the top currency
-    open_quotation_pipeline.sort(key=lambda x: x.amount, reverse=True)
 
     # Recent activity: last 10 reconciliation_log rows, joined to payment for context
     activity_rows = db.execute(
@@ -160,13 +117,13 @@ def dashboard(
     ]
 
     return DashboardStats(
-        awaiting_review_count=awaiting_review_count,
-        draft_count=draft_count,
-        sent_count=sent_count,
-        customer_count=customer_count,
-        auto_cleared_last_30d=auto_cleared_last_30d,
+        awaiting_review_count=stats["awaiting_review_count"],
+        draft_count=stats["draft_count"],
+        sent_count=stats["sent_count"],
+        customer_count=stats["customer_count"],
+        auto_cleared_last_30d=stats["auto_cleared_last_30d"],
         open_ar_by_currency=open_ar,
-        open_quotation_count=open_quotation_count,
+        open_quotation_count=stats["open_quotation_count"],
         open_quotation_pipeline=open_quotation_pipeline,
         recent_activity=recent_activity,
     )

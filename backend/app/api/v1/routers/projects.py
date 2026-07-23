@@ -3,7 +3,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import current_admin
@@ -19,6 +18,7 @@ from app.schemas.project import (
     ProjectSummary,
     ProjectUpdate,
 )
+from app.services import projects as project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -36,25 +36,11 @@ def create_project(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> Project:
-    project = Project(
-        customer_id=payload.customer_id,
-        code=payload.code.strip().upper(),
-        name=payload.name.strip(),
-        currency=payload.currency.upper(),
-        contract_value=payload.contract_value,
-        status=payload.status,
-        start_date=payload.start_date,
-        end_date=payload.end_date,
-        notes=payload.notes,
-    )
-    db.add(project)
     try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=400, detail=f"project code {project.code!r} already exists"
-        )
+        project = project_service.create_project(db, payload)
+    except project_service.ProjectError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    db.commit()
     db.refresh(project)
     return project
 
@@ -96,19 +82,12 @@ def update_project(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> Project:
-    project = _load(db, project_id)
-    data = payload.model_dump(exclude_unset=True)
-    if "code" in data and data["code"] is not None:
-        data["code"] = data["code"].strip().upper()
-    if "currency" in data and data["currency"] is not None:
-        data["currency"] = data["currency"].upper()
-    for k, v in data.items():
-        setattr(project, k, v)
+    _load(db, project_id)  # 404 if missing, before we hand off to the service
     try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=400, detail="project code already exists")
+        project = project_service.update_project(db, project_id, payload)
+    except project_service.ProjectError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    db.commit()
     db.refresh(project)
     return project
 
