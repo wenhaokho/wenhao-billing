@@ -238,6 +238,11 @@ const router = createRouter({
       component: () => import("@/views/FxRateNewView.vue"),
     },
     {
+      path: "/mcp-integration",
+      name: "mcp-integration",
+      component: () => import("@/views/McpIntegrationView.vue"),
+    },
+    {
       path: "/users",
       name: "users",
       component: () => import("@/views/UsersView.vue"),

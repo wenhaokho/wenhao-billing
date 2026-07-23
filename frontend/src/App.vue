@@ -91,6 +91,7 @@ const navGroups = [
   {
     label: "Admin",
     items: [
+      { to: "/mcp-integration", icon: "pi pi-sparkles", label: "AI Assistant" },
       { to: "/users", icon: "pi pi-user", label: "Users" },
       { to: "/audit-log", icon: "pi pi-history", label: "Audit Log" },
     ],
@@ -121,6 +122,7 @@ const pageTitle = computed(() => {
     review: "Manual Review",
     "review-one": "Manual Review",
     "audit-log": "Audit Log",
+    "mcp-integration": "AI Assistant",
     users: "Users",
     reports: "Reports",
     "fx-rates": "FX Rates",
