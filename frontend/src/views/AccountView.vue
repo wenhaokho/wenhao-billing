@@ -81,6 +81,7 @@ interface BusinessProfile {
   invoice_summary: string | null;
   logo_url: string | null;
   default_notes: string | null;
+  payment_instructions: string | null;
 }
 const company = ref<BusinessProfile>({
   name: "",
@@ -91,6 +92,7 @@ const company = ref<BusinessProfile>({
   invoice_summary: "",
   logo_url: "",
   default_notes: "",
+  payment_instructions: "",
 });
 const companyLoading = ref(false);
 const companySaving = ref(false);
@@ -110,6 +112,7 @@ async function loadCompany() {
       invoice_summary: data.invoice_summary ?? "",
       logo_url: data.logo_url ?? "",
       default_notes: data.default_notes ?? "",
+      payment_instructions: data.payment_instructions ?? "",
     };
   } catch (e: any) {
     companyError.value = e?.response?.data?.detail ?? "Failed to load company profile";
@@ -355,6 +358,11 @@ function fmtDate(iso?: string) {
               Default notes / terms
               <Textarea v-model="company.default_notes" rows="10" />
               <small>Appears on each invoice. You can choose to override it when you create an invoice.</small>
+            </label>
+            <label>
+              Payment instructions
+              <Textarea v-model="company.payment_instructions" rows="4" />
+              <small>Bank / PayNow details shown on invoices &amp; quotations.</small>
             </label>
 
             <Message v-if="companyError" severity="error" :closable="false">
