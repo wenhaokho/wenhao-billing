@@ -162,6 +162,52 @@ def seed_business_profile(db):
     return profile.id
 
 
+@pytest.fixture()
+def seed_customer(db):
+    """Insert one Customer named 'Acme Pte Ltd' into `db`; return its customer_id."""
+    from app.models.customer import Customer
+
+    customer = Customer(name="Acme Pte Ltd", matching_aliases=["Acme"])
+    db.add(customer)
+    db.flush()
+    return customer.customer_id
+
+
+@pytest.fixture()
+def seed_two_acme(db):
+    """Insert two Customers whose names both match 'Acme' into `db`;
+    return a list of their customer_ids (order not significant)."""
+    from app.models.customer import Customer
+
+    c1 = Customer(name="Acme Pte Ltd", matching_aliases=["Acme"])
+    c2 = Customer(name="Acme Global Inc", matching_aliases=["Acme"])
+    db.add_all([c1, c2])
+    db.flush()
+    return [c1.customer_id, c2.customer_id]
+
+
+@pytest.fixture()
+def seed_invoice(db, seed_customer):
+    """Insert one non-template SENT invoice for `seed_customer` into `db`;
+    return its invoice_id."""
+    from decimal import Decimal
+
+    from app.models.invoice import Invoice
+
+    invoice = Invoice(
+        customer_id=seed_customer,
+        invoice_type="MILESTONE",
+        invoice_number="INV-0001",
+        currency="USD",
+        amount=Decimal("1000.0000"),
+        balance_due=Decimal("1000.0000"),
+        status="SENT",
+    )
+    db.add(invoice)
+    db.flush()
+    return invoice.invoice_id
+
+
 _POISON_MESSAGE = (
     "app.mcp.db.tool_session() was called without the `mcp_tool_db` isolation "
     "fixture — add `mcp_tool_db` to this test's arguments to bind tool_session "
