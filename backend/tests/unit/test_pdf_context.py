@@ -100,3 +100,30 @@ def test_quotation_context_total_hero():
     assert ctx["hero_amount"] == "5,000.00"
     assert ctx["meta"][2][0] == "Valid Until"
     assert ctx["notes"] == "Quote note"                   # invoice/quote note wins
+
+
+def test_both_builders_share_key_set():
+    inv_ctx = build_invoice_context(_inv(), _cust(), _biz())
+    q = SimpleNamespace(
+        quotation_number="Q-1", po_so_number=None, currency="SGD",
+        subtotal=Decimal("100"), discount_type=None, discount_value=None,
+        amount=Decimal("100"), status="SENT", issue_date=date(2026, 7, 23),
+        valid_until=date(2026, 8, 6), payment_terms=None, notes=None,
+        line_items=[SimpleNamespace(position=1, description="x",
+                    quantity=Decimal("1"), unit_price=Decimal("100"), amount=Decimal("100"))],
+    )
+    q_ctx = build_quotation_context(q, _cust(), _biz())
+    assert set(inv_ctx) == set(q_ctx)
+
+
+def test_quotation_notes_fall_back_to_business_default():
+    q = SimpleNamespace(
+        quotation_number="Q-2", po_so_number=None, currency="SGD",
+        subtotal=Decimal("100"), discount_type=None, discount_value=None,
+        amount=Decimal("100"), status="SENT", issue_date=date(2026, 7, 23),
+        valid_until=date(2026, 8, 6), payment_terms=None, notes=None,
+        line_items=[SimpleNamespace(position=1, description="x",
+                    quantity=Decimal("1"), unit_price=Decimal("100"), amount=Decimal("100"))],
+    )
+    ctx = build_quotation_context(q, _cust(), _biz())
+    assert ctx["notes"] == "Default note."
