@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1.7
+# Single-image production build for Coolify: builds the Vue SPA, then bakes the
+# static `dist/` into the FastAPI image so one container serves both API + UI.
+# Build context is the REPO ROOT (see docker-compose.coolify.yml) so this can
+# COPY from both frontend/ and backend/.
+
+# ---------- stage 1: build the frontend ----------
+FROM node:20-alpine AS frontend-build
+WORKDIR /fe
+
+# Install deps first (cached until package.json changes).
+COPY frontend/package.json ./
+RUN npm install
+
+COPY frontend/ ./
+# Produces /fe/dist (vue-tsc typecheck + vite build).
+RUN npm run build
+
+# ---------- stage 2: backend runtime (also serves the SPA) ----------
+FROM python:3.12-slim AS backend
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    FRONTEND_DIST=/app/frontend_dist
+
+WORKDIR /app
+
+# Build tools for psycopg/bcrypt wheels + libpq runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python deps first (cached layer). Editable install with only pyproject
+# present resolves/installs deps now and links the package via a .pth; the
+# `app/` source copied below satisfies imports at runtime. No dev extras in prod.
+COPY backend/pyproject.toml ./
+RUN pip install -e .
+
+# Headless Chromium for HTML->PDF invoice/quotation rendering (Playwright).
+RUN python -m playwright install --with-deps chromium
+
+# Backend source.
+COPY backend/ ./
+
+# Built SPA from stage 1 — served by FastAPI when FRONTEND_DIST is set.
+COPY --from=frontend-build /fe/dist /app/frontend_dist
+
+EXPOSE 8000
+# Migrations are run by the compose `command:` before uvicorn starts.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

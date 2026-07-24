@@ -1,0 +1,83 @@
+# Production deployment for Coolify — single domain, FastAPI serves the SPA.
+# Uses SHARED Postgres + Redis (managed separately in Coolify); this stack only
+# ships the app + worker.
+#
+# In Coolify: New Resource -> Docker Compose (Build Pack), point it at this file.
+# Coolify auto-fills the SERVICE_* "magic" variables: it provisions the public
+# domain + Traefik route from SERVICE_FQDN_APP_8000 and generates every
+# SERVICE_BASE64_* secret once, then persists them.
+#
+# Set DATABASE_URL and REDIS_URL to the shared services' connection strings
+# (Coolify UI, or .env for a run outside Coolify — see .env.coolify.example).
+# The shared Postgres/Redis must be attached to the same Docker network as this
+# resource so `app`/`worker` can reach them by hostname.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+    image: wenhao-billing:coolify
+    environment:
+      # Presence of this key tells Coolify to generate the public FQDN for this
+      # service on container port 8000 and wire up the Traefik route + TLS.
+      SERVICE_FQDN_APP_8000: ${SERVICE_FQDN_APP_8000:-billing.wenhao.id}
+      # Shared services — full connection strings you provide. The DB URL MUST
+      # use the postgresql+psycopg:// driver prefix (SQLAlchemy).
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      # Backend serves the built SPA from this dir (baked in by Dockerfile.coolify).
+      FRONTEND_DIST: /app/frontend_dist
+      # Secrets — Coolify generates 64-char values once and persists them.
+      SESSION_SECRET: ${SERVICE_BASE64_64_SESSION}
+      WEBHOOK_HMAC_SECRET: ${SERVICE_BASE64_64_WEBHOOK}
+      EMAIL_WEBHOOK_TOKEN: ${SERVICE_BASE64_64_EMAILTOKEN}
+      # Single origin — the SPA is same-origin with the API, so this is really
+      # only needed for non-browser cross-origin callers.
+      CORS_ORIGINS: '["${SERVICE_URL_APP_8000:-https://billing.wenhao.id}"]'
+      APP_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
+      MCP_ENABLED: ${MCP_ENABLED:-true}
+      MCP_CONFIRM_SECRET: ${SERVICE_BASE64_64_MCPCONFIRM}
+      MCP_TOKEN_SECRET: ${SERVICE_BASE64_64_MCPTOKEN}
+      MCP_PUBLIC_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
+      MCP_ACCESS_TOKEN_TTL_SECONDS: ${MCP_ACCESS_TOKEN_TTL_SECONDS:-3600}
+      MCP_REFRESH_TOKEN_TTL_SECONDS: ${MCP_REFRESH_TOKEN_TTL_SECONDS:-2592000}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs', timeout=2).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    # Apply migrations, then serve (production uvicorn — no --reload).
+    command:
+      [
+        "sh",
+        "-c",
+        "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      ]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
+    image: wenhao-billing:coolify
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      MCP_ENABLED: ${MCP_ENABLED:-true}
+      MCP_CONFIRM_SECRET: ${SERVICE_BASE64_64_MCPCONFIRM}
+      MCP_TOKEN_SECRET: ${SERVICE_BASE64_64_MCPTOKEN}
+      MCP_PUBLIC_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
+    depends_on:
+      # Wait for `app` to be healthy so migrations run once before the worker starts.
+      app:
+        condition: service_healthy
+    # worker + beat in one process, matching the dev compose.
+    command:
+      ["celery", "-A", "app.workers.celery_app", "worker", "--beat", "--loglevel=info"]
