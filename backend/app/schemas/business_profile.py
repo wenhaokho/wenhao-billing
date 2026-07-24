@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+ALLOWED_CURRENCIES = {"SGD", "IDR", "USD"}
+
 
 class BusinessProfileUpdate(BaseModel):
     name: str | None = None
@@ -25,4 +27,20 @@ class BusinessProfileOut(BaseModel):
     invoice_summary: str | None
     logo_url: str | None
     default_notes: str | None
+    updated_at: datetime
+
+
+class PaymentAccountIn(BaseModel):
+    currency: str
+    instructions: str
+    is_default: bool = False
+
+
+class PaymentAccountOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    currency: str
+    instructions: str
+    is_default: bool
     updated_at: datetime
