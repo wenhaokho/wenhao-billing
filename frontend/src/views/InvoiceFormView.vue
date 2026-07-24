@@ -22,10 +22,12 @@ import {
 import InvoiceLineItemsTable from "@/components/InvoiceLineItemsTable.vue";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
 import SendInvoiceDialog from "@/components/SendInvoiceDialog.vue";
+import { useReturnTo } from "@/composables/useReturnTo";
 
 const props = defineProps<{ id?: string }>();
 const router = useRouter();
 const route = useRoute();
+const { backTo, goBack } = useReturnTo("/invoices");
 
 // Route name is fixed at navigation time; used only to seed recurring mode on mount.
 const isRecurringRoute =
@@ -541,7 +543,7 @@ const save = useMutation({
     return (await api.post<InvoiceOut>("/invoices", buildPayload())).data;
   },
   onSuccess: () => {
-    router.push(isRecurring.value ? "/invoices/recurring" : "/invoices");
+    router.push(isRecurring.value ? "/invoices/recurring" : backTo.value);
   },
 });
 
@@ -578,7 +580,7 @@ const canSave = computed(() => {
 <template>
   <section class="invoice-form">
     <div class="back">
-      <Button label="Invoices" icon="pi pi-arrow-left" text size="small" @click="router.push('/invoices')" />
+      <Button label="Invoices" icon="pi pi-arrow-left" text size="small" @click="goBack" />
     </div>
 
     <header class="page-header sticky-header">

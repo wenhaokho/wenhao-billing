@@ -12,8 +12,10 @@ defineProps<{
     <aside class="hero">
       <div class="hero-inner">
         <div class="brand">
-          <div class="brand-mark">WB</div>
-          <div class="brand-name">wenhao-billing</div>
+          <div class="brand-mark">
+            <img src="/favicon.svg" alt="Wenhao Billing logo" />
+          </div>
+          <div class="brand-name">Wenhao Billing</div>
         </div>
 
         <div class="hero-copy">
@@ -32,7 +34,7 @@ defineProps<{
           <li><i class="pi pi-check-circle" /> Client-ready statements in one click</li>
         </ul>
 
-        <div class="hero-footer">&copy; {{ new Date().getFullYear() }} wenhao-billing</div>
+        <div class="hero-footer">&copy; {{ new Date().getFullYear() }} Wenhao Billing</div>
       </div>
       <div class="hero-glow glow-1" />
       <div class="hero-glow glow-2" />
@@ -85,11 +87,10 @@ defineProps<{
 .brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: auto; }
 .brand-mark {
   width: 44px; height: 44px; border-radius: 12px;
-  background: linear-gradient(135deg, #60a5fa, #3b82f6);
-  color: white; display: grid; place-items: center;
-  font-weight: 700; letter-spacing: 0.02em;
+  overflow: hidden; display: grid; place-items: center; flex-shrink: 0;
   box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
 }
+.brand-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .brand-name { font-weight: 600; font-size: 1.05rem; color: #fff; }
 
 .hero-copy { margin: 5rem 0 2rem; }
