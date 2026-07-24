@@ -347,7 +347,7 @@ function timeAgo(iso: string) {
             <i class="pi pi-calendar" />
             <div>Nothing scheduled in the next 90 days.</div>
           </div>
-          <ul v-else class="activity">
+          <ul v-else class="activity upcoming-list">
             <li v-for="u in stats.upcoming_invoices" :key="u.invoice_id">
               <div class="act-head">
                 <Tag :value="u.mode === 'USAGE' ? 'Usage' : 'Recurring'" :severity="modeSeverity(u.mode)" />
@@ -503,6 +503,8 @@ function timeAgo(iso: string) {
   padding: 0.8rem 1.25rem;
 }
 .activity li:not(:last-child) { border-bottom: 1px solid var(--color-border); }
+/* Upcoming list: show ~5 rows, then scroll. */
+.upcoming-list { max-height: 15.5rem; overflow-y: auto; }
 .act-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .act-payer { font-weight: 500; }
 .act-amt { font-variant-numeric: tabular-nums; color: var(--color-text-muted); font-size: 0.85rem; }
