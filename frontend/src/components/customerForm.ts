@@ -53,7 +53,7 @@ export function emptyCustomerForm(): CustomerFormData {
     billing_address: "",
     billing_address1: "",
     billing_address2: "",
-    billing_country: "",
+    billing_country: "Singapore",
     billing_state: "",
     billing_city: "",
     billing_postal_code: "",

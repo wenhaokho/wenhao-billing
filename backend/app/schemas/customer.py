@@ -26,7 +26,7 @@ class CustomerBase(BaseModel):
     billing_address: str | None = None
     billing_address1: str | None = Field(default=None, max_length=255)
     billing_address2: str | None = Field(default=None, max_length=255)
-    billing_country: str | None = Field(default=None, max_length=2)
+    billing_country: str | None = Field(default=None, max_length=100)
     billing_state: str | None = Field(default=None, max_length=255)
     billing_city: str | None = Field(default=None, max_length=255)
     billing_postal_code: str | None = Field(default=None, max_length=32)
@@ -35,7 +35,7 @@ class CustomerBase(BaseModel):
     ship_to_name: str | None = Field(default=None, max_length=255)
     shipping_address1: str | None = Field(default=None, max_length=255)
     shipping_address2: str | None = Field(default=None, max_length=255)
-    shipping_country: str | None = Field(default=None, max_length=2)
+    shipping_country: str | None = Field(default=None, max_length=100)
     shipping_state: str | None = Field(default=None, max_length=255)
     shipping_city: str | None = Field(default=None, max_length=255)
     shipping_postal_code: str | None = Field(default=None, max_length=32)

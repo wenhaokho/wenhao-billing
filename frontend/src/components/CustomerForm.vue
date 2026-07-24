@@ -7,6 +7,7 @@ import Button from "primevue/button";
 import Chip from "primevue/chip";
 import Checkbox from "primevue/checkbox";
 import type { CustomerFormData } from "./customerForm";
+import { COUNTRIES } from "../constants/countries";
 
 const props = defineProps<{
   modelValue: CustomerFormData;
@@ -283,7 +284,13 @@ function onToggleSameAsBilling(v: boolean) {
       <div class="two-col">
         <label class="field">
           <span class="field-label muted">Country</span>
-          <InputText v-model="local.billing_country" placeholder="ID" maxlength="2" />
+          <Dropdown
+            v-model="local.billing_country"
+            :options="COUNTRIES"
+            filter
+            show-clear
+            placeholder="Select a country"
+          />
         </label>
         <label class="field">
           <span class="field-label muted">Province / State / Region</span>
@@ -350,7 +357,13 @@ function onToggleSameAsBilling(v: boolean) {
         <div class="two-col">
           <label class="field">
             <span class="field-label muted">Country</span>
-            <InputText v-model="local.shipping_country" placeholder="ID" maxlength="2" />
+            <Dropdown
+              v-model="local.shipping_country"
+              :options="COUNTRIES"
+              filter
+              show-clear
+              placeholder="Select a country"
+            />
           </label>
           <label class="field">
             <span class="field-label muted">Province / State / Region</span>
