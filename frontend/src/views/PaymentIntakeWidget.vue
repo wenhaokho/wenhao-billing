@@ -139,8 +139,12 @@ const chartOptions = computed(() => {
       ticks: {
         callback: (v: number | string) => {
           const n = Number(v);
-          if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-          if (n >= 1_000) return (n / 1_000).toFixed(0) + "K";
+          // One decimal, but drop a trailing ".0" (1800.0M -> 1.8B, 600.0M -> 600M).
+          const compact = (val: number, suffix: string) =>
+            (Number.isInteger(val) ? val.toFixed(0) : val.toFixed(1)) + suffix;
+          if (n >= 1_000_000_000) return compact(n / 1_000_000_000, "B");
+          if (n >= 1_000_000) return compact(n / 1_000_000, "M");
+          if (n >= 1_000) return compact(n / 1_000, "K");
           return String(n);
         },
       },

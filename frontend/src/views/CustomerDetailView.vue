@@ -142,7 +142,7 @@ function daysUntilDue(dueDate: string): number {
 }
 
 function isOverdue(row: InvoiceRow): boolean {
-  if (row.status !== "SENT" && row.status !== "PARTIAL") return false;
+  if (row.status !== "OPEN" && row.status !== "SENT" && row.status !== "PARTIAL") return false;
   return daysUntilDue(row.due_date) < 0;
 }
 

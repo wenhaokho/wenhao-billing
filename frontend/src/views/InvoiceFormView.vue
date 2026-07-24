@@ -294,9 +294,9 @@ const showPaymentDialog = ref(false);
 const paymentError = ref<string | null>(null);
 const isUnpaid = computed(() => {
   const s = existing.value?.status;
-  return s === "SENT" || s === "PARTIAL";
+  return s === "OPEN" || s === "SENT" || s === "PARTIAL";
 });
-// A zero-balance SENT/PARTIAL invoice is a genuinely zero-value invoice: it can
+// A zero-balance OPEN/SENT/PARTIAL invoice is a genuinely zero-value invoice: it can
 // only be settled via "Mark as paid" (record-payment needs a positive amount).
 const canMarkPaid = computed(
   () => isUnpaid.value && Number(existing.value?.balance_due ?? 0) <= 0,
@@ -347,7 +347,7 @@ const showSendDialog = ref(false);
 const sendError = ref<string | null>(null);
 const canSendInvoice = computed(() => {
   const s = existing.value?.status;
-  return s === "DRAFT" || s === "SENT" || s === "PARTIAL";
+  return s === "DRAFT" || s === "OPEN" || s === "SENT" || s === "PARTIAL";
 });
 
 function openPdfPreview() {
