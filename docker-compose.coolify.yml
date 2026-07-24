@@ -16,6 +16,7 @@ name: wenhao-billing
 
 services:
   app:
+    container_name: wenhao-billing-app
     build:
       context: .
       dockerfile: Dockerfile.coolify
@@ -71,6 +72,7 @@ services:
       ]
 
   worker:
+    container_name: wenhao-billing-worker
     build:
       context: .
       dockerfile: Dockerfile.coolify
