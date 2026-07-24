@@ -48,5 +48,12 @@ COPY backend/ ./
 COPY --from=frontend-build /fe/dist /app/frontend_dist
 
 EXPOSE 8000
+
+# Bake the health check into the image so Coolify (and any orchestrator) reports
+# a real health status even when it inspects the image rather than the compose
+# file. Hits the always-on FastAPI /docs endpoint; start-period covers migrations.
+HEALTHCHECK --interval=10s --timeout=5s --retries=20 --start-period=30s \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs', timeout=2).read()" || exit 1
+
 # Migrations are run by the compose `command:` before uvicorn starts.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -74,6 +74,11 @@ services:
       MCP_CONFIRM_SECRET: ${SERVICE_BASE64_64_MCPCONFIRM}
       MCP_TOKEN_SECRET: ${SERVICE_BASE64_64_MCPTOKEN}
       MCP_PUBLIC_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
+    # The shared image bakes in an HTTP HEALTHCHECK against :8000/docs, but the
+    # worker runs Celery with no HTTP server — disable it so the worker isn't
+    # perpetually reported unhealthy.
+    healthcheck:
+      disable: true
     depends_on:
       # Wait for `app` to be healthy so migrations run once before the worker starts.
       app:
