@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.workers.tasks.recurring",
         "app.workers.tasks.usage_lock",
         "app.workers.tasks.recon_async",
+        "app.workers.tasks.fx_sync",
     ],
 )
 

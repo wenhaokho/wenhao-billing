@@ -22,3 +22,11 @@ class FxRateOut(BaseModel):
     as_of_date: date
     source: str
     created_at: datetime
+
+
+class FxSyncResult(BaseModel):
+    created: int
+    updated: int
+    fetched: int
+    pairs: list[str]
+    source: str

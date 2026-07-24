@@ -13,4 +13,9 @@ BEAT_SCHEDULE = {
         "task": "app.workers.tasks.hosting_enforcement.daily_hosting_enforcement",
         "schedule": crontab(hour=4, minute=0),
     },
+    "fx-rates-weekly-sync": {
+        "task": "app.workers.tasks.fx_sync.sync_fx_rates",
+        # Monday 05:00 UTC — provider refreshes on working days.
+        "schedule": crontab(day_of_week=1, hour=5, minute=0),
+    },
 }

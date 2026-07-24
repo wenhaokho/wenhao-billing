@@ -22,8 +22,10 @@ from app.models.invoice import Invoice
 from app.models.journal import JournalEntry, JournalLine
 from app.models.user import User
 from app.models.vendor import Vendor
-from app.schemas.fx import FxRateCreate, FxRateOut
+from app.schemas.fx import FxRateCreate, FxRateOut, FxSyncResult
 from app.schemas.item import AccountCreate, AccountOut, AccountUpdate
+from app.services.fx_provider import FxProviderError
+from app.workers.tasks.fx_sync import run_fx_sync
 from app.schemas.reports import (
     AgingBuckets,
     AgingReport,
@@ -168,6 +170,25 @@ def create_fx_rate(
         )
     db.refresh(rate)
     return rate
+
+
+@router.post("/fx-rates/sync", response_model=FxSyncResult)
+def sync_fx_rates_now(
+    db: Session = Depends(get_db),
+    _: User = Depends(current_admin),
+) -> FxSyncResult:
+    """Pull the latest reference rates from the provider into fx_rates.
+
+    Runs synchronously so the caller gets the result; the same core also runs
+    on the weekly Celery beat schedule.
+    """
+    try:
+        result = run_fx_sync(db)
+    except FxProviderError as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    db.commit()
+    return FxSyncResult(**result)
 
 
 @router.get("/fx-rates/latest", response_model=FxRateOut)

@@ -6,6 +6,7 @@ import { useConfirm } from "primevue/useconfirm";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
+import Message from "primevue/message";
 import { api } from "@/api/client";
 
 interface FxRate {
@@ -16,6 +17,14 @@ interface FxRate {
   as_of_date: string;
   source: string;
   created_at: string;
+}
+
+interface FxSyncResult {
+  created: number;
+  updated: number;
+  fetched: number;
+  pairs: string[];
+  source: string;
 }
 
 const router = useRouter();
@@ -40,6 +49,28 @@ const { data, isLoading } = useQuery<FxRate[]>({
 const deleteRate = useMutation({
   mutationFn: async (id: number) => api.delete(`/accounting/fx-rates/${id}`),
   onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fx-rates"] }),
+});
+
+const syncMessage = ref<{ severity: "success" | "error"; text: string } | null>(null);
+
+const syncRates = useMutation({
+  mutationFn: async () =>
+    (await api.post<FxSyncResult>("/accounting/fx-rates/sync")).data,
+  onSuccess: (r) => {
+    queryClient.invalidateQueries({ queryKey: ["fx-rates"] });
+    const parts = [`${r.created} added`, `${r.updated} updated`];
+    if (r.fetched === 0) parts.push("no rates returned by provider");
+    syncMessage.value = {
+      severity: "success",
+      text: `Synced from ${r.source}: ${parts.join(", ")}.`,
+    };
+  },
+  onError: (err: any) => {
+    syncMessage.value = {
+      severity: "error",
+      text: err?.response?.data?.detail ?? "Sync failed",
+    };
+  },
 });
 
 function confirmDelete(row: FxRate) {
@@ -79,9 +110,29 @@ function openCreate() {
         </p>
       </div>
       <div class="page-actions">
+        <Button
+          label="Sync now"
+          icon="pi pi-sync"
+          severity="secondary"
+          outlined
+          :loading="syncRates.isPending.value"
+          title="Fetch the latest reference rates from the provider"
+          @click="syncRates.mutate()"
+        />
         <Button label="New rate" icon="pi pi-plus" @click="openCreate" />
       </div>
     </header>
+
+    <Message
+      v-if="syncMessage"
+      :severity="syncMessage.severity"
+      role="status"
+      aria-live="polite"
+      :closable="true"
+      @close="syncMessage = null"
+    >
+      {{ syncMessage.text }}
+    </Message>
 
     <DataTable
       :value="data ?? []"

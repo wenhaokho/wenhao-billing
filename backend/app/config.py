@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     pdf_engine: str = Field(default="html")
     pdf_render_timeout_ms: int = Field(default=15000)
 
+    # --- FX rate provider (Frankfurter, ECB reference rates, free/no-key) ---
+    fx_provider_base_url: str = Field(default="https://api.frankfurter.dev/v1")
+    fx_provider_timeout_seconds: float = Field(default=15.0)
+    # Foreign currencies to pull a base_currency rate for on each sync.
+    fx_sync_currencies: list[str] = Field(
+        default_factory=lambda: ["USD", "SGD"]
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
