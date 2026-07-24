@@ -156,6 +156,7 @@ function dueLabel(row: InvoiceRow): string {
 function statusSeverity(status: string): "success" | "info" | "warning" | "secondary" | "danger" {
   switch (status) {
     case "PAID": return "success";
+    case "OPEN": return "info";
     case "SENT": return "info";
     case "PARTIAL": return "warning";
     case "DRAFT": return "secondary";

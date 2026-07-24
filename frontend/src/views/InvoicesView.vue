@@ -45,7 +45,7 @@ interface InvoicesSummary {
 const router = useRouter();
 
 // ---- tab filter (Wave parity: Unpaid / Draft / All) ----
-// 0 = Unpaid (SENT + PARTIAL), 1 = Draft, 2 = All
+// 0 = Unpaid (OPEN + SENT + PARTIAL), 1 = Draft, 2 = All
 // Reflect the active status tab in the URL as a readable slug (?tab=unpaid)
 // so it is restored when navigating back to this list after opening an item.
 const route = useRoute();
@@ -59,7 +59,7 @@ watch(activeTab, (t) => {
   router.replace({ query: { ...route.query, tab: TAB_SLUGS[t] ?? TAB_SLUGS[0] } });
 });
 const TAB_TO_STATUSES: Record<number, string[] | null> = {
-  0: ["SENT", "PARTIAL"],
+  0: ["OPEN", "SENT", "PARTIAL"],
   1: ["DRAFT"],
   2: null,
 };
@@ -147,13 +147,14 @@ const recordPayment = useMutation({
 });
 
 function canRecordPayment(row: Invoice): boolean {
-  return (row.status === "SENT" || row.status === "PARTIAL")
+  return (row.status === "OPEN" || row.status === "SENT" || row.status === "PARTIAL")
     && Number(row.balance_due) > 0;
 }
 
 function statusSeverity(status: string) {
   switch (status) {
     case "PAID": return "success";
+    case "OPEN": return "info";
     case "SENT": return "info";
     case "PARTIAL": return "warning";
     case "VOID": return "secondary";

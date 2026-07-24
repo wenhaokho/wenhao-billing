@@ -561,7 +561,7 @@ def ar_aging(
 ) -> AgingReport:
     """Open AR balances bucketed by days past due.
 
-    Includes invoices with status SENT or PARTIAL and positive balance_due.
+    Includes invoices with status OPEN, SENT or PARTIAL and positive balance_due.
     Grouped by (customer, currency). "Current" = not yet due as of `as_of`.
     """
     rows_raw = db.execute(
@@ -573,7 +573,7 @@ def ar_aging(
             Customer.name,
         )
         .join(Customer, Customer.customer_id == Invoice.customer_id, isouter=True)
-        .where(Invoice.status.in_(("SENT", "PARTIAL")))
+        .where(Invoice.status.in_(("OPEN", "SENT", "PARTIAL")))
         .where(Invoice.is_template.is_(False))
         .where(Invoice.balance_due > 0)
     ).all()

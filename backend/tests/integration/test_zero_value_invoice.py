@@ -43,7 +43,7 @@ def test_finalize_zero_value_invoice_becomes_paid(db, seed_customer):
     assert out.balance_due == Decimal("0")
 
 
-def test_finalize_nonzero_invoice_still_sent(db, seed_customer):
+def test_finalize_nonzero_invoice_becomes_open(db, seed_customer):
     payload = InvoiceCreate(
         customer_id=seed_customer,
         currency="USD",
@@ -52,7 +52,8 @@ def test_finalize_nonzero_invoice_still_sent(db, seed_customer):
     invoice = invoicing.create_invoice(db, payload)
     db.flush()
     out = invoicing.finalize_invoice(db, invoice.invoice_id)
-    assert out.status == "SENT"
+    # Finalizing a payable invoice issues it as OPEN (not SENT — no email yet).
+    assert out.status == "OPEN"
     assert out.balance_due == Decimal("100")
 
 

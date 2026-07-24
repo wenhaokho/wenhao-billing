@@ -476,7 +476,7 @@ def mark_paid(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> Invoice:
-    """Settle a zero-value invoice (SENT/PARTIAL with a 0 balance) to PAID.
+    """Settle a zero-value invoice (OPEN/SENT/PARTIAL with a 0 balance) to PAID.
 
     The record-payment flow can't help here: it requires a positive amount
     <= balance_due, which is impossible when balance_due is already 0.
@@ -520,7 +520,7 @@ def send_invoice(
 ) -> Invoice:
     """Email the invoice PDF to the customer.
 
-    If status is DRAFT it is auto-promoted to SENT.
+    A DRAFT or OPEN invoice is auto-promoted to SENT once the email is dispatched.
     """
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:
@@ -560,7 +560,7 @@ def send_invoice(
         attachments=[(filename, pdf_bytes, "application/pdf")],
     )
 
-    if invoice.status == "DRAFT":
+    if invoice.status in ("DRAFT", "OPEN"):
         invoice.status = "SENT"
     db.commit()
     db.refresh(invoice)

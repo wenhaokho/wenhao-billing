@@ -11,7 +11,7 @@ from app.services.pdf.logo import resolve_logo
 
 _STATUS_BADGE = {
     # invoices
-    "DRAFT": "draft", "SENT": "sent", "PAID": "paid",
+    "DRAFT": "draft", "OPEN": "sent", "SENT": "sent", "PAID": "paid",
     "PARTIALLY_PAID": "partial", "PARTIAL": "partial",
     "AWAITING_FINALIZATION": "partial", "OVERDUE": "overdue", "VOID": "draft",
     # quotations

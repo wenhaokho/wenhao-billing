@@ -124,7 +124,7 @@ def project_summary(
     project = _load(db, project_id)
 
     # Only count invoices that have been issued (not drafts/voids).
-    billed_statuses = ("SENT", "PARTIAL", "PAID")
+    billed_statuses = ("OPEN", "SENT", "PARTIAL", "PAID")
     invoice_stats = db.execute(
         select(
             func.coalesce(func.sum(Invoice.amount), 0),

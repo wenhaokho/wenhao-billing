@@ -63,7 +63,7 @@ class UpcomingInvoice:
     amount_is_estimate: bool
 
 
-_OPEN_STATUSES = ("SENT", "PARTIAL")
+_OPEN_STATUSES = ("OPEN", "SENT", "PARTIAL")
 _OPEN_QUOTE_STATUSES = ("SENT", "ACCEPTED")
 
 
@@ -140,7 +140,7 @@ def compute_mrr_by_currency(db: Session, *, today: date) -> list[dict]:
 def compute_open_ar_base_by_currency(
     db: Session, *, today: date
 ) -> tuple[list[dict], list[str]]:
-    """Open AR (SENT + PARTIAL balances) per currency, each converted to the
+    """Open AR (OPEN + SENT + PARTIAL balances) per currency, each converted to the
     base currency (IDR) as of `today`.
 
     Returns (rows, unconverted) where rows is
@@ -285,7 +285,7 @@ def _avg_days_to_pay(db: Session, *, today: date, window_days: int = 90) -> floa
 def compute_customer_balances(db: Session, *, today: date) -> list[CustomerBalance]:
     """Open AR per (customer, currency) with overdue split out.
 
-    Only SENT and PARTIAL invoices contribute. Rows with balance_due == 0 are
+    Only OPEN, SENT and PARTIAL invoices contribute. Rows with balance_due == 0 are
     filtered out. Customers with no open invoices do not appear.
     """
     overdue_expr = case(
@@ -360,8 +360,13 @@ def compute_dashboard_stats(db: Session) -> dict:
         db.scalar(select(func.count(Invoice.invoice_id)).where(Invoice.status == "DRAFT")) or 0
     )
 
+    # Outstanding, fully-unpaid invoices: OPEN (finalized, awaiting payment) plus
+    # SENT (emailed). PARTIAL is tracked separately via the AR/open-balance tiles.
     sent_count = (
-        db.scalar(select(func.count(Invoice.invoice_id)).where(Invoice.status == "SENT")) or 0
+        db.scalar(
+            select(func.count(Invoice.invoice_id)).where(Invoice.status.in_(("OPEN", "SENT")))
+        )
+        or 0
     )
 
     customer_count = db.scalar(select(func.count(Customer.customer_id))) or 0

@@ -153,7 +153,7 @@ def billing_summary(
         db.scalars(
             select(Invoice)
             .where(Invoice.customer_id == customer_id)
-            .where(Invoice.status.in_(("DRAFT", "SENT", "PARTIAL")))
+            .where(Invoice.status.in_(("DRAFT", "OPEN", "SENT", "PARTIAL")))
             .order_by(Invoice.due_date.asc())
         )
     )

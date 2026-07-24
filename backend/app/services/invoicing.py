@@ -1,7 +1,8 @@
 """Invoice lifecycle: milestone / recurring / usage.
 
 All generation produces DRAFT invoices that land in the "Awaiting Finalization"
-queue (PRD §5). Only `finalize_invoice` moves DRAFT -> SENT.
+queue (PRD §5). `finalize_invoice` issues them (DRAFT -> OPEN); an invoice
+only becomes SENT once its email is actually dispatched.
 """
 
 from __future__ import annotations
@@ -458,13 +459,16 @@ def finalize_invoice(db: Session, invoice_id: UUID) -> Invoice:
     if invoice.is_template:
         raise InvoicingError("cannot finalize a recurring template")
     # A zero-value invoice has nothing to collect — settle it straight to PAID
-    # so it never gets stuck in an unpayable SENT state (record-payment requires
+    # so it never gets stuck in an unpayable OPEN state (record-payment requires
     # a positive amount <= balance_due, impossible when balance_due is 0).
     if Decimal(invoice.balance_due) <= 0:
         invoice.balance_due = Decimal("0")
         invoice.status = "PAID"
     else:
-        invoice.status = "SENT"
+        # OPEN = issued and awaiting payment. It only becomes SENT once the
+        # invoice email is actually dispatched (see send-invoice endpoints);
+        # finalizing does not email, so it must not claim SENT.
+        invoice.status = "OPEN"
     db.flush()
     return invoice
 
@@ -472,7 +476,7 @@ def finalize_invoice(db: Session, invoice_id: UUID) -> Invoice:
 def settle_zero_value_invoice(db: Session, invoice_id: UUID) -> Invoice:
     """Mark an already-finalized zero-value invoice as PAID.
 
-    For invoices that reached SENT/PARTIAL with a 0 balance (e.g. a genuinely
+    For invoices that reached OPEN/SENT/PARTIAL with a 0 balance (e.g. a genuinely
     zero-total or fully-discounted invoice finalized before zero-value settling
     was automatic). Refuses anything with an outstanding balance so a real
     receivable can never be wiped out this way.
@@ -480,9 +484,9 @@ def settle_zero_value_invoice(db: Session, invoice_id: UUID) -> Invoice:
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         raise InvoicingError(f"invoice {invoice_id} not found")
-    if invoice.status not in ("SENT", "PARTIAL"):
+    if invoice.status not in ("OPEN", "SENT", "PARTIAL"):
         raise InvoicingError(
-            f"only SENT or PARTIAL invoices can be settled this way (got {invoice.status})"
+            f"only OPEN, SENT or PARTIAL invoices can be settled this way (got {invoice.status})"
         )
     if Decimal(invoice.balance_due) > 0:
         raise InvoicingError(

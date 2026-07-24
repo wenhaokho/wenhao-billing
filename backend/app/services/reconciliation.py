@@ -47,7 +47,7 @@ def _load_candidates(db: Session, currency: str) -> list[InvoiceCandidate]:
     rows = db.execute(
         select(Invoice, Customer)
         .join(Customer, Customer.customer_id == Invoice.customer_id)
-        .where(Invoice.status.in_(("SENT", "PARTIAL")))
+        .where(Invoice.status.in_(("OPEN", "SENT", "PARTIAL")))
         .where(Invoice.currency == currency)
     ).all()
     return [
@@ -208,7 +208,9 @@ def reverse_payment(db: Session, payment_id: UUID, actor_user_id: UUID, reason: 
         invoice = db.get(Invoice, payment.invoice_id)
         if invoice is not None:
             invoice.balance_due = invoice.balance_due + payment.amount
-            invoice.status = "SENT"
+            # Restore to OPEN (issued, awaiting payment). We don't persist
+            # whether the invoice was emailed, so OPEN is the safe re-open state.
+            invoice.status = "OPEN"
 
     db.add(
         ReconciliationLog(
