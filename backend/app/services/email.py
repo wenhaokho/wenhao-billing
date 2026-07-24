@@ -46,6 +46,8 @@ def send_email(
     msg = EmailMessage()
     msg["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
     msg["To"] = to_email
+    if settings.smtp_reply_to:
+        msg["Reply-To"] = settings.smtp_reply_to
     if cc_email:
         msg["Cc"] = cc_email
     msg["Subject"] = subject

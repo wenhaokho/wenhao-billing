@@ -32,8 +32,9 @@ class Settings(BaseSettings):
     smtp_username: str | None = Field(default=None)
     smtp_password: str | None = Field(default=None)
     smtp_use_tls: bool = Field(default=True)
-    smtp_from_email: str = Field(default="no-reply@wenhao-billing.local")
+    smtp_from_email: str = Field(default="noreply@wenhao.id")
     smtp_from_name: str = Field(default="wenhao-billing")
+    smtp_reply_to: str | None = Field(default="wenhao.kho@gmail.com")
 
     # Base URL the user's browser uses to reach the frontend. Used to build
     # absolute reset-password links in outgoing emails.
