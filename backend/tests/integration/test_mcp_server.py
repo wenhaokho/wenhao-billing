@@ -132,3 +132,18 @@ def test_mcp_requires_auth(client):
         headers={"Accept": "application/json, text/event-stream"},
     )
     assert r.status_code == 401
+
+
+@pytest.mark.parametrize("method", ["GET", "POST", "DELETE"])
+def test_mcp_bare_path_redirects_to_trailing_slash(client, method):
+    """A client that connects to `/mcp` (no trailing slash) must be routed to
+    the mounted FastMCP app, not fall through to the SPA catch-all (405/404).
+    The redirect is a 307 so the method and JSON-RPC body are preserved."""
+    r = client.request(
+        method,
+        "/mcp",
+        headers={"Accept": "application/json, text/event-stream"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 307
+    assert r.headers["location"] == "/mcp/"
