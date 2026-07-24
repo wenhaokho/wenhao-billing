@@ -39,6 +39,7 @@ from app.schemas.payment import PaymentOut, RecordPaymentRequest
 from app.services import invoicing
 from app.services.email import send_email
 from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
+from app.services.invoice_pdf import _fmt_amount
 from app.services.pdf import render_invoice_pdf
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -544,7 +545,7 @@ def send_invoice(
     default_body = (
         f"Hi {greeting_name},\n\n"
         f"Please find attached invoice {invoice.invoice_number or ''} "
-        f"for {invoice.amount} {invoice.currency}.\n"
+        f"for {_fmt_amount(invoice.amount, invoice.currency)}.\n"
     )
     if invoice.due_date:
         default_body += f"Due date: {invoice.due_date}.\n"

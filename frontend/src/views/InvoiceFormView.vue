@@ -12,7 +12,7 @@ import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import Tag from "primevue/tag";
 import { api } from "@/api/client";
-import { formatAmount } from "@/utils/money";
+import { formatAmount, formatMoney } from "@/utils/money";
 import {
   useInvoiceForm,
   emptyLineItem,
@@ -386,7 +386,7 @@ const sendDefaults = computed(() => {
     message:
       `Hi ${cust?.name ?? "there"},\n\n` +
       `Please find attached invoice ${num}` +
-      (inv ? ` for ${inv.amount} ${inv.currency}` : "") + ".\n" +
+      (inv ? ` for ${formatMoney(inv.amount, inv.currency)}` : "") + ".\n" +
       (inv?.due_date ? `Due date: ${inv.due_date}.\n` : "") +
       `\nThank you.`,
   };
