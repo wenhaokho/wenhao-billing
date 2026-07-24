@@ -9,7 +9,7 @@ Add two forward-looking stats to the dashboard (`PaymentIntakeWidget.vue`, route
 
 1. **MRR (Monthly Recurring Revenue)** — normalized monthly value of active recurring templates, shown **per currency**.
 2. **Upcoming invoices (next 90 days)** — a list of invoices scheduled to generate soon, covering **recurring + usage-based** billing modes.
-3. **Open AR as a pie chart** — the existing "Open Accounts Receivable" card's per-currency list becomes a pie, one slice per currency (existing data, no backend change).
+3. **Open AR pie** — the "Open Accounts Receivable" card keeps its per-currency list in original currencies **and** adds a pie whose slices are each currency's balance converted to the base currency (IDR) via FX rates, so slices are comparable.
 
 No schema changes → **no migration**.
 
@@ -102,17 +102,41 @@ Insert a new `two-col` row **above** the revenue chart:
 
 The existing 5 stat tiles and revenue chart are unchanged. The Recent-activity card is unchanged. Reuse existing scoped CSS classes; add minimal new rules only for the mode tag / est. marker.
 
-## Component 4 — Open AR as a pie chart
+## Component 4 — Open AR: keep per-currency list + add base-converted (IDR) pie
 
-Replace the per-currency **list** in the existing "Open Accounts Receivable" card with a **pie chart**, one slice per currency, using the raw `open_ar_by_currency` totals. **No backend change** — the data is already returned by `compute_dashboard_stats`.
+The "Open Accounts Receivable" card shows **both**:
+1. The existing per-currency **list** in each balance's **original currency** — unchanged (`open_ar_by_currency`).
+2. A new **pie chart** where each slice is a currency's AR total **converted to the base currency (IDR)**, so slice areas are comparable and sum to total AR in IDR.
 
-- Uses the same lazily-imported PrimeVue `Chart` component already in the file, `type="pie"` (or `doughnut`). Reuse the existing `CHART_COLORS` palette, slice `i % len`.
-- Labels = currency codes; values = `Number(amount)`. Tooltip renders `formatAmount(value, currency)` so each slice still shows its native-currency amount on hover (sidesteps the cross-currency comparability caveat — the accepted trade-off is only in the visual slice areas).
-- Keep the card header and the `auto-cleared · 30d` success `Tag`.
-- Keep the existing empty-state ("No open AR. You're all caught up.") when `open_ar_by_currency` is empty.
-- Chart sits in a fixed-height wrapper like the revenue chart (`chart-wrap` pattern). The old `ar-list` markup/CSS is removed if no longer referenced.
+### Backend (`services/stats.py`, folded into `compute_dashboard_stats`)
 
-The Open-AR + Recent-activity two-col row stays in place; only the Open-AR card's body changes from list to pie.
+New helper produces the base-converted totals:
+
+```python
+def compute_open_ar_base_by_currency(
+    db: Session, *, today: date
+) -> list[dict]:  # [{"currency": str, "base_amount": Decimal}]
+    ...
+```
+
+- Reuses the same `open_ar_by_currency` aggregation already computed (SENT + PARTIAL balances grouped by currency).
+- For each currency, `fx.convert(db, amount, from_currency=currency, on_date=today).base_amount` (base defaults to `Settings.base_currency` = IDR; the base currency itself returns rate 1 without a DB hit).
+- **Missing rate** (`FxRateMissing`): skip that currency's slice and collect its code into `open_ar_unconverted: list[str]` so the UI can note "N not shown (no FX rate)". Never let a missing rate crash the dashboard.
+- Add to the `compute_dashboard_stats` return dict: `open_ar_base_by_currency`, `open_ar_unconverted`, and `base_currency` (from settings). These flow to both the REST response and MCP `get_stats`.
+
+Add to the `DashboardStats` pydantic model: `base_currency: str`, `open_ar_base_by_currency: list[CurrencyBaseAmount]` (fields `currency`, `base_amount`), `open_ar_unconverted: list[str]`.
+
+### Frontend (`PaymentIntakeWidget.vue`)
+
+Open AR card body = the existing `ar-list` (original currencies) **plus** a pie chart beneath it:
+
+- Same lazily-imported PrimeVue `Chart`, `type="pie"` (or `doughnut`), reusing `CHART_COLORS` (`i % len`).
+- Labels = currency codes; values = `Number(base_amount)`. Subtitle/caption notes "Share of open AR, converted to IDR." Tooltip renders `formatAmount(base_amount, base_currency)` (the IDR figure).
+- Pie only renders when `open_ar_base_by_currency` is non-empty; if `open_ar_unconverted` is non-empty, show a small muted note listing those currency codes.
+- Keep the card header, the `auto-cleared · 30d` success `Tag`, and the existing empty-state ("No open AR. You're all caught up.") when there's no open AR at all.
+- Pie sits in a fixed-height wrapper (`chart-wrap` pattern). The `ar-list` markup/CSS is **retained**.
+
+The Open-AR + Recent-activity two-col row stays in place.
 
 ## Edge cases
 
@@ -130,6 +154,7 @@ New unit tests under `tests/unit/` (real Postgres per `conftest.py`; skip if `TE
 
 - `compute_mrr_by_currency`: each frequency's normalization (MONTHLY/YEARLY/WEEKLY/DAILY, interval > 1), paused exclusion, ended-schedule exclusion, malformed-config skip, multi-currency grouping + sort order.
 - `compute_upcoming_invoices`: recurring next-occurrence within window, boundary at exactly `today + 90d`, template past end excluded, paused excluded, usage next-cutoff computation incl. month-length clamp, locked/no-cut_off_day usage skipped, sort order, mixed recurring+usage.
+- `compute_open_ar_base_by_currency`: base-currency total returns rate 1 (no conversion), foreign currency converts via seeded USD/SGD→IDR rates, missing-rate currency lands in `open_ar_unconverted` (no raise), multi-currency grouping.
 
 No migration; no changes to the ledger or reconciliation paths.
 
@@ -139,4 +164,4 @@ No migration; no changes to the ledger or reconciliation paths.
 - Milestone invoices in the upcoming list (manual, no deterministic date).
 - Enumerating every future occurrence per template (next-occurrence-only chosen).
 - Wiring the real usage accrual source (remains a separate concern; amounts stay indicative).
-- Base-currency-converted or aging/customer breakdowns for the Open AR pie (per-currency raw slices chosen; hover tooltips show native amounts).
+- Aging/customer breakdowns for the Open AR pie (per-currency, base-converted slices chosen). The original-currency list is retained alongside the pie.
