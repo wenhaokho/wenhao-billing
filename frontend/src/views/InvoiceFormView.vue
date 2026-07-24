@@ -815,19 +815,22 @@ const canSave = computed(() => {
 
     <div class="totals-wrap">
       <div
-        v-if="!readOnly"
+        v-if="!readOnly && (!isEdit || isRecurring)"
         class="card recurring-card"
         :class="{ 'is-active': isRecurring }"
       >
-        <label class="recurring-toggle">
+        <!-- The Recurring toggle only makes sense when creating: an invoice's
+             mode is fixed after creation, so in edit mode we hide the checkbox
+             and (for recurring templates) show a static heading instead. -->
+        <label v-if="!isEdit" class="recurring-toggle">
           <Checkbox
             v-model="isRecurring"
             :binary="true"
             input-id="isRecurring"
-            :disabled="isEdit"
           />
           <span>Recurring</span>
         </label>
+        <div v-else class="recurring-heading">Recurring schedule</div>
         <div v-if="isRecurring" class="schedule-grid">
           <label class="meta-label">Frequency</label>
           <Dropdown
@@ -1019,6 +1022,9 @@ const canSave = computed(() => {
   display: inline-flex; align-items: center; gap: 0.5rem;
   font-size: 0.95rem; font-weight: 600; color: var(--color-text);
   cursor: pointer; user-select: none;
+}
+.recurring-heading {
+  font-size: 0.95rem; font-weight: 600; color: var(--color-text);
 }
 .schedule-grid {
   display: grid;
