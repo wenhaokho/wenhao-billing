@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
-import { useRouter } from "vue-router";
+import { ref, computed, watch } from "vue";
+import { useRouter, useRoute } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
@@ -33,7 +33,18 @@ interface Bill {
 const router = useRouter();
 
 // 0 = Unpaid (OPEN + PARTIAL), 1 = Draft, 2 = All
-const activeTab = ref(0);
+// Reflect the active status tab in the URL as a readable slug (?tab=unpaid)
+// so it is restored when navigating back to this list after opening an item.
+const route = useRoute();
+const TAB_SLUGS = ["unpaid", "draft", "all"];
+function readTabFromQuery(): number {
+  const i = TAB_SLUGS.indexOf(String(route.query.tab));
+  return i >= 0 ? i : 0;
+}
+const activeTab = ref(readTabFromQuery());
+watch(activeTab, (t) => {
+  router.replace({ query: { ...route.query, tab: TAB_SLUGS[t] ?? TAB_SLUGS[0] } });
+});
 const TAB_TO_STATUSES: Record<number, string[] | null> = {
   0: ["OPEN", "PARTIAL"],
   1: ["DRAFT"],
@@ -102,7 +113,7 @@ function statusSeverity(status: string) {
       data-key="bill_id"
       striped-rows
       selection-mode="single"
-      @row-click="(ev) => router.push(`/bills/${(ev.data as Bill).bill_id}/edit`)"
+      @row-click="(ev) => router.push({ path: `/bills/${(ev.data as Bill).bill_id}/edit`, query: { from: route.fullPath } })"
     >
       <template #empty>
         <div class="empty-state">

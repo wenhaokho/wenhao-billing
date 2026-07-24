@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
+import { useReturnTo } from "@/composables/useReturnTo";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
 import Dropdown from "primevue/dropdown";
@@ -78,6 +79,7 @@ interface BillOut {
 
 const props = defineProps<{ billId?: string }>();
 const router = useRouter();
+const { backTo, goBack } = useReturnTo("/bills");
 const queryClient = useQueryClient();
 
 const currencyOptions = ["IDR", "SGD", "USD"];
@@ -265,7 +267,7 @@ const save = useMutation({
   },
   onSuccess: () => {
     queryClient.invalidateQueries({ queryKey: ["bills"] });
-    router.push("/bills");
+    router.push(backTo.value);
   },
 });
 
@@ -291,7 +293,7 @@ function statusSeverity(status: string) {
 <template>
   <section class="bill-form">
     <div class="back">
-      <Button label="Bills" icon="pi pi-arrow-left" text size="small" @click="router.push('/bills')" />
+      <Button label="Bills" icon="pi pi-arrow-left" text size="small" @click="goBack" />
     </div>
 
     <header class="page-header">

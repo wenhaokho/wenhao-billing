@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
+import { useReturnTo } from "@/composables/useReturnTo";
 import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
@@ -54,6 +55,8 @@ interface Customer {
 
 const props = defineProps<{ projectId: string }>();
 const router = useRouter();
+const route = useRoute();
+const { backTo } = useReturnTo({ name: "projects" });
 
 const { data: project, isLoading } = useQuery<Project>({
   queryKey: ["project", () => props.projectId],
@@ -135,13 +138,13 @@ function statusSeverity(s: string) {
 }
 
 function backToList() {
-  router.push({ name: "projects" });
+  router.push(backTo.value);
 }
 function openEdit() {
-  router.push({ name: "project-edit", params: { projectId: props.projectId } });
+  router.push({ name: "project-edit", params: { projectId: props.projectId }, query: { from: route.fullPath } });
 }
 function openInvoice(row: Invoice) {
-  router.push({ name: "invoice-edit", params: { id: row.invoice_id } });
+  router.push({ name: "invoice-edit", params: { id: row.invoice_id }, query: { from: route.fullPath } });
 }
 </script>
 

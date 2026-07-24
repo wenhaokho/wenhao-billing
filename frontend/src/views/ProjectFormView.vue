@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
+import { useReturnTo } from "@/composables/useReturnTo";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
@@ -33,6 +34,7 @@ interface Customer {
 
 const props = defineProps<{ projectId?: string }>();
 const router = useRouter();
+const { backTo } = useReturnTo({ name: "projects" });
 const queryClient = useQueryClient();
 
 const currencyOptions = ["IDR", "SGD", "USD"];
@@ -156,7 +158,7 @@ const save = useMutation({
   onSuccess: () => {
     queryClient.invalidateQueries({ queryKey: ["projects"] });
     queryClient.invalidateQueries({ queryKey: ["project"] });
-    router.push({ name: "projects" });
+    router.push(backTo.value);
   },
   onError: (err: any) => {
     saveError.value = err?.response?.data?.detail ?? "Save failed";
@@ -169,7 +171,7 @@ function submit() {
 }
 
 function cancel() {
-  router.push({ name: "projects" });
+  router.push(backTo.value);
 }
 
 const canSave = computed(

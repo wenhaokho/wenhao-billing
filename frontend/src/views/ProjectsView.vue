@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, ref, watch } from "vue";
+import { useRouter, useRoute } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
@@ -32,9 +32,20 @@ interface Customer {
 }
 
 const router = useRouter();
+const route = useRoute();
 
 // 0 = Active, 1 = On hold, 2 = All
-const activeTab = ref(0);
+// Reflect the active status tab in the URL as a readable slug (?tab=active)
+// so it is restored when navigating back to this list after opening an item.
+const TAB_SLUGS = ["active", "hold", "all"];
+function readTabFromQuery(): number {
+  const i = TAB_SLUGS.indexOf(String(route.query.tab));
+  return i >= 0 ? i : 0;
+}
+const activeTab = ref(readTabFromQuery());
+watch(activeTab, (t) => {
+  router.replace({ query: { ...route.query, tab: TAB_SLUGS[t] ?? TAB_SLUGS[0] } });
+});
 const TAB_TO_STATUSES: Record<number, string[] | null> = {
   0: ["ACTIVE"],
   1: ["ON_HOLD"],
@@ -68,10 +79,10 @@ function openCreate() {
   router.push({ name: "project-new" });
 }
 function openEdit(row: Project) {
-  router.push({ name: "project-edit", params: { projectId: row.project_id } });
+  router.push({ name: "project-edit", params: { projectId: row.project_id }, query: { from: route.fullPath } });
 }
 function openDetail(row: Project) {
-  router.push({ name: "project-detail", params: { projectId: row.project_id } });
+  router.push({ name: "project-detail", params: { projectId: row.project_id }, query: { from: route.fullPath } });
 }
 
 function statusSeverity(s: string) {

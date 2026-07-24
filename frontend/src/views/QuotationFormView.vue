@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
+import { useReturnTo } from "@/composables/useReturnTo";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
 import Dropdown from "primevue/dropdown";
@@ -22,6 +23,7 @@ import InvoiceLineItemsTable from "@/components/InvoiceLineItemsTable.vue";
 
 const props = defineProps<{ quotationId?: string }>();
 const router = useRouter();
+const { goBack } = useReturnTo("/quotations");
 const queryClient = useQueryClient();
 
 interface Customer {
@@ -269,7 +271,7 @@ function openPdfPreview() {
 <template>
   <section class="quote-form">
     <div class="back">
-      <Button label="Quotations" icon="pi pi-arrow-left" text size="small" @click="router.push('/quotations')" />
+      <Button label="Quotations" icon="pi pi-arrow-left" text size="small" @click="goBack" />
     </div>
 
     <header class="page-header">

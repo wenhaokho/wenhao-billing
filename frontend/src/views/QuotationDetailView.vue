@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
+import { useReturnTo } from "@/composables/useReturnTo";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
 import Tag from "primevue/tag";
@@ -14,6 +15,8 @@ import SendQuotationDialog from "@/components/SendQuotationDialog.vue";
 
 const props = defineProps<{ quotationId: string }>();
 const router = useRouter();
+const route = useRoute();
+const { goBack } = useReturnTo("/quotations");
 const queryClient = useQueryClient();
 const confirm = useConfirm();
 
@@ -308,7 +311,7 @@ function toggleMoreMenu(event: Event) {
         icon="pi pi-arrow-left"
         text
         size="small"
-        @click="router.push('/quotations')"
+        @click="goBack"
       />
     </div>
 
@@ -343,7 +346,7 @@ function toggleMoreMenu(event: Event) {
             label="Edit"
             icon="pi pi-pencil"
             outlined
-            @click="router.push(`/quotations/${quote.quotation_id}/edit`)"
+            @click="router.push({ path: `/quotations/${quote.quotation_id}/edit`, query: { from: route.fullPath } })"
           />
           <Button
             label="More actions"
@@ -372,7 +375,7 @@ function toggleMoreMenu(event: Event) {
           icon="pi pi-arrow-right"
           icon-pos="right"
           text
-          @click="router.push(`/invoices/${quote.converted_invoice_id}/edit`)"
+          @click="router.push({ path: `/invoices/${quote.converted_invoice_id}/edit`, query: { from: route.fullPath } })"
         />
       </div>
 
@@ -395,7 +398,7 @@ function toggleMoreMenu(event: Event) {
                 icon="pi pi-pencil"
                 size="small"
                 outlined
-                @click="router.push(`/quotations/${quote.quotation_id}/edit`)"
+                @click="router.push({ path: `/quotations/${quote.quotation_id}/edit`, query: { from: route.fullPath } })"
               />
               <Button
                 label="Preview PDF"
@@ -500,7 +503,7 @@ function toggleMoreMenu(event: Event) {
                 icon-pos="right"
                 size="small"
                 text
-                @click="router.push(`/invoices/${quote.converted_invoice_id}/edit`)"
+                @click="router.push({ path: `/invoices/${quote.converted_invoice_id}/edit`, query: { from: route.fullPath } })"
               />
             </div>
           </div>
