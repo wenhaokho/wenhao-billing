@@ -134,7 +134,11 @@ function actionSeverity(a: string) {
 }
 
 function timeAgo(iso: string) {
-  const then = new Date(iso).getTime();
+  // Backend timestamps are naive UTC (e.g. "2026-07-24T02:00:00") with no
+  // timezone designator. JS parses those as *local* time, which skews the
+  // relative label by the viewer's UTC offset. Force UTC when none is present.
+  const hasTz = /[Zz]|[+-]\d{2}:?\d{2}$/.test(iso);
+  const then = new Date(hasTz ? iso : `${iso}Z`).getTime();
   const diff = Date.now() - then;
   const m = Math.floor(diff / 60000);
   if (m < 1) return "just now";
