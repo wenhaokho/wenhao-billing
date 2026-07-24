@@ -28,8 +28,9 @@ from app.services import email as email_service
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int = 200):
+    def __init__(self, status_code: int = 200, text: str = '{"message": "The domain is not verified."}'):
         self.status_code = status_code
+        self.text = text
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -148,3 +149,23 @@ def test_logging_fallback_when_nothing_configured(monkeypatch):
         )
     finally:
         get_settings.cache_clear()
+
+
+def test_resend_error_body_is_logged(monkeypatch, caplog):
+    import logging
+
+    _use_resend(monkeypatch, status_code=422)
+    try:
+        with caplog.at_level(logging.ERROR, logger="app.services.email"), pytest.raises(
+            RuntimeError
+        ):
+            email_service.send_email(
+                to_email="client@example.com",
+                subject="Hi",
+                body_text="hello",
+            )
+    finally:
+        get_settings.cache_clear()
+
+    assert "Resend rejected email" in caplog.text
+    assert "not verified" in caplog.text

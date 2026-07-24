@@ -61,6 +61,15 @@ def _send_via_resend(
                 headers={"Authorization": f"Bearer {settings.resend_api_key}"},
                 json=payload,
             )
+            if resp.status_code >= 400:
+                # Surface Resend's JSON error detail (e.g. domain-not-verified)
+                # before raise_for_status() reduces it to an opaque status error.
+                log.error(
+                    "Resend rejected email to %s: %s %s",
+                    to_email,
+                    resp.status_code,
+                    resp.text,
+                )
             resp.raise_for_status()
     except Exception:
         log.exception("failed to send email via Resend to %s", to_email)
