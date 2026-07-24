@@ -134,13 +134,16 @@ def _addr_lines(c: Customer) -> list[str]:
         lines.append(c.billing_address1)
     if c.billing_address2:
         lines.append(c.billing_address2)
-    city_line = ", ".join(
-        p for p in (c.billing_city, c.billing_state, c.billing_postal_code) if p
+    region_line = ", ".join(
+        p for p in (c.billing_state, c.billing_postal_code) if p
     )
-    if city_line:
-        lines.append(city_line)
-    if c.billing_country:
-        lines.append(c.billing_country)
+    if region_line:
+        lines.append(region_line)
+    city_country_line = ", ".join(
+        p for p in (c.billing_city, c.billing_country) if p
+    )
+    if city_country_line:
+        lines.append(city_country_line)
     if not lines and c.billing_address:
         lines = c.billing_address.splitlines()
     return lines

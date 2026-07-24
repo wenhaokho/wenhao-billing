@@ -63,8 +63,8 @@ function composedBillingAddress(c: Customer): string | null {
   const structured = [
     c.billing_address1,
     c.billing_address2,
-    [c.billing_city, c.billing_state, c.billing_postal_code].filter(Boolean).join(", "),
-    c.billing_country,
+    [c.billing_state, c.billing_postal_code].filter(Boolean).join(", "),
+    [c.billing_city, c.billing_country].filter(Boolean).join(", "),
   ]
     .map((v) => (v ?? "").trim())
     .filter(Boolean)
