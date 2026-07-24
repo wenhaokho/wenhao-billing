@@ -9,10 +9,16 @@ import Checkbox from "primevue/checkbox";
 import type { CustomerFormData } from "./customerForm";
 import { COUNTRIES } from "../constants/countries";
 
-const props = defineProps<{
-  modelValue: CustomerFormData;
-  showAliases?: boolean;
-}>();
+// showAliases is a Boolean prop, so an *absent* prop is cast to false by Vue
+// (not undefined). Default it to true via withDefaults so the field shows by
+// default; callers can still hide it with :show-aliases="false".
+const props = withDefaults(
+  defineProps<{
+    modelValue: CustomerFormData;
+    showAliases?: boolean;
+  }>(),
+  { showAliases: true },
+);
 
 const emit = defineEmits<{
   (e: "update:modelValue", v: CustomerFormData): void;
@@ -221,7 +227,7 @@ function onToggleSameAsBilling(v: boolean) {
         <Textarea v-model="local.notes" rows="4" autoResize />
       </label>
 
-      <label v-if="showAliases !== false" class="field">
+      <label v-if="showAliases" class="field">
         <span class="field-label">Matching aliases</span>
         <InputText
           v-model="aliasDraft"
