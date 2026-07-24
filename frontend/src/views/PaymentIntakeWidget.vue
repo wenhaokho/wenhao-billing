@@ -86,19 +86,40 @@ const { data: revenueData } = useQuery<MonthlyRevenueResponse>({
   refetchInterval: 60_000,
 });
 
-const CHART_COLORS = [
-  "#2563eb", "#10b981", "#f59e0b", "#ef4444",
-  "#8b5cf6", "#14b8a6", "#ec4899", "#64748b",
-];
+// Colour follows the currency, never its position in the dataset. The same
+// currency sits at a different index in each chart (revenue is ordered by
+// currency, the AR pie by amount), so indexing a palette by rank painted IDR
+// blue in the bars and amber in the pie. Pinning the hue per currency keeps
+// every chart on this page in agreement.
+const CURRENCY_COLORS: Record<string, string> = {
+  IDR: "#2563eb", // blue
+  SGD: "#10b981", // green
+  USD: "#f59e0b", // amber
+  EUR: "#ef4444", // red
+};
+// Slots deliberately clear of the pinned hues above, so an unmapped currency is
+// never mistaken for one of them.
+const FALLBACK_COLORS = ["#8b5cf6", "#14b8a6", "#ec4899", "#64748b"];
+
+function colorForCurrency(ccy: string): string {
+  const code = (ccy ?? "").toUpperCase();
+  const pinned = CURRENCY_COLORS[code];
+  if (pinned) return pinned;
+  // Deterministic hash so an unmapped currency still lands on the same colour
+  // in every chart, rather than shifting with the dataset order.
+  let h = 0;
+  for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) >>> 0;
+  return FALLBACK_COLORS[h % FALLBACK_COLORS.length];
+}
 
 const chartData = computed(() => {
   const r = revenueData.value;
   if (!r) return { labels: [], datasets: [] };
   const labels = r.months.map((m) => m.month);
-  const datasets = r.currencies.map((ccy, i) => ({
+  const datasets = r.currencies.map((ccy) => ({
     label: ccy,
-    backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
-    borderColor: CHART_COLORS[i % CHART_COLORS.length],
+    backgroundColor: colorForCurrency(ccy),
+    borderColor: colorForCurrency(ccy),
     data: r.months.map((m) => Number(m.totals[ccy] ?? 0)),
     stack: "revenue",
   }));
@@ -122,10 +143,12 @@ const chartOptions = computed(() => {
         // alongside it (same shape as the open-AR pie tooltip).
         label: (ctx: { dataset: { label?: string }; parsed: { y: number }; dataIndex: number }) => {
           const ccy = ctx.dataset.label ?? "";
+          const converted = `${formatAmount(String(ctx.parsed.y), base)} ${base}`;
+          // The base-currency series is already IDR — a "= … IDR" line would repeat it.
+          if (ccy === base) return converted;
           const native = months[ctx.dataIndex]?.native_totals?.[ccy];
-          const converted = `= ${formatAmount(String(ctx.parsed.y), base)} ${base}`;
           return native
-            ? [`${formatAmount(native, ccy)} ${ccy}`, converted]
+            ? [`${formatAmount(native, ccy)} ${ccy}`, `= ${converted}`]
             : converted;
         },
       },
@@ -164,7 +187,7 @@ const arPieData = computed(() => {
     datasets: [
       {
         data: rows.map((r) => Number(r.base_amount)),
-        backgroundColor: rows.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+        backgroundColor: rows.map((r) => colorForCurrency(r.currency)),
       },
     ],
   };
@@ -193,10 +216,12 @@ const arPieOptions = computed(() => {
           // Show the native amount and the IDR-converted amount together.
           label: (ctx: { label?: string; parsed: number }) => {
             const ccy = ctx.label ?? "";
+            const converted = `${formatAmount(String(ctx.parsed), base)} ${base}`;
+            // The base-currency slice is already IDR — a "= … IDR" line would repeat it.
+            if (ccy === base) return converted;
             const native = arNativeByCcy.value[ccy];
-            const converted = `= ${formatAmount(String(ctx.parsed), base)} ${base}`;
             return native
-              ? [`${formatAmount(native, ccy)} ${ccy}`, converted]
+              ? [`${formatAmount(native, ccy)} ${ccy}`, `= ${converted}`]
               : converted;
           },
         },
@@ -393,7 +418,7 @@ function timeAgo(iso: string) {
           <div class="card-head">
             <div>
               <h3>Open Accounts Receivable</h3>
-              <p class="subtitle">Sum of SENT + PARTIAL invoice balances, by currency.</p>
+              <p class="subtitle">Sum of OPEN + SENT + PARTIAL invoice balances, by currency.</p>
             </div>
             <Tag :value="`${stats.auto_cleared_last_30d} auto-cleared · 30d`" severity="success" />
           </div>
