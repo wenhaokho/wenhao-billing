@@ -18,6 +18,14 @@ from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.quotation import Quotation
+from app.services.recurring_schedule import (
+    Schedule,
+    ScheduleError,
+    current_cycle,
+    is_paused,
+    next_cycle_after,
+    parse_schedule,
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +51,76 @@ class InvoicesSummary:
 
 _OPEN_STATUSES = ("SENT", "PARTIAL")
 _OPEN_QUOTE_STATUSES = ("SENT", "ACCEPTED")
+
+
+_MONTHS_PER_YEAR = Decimal(12)
+
+
+def _is_schedule_active(schedule: Schedule, today: date) -> bool:
+    """Active = has a current cycle or a future cycle (i.e. not past its end)."""
+    return (
+        current_cycle(schedule, today) is not None
+        or next_cycle_after(schedule, today) is not None
+    )
+
+
+def _active_recurring_templates(
+    db: Session, *, today: date
+) -> list[tuple[Invoice, Schedule]]:
+    """Parseable, non-paused, non-ended RECURRING templates with their Schedule.
+
+    A single malformed/paused/ended template is skipped, never raises — same
+    defensive posture as the recurring beat scanner.
+    """
+    templates = db.scalars(
+        select(Invoice)
+        .where(Invoice.invoice_type == "RECURRING")
+        .where(Invoice.is_template.is_(True))
+    )
+    out: list[tuple[Invoice, Schedule]] = []
+    for t in templates:
+        if is_paused(t.billing_cycle_ref):
+            continue
+        try:
+            schedule = parse_schedule(t.billing_cycle_ref)
+        except ScheduleError:
+            continue
+        if not _is_schedule_active(schedule, today):
+            continue
+        out.append((t, schedule))
+    return out
+
+
+def _monthly_equiv(amount: Decimal, frequency: str, interval: int) -> Decimal:
+    """Per-cycle amount normalized to a monthly figure (not yet quantized)."""
+    ival = Decimal(interval)
+    if frequency == "MONTHLY":
+        return amount / ival
+    if frequency == "YEARLY":
+        return amount / (_MONTHS_PER_YEAR * ival)
+    if frequency == "WEEKLY":
+        return amount * Decimal(52) / (_MONTHS_PER_YEAR * ival)
+    if frequency == "DAILY":
+        return amount * Decimal(365) / (_MONTHS_PER_YEAR * ival)
+    raise ScheduleError(f"unreachable frequency {frequency!r}")
+
+
+def compute_mrr_by_currency(db: Session, *, today: date) -> list[dict]:
+    """Monthly recurring revenue per currency from active recurring templates.
+
+    Amounts are never converted across currencies. Sorted largest-first on the
+    raw Decimal before any string coercion (same rule as open_quotation_pipeline).
+    """
+    totals: dict[str, Decimal] = {}
+    for template, schedule in _active_recurring_templates(db, today=today):
+        monthly = _monthly_equiv(template.amount, schedule.frequency, schedule.interval)
+        totals[template.currency] = totals.get(template.currency, Decimal("0")) + monthly
+    rows = [
+        {"currency": ccy, "amount": amt.quantize(Decimal("0.0001"))}
+        for ccy, amt in totals.items()
+    ]
+    rows.sort(key=lambda r: r["amount"], reverse=True)
+    return rows
 
 
 def _bucket(db: Session, *, where_clause) -> list[CurrencyAmount]:
