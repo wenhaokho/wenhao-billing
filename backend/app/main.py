@@ -115,14 +115,16 @@ def _mount_frontend(app: FastAPI, dist_dir: str | None) -> None:
         # Hashed JS/CSS bundles — immutable, safe to serve directly.
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-    # Backend paths that must never resolve to the SPA shell. Unknown routes
-    # under these return a real 404 (JSON) instead of index.html, so a bad API
-    # call doesn't silently get an HTML 200.
-    reserved = ("api/", "mcp", "oauth", ".well-known", "docs", "redoc", "openapi.json")
+    # Backend path segments that must never resolve to the SPA shell. Unknown
+    # routes under these return a real 404 (JSON) instead of index.html, so a bad
+    # API call doesn't silently get an HTML 200. Matched against the FIRST path
+    # segment — not a raw substring — so a client route like "mcp-integration"
+    # isn't swallowed by the reserved "mcp" prefix.
+    reserved = {"api", "mcp", "oauth", ".well-known", "docs", "redoc", "openapi.json"}
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> FileResponse:
-        if full_path.startswith(reserved):
+        if full_path.split("/", 1)[0] in reserved:
             raise HTTPException(status_code=404, detail="Not Found")
         candidate = os.path.normpath(os.path.join(root, full_path))
         # Serve a real static file (favicon, etc.) only if it stays inside the
