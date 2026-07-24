@@ -2,10 +2,12 @@
 
 Fills the Company form shown in Account settings: company name, address,
 contact details, invoice title/summary, logo URL, and default notes — all of
-which are printed on every generated invoice.
+which are printed on every generated invoice — plus the per-currency payment
+accounts (bank / transfer instructions) keyed by currency, with one marked as
+the default fallback.
 
 Idempotent: skips the profile fields if the profile already has a company
-name set, and skips seeding a default payment account if one already exists.
+name set, and skips any payment-account currency that already exists.
 
 Usage:
     docker compose exec backend python -m scripts.seed_business_profile
@@ -43,33 +45,66 @@ PROFILE = {
     "invoice_title": "Invoice",
     "invoice_summary": "Software development & digital solutions.",
     "logo_url": _logo_data_uri(),
-    "default_notes": "Thank you for your business.",
+    "default_notes": None,
 }
 
-# The existing OCBC NISP account (SWIFT NISPIDJA) is an Indonesian bank → IDR.
-IDR_ACCOUNT_INSTRUCTIONS = (
-    "Acc Name: KARDONO WIJAYA\n"
-    "Bank: OCBC\n"
-    "Account number: 090810625088\n"
-    "SWIFT code: NISPIDJA"
-)
+# Per-currency payment accounts. Instructions are printed on invoices and
+# quotations issued in that currency; exactly one account is is_default=True
+# and acts as the fallback when no account matches the invoice currency.
+PAYMENT_ACCOUNTS = [
+    {
+        "currency": "IDR",
+        "is_default": True,
+        "instructions": (
+            "Beneficiary: Kardono Wijaya\n"
+            "Bank: Bank Central Asia (BCA)\n"
+            "Account Number: 8520198131"
+        ),
+    },
+    # OCBC NISP (SWIFT NISPIDJA) — the international account, used for USD.
+    {
+        "currency": "USD",
+        "is_default": False,
+        "instructions": (
+            "Beneficiary: Kardono Wijaya\n"
+            "Bank: OCBC NISP\n"
+            "Account Number: 090810625088\n"
+            "SWIFT/BIC: NISPIDJA"
+        ),
+    },
+    {
+        "currency": "SGD",
+        "is_default": False,
+        "instructions": (
+            "PayNow: +6282121552288\n"
+            "\n"
+            "— or —\n"
+            "\n"
+            "Beneficiary: Kardono Wijaya\n"
+            "Bank: OCBC\n"
+            "Account Number: 602881245001"
+        ),
+    },
+]
 
 
 def _seed_payment_accounts(db) -> None:
-    existing = db.query(PaymentAccount).filter_by(business_profile_id=1).count()
-    if existing:
-        print(f"skipping payment accounts: {existing} already present")
+    existing = {
+        pa.currency
+        for pa in db.query(PaymentAccount).filter_by(business_profile_id=1)
+    }
+    added: list[str] = []
+    for acc in PAYMENT_ACCOUNTS:
+        if acc["currency"] in existing:
+            continue
+        db.add(PaymentAccount(business_profile_id=1, **acc))
+        added.append(acc["currency"])
+
+    if not added:
+        print(f"skipping payment accounts: {len(existing)} already present")
         return
-    db.add(
-        PaymentAccount(
-            business_profile_id=1,
-            currency="IDR",
-            instructions=IDR_ACCOUNT_INSTRUCTIONS,
-            is_default=True,
-        )
-    )
     db.commit()
-    print("seeded IDR default payment account")
+    print(f"seeded payment account(s): {', '.join(added)}")
 
 
 def seed() -> None:
