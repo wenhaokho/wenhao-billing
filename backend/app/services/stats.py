@@ -6,6 +6,7 @@ assert on shape directly.
 
 from __future__ import annotations
 
+import calendar
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -48,6 +49,17 @@ class InvoicesSummary:
     overdue: list[CurrencyAmount]
     due_30d: list[CurrencyAmount]
     avg_days_to_pay: float | None
+
+
+@dataclass(frozen=True)
+class UpcomingInvoice:
+    invoice_id: uuid.UUID
+    customer_id: uuid.UUID | None
+    mode: str  # "RECURRING" | "USAGE"
+    next_date: date
+    amount: Decimal
+    currency: str
+    amount_is_estimate: bool
 
 
 _OPEN_STATUSES = ("SENT", "PARTIAL")
@@ -153,6 +165,81 @@ def compute_open_ar_base_by_currency(
     converted.sort(key=lambda r: r["base_amount"], reverse=True)
     unconverted.sort()
     return converted, unconverted
+
+
+def _clamp_dom(year: int, month: int, day: int) -> date:
+    last = calendar.monthrange(year, month)[1]
+    return date(year, month, min(day, last))
+
+
+def _next_day_of_month(today: date, dom: int) -> date:
+    """Smallest date >= today whose day-of-month is `dom` (clamped to month length)."""
+    cand = _clamp_dom(today.year, today.month, dom)
+    if cand >= today:
+        return cand
+    y, m = today.year, today.month + 1
+    if m == 13:
+        y, m = y + 1, 1
+    return _clamp_dom(y, m, dom)
+
+
+def compute_upcoming_invoices(
+    db: Session, *, today: date, horizon_days: int = 90
+) -> list[UpcomingInvoice]:
+    """Next generation date per recurring template and per pending usage invoice,
+    within [today, today + horizon_days]. One row per source (next occurrence
+    only). Usage amounts are indicative (accruing), flagged amount_is_estimate.
+    """
+    horizon = today + timedelta(days=horizon_days)
+    out: list[UpcomingInvoice] = []
+
+    # Recurring: next cycle start per active template.
+    for template, schedule in _active_recurring_templates(db, today=today):
+        nxt = next_cycle_after(schedule, today)
+        if nxt is None or nxt > horizon:
+            continue
+        out.append(
+            UpcomingInvoice(
+                invoice_id=template.invoice_id,
+                customer_id=template.customer_id,
+                mode="RECURRING",
+                next_date=nxt,
+                amount=template.amount,
+                currency=template.currency,
+                amount_is_estimate=False,
+            )
+        )
+
+    # Usage: next cut_off_day occurrence per DRAFT, unlocked usage invoice.
+    usage_rows = db.scalars(
+        select(Invoice)
+        .where(Invoice.invoice_type == "USAGE")
+        .where(Invoice.status == "DRAFT")
+    )
+    for inv in usage_rows:
+        cfg = inv.billing_cycle_ref or {}
+        if cfg.get("locked"):
+            continue
+        dom = cfg.get("cut_off_day")
+        if not isinstance(dom, int) or not (1 <= dom <= 31):
+            continue
+        nxt = _next_day_of_month(today, dom)
+        if nxt > horizon:
+            continue
+        out.append(
+            UpcomingInvoice(
+                invoice_id=inv.invoice_id,
+                customer_id=inv.customer_id,
+                mode="USAGE",
+                next_date=nxt,
+                amount=inv.amount,
+                currency=inv.currency,
+                amount_is_estimate=True,
+            )
+        )
+
+    out.sort(key=lambda u: (u.next_date, str(u.invoice_id)))
+    return out
 
 
 def _bucket(db: Session, *, where_clause) -> list[CurrencyAmount]:
