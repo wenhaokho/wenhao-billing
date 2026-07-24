@@ -30,7 +30,7 @@ CUSTOMERS: list[dict] = [
         "billing_city": "Kabupaten Karimun",
         "billing_state": "Kepulauan Riau",
         "billing_postal_code": "29661",
-        "billing_country": "ID",
+        "billing_country": "Indonesia",
     },
     {
         "name": "PT SINDO MAKMUR SENTOSA",
@@ -43,7 +43,7 @@ CUSTOMERS: list[dict] = [
         "billing_address1": "Komp. Hijrah Karya Mandiri Blok F No. 5",
         "billing_city": "Batam",
         "billing_state": "Kepulauan Riau",
-        "billing_country": "ID",
+        "billing_country": "Indonesia",
     },
 ]
 
