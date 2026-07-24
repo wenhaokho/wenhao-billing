@@ -11,6 +11,7 @@ from app.models.item import Item
 from app.models.journal import JournalEntry, JournalLine
 from app.models.oauth_client import OAuthClient, OAuthRefreshToken
 from app.models.payment import Payment
+from app.models.payment_account import PaymentAccount
 from app.models.project import Project
 from app.models.quotation import Quotation
 from app.models.quotation_line_item import QuotationLineItem
@@ -34,6 +35,7 @@ __all__ = [
     "OAuthClient",
     "OAuthRefreshToken",
     "Payment",
+    "PaymentAccount",
     "Project",
     "Quotation",
     "QuotationLineItem",

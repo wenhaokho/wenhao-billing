@@ -10,7 +10,11 @@ def _biz():
         name="Wenhao Development Pte Ltd", address="1 Marina Boulevard\nSingapore 018989",
         contact_email="accounts@wenhao.dev", contact_phone="+65 6123 4567",
         invoice_title="Invoice", invoice_summary=None, logo_url=None,
-        default_notes=None, payment_instructions="DBS 012-345678-9",
+        default_notes=None,
+        payment_accounts=[
+            SimpleNamespace(currency="SGD", instructions="DBS 012-345678-9",
+                            is_default=True),
+        ],
     )
 
 

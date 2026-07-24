@@ -64,6 +64,7 @@ services:
       - ./backend/app:/app/app
       - ./backend/alembic:/app/alembic
       - ./backend/scripts:/app/scripts
+      - ./backend/tests:/app/tests
     command:
       [
         "sh",

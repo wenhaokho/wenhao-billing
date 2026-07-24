@@ -15,7 +15,13 @@ def _biz():
         address="1 Marina Boulevard\nSingapore 018989",
         contact_email="accounts@wenhao.dev", contact_phone="+65 6123 4567",
         invoice_title="Invoice", invoice_summary=None, logo_url=None,
-        default_notes="Default note.", payment_instructions="DBS 012-345678-9",
+        default_notes="Default note.",
+        payment_accounts=[
+            SimpleNamespace(currency="SGD", instructions="DBS 012-345678-9",
+                            is_default=False),
+            SimpleNamespace(currency="IDR", instructions="OCBC NISP IDR",
+                            is_default=True),
+        ],
     )
 
 
@@ -127,3 +133,34 @@ def test_quotation_notes_fall_back_to_business_default():
     )
     ctx = build_quotation_context(q, _cust(), _biz())
     assert ctx["notes"] == "Default note."
+
+
+from app.services.pdf.context import resolve_payment_instructions
+
+
+def test_resolve_payment_instructions_matches_currency():
+    accounts = _biz().payment_accounts
+    assert resolve_payment_instructions(accounts, "SGD") == "DBS 012-345678-9"
+
+
+def test_resolve_payment_instructions_falls_back_to_default():
+    accounts = _biz().payment_accounts
+    # No USD account -> the is_default (IDR) account wins.
+    assert resolve_payment_instructions(accounts, "USD") == "OCBC NISP IDR"
+
+
+def test_resolve_payment_instructions_none_when_empty():
+    assert resolve_payment_instructions([], "SGD") is None
+    assert resolve_payment_instructions(None, "SGD") is None
+
+
+def test_invoice_context_selects_default_when_currency_unmatched():
+    ctx = build_invoice_context(_inv(currency="USD"), _cust(), _biz())
+    assert ctx["payment_instructions"] == "OCBC NISP IDR"
+
+
+def test_invoice_context_omits_block_when_no_accounts():
+    biz = _biz()
+    biz.payment_accounts = []
+    ctx = build_invoice_context(_inv(), _cust(), biz)
+    assert ctx["payment_instructions"] is None
