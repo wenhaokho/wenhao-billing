@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +10,19 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="postgresql+psycopg://billing:billing@localhost:5432/billing"
     )
+
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _normalize_database_url(cls, value: str) -> str:
+        # Managed Postgres providers (Coolify, Heroku, etc.) hand out URLs with
+        # the legacy `postgres://` scheme, and bare `postgresql://` selects the
+        # psycopg2 driver — neither of which works here (SQLAlchemy 2.0 dropped
+        # the `postgres` alias, and we only ship psycopg v3). Normalize both to
+        # the explicit psycopg-v3 dialect so alembic and the app engine agree.
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix):]
+        return value
     redis_url: str = Field(default="redis://localhost:6379/0")
 
     session_secret: str = Field(default="dev-session-secret-change-me")
