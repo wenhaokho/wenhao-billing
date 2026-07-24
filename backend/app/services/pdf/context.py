@@ -40,17 +40,22 @@ def _addr_lines(customer) -> list[str]:
         v = getattr(customer, attr, None)
         if v:
             lines.append(v)
-    city = ", ".join(
+    region = ", ".join(
         p for p in (
-            getattr(customer, "billing_city", None),
             getattr(customer, "billing_state", None),
             getattr(customer, "billing_postal_code", None),
         ) if p
     )
-    if city:
-        lines.append(city)
-    if getattr(customer, "billing_country", None):
-        lines.append(customer.billing_country)
+    if region:
+        lines.append(region)
+    city_country = ", ".join(
+        p for p in (
+            getattr(customer, "billing_city", None),
+            getattr(customer, "billing_country", None),
+        ) if p
+    )
+    if city_country:
+        lines.append(city_country)
     if not lines and getattr(customer, "billing_address", None):
         lines = customer.billing_address.splitlines()
     return lines

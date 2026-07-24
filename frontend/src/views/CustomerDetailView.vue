@@ -186,12 +186,18 @@ function displayContactName(c: Customer): string {
 }
 
 function composedBillingAddress(c: Customer): string {
-  const cityLine = [c.billing_city, c.billing_state, c.billing_postal_code]
+  const regionLine = [c.billing_state, c.billing_postal_code]
     .filter(Boolean)
     .join(", ");
-  const parts = [c.billing_address1, c.billing_address2, cityLine, c.billing_country].filter(
-    Boolean,
-  );
+  const cityCountryLine = [c.billing_city, c.billing_country]
+    .filter(Boolean)
+    .join(", ");
+  const parts = [
+    c.billing_address1,
+    c.billing_address2,
+    regionLine,
+    cityCountryLine,
+  ].filter(Boolean);
   const composed = parts.join("\n");
   return composed || c.billing_address || "";
 }

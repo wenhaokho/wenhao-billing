@@ -25,9 +25,23 @@ interface Customer {
   matching_aliases: string[];
   active: boolean;
   contact_name: string | null;
+  contact_first_name: string | null;
+  contact_last_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
   billing_address: string | null;
+}
+
+// The edit form writes contact_first_name/contact_last_name; contact_name is a
+// legacy combined field. Prefer the legacy field when present, otherwise build
+// the display name from first + last so newer customers still show a contact.
+function contactName(row: Customer): string | null {
+  if (row.contact_name) return row.contact_name;
+  const joined = [row.contact_first_name, row.contact_last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return joined || null;
 }
 
 const router = useRouter();
@@ -132,8 +146,8 @@ function confirmDeactivate(row: Customer) {
       <Column field="name" header="Name" />
       <Column header="Contact">
         <template #body="{ data: row }">
-          <div v-if="row.contact_name || row.contact_email">
-            <div v-if="row.contact_name">{{ row.contact_name }}</div>
+          <div v-if="contactName(row) || row.contact_email">
+            <div v-if="contactName(row)">{{ contactName(row) }}</div>
             <div v-if="row.contact_email" class="muted small">{{ row.contact_email }}</div>
           </div>
           <span v-else class="muted">—</span>
