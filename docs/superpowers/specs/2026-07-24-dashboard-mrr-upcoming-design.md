@@ -9,6 +9,7 @@ Add two forward-looking stats to the dashboard (`PaymentIntakeWidget.vue`, route
 
 1. **MRR (Monthly Recurring Revenue)** — normalized monthly value of active recurring templates, shown **per currency**.
 2. **Upcoming invoices (next 90 days)** — a list of invoices scheduled to generate soon, covering **recurring + usage-based** billing modes.
+3. **Open AR as a pie chart** — the existing "Open Accounts Receivable" card's per-currency list becomes a pie, one slice per currency (existing data, no backend change).
 
 No schema changes → **no migration**.
 
@@ -99,7 +100,19 @@ Insert a new `two-col` row **above** the revenue chart:
 - **MRR by currency** card — reuses the Open-AR list style (`ar-list`): one row per currency, `CCY` chip + `formatAmount`. Header subtitle: "Normalized monthly value of active recurring templates." Empty-state ("No active recurring revenue.") when the list is empty.
 - **Upcoming invoices (next 90 days)** card — a list; each row: `next_date` (formatted), `customer_name` (fallback "—"), a mode `Tag` (`Recurring` = info, `Usage` = warning), and `amount` via `formatAmount` with a small "est." marker when `amount_is_estimate`. Empty-state ("Nothing scheduled in the next 90 days.") when empty. Optional "+N more" tail if rendering is capped client-side (cap e.g. 12 rows).
 
-The existing 5 stat tiles, revenue chart, and Open-AR / Recent-activity row are unchanged. Reuse existing scoped CSS classes; add minimal new rules only for the mode tag / est. marker.
+The existing 5 stat tiles and revenue chart are unchanged. The Recent-activity card is unchanged. Reuse existing scoped CSS classes; add minimal new rules only for the mode tag / est. marker.
+
+## Component 4 — Open AR as a pie chart
+
+Replace the per-currency **list** in the existing "Open Accounts Receivable" card with a **pie chart**, one slice per currency, using the raw `open_ar_by_currency` totals. **No backend change** — the data is already returned by `compute_dashboard_stats`.
+
+- Uses the same lazily-imported PrimeVue `Chart` component already in the file, `type="pie"` (or `doughnut`). Reuse the existing `CHART_COLORS` palette, slice `i % len`.
+- Labels = currency codes; values = `Number(amount)`. Tooltip renders `formatAmount(value, currency)` so each slice still shows its native-currency amount on hover (sidesteps the cross-currency comparability caveat — the accepted trade-off is only in the visual slice areas).
+- Keep the card header and the `auto-cleared · 30d` success `Tag`.
+- Keep the existing empty-state ("No open AR. You're all caught up.") when `open_ar_by_currency` is empty.
+- Chart sits in a fixed-height wrapper like the revenue chart (`chart-wrap` pattern). The old `ar-list` markup/CSS is removed if no longer referenced.
+
+The Open-AR + Recent-activity two-col row stays in place; only the Open-AR card's body changes from list to pie.
 
 ## Edge cases
 
@@ -126,3 +139,4 @@ No migration; no changes to the ledger or reconciliation paths.
 - Milestone invoices in the upcoming list (manual, no deterministic date).
 - Enumerating every future occurrence per template (next-occurrence-only chosen).
 - Wiring the real usage accrual source (remains a separate concern; amounts stay indicative).
+- Base-currency-converted or aging/customer breakdowns for the Open AR pie (per-currency raw slices chosen; hover tooltips show native amounts).
