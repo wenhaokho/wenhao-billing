@@ -18,10 +18,13 @@ def html_to_pdf(html: str) -> bytes:
             page = browser.new_page()
             page.set_default_timeout(timeout)
             page.set_content(html, wait_until="load")
+            # Page margins (which reserve the bands for the repeated fixed
+            # header/footer) are controlled by the CSS `@page` rule in
+            # templates/document.html.j2 — with prefer_css_page_size the CSS
+            # @page wins, so passing margin here would have no effect.
             return page.pdf(
                 format="A4",
                 print_background=True,
-                margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
                 prefer_css_page_size=True,
             )
         finally:

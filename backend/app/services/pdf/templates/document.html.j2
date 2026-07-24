@@ -23,7 +23,7 @@
     display:flex; flex-direction:column; min-height:100vh;}
   .head{position:relative; background:var(--navy); color:#fff; padding:20px 40px; overflow:hidden;}
   .head::before{content:""; position:absolute; inset:0 0 auto 0; height:4px; background:var(--grad);}
-  .head::after{content:""; position:absolute; top:-120px; right:-120px; width:340px; height:340px;
+  .head::after{content:""; position:absolute; top:-120px; left:-120px; width:340px; height:340px;
     background:radial-gradient(circle at center, rgba(0,143,245,.30), rgba(0,217,245,0) 62%); pointer-events:none;}
   .head-row{position:relative; display:flex; justify-content:space-between; align-items:center; gap:24px}
   .brand img{height:76px; width:auto; display:block}
@@ -95,17 +95,42 @@
   .foot .fbrand{font-family:var(--display); font-weight:700; color:#fff}
   .foot .fmeta{font-family:var(--mono); font-size:11.5px; display:flex; gap:14px; flex-wrap:wrap}
   @page{size:A4; margin:0}
+  /* The whole document is wrapped in table.layout: its <thead> (branded
+     header) repeats at the top of EVERY page and its <tfoot> (branded footer)
+     at the bottom. Chromium reserves their space per page automatically, so
+     flowing content never collides with them — no fixed positioning needed. */
+  .layout{width:100%; border-collapse:collapse}
+  .layout > thead > tr > td,
+  .layout > tfoot > tr > td,
+  .layout > tbody > tr > td{padding:0}
+  .foot-space{height:50px}
   @media print{
-    html,body{background:var(--navy); padding:0; height:100%}
-    .sheet{max-width:none; width:auto; border:none; border-radius:0; min-height:100%}
-    .party,.panel,.meta,.table-wrap,.summary,.terms{break-inside:avoid}
+    html,body{background:#fff; padding:0; height:auto}
+    .sheet{max-width:none; width:auto; border:none; border-radius:0; min-height:0}
+    .layout > thead, .layout > tfoot{break-inside:avoid}
+    /* Consistent gap below the (repeated) header on EVERY page, so page 2's
+       table isn't jammed against the header the way page 1's content isn't. */
+    .layout > thead > tr > td{padding:0 0 16px}
+    .body{padding-top:0}
+    /* The footer is pinned to the physical bottom of every page (incl. the
+       last), while the empty <tfoot> reserves the matching band so flowing
+       content never runs under it. bottom:-4px bleeds it a few px past the
+       page edge (clipped) to cover the A4 sub-pixel hairline gap. */
+    .foot{position:fixed; bottom:-4px; left:0; right:0; margin-top:0; height:50px}
+    /* Items table flows and splits across pages; its column-header row repeats
+       and individual rows are never clipped mid-row. */
+    .table-wrap{overflow:visible}
+    .table-wrap thead{display:table-header-group}
     tr{break-inside:avoid}
+    .party,.panel,.meta,.summary,.terms{break-inside:avoid}
   }
   *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 </style>
 </head>
 <body>
   <div class="sheet">
+   <table class="layout">
+    <thead><tr><td>
     <header class="head">
       <div class="head-row">
         <div class="brand"><img src="{{ logo }}" alt="{{ from_name }}"></div>
@@ -116,6 +141,11 @@
         </div>
       </div>
     </header>
+    </td></tr></thead>
+    <tfoot><tr><td>
+    <div class="foot-space"></div>
+    </td></tr></tfoot>
+    <tbody><tr><td>
     <div class="body">
       <div class="meta">
         {% for k, v in meta %}
@@ -178,10 +208,12 @@
       </div>
       {% endif %}
     </div>
-    <footer class="foot">
-      <div class="fbrand">{{ foot_name }}</div>
-      <div class="fmeta">{% for m in foot_meta %}<span>{{ m }}</span>{% endfor %}</div>
-    </footer>
+    </td></tr></tbody>
+   </table>
+   <footer class="foot">
+     <div class="fbrand">{{ foot_name }}</div>
+     <div class="fmeta">{% for m in foot_meta %}<span>{{ m }}</span>{% endfor %}</div>
+   </footer>
   </div>
 </body>
 </html>
