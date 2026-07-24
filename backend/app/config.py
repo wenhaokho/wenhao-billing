@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     # absolute reset-password links in outgoing emails.
     app_base_url: str = Field(default="http://localhost:5173")
 
+    # Directory of the built frontend (Vite `dist/`). When set and present, the
+    # backend serves the SPA (static assets + history-mode fallback) from the
+    # same origin as the API — used by the single-container Coolify deploy.
+    # Left unset in dev, where Vite serves the frontend on its own port.
+    frontend_dist: str | None = Field(default=None)
+
     cloudflare_api_token: str | None = Field(default=None)
     cloudflare_api_base_url: str = Field(default="https://api.cloudflare.com/client/v4")
     cloudflare_timeout_seconds: float = Field(default=15.0)

@@ -1,5 +1,9 @@
-from fastapi import FastAPI
+import os
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1.routers import (
@@ -79,7 +83,45 @@ def create_app() -> FastAPI:
         app.include_router(build_oauth_router())
         app.mount("/mcp", mcp_http_app)
 
+    # Serve the built SPA from the same origin as the API (single-container
+    # deploy). Registered LAST so it never shadows the API, MCP, OAuth, or docs
+    # routes above — the catch-all only fires for paths nothing else matched.
+    _mount_frontend(app, settings.frontend_dist)
+
     return app
+
+
+def _mount_frontend(app: FastAPI, dist_dir: str | None) -> None:
+    if not dist_dir or not os.path.isdir(dist_dir):
+        return
+
+    root = os.path.abspath(dist_dir)
+    index_file = os.path.join(root, "index.html")
+    assets_dir = os.path.join(root, "assets")
+    if os.path.isdir(assets_dir):
+        # Hashed JS/CSS bundles — immutable, safe to serve directly.
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    # Backend paths that must never resolve to the SPA shell. Unknown routes
+    # under these return a real 404 (JSON) instead of index.html, so a bad API
+    # call doesn't silently get an HTML 200.
+    reserved = ("api/", "mcp", "oauth", ".well-known", "docs", "redoc", "openapi.json")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str) -> FileResponse:
+        if full_path.startswith(reserved):
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = os.path.normpath(os.path.join(root, full_path))
+        # Serve a real static file (favicon, etc.) only if it stays inside the
+        # dist root — guards against path-traversal escaping via `..`.
+        if (
+            full_path
+            and candidate.startswith(root + os.sep)
+            and os.path.isfile(candidate)
+        ):
+            return FileResponse(candidate)
+        # History-mode client route — hand back the SPA shell.
+        return FileResponse(index_file)
 
 
 app = create_app()
