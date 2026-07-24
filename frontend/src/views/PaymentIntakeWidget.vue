@@ -346,8 +346,8 @@ function timeAgo(iso: string) {
           <div>
             <h3>Revenue — last 12 months</h3>
             <p class="subtitle">
-              Invoiced revenue (OPEN + SENT + PARTIAL + PAID) by month, stacked per
-              currency and converted to {{ revenueData?.base_currency ?? 'IDR' }}.
+              Invoiced revenue by month, stacked per currency and converted to
+              {{ revenueData?.base_currency ?? 'IDR' }}.
             </p>
           </div>
         </div>
@@ -418,7 +418,7 @@ function timeAgo(iso: string) {
           <div class="card-head">
             <div>
               <h3>Open Accounts Receivable</h3>
-              <p class="subtitle">Sum of OPEN + SENT + PARTIAL invoice balances, by currency.</p>
+              <p class="subtitle">Sum of outstanding invoice balances, by currency.</p>
             </div>
             <Tag :value="`${stats.auto_cleared_last_30d} auto-cleared · 30d`" severity="success" />
           </div>
