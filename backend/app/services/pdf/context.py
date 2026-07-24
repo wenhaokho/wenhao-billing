@@ -90,6 +90,24 @@ def _discount_row(discount_type, discount_value, subtotal):
     return {"label": f"Discount{suffix}", "value": f"−{_fmt_num(disc)}", "cls": "discount"}
 
 
+def resolve_payment_instructions(accounts, currency: str | None) -> str | None:
+    """Pick the payment-instructions block for `currency`.
+
+    Exact currency match wins; otherwise the account flagged `is_default`;
+    otherwise None (the template omits the block).
+    """
+    rows = list(accounts or [])
+    if not rows:
+        return None
+    for a in rows:
+        if a.currency == currency:
+            return a.instructions
+    for a in rows:
+        if a.is_default:
+            return a.instructions
+    return None
+
+
 def _common(doc, customer, business) -> dict:
     to_lines = _addr_lines(customer)
     if getattr(customer, "contact_email", None):
@@ -105,7 +123,9 @@ def _common(doc, customer, business) -> dict:
         "to_lines": to_lines,
         "items": [_item(li) for li in doc.line_items],
         "currency": doc.currency,
-        "payment_instructions": getattr(business, "payment_instructions", None),
+        "payment_instructions": resolve_payment_instructions(
+            getattr(business, "payment_accounts", None), doc.currency
+        ),
         "notes": doc.notes or getattr(business, "default_notes", None),
         "terms": doc.payment_terms,
         "foot_name": getattr(business, "name", None) or "",
