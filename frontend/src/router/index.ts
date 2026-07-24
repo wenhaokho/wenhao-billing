@@ -9,13 +9,13 @@ const router = createRouter({
       path: "/login",
       name: "login",
       component: () => import("@/views/LoginView.vue"),
-      meta: { public: true },
+      meta: { public: true, guestOnly: true },
     },
     {
       path: "/forgot-password",
       name: "forgot-password",
       component: () => import("@/views/ForgotPasswordView.vue"),
-      meta: { public: true },
+      meta: { public: true, guestOnly: true },
     },
     {
       path: "/reset-password",
@@ -262,9 +262,18 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
-  if (to.meta.public) return true;
   const auth = useAuthStore();
+  // Resolve the session before deciding anything — public routes included.
+  // Returning early for them meant a signed-in user was handed the sign-in
+  // form, and left the store empty until App.vue's own fetchMe resolved,
+  // which then flipped the layout and wrapped that form in the app shell.
+  // This is the single place the session is resolved for a navigation.
   if (!auth.user) await auth.fetchMe();
+
+  // /reset-password is deliberately not guestOnly: a valid token should still
+  // work while signed in.
+  if (to.meta.guestOnly && auth.user) return { name: "dashboard" };
+  if (to.meta.public) return true;
   if (!auth.user) return { name: "login", query: { next: to.fullPath } };
   return true;
 });

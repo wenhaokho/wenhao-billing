@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterLink, RouterView, useRouter, useRoute } from "vue-router";
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
 import Button from "primevue/button";
 import Avatar from "primevue/avatar";
 import Menu from "primevue/menu";
@@ -14,8 +14,6 @@ const { theme, toggle: toggleTheme } = useTheme();
 const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
-
-onMounted(() => auth.fetchMe());
 
 const userMenu = ref<InstanceType<typeof Menu> | null>(null);
 const userMenuItems = computed<MenuItem[]>(() => [
@@ -140,7 +138,9 @@ const userInitials = computed(() => {
   return label.slice(0, 2).toUpperCase();
 });
 
-const isAuthed = computed(() => !!auth.user);
+// Public pages (sign in, forgot/reset password) always stand alone, even if a
+// session happens to be live — the shell must never frame a sign-in form.
+const showShell = computed(() => !!auth.user && !route.meta.public);
 
 const mobileNavOpen = ref(false);
 function toggleMobileNav() { mobileNavOpen.value = !mobileNavOpen.value; }
@@ -149,7 +149,7 @@ function closeMobileNav() { mobileNavOpen.value = false; }
 
 <template>
   <a class="skip-link" href="#main-content">Skip to content</a>
-  <div v-if="isAuthed" class="shell" :class="{ 'nav-open': mobileNavOpen }">
+  <div v-if="showShell" class="shell" :class="{ 'nav-open': mobileNavOpen }">
     <div class="nav-scrim" @click="closeMobileNav" />
     <aside class="sidebar">
       <div class="brand">
