@@ -176,7 +176,11 @@ watch(existing, (b) => {
   } else {
     lineItems.value = [emptyLine(0)];
   }
-});
+},
+// Populate immediately: on client-side navigation from a row the bill is
+// often already in vue-query's cache, so `existing` resolves synchronously
+// before this watch is registered and a non-immediate watch would miss it.
+{ immediate: true });
 
 const readOnly = computed(
   () => !!(existing.value?.status && !["DRAFT", "OPEN"].includes(existing.value.status)),

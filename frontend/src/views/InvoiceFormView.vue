@@ -269,6 +269,9 @@ watch(
         unit_price: Number(ln.unit_price),
       })) as LineItemRow[];
   },
+  // Populate immediately in case the template is already cached (client-side
+  // navigation resolves vue-query synchronously, before this watch registers).
+  { immediate: true },
 );
 
 const { data: businessProfile } = useQuery<{ default_notes: string | null }>({
@@ -450,7 +453,11 @@ watch(existing, (inv) => {
   } else {
     lineItems.value = [emptyLineItem(0)];
   }
-});
+},
+// Populate immediately: on client-side navigation from a row the invoice is
+// often already in vue-query's cache, so `existing` resolves synchronously
+// before this watch is registered and a non-immediate watch would miss it.
+{ immediate: true });
 
 function toISODate(d: Date | null): string | null {
   if (!d) return null;
