@@ -19,7 +19,8 @@
   body{font-family:var(--sans); color:var(--ink); background:var(--bg);
     -webkit-font-smoothing:antialiased; padding:40px 20px; line-height:1.5;}
   .sheet{width:100%; max-width:840px; margin:0 auto; background:#fff;
-    border:1px solid var(--border); border-radius:14px; overflow:hidden;}
+    border:1px solid var(--border); border-radius:14px; overflow:hidden;
+    display:flex; flex-direction:column; min-height:100vh;}
   .head{position:relative; background:var(--navy); color:#fff; padding:20px 40px; overflow:hidden;}
   .head::before{content:""; position:absolute; inset:0 0 auto 0; height:4px; background:var(--grad);}
   .head::after{content:""; position:absolute; top:-120px; right:-120px; width:340px; height:340px;
@@ -40,21 +41,15 @@
   .badge--paid   {color:#0DBF9B; background:rgba(13,191,155,.14); border-color:rgba(13,191,155,.45)}
   .badge--partial{color:#00D9F5; background:rgba(0,143,245,.16);  border-color:rgba(0,217,245,.45)}
   .badge--overdue{color:#FF8A8A; background:rgba(239,91,91,.16);  border-color:rgba(239,91,91,.5)}
-  .badge.on-light.badge--draft  {color:#5B6b7f; background:#EEF2F7}
-  .badge.on-light.badge--sent   {color:#145BFF; background:#E7EFFF}
-  .badge.on-light.badge--paid   {color:#0a8f76; background:#E1F7F1}
-  .badge.on-light.badge--partial{color:#0378c4; background:#E2F1FB}
-  .badge.on-light.badge--overdue{color:#d83b3b; background:#FCE9E9}
-  .body{padding:16px 40px 4px}
+  .body{padding:16px 40px 4px; flex:1 0 auto; display:flex; flex-direction:column}
   .section-label{font-family:var(--display); font-weight:700; font-size:11px; letter-spacing:.12em;
     text-transform:uppercase; color:var(--muted); margin:0 0 6px;}
-  .meta{display:grid; grid-template-columns:repeat(4,1fr); border:1px solid var(--border);
+  .meta{display:grid; grid-template-columns:repeat(3,1fr); border:1px solid var(--border);
     border-radius:12px; overflow:hidden; background:var(--soft); margin-bottom:12px;}
   .meta .cell{padding:10px 16px; background:#fff}
   .meta .cell + .cell{border-left:1px solid var(--border)}
   .meta .k{font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:600}
   .meta .v{font-family:var(--mono); font-size:14px; color:var(--ink); margin-top:6px; font-weight:500}
-  .meta .cell.status{display:flex; flex-direction:column}
   .parties{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:12px}
   .party{border:1px solid var(--border); border-radius:12px; padding:12px 16px; background:#fff}
   .party.to{background:linear-gradient(180deg,#FBFDFF,#F4F8FD)}
@@ -71,12 +66,16 @@
   td.num{text-align:right; font-family:var(--mono); font-size:13px; color:#334155; white-space:nowrap}
   td.amt{text-align:right; font-family:var(--mono); font-size:13px; font-weight:600; color:var(--navy); white-space:nowrap}
   td.idx{color:var(--muted); font-family:var(--mono); font-size:12px; width:34px}
-  .lower{display:grid; grid-template-columns:1.1fr .9fr; gap:22px; align-items:start; margin-bottom:16px}
-  .terms{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .lower{display:flex; justify-content:flex-end; gap:22px; align-items:flex-start; margin-bottom:16px}
+  .lower > .panel.pay{flex:1 1 auto; min-width:0}
+  .lower > div:empty{display:none}
+  .terms{display:flex; gap:16px; margin-top:auto}
+  .terms > .panel{flex:1 1 0; min-width:0}
   .panel{border:1px solid var(--border); border-radius:12px; padding:15px 18px; background:#fff}
   .panel.pay{background:var(--soft); border-color:#CBDAEC}
   .note-text{font-size:12.5px; color:#475569; margin:0; white-space:pre-wrap}
-  .summary{border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#fff}
+  .summary{border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#fff;
+    width:340px; max-width:100%; flex:0 0 auto}
   .summary .row{display:flex; justify-content:space-between; align-items:center; padding:9px 18px; font-size:13.5px}
   .summary .row + .row{border-top:1px solid #EDF2F8}
   .summary .row .lbl{color:var(--muted)}
@@ -84,20 +83,21 @@
   .summary .row.discount .val{color:var(--paid)}
   .summary .row.paid .val{color:var(--azure)}
   .summary .row.total .lbl,.summary .row.total .val{color:var(--ink); font-weight:700}
-  .total-due{background:var(--grad); color:#fff; padding:16px 20px;
-    display:flex; justify-content:space-between; align-items:center;}
-  .total-due .lbl{font-family:var(--display); font-weight:700; font-size:12px; letter-spacing:.1em;
+  .total-due{background:var(--grad); color:#fff; padding:15px 20px;
+    display:flex; justify-content:space-between; align-items:center; gap:6px 14px; flex-wrap:wrap;}
+  .total-due .lbl{font-family:var(--display); font-weight:700; font-size:11px; letter-spacing:.1em;
     text-transform:uppercase; opacity:.95; white-space:nowrap}
-  .total-due .amt{font-family:var(--mono); font-weight:600; font-size:26px}
-  .total-due .amt .cur{font-family:var(--display); font-size:13px; font-weight:700; opacity:.9; margin-left:6px}
-  .foot{margin-top:14px; background:var(--navy); color:#9FB4D6; padding:13px 40px;
+  .total-due .amt{font-family:var(--mono); font-weight:600; font-size:22px; line-height:1.15;
+    margin-left:auto; text-align:right; white-space:nowrap}
+  .total-due .amt .cur{font-family:var(--display); font-size:12px; font-weight:700; opacity:.9; margin-left:6px}
+  .foot{margin-top:14px; flex-shrink:0; background:var(--navy); color:#9FB4D6; padding:13px 40px;
     display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; font-size:12px;}
   .foot .fbrand{font-family:var(--display); font-weight:700; color:#fff}
   .foot .fmeta{font-family:var(--mono); font-size:11.5px; display:flex; gap:14px; flex-wrap:wrap}
   @page{size:A4; margin:0}
   @media print{
-    html,body{background:#fff; padding:0}
-    .sheet{max-width:none; width:auto; border:none; border-radius:0}
+    html,body{background:var(--navy); padding:0; height:100%}
+    .sheet{max-width:none; width:auto; border:none; border-radius:0; min-height:100%}
     .party,.panel,.meta,.table-wrap,.summary,.terms{break-inside:avoid}
     tr{break-inside:avoid}
   }
@@ -121,9 +121,6 @@
         {% for k, v in meta %}
         <div class="cell"><div class="k">{{ k }}</div><div class="v">{{ v }}</div></div>
         {% endfor %}
-        <div class="cell status"><div class="k">Status</div>
-          <div class="badge on-light badge--{{ status_class }}" style="align-self:flex-start; margin-top:6px"><span class="dot"></span>{{ status_label }}</div>
-        </div>
       </div>
       <div class="parties">
         <div class="party from">

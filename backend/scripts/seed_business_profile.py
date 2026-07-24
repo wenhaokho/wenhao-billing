@@ -1,8 +1,8 @@
 """Seed the singleton business profile (Company / invoice header settings).
 
 Fills the Company form shown in Account settings: company name, address,
-contact details, invoice title/summary, logo URL, and default notes/terms —
-all of which are printed on every generated invoice.
+contact details, invoice title/summary, logo URL, default notes, and
+payment instructions — all of which are printed on every generated invoice.
 
 Idempotent: skips if the profile already has a company name set.
 
@@ -41,17 +41,12 @@ PROFILE = {
     "invoice_title": "Invoice",
     "invoice_summary": "Software development & digital solutions.",
     "logo_url": _logo_data_uri(),
-    "default_notes": (
-        "Payment due within 14 days of the invoice date. Please include the "
-        "invoice number as the payment reference.\n\n"
-        "Bank transfer details:\n"
-        "Payee name: KARDONO WIJAYA\n"
+    "default_notes": "Thank you for your business.",
+    "payment_instructions": (
+        "Acc Name: KARDONO WIJAYA\n"
         "Bank: OCBC\n"
         "Account number: 090810625088\n"
-        "SWIFT code: NISPIDJA\n"
-        "Bank address: Komplek Ruko Palm Spring, Blok B2 No. 15-18, "
-        "Batam, Tanjung Uma, Batam 29441, Indonesia\n\n"
-        "Thank you for your business."
+        "SWIFT code: NISPIDJA"
     ),
 }
 

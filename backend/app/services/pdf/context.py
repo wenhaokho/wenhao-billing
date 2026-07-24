@@ -134,6 +134,9 @@ def build_invoice_context(invoice, customer, business=None) -> dict:
         rows.append({"label": "Paid", "value": f"−{_fmt_num(paid)}", "cls": "paid"})
     ctx.update({
         "doc_title": (getattr(business, "invoice_title", None) or "INVOICE").upper(),
+        # "Net N" drives the due-date, not a customer-facing term; the
+        # descriptive Notes panel carries any payment wording instead.
+        "terms": None,
         "ref": invoice.invoice_number or "—",
         "meta": [
             ("Invoice No.", invoice.invoice_number or "—"),
