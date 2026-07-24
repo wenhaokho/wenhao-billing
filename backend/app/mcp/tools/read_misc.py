@@ -67,4 +67,11 @@ def get_stats() -> dict:
             "open_ar_by_currency": _coerce_currency_rows(stats["open_ar_by_currency"]),
             "open_quotation_count": stats["open_quotation_count"],
             "open_quotation_pipeline": _coerce_currency_rows(stats["open_quotation_pipeline"]),
+            "mrr_by_currency": _coerce_currency_rows(stats["mrr_by_currency"]),
+            "base_currency": stats["base_currency"],
+            "open_ar_base_by_currency": [
+                {"currency": r["currency"], "base_amount": coerce_value(r["base_amount"])}
+                for r in stats["open_ar_base_by_currency"]
+            ],
+            "open_ar_unconverted": stats["open_ar_unconverted"],
         }

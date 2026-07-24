@@ -15,6 +15,7 @@ from decimal import Decimal
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.payment import Payment
@@ -344,6 +345,8 @@ def compute_dashboard_stats(db: Session) -> dict:
     that sort here, on Decimals, not after converting to strings (string
     sort order does not match numeric order, e.g. "900" > "1000").
     """
+    today = date.today()
+
     awaiting_review_count = (
         db.scalar(
             select(func.count(Payment.payment_id)).where(
@@ -400,6 +403,11 @@ def compute_dashboard_stats(db: Session) -> dict:
     # Largest total first — sort on Decimal amounts (see docstring).
     open_quotation_pipeline.sort(key=lambda row: row["amount"], reverse=True)
 
+    mrr_by_currency = compute_mrr_by_currency(db, today=today)
+    open_ar_base_by_currency, open_ar_unconverted = compute_open_ar_base_by_currency(
+        db, today=today
+    )
+
     return {
         "awaiting_review_count": awaiting_review_count,
         "draft_count": draft_count,
@@ -409,4 +417,8 @@ def compute_dashboard_stats(db: Session) -> dict:
         "open_ar_by_currency": open_ar_by_currency,
         "open_quotation_count": open_quotation_count,
         "open_quotation_pipeline": open_quotation_pipeline,
+        "mrr_by_currency": mrr_by_currency,
+        "open_ar_base_by_currency": open_ar_base_by_currency,
+        "open_ar_unconverted": open_ar_unconverted,
+        "base_currency": get_settings().base_currency,
     }

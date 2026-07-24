@@ -11,11 +11,16 @@ from app.config import get_settings
 
 from app.api.deps import current_admin
 from app.db.session import get_db
+from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.recon_log import ReconciliationLog
 from app.models.user import User
-from app.services.stats import compute_dashboard_stats, compute_invoices_summary
+from app.services.stats import (
+    compute_dashboard_stats,
+    compute_invoices_summary,
+    compute_upcoming_invoices,
+)
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -23,6 +28,22 @@ router = APIRouter(prefix="/stats", tags=["stats"])
 class CurrencyAmount(BaseModel):
     currency: str
     amount: Decimal
+
+
+class CurrencyBaseAmount(BaseModel):
+    currency: str
+    base_amount: Decimal
+
+
+class UpcomingInvoiceItem(BaseModel):
+    invoice_id: UUID
+    customer_id: UUID | None
+    customer_name: str | None
+    mode: str
+    next_date: date
+    amount: Decimal
+    currency: str
+    amount_is_estimate: bool
 
 
 class ActivityItem(BaseModel):
@@ -66,6 +87,11 @@ class DashboardStats(BaseModel):
     open_quotation_count: int
     open_quotation_pipeline: list[CurrencyAmount]
     recent_activity: list[ActivityItem]
+    mrr_by_currency: list[CurrencyAmount]
+    base_currency: str
+    open_ar_base_by_currency: list[CurrencyBaseAmount]
+    open_ar_unconverted: list[str]
+    upcoming_invoices: list[UpcomingInvoiceItem]
 
 
 @router.get("/dashboard", response_model=DashboardStats)
@@ -116,6 +142,30 @@ def dashboard(
         for r in activity_rows
     ]
 
+    upcoming = compute_upcoming_invoices(db, today=date.today())
+    cust_ids = {u.customer_id for u in upcoming if u.customer_id is not None}
+    names: dict[UUID, str] = {}
+    if cust_ids:
+        for cid, cname in db.execute(
+            select(Customer.customer_id, Customer.name).where(
+                Customer.customer_id.in_(cust_ids)
+            )
+        ).all():
+            names[cid] = cname
+    upcoming_invoices = [
+        UpcomingInvoiceItem(
+            invoice_id=u.invoice_id,
+            customer_id=u.customer_id,
+            customer_name=names.get(u.customer_id) if u.customer_id else None,
+            mode=u.mode,
+            next_date=u.next_date,
+            amount=u.amount,
+            currency=u.currency,
+            amount_is_estimate=u.amount_is_estimate,
+        )
+        for u in upcoming
+    ]
+
     return DashboardStats(
         awaiting_review_count=stats["awaiting_review_count"],
         draft_count=stats["draft_count"],
@@ -126,6 +176,13 @@ def dashboard(
         open_quotation_count=stats["open_quotation_count"],
         open_quotation_pipeline=open_quotation_pipeline,
         recent_activity=recent_activity,
+        mrr_by_currency=[CurrencyAmount(**row) for row in stats["mrr_by_currency"]],
+        base_currency=stats["base_currency"],
+        open_ar_base_by_currency=[
+            CurrencyBaseAmount(**row) for row in stats["open_ar_base_by_currency"]
+        ],
+        open_ar_unconverted=stats["open_ar_unconverted"],
+        upcoming_invoices=upcoming_invoices,
     )
 
 
