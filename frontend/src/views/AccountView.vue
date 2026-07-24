@@ -173,11 +173,9 @@ async function saveCompany() {
   companySaved.value = false;
   companySaving.value = true;
   try {
-    const payload = Object.fromEntries(
-      Object.entries(company.value).map(([k, v]) => [k, v && String(v).trim() ? v : null]),
-    );
-    await api.put("/business-profile", payload);
     // Client-side guards mirror the API (unique currency, <=1 default).
+    // Validate before either PUT so a failed guard never leaves a partial save
+    // (profile committed but payment accounts not).
     const currencies = paymentAccounts.value.map((a) => a.currency);
     if (new Set(currencies).size !== currencies.length) {
       throw new Error("Each currency can only have one payment account.");
@@ -185,6 +183,10 @@ async function saveCompany() {
     if (paymentAccounts.value.filter((a) => a.is_default).length > 1) {
       throw new Error("Only one account can be the default.");
     }
+    const payload = Object.fromEntries(
+      Object.entries(company.value).map(([k, v]) => [k, v && String(v).trim() ? v : null]),
+    );
+    await api.put("/business-profile", payload);
     await api.put(
       "/business-profile/payment-accounts",
       paymentAccounts.value.map((a) => ({
