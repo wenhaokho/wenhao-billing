@@ -10,6 +10,17 @@ import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
 interface CurrencyAmount { currency: string; amount: string }
+interface CurrencyBaseAmount { currency: string; base_amount: string }
+interface UpcomingInvoiceItem {
+  invoice_id: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  mode: "RECURRING" | "USAGE";
+  next_date: string;
+  amount: string;
+  currency: string;
+  amount_is_estimate: boolean;
+}
 interface ActivityItem {
   log_id: string;
   payment_id: string;
@@ -31,6 +42,11 @@ interface DashboardStats {
   open_quotation_count: number;
   open_quotation_pipeline: CurrencyAmount[];
   recent_activity: ActivityItem[];
+  mrr_by_currency: CurrencyAmount[];
+  base_currency: string;
+  open_ar_base_by_currency: CurrencyBaseAmount[];
+  open_ar_unconverted: string[];
+  upcoming_invoices: UpcomingInvoiceItem[];
 }
 interface MonthlyRevenueBucket { month: string; totals: Record<string, string> }
 interface MonthlyRevenueResponse {
@@ -121,6 +137,65 @@ const chartOptions = computed(() => ({
 const hasRevenueData = computed(
   () => (revenueData.value?.currencies.length ?? 0) > 0,
 );
+
+const arPieData = computed(() => {
+  const rows = stats.value?.open_ar_base_by_currency ?? [];
+  return {
+    labels: rows.map((r) => r.currency),
+    datasets: [
+      {
+        data: rows.map((r) => Number(r.base_amount)),
+        backgroundColor: rows.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+      },
+    ],
+  };
+});
+
+const hasArPie = computed(
+  () => (stats.value?.open_ar_base_by_currency.length ?? 0) > 0,
+);
+
+// Native (original-currency) AR total per currency, for the pie tooltip.
+const arNativeByCcy = computed<Record<string, string>>(() => {
+  const m: Record<string, string> = {};
+  for (const r of stats.value?.open_ar_by_currency ?? []) m[r.currency] = r.amount;
+  return m;
+});
+
+const arPieOptions = computed(() => {
+  const base = stats.value?.base_currency ?? "";
+  return {
+    maintainAspectRatio: false,
+    responsive: true,
+    plugins: {
+      legend: { position: "bottom" as const, labels: { font: { size: 11 }, boxWidth: 12 } },
+      tooltip: {
+        callbacks: {
+          // Show the native amount and the IDR-converted amount together.
+          label: (ctx: { label?: string; parsed: number }) => {
+            const ccy = ctx.label ?? "";
+            const native = arNativeByCcy.value[ccy];
+            const converted = `= ${formatAmount(String(ctx.parsed), base)} ${base}`;
+            return native
+              ? [`${formatAmount(native, ccy)} ${ccy}`, converted]
+              : converted;
+          },
+        },
+      },
+    },
+  };
+});
+
+function formatDate(iso: string) {
+  // next_date is a plain YYYY-MM-DD (no timezone) — format without Date() drift.
+  const [y, m, d] = iso.split("-");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${Number(d)} ${months[Number(m) - 1]} ${y}`;
+}
+
+function modeSeverity(mode: string) {
+  return mode === "USAGE" ? "warning" : "info";
+}
 
 function actionSeverity(a: string) {
   switch (a) {
@@ -238,6 +313,55 @@ function timeAgo(iso: string) {
         </div>
       </div>
 
+      <!-- Forward-looking: MRR + Upcoming -->
+      <div class="two-col">
+        <!-- MRR -->
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Monthly Recurring Revenue</h3>
+              <p class="subtitle">Normalized monthly value of active recurring templates, by currency.</p>
+            </div>
+          </div>
+          <div v-if="!stats.mrr_by_currency.length" class="empty-state">
+            <i class="pi pi-sync" />
+            <div>No active recurring revenue.</div>
+          </div>
+          <ul v-else class="ar-list">
+            <li v-for="row in stats.mrr_by_currency" :key="row.currency">
+              <span class="ar-ccy">{{ row.currency }}</span>
+              <span class="ar-amt num">{{ formatAmount(row.amount, row.currency) }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Upcoming -->
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Upcoming Invoices</h3>
+              <p class="subtitle">Recurring &amp; usage invoices generating in the next 90 days.</p>
+            </div>
+          </div>
+          <div v-if="!stats.upcoming_invoices.length" class="empty-state">
+            <i class="pi pi-calendar" />
+            <div>Nothing scheduled in the next 90 days.</div>
+          </div>
+          <ul v-else class="activity upcoming-list">
+            <li v-for="u in stats.upcoming_invoices" :key="u.invoice_id">
+              <div class="act-head">
+                <Tag :value="u.mode === 'USAGE' ? 'Usage' : 'Recurring'" :severity="modeSeverity(u.mode)" />
+                <span class="act-payer">{{ u.customer_name ?? '—' }}</span>
+                <span class="act-amt num">
+                  {{ formatAmount(u.amount, u.currency) }} {{ u.currency }}<template v-if="u.amount_is_estimate"> · est.</template>
+                </span>
+                <span class="act-time">{{ formatDate(u.next_date) }}</span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
       <div class="two-col">
         <!-- Open AR -->
         <div class="card">
@@ -258,6 +382,13 @@ function timeAgo(iso: string) {
               <span class="ar-amt num">{{ formatAmount(row.amount, row.currency) }}</span>
             </li>
           </ul>
+          <div v-if="hasArPie" class="chart-wrap ar-pie">
+            <p class="pie-caption">Share of open AR, converted to {{ stats.base_currency }}.</p>
+            <Chart type="pie" :data="arPieData" :options="arPieOptions" />
+          </div>
+          <p v-if="stats.open_ar_unconverted.length" class="pie-note">
+            Not shown (no FX rate): {{ stats.open_ar_unconverted.join(', ') }}
+          </p>
         </div>
 
         <!-- Recent activity -->
@@ -372,6 +503,8 @@ function timeAgo(iso: string) {
   padding: 0.8rem 1.25rem;
 }
 .activity li:not(:last-child) { border-bottom: 1px solid var(--color-border); }
+/* Upcoming list: show ~5 rows, then scroll. */
+.upcoming-list { max-height: 15.5rem; overflow-y: auto; }
 .act-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .act-payer { font-weight: 500; }
 .act-amt { font-variant-numeric: tabular-nums; color: var(--color-text-muted); font-size: 0.85rem; }
@@ -391,4 +524,8 @@ function timeAgo(iso: string) {
   color: var(--color-text-muted);
   border-radius: 4px;
 }
+
+.ar-pie { height: 260px; }
+.pie-caption { margin: 0 1.25rem 0.25rem; color: var(--color-text-muted); font-size: 0.8rem; }
+.pie-note { margin: 0.25rem 1.25rem 0.75rem; color: var(--color-text-subtle); font-size: 0.75rem; }
 </style>

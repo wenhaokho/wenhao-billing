@@ -170,3 +170,46 @@ def test_dashboard_endpoint_matches_service_function(admin_session, db, customer
 
     # recent_activity is router-only (not part of compute_dashboard_stats).
     assert "recent_activity" in body
+
+
+def _recurring_tmpl(db, customer, *, currency="USD", amount="1200"):
+    inv = Invoice(
+        customer_id=customer.customer_id, invoice_type="RECURRING",
+        currency=currency, amount=Decimal(amount), balance_due=Decimal("0"),
+        status="DRAFT", is_template=True,
+        billing_cycle_ref={"frequency": "MONTHLY", "interval": 1,
+                           "start_date": "2026-01-05", "end_mode": "NEVER"},
+    )
+    db.add(inv)
+    db.flush()
+    return inv
+
+
+def test_dashboard_stats_includes_mrr_and_base_ar(db, customer):
+    _recurring_tmpl(db, customer, currency="USD", amount="1200")
+    _inv(db, customer, currency="USD", status="SENT", balance_due="100")
+    stats = compute_dashboard_stats(db)
+    assert stats["mrr_by_currency"] == [{"currency": "USD", "amount": Decimal("1200.0000")}]
+    assert stats["base_currency"] == "IDR"
+    assert stats["open_ar_base_by_currency"] == [
+        {"currency": "USD", "base_amount": Decimal("1600000.0000")}
+    ]
+    assert stats["open_ar_unconverted"] == []
+
+
+def test_dashboard_endpoint_exposes_new_fields(admin_session, db, customer):
+    _recurring_tmpl(db, customer, currency="USD", amount="1200")
+    _inv(db, customer, currency="USD", status="SENT", balance_due="100")
+
+    r = admin_session.get("/api/v1/stats/dashboard")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["base_currency"] == "IDR"
+    assert body["mrr_by_currency"][0]["currency"] == "USD"
+    assert body["open_ar_base_by_currency"][0]["base_amount"] == "1600000.0000"
+    assert "upcoming_invoices" in body
+    # the recurring template's next cycle (Aug 5) is within 90 days of a mid-year run
+    modes = {u["mode"] for u in body["upcoming_invoices"]}
+    assert modes <= {"RECURRING", "USAGE"}
+    if body["upcoming_invoices"]:
+        assert "customer_name" in body["upcoming_invoices"][0]

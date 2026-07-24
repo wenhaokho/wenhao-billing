@@ -6,6 +6,7 @@ assert on shape directly.
 
 from __future__ import annotations
 
+import calendar
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -14,10 +15,20 @@ from decimal import Decimal
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.quotation import Quotation
+from app.services.fx import FxRateMissing, convert
+from app.services.recurring_schedule import (
+    Schedule,
+    ScheduleError,
+    current_cycle,
+    is_paused,
+    next_cycle_after,
+    parse_schedule,
+)
 
 
 @dataclass(frozen=True)
@@ -41,8 +52,195 @@ class InvoicesSummary:
     avg_days_to_pay: float | None
 
 
+@dataclass(frozen=True)
+class UpcomingInvoice:
+    invoice_id: uuid.UUID
+    customer_id: uuid.UUID | None
+    mode: str  # "RECURRING" | "USAGE"
+    next_date: date
+    amount: Decimal
+    currency: str
+    amount_is_estimate: bool
+
+
 _OPEN_STATUSES = ("SENT", "PARTIAL")
 _OPEN_QUOTE_STATUSES = ("SENT", "ACCEPTED")
+
+
+_MONTHS_PER_YEAR = Decimal(12)
+
+
+def _is_schedule_active(schedule: Schedule, today: date) -> bool:
+    """Active = has a current cycle or a future cycle (i.e. not past its end)."""
+    return (
+        current_cycle(schedule, today) is not None
+        or next_cycle_after(schedule, today) is not None
+    )
+
+
+def _active_recurring_templates(
+    db: Session, *, today: date
+) -> list[tuple[Invoice, Schedule]]:
+    """Parseable, non-paused, non-ended RECURRING templates with their Schedule.
+
+    A single malformed/paused/ended template is skipped, never raises — same
+    defensive posture as the recurring beat scanner.
+    """
+    templates = db.scalars(
+        select(Invoice)
+        .where(Invoice.invoice_type == "RECURRING")
+        .where(Invoice.is_template.is_(True))
+    )
+    out: list[tuple[Invoice, Schedule]] = []
+    for t in templates:
+        if is_paused(t.billing_cycle_ref):
+            continue
+        try:
+            schedule = parse_schedule(t.billing_cycle_ref)
+        except ScheduleError:
+            continue
+        if not _is_schedule_active(schedule, today):
+            continue
+        out.append((t, schedule))
+    return out
+
+
+def _monthly_equiv(amount: Decimal, frequency: str, interval: int) -> Decimal:
+    """Per-cycle amount normalized to a monthly figure (not yet quantized)."""
+    ival = Decimal(interval)
+    if frequency == "MONTHLY":
+        return amount / ival
+    if frequency == "YEARLY":
+        return amount / (_MONTHS_PER_YEAR * ival)
+    if frequency == "WEEKLY":
+        return amount * Decimal(52) / (_MONTHS_PER_YEAR * ival)
+    if frequency == "DAILY":
+        return amount * Decimal(365) / (_MONTHS_PER_YEAR * ival)
+    raise ScheduleError(f"unreachable frequency {frequency!r}")
+
+
+def compute_mrr_by_currency(db: Session, *, today: date) -> list[dict]:
+    """Monthly recurring revenue per currency from active recurring templates.
+
+    Amounts are never converted across currencies. Sorted largest-first on the
+    raw Decimal before any string coercion (same rule as open_quotation_pipeline).
+    """
+    totals: dict[str, Decimal] = {}
+    for template, schedule in _active_recurring_templates(db, today=today):
+        monthly = _monthly_equiv(template.amount, schedule.frequency, schedule.interval)
+        totals[template.currency] = totals.get(template.currency, Decimal("0")) + monthly
+    rows = [
+        {"currency": ccy, "amount": amt.quantize(Decimal("0.0001"))}
+        for ccy, amt in totals.items()
+    ]
+    rows.sort(key=lambda r: r["amount"], reverse=True)
+    return rows
+
+
+def compute_open_ar_base_by_currency(
+    db: Session, *, today: date
+) -> tuple[list[dict], list[str]]:
+    """Open AR (SENT + PARTIAL balances) per currency, each converted to the
+    base currency (IDR) as of `today`.
+
+    Returns (rows, unconverted) where rows is
+    [{"currency": str, "base_amount": Decimal}] sorted base_amount-desc, and
+    unconverted lists currency codes that had no FX rate (skipped, never raised).
+    """
+    ar_rows = db.execute(
+        select(Invoice.currency, func.sum(Invoice.balance_due))
+        .where(Invoice.status.in_(_OPEN_STATUSES))
+        .group_by(Invoice.currency)
+    ).all()
+
+    converted: list[dict] = []
+    unconverted: list[str] = []
+    for currency, total in ar_rows:
+        amount = total or Decimal("0")
+        try:
+            base_amount = convert(db, amount, currency, today).base_amount
+        except FxRateMissing:
+            unconverted.append(currency)
+            continue
+        converted.append({"currency": currency, "base_amount": base_amount})
+    converted.sort(key=lambda r: r["base_amount"], reverse=True)
+    unconverted.sort()
+    return converted, unconverted
+
+
+def _clamp_dom(year: int, month: int, day: int) -> date:
+    last = calendar.monthrange(year, month)[1]
+    return date(year, month, min(day, last))
+
+
+def _next_day_of_month(today: date, dom: int) -> date:
+    """Smallest date >= today whose day-of-month is `dom` (clamped to month length)."""
+    cand = _clamp_dom(today.year, today.month, dom)
+    if cand >= today:
+        return cand
+    y, m = today.year, today.month + 1
+    if m == 13:
+        y, m = y + 1, 1
+    return _clamp_dom(y, m, dom)
+
+
+def compute_upcoming_invoices(
+    db: Session, *, today: date, horizon_days: int = 90
+) -> list[UpcomingInvoice]:
+    """Next generation date per recurring template and per pending usage invoice,
+    within [today, today + horizon_days]. One row per source (next occurrence
+    only). Usage amounts are indicative (accruing), flagged amount_is_estimate.
+    """
+    horizon = today + timedelta(days=horizon_days)
+    out: list[UpcomingInvoice] = []
+
+    # Recurring: next cycle start per active template.
+    for template, schedule in _active_recurring_templates(db, today=today):
+        nxt = next_cycle_after(schedule, today)
+        if nxt is None or nxt > horizon:
+            continue
+        out.append(
+            UpcomingInvoice(
+                invoice_id=template.invoice_id,
+                customer_id=template.customer_id,
+                mode="RECURRING",
+                next_date=nxt,
+                amount=template.amount,
+                currency=template.currency,
+                amount_is_estimate=False,
+            )
+        )
+
+    # Usage: next cut_off_day occurrence per DRAFT, unlocked usage invoice.
+    usage_rows = db.scalars(
+        select(Invoice)
+        .where(Invoice.invoice_type == "USAGE")
+        .where(Invoice.status == "DRAFT")
+    )
+    for inv in usage_rows:
+        cfg = inv.billing_cycle_ref or {}
+        if cfg.get("locked"):
+            continue
+        dom = cfg.get("cut_off_day")
+        if not isinstance(dom, int) or not (1 <= dom <= 31):
+            continue
+        nxt = _next_day_of_month(today, dom)
+        if nxt > horizon:
+            continue
+        out.append(
+            UpcomingInvoice(
+                invoice_id=inv.invoice_id,
+                customer_id=inv.customer_id,
+                mode="USAGE",
+                next_date=nxt,
+                amount=inv.amount,
+                currency=inv.currency,
+                amount_is_estimate=True,
+            )
+        )
+
+    out.sort(key=lambda u: (u.next_date, str(u.invoice_id)))
+    return out
 
 
 def _bucket(db: Session, *, where_clause) -> list[CurrencyAmount]:
@@ -147,6 +345,8 @@ def compute_dashboard_stats(db: Session) -> dict:
     that sort here, on Decimals, not after converting to strings (string
     sort order does not match numeric order, e.g. "900" > "1000").
     """
+    today = date.today()
+
     awaiting_review_count = (
         db.scalar(
             select(func.count(Payment.payment_id)).where(
@@ -203,6 +403,11 @@ def compute_dashboard_stats(db: Session) -> dict:
     # Largest total first — sort on Decimal amounts (see docstring).
     open_quotation_pipeline.sort(key=lambda row: row["amount"], reverse=True)
 
+    mrr_by_currency = compute_mrr_by_currency(db, today=today)
+    open_ar_base_by_currency, open_ar_unconverted = compute_open_ar_base_by_currency(
+        db, today=today
+    )
+
     return {
         "awaiting_review_count": awaiting_review_count,
         "draft_count": draft_count,
@@ -212,4 +417,8 @@ def compute_dashboard_stats(db: Session) -> dict:
         "open_ar_by_currency": open_ar_by_currency,
         "open_quotation_count": open_quotation_count,
         "open_quotation_pipeline": open_quotation_pipeline,
+        "mrr_by_currency": mrr_by_currency,
+        "open_ar_base_by_currency": open_ar_base_by_currency,
+        "open_ar_unconverted": open_ar_unconverted,
+        "base_currency": get_settings().base_currency,
     }
