@@ -151,21 +151,40 @@ def test_logging_fallback_when_nothing_configured(monkeypatch):
         get_settings.cache_clear()
 
 
-def test_resend_error_body_is_logged(monkeypatch, caplog):
+def test_resend_error_body_is_logged(monkeypatch):
     import logging
 
     _use_resend(monkeypatch, status_code=422)
+
+    captured: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            captured.append(record.getMessage())
+
+    # Attach directly to the module logger so capture does not depend on
+    # propagation to the root logger (other tests that boot the app can leave
+    # global logging state that breaks pytest's caplog).
+    handler = _Capture(level=logging.ERROR)
+    logger = email_service.log
+    logger.addHandler(handler)
+    prev_level = logger.level
+    prev_disabled = logger.disabled
+    logger.setLevel(logging.ERROR)
+    logger.disabled = False
     try:
-        with caplog.at_level(logging.ERROR, logger="app.services.email"), pytest.raises(
-            RuntimeError
-        ):
+        with pytest.raises(RuntimeError):
             email_service.send_email(
                 to_email="client@example.com",
                 subject="Hi",
                 body_text="hello",
             )
     finally:
+        logger.removeHandler(handler)
+        logger.setLevel(prev_level)
+        logger.disabled = prev_disabled
         get_settings.cache_clear()
 
-    assert "Resend rejected email" in caplog.text
-    assert "not verified" in caplog.text
+    joined = "\n".join(captured)
+    assert "Resend rejected email" in joined
+    assert "not verified" in joined
