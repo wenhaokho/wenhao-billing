@@ -153,10 +153,12 @@ function closeMobileNav() { mobileNavOpen.value = false; }
     <div class="nav-scrim" @click="closeMobileNav" />
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">WB</div>
+        <div class="brand-mark">
+          <img src="/favicon.svg" alt="Wenhao Billing logo" />
+        </div>
         <div class="brand-text">
-          <div class="brand-name">wenhao-billing</div>
-          <div class="brand-sub">accounting ops</div>
+          <div class="brand-name">Wenhao Billing</div>
+          <div class="brand-sub">agency accounting</div>
         </div>
       </div>
 
@@ -265,10 +267,9 @@ function closeMobileNav() { mobileNavOpen.value = false; }
 }
 .brand-mark {
   width: 36px; height: 36px; border-radius: 8px;
-  background: linear-gradient(135deg, #2563eb, #60a5fa);
-  color: white; display: grid; place-items: center;
-  font-weight: 700; font-size: 0.9rem; letter-spacing: 0.02em;
+  overflow: hidden; display: grid; place-items: center; flex-shrink: 0;
 }
+.brand-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .brand-name { color: #f1f5f9; font-weight: 600; font-size: 0.95rem; }
 .brand-sub { color: #64748b; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
 
