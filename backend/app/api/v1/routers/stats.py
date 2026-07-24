@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -12,13 +12,13 @@ from app.config import get_settings
 from app.api.deps import current_admin
 from app.db.session import get_db
 from app.models.customer import Customer
-from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.recon_log import ReconciliationLog
 from app.models.user import User
 from app.services.stats import (
     compute_dashboard_stats,
     compute_invoices_summary,
+    compute_monthly_revenue_base,
     compute_upcoming_invoices,
 )
 
@@ -61,13 +61,20 @@ class ActivityItem(BaseModel):
 class MonthlyRevenueBucket(BaseModel):
     # "YYYY-MM" in calendar order, oldest first
     month: str
-    # One entry per currency that had revenue in at least one month in the window.
+    # Base-currency (IDR) revenue per source currency — what the chart stacks so
+    # the bar total is a meaningful cross-currency figure. Excludes currencies
+    # with no FX rate (see `unconverted`).
     totals: dict[str, Decimal]
+    # Original-currency revenue per source currency, for the tooltip.
+    native_totals: dict[str, Decimal]
 
 
 class MonthlyRevenueResponse(BaseModel):
     base_currency: str
+    # Source currencies that have an FX rate to base — plotted (converted to IDR).
     currencies: list[str]
+    # Source currencies excluded from the chart because no FX rate to base exists.
+    unconverted: list[str]
     months: list[MonthlyRevenueBucket]
 
 
@@ -186,65 +193,41 @@ def dashboard(
     )
 
 
-def _last_12_month_labels(today: date) -> list[str]:
-    """Return YYYY-MM labels for the 12 months ending with `today`'s month, oldest first."""
-    labels: list[str] = []
-    y, m = today.year, today.month
-    # Walk backwards 11 times then reverse
-    points: list[tuple[int, int]] = [(y, m)]
-    for _ in range(11):
-        m -= 1
-        if m == 0:
-            m = 12
-            y -= 1
-        points.append((y, m))
-    points.reverse()
-    return [f"{yy:04d}-{mm:02d}" for yy, mm in points]
-
-
 @router.get("/revenue-monthly", response_model=MonthlyRevenueResponse)
 def revenue_monthly(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> MonthlyRevenueResponse:
-    """Invoiced revenue by calendar month for the last 12 months.
+    """Invoiced revenue by calendar month for the last 12 months, per currency,
+    each month's per-currency total converted to base currency (IDR).
 
     Revenue = invoice.amount for invoices with status in OPEN/SENT/PARTIAL/PAID,
-    bucketed by issue_date's YYYY-MM. DRAFT and VOID are excluded. Bills (AP)
-    are not revenue and are not counted. Grouped per currency so the chart can
-    show a stacked bar or single series for the base currency.
+    bucketed by issue_date's YYYY-MM. DRAFT and VOID are excluded; bills (AP)
+    are not revenue and are not counted. Foreign currencies are converted to IDR
+    at today's FX rate — the same basis as the open-AR pie — so the stacked bar
+    total is a single, comparable figure. See
+    app.services.stats.compute_monthly_revenue_base.
     """
     settings = get_settings()
-    today = date.today()
-    labels = _last_12_month_labels(today)
-    # Lower bound: first day of the oldest bucket
-    oldest_y, oldest_m = int(labels[0][:4]), int(labels[0][5:])
-    window_start = date(oldest_y, oldest_m, 1)
+    _labels, months, unconverted = compute_monthly_revenue_base(db, today=date.today())
 
-    month_expr = func.to_char(Invoice.issue_date, "YYYY-MM")
-    rows = db.execute(
-        select(month_expr.label("month"), Invoice.currency, func.sum(Invoice.amount))
-        .where(
-            Invoice.status.in_(("OPEN", "SENT", "PARTIAL", "PAID")),
-            Invoice.issue_date.is_not(None),
-            Invoice.issue_date >= window_start,
-            Invoice.is_template.is_(False),
-        )
-        .group_by("month", Invoice.currency)
-    ).all()
-
-    # Seed empty buckets so the chart always has 12 points.
-    buckets: dict[str, dict[str, Decimal]] = {lbl: {} for lbl in labels}
     currencies: set[str] = set()
-    for month, ccy, total in rows:
-        if month in buckets:
-            buckets[month][ccy] = (buckets[month].get(ccy, Decimal("0")) + (total or Decimal("0")))
-            currencies.add(ccy)
+    buckets: list[MonthlyRevenueBucket] = []
+    for m in months:
+        currencies.update(m["base_totals"].keys())
+        buckets.append(
+            MonthlyRevenueBucket(
+                month=m["month"],
+                totals=m["base_totals"],
+                native_totals=m["native_totals"],
+            )
+        )
 
     return MonthlyRevenueResponse(
         base_currency=settings.base_currency,
         currencies=sorted(currencies),
-        months=[MonthlyRevenueBucket(month=lbl, totals=buckets[lbl]) for lbl in labels],
+        unconverted=unconverted,
+        months=buckets,
     )
 
 
