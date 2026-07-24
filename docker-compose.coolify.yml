@@ -42,12 +42,6 @@ services:
       MCP_PUBLIC_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
       MCP_ACCESS_TOKEN_TTL_SECONDS: ${MCP_ACCESS_TOKEN_TTL_SECONDS:-3600}
       MCP_REFRESH_TOKEN_TTL_SECONDS: ${MCP_REFRESH_TOKEN_TTL_SECONDS:-2592000}
-      # Resend email (native API). Set RESEND_API_KEY in the Coolify UI to enable;
-      # when empty, outgoing mail falls back to logging (no SMTP configured here).
-      # Takes precedence over SMTP. The sender domain must be verified in Resend.
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-noreply@wenhao.id}
-      RESEND_FROM_NAME: ${RESEND_FROM_NAME:-Wenhao Dev Billing}
     healthcheck:
       test:
         [
