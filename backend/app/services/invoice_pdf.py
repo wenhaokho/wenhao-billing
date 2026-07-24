@@ -60,19 +60,46 @@ MARGIN = 18 * mm
 CONTENT_W = A4[0] - 2 * MARGIN
 
 
+# Currencies with no minor unit — displayed as whole numbers (ISO 4217).
+_ZERO_DECIMAL_CURRENCIES = frozenset(
+    {"IDR", "JPY", "KRW", "VND", "CLP", "ISK", "HUF", "PYG", "RWF", "UGX", "XAF", "XOF", "XPF"}
+)
+
+
+def _currency_decimals(currency: str | None) -> int:
+    """Decimal places to display for a currency (0 for zero-decimal currencies)."""
+    return 0 if (currency or "").upper() in _ZERO_DECIMAL_CURRENCIES else 2
+
+
 def _fmt_amount(value: Decimal | None, currency: str) -> str:
     if value is None:
         return "—"
-    q = Decimal(value).quantize(Decimal("0.01"))
+    dp = _currency_decimals(currency)
+    q = Decimal(value).quantize(Decimal(1) if dp == 0 else Decimal("0.01"))
     # group thousands
-    return f"{q:,.2f} {currency}"
+    return f"{q:,.{dp}f} {currency}"
 
 
-def _fmt_num(value: Decimal | None) -> str:
-    """Bare grouped number, no currency suffix (currency stated once per doc)."""
+def _fmt_num(value: Decimal | None, currency: str | None = None) -> str:
+    """Bare grouped number, no currency suffix (currency stated once per doc).
+
+    Decimal places follow the currency: 2 by default, 0 for zero-decimal
+    currencies like IDR. Pass ``currency`` to honour that.
+    """
     if value is None:
         return "—"
-    return f"{Decimal(value).quantize(Decimal('0.01')):,.2f}"
+    dp = _currency_decimals(currency)
+    q = Decimal(value).quantize(Decimal(1) if dp == 0 else Decimal("0.01"))
+    return f"{q:,.{dp}f}"
+
+
+def _fmt_qty(value: Decimal | None) -> str:
+    """Quantity without trailing-zero cruft: 6.0000 -> '6', 6.5000 -> '6.5'."""
+    if value is None:
+        return "—"
+    d = Decimal(value)
+    # normalize() strips trailing zeros; :f expands any exponent (e.g. 6E+2).
+    return f"{d.normalize():f}"
 
 
 def _fmt_pct(value: Decimal) -> str:
@@ -346,9 +373,9 @@ def render_invoice_pdf(
             [
                 str(li.position),
                 Paragraph(li.description, s["cell"]),
-                f"{Decimal(li.quantity):g}",
-                _fmt_num(li.unit_price),
-                _fmt_num(li.amount),
+                _fmt_qty(li.quantity),
+                _fmt_num(li.unit_price, invoice.currency),
+                _fmt_num(li.amount, invoice.currency),
             ]
         )
     items_tbl = Table(
@@ -435,7 +462,7 @@ def render_invoice_pdf(
         textColor=PAPER, alignment=TA_RIGHT,
     )
     hero_amount = (
-        f"{_fmt_num(invoice.balance_due)}"
+        f"{_fmt_num(invoice.balance_due, invoice.currency)}"
         f'<font face="Helvetica-Bold" size="9"> {invoice.currency}</font>'
     )
     balance = Table(

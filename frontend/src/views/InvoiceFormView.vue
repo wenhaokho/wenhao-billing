@@ -292,10 +292,18 @@ const readOnly = computed(() => !!(existing.value?.status && existing.value.stat
 const queryClient = useQueryClient();
 const showPaymentDialog = ref(false);
 const paymentError = ref<string | null>(null);
-const canRecordPayment = computed(() => {
+const isUnpaid = computed(() => {
   const s = existing.value?.status;
   return s === "SENT" || s === "PARTIAL";
 });
+// A zero-balance SENT/PARTIAL invoice is a genuinely zero-value invoice: it can
+// only be settled via "Mark as paid" (record-payment needs a positive amount).
+const canMarkPaid = computed(
+  () => isUnpaid.value && Number(existing.value?.balance_due ?? 0) <= 0,
+);
+const canRecordPayment = computed(
+  () => isUnpaid.value && Number(existing.value?.balance_due ?? 0) > 0,
+);
 const recordPayment = useMutation({
   mutationFn: async (payload: {
     amount: number;
@@ -316,6 +324,22 @@ const recordPayment = useMutation({
   },
   onError: (e: { response?: { data?: { detail?: string } } }) => {
     paymentError.value = e?.response?.data?.detail ?? "Failed to record payment";
+  },
+});
+
+const markPaid = useMutation({
+  mutationFn: async () => {
+    if (!props.id) throw new Error("no invoice id");
+    return (await api.post(`/invoices/${props.id}/mark-paid`)).data;
+  },
+  onSuccess: () => {
+    paymentError.value = null;
+    queryClient.invalidateQueries({ queryKey: ["invoice", props.id] });
+    queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+  },
+  onError: (e: { response?: { data?: { detail?: string } } }) => {
+    paymentError.value = e?.response?.data?.detail ?? "Failed to mark as paid";
   },
 });
 
@@ -629,6 +653,15 @@ const canSave = computed(() => {
             icon="pi pi-wallet"
             severity="success"
             @click="paymentError = null; showPaymentDialog = true"
+          />
+          <Button
+            v-if="canMarkPaid"
+            label="Mark as paid"
+            icon="pi pi-check-circle"
+            severity="success"
+            :loading="markPaid.isPending.value"
+            title="This invoice has nothing to collect — mark it settled"
+            @click="markPaid.mutate()"
           />
         </template>
         <template v-else>
