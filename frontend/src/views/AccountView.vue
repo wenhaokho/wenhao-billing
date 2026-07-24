@@ -3,7 +3,6 @@ import { ref, watch, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import InputText from "primevue/inputtext";
 import Textarea from "primevue/textarea";
-import Dropdown from "primevue/dropdown";
 import Password from "primevue/password";
 import Button from "primevue/button";
 import Message from "primevue/message";
@@ -98,45 +97,20 @@ const companySaving = ref(false);
 const companyError = ref<string | null>(null);
 const companySaved = ref(false);
 
-const CURRENCY_OPTIONS = ["SGD", "IDR", "USD"] as const;
+// Fixed set of supported invoice currencies — one payment-account row each.
+const CURRENCIES = ["IDR", "SGD", "USD"] as const;
 
 interface PaymentAccountRow {
   currency: string;
   instructions: string;
   is_default: boolean;
 }
-const paymentAccounts = ref<PaymentAccountRow[]>([]);
+// One fixed row per currency (no add/remove). A currency left blank simply
+// isn't saved and won't appear on invoices.
+const paymentAccounts = ref<PaymentAccountRow[]>(
+  CURRENCIES.map((c) => ({ currency: c, instructions: "", is_default: false })),
+);
 
-function usedCurrencies(exceptIndex = -1): Set<string> {
-  return new Set(
-    paymentAccounts.value
-      .filter((_, i) => i !== exceptIndex)
-      .map((a) => a.currency),
-  );
-}
-function availableCurrencies(index: number): string[] {
-  const used = usedCurrencies(index);
-  return CURRENCY_OPTIONS.filter((c) => !used.has(c) || c === paymentAccounts.value[index]?.currency);
-}
-function canAddAccount(): boolean {
-  return paymentAccounts.value.length < CURRENCY_OPTIONS.length;
-}
-function addAccount() {
-  const used = usedCurrencies();
-  const next = CURRENCY_OPTIONS.find((c) => !used.has(c)) ?? "";
-  paymentAccounts.value.push({
-    currency: next,
-    instructions: "",
-    is_default: paymentAccounts.value.length === 0,
-  });
-}
-function removeAccount(index: number) {
-  const wasDefault = paymentAccounts.value[index]?.is_default;
-  paymentAccounts.value.splice(index, 1);
-  if (wasDefault && paymentAccounts.value.length > 0) {
-    paymentAccounts.value[0].is_default = true;
-  }
-}
 function setDefault(index: number) {
   paymentAccounts.value.forEach((a, i) => (a.is_default = i === index));
 }
@@ -156,11 +130,17 @@ async function loadCompany() {
       default_notes: data.default_notes ?? "",
     };
     const accts = await api.get("/business-profile/payment-accounts");
-    paymentAccounts.value = (accts.data as PaymentAccountRow[]).map((a) => ({
-      currency: a.currency,
-      instructions: a.instructions,
-      is_default: a.is_default,
-    }));
+    const byCurrency = new Map(
+      (accts.data as PaymentAccountRow[]).map((a) => [a.currency, a]),
+    );
+    paymentAccounts.value = CURRENCIES.map((c) => {
+      const saved = byCurrency.get(c);
+      return {
+        currency: c,
+        instructions: saved?.instructions ?? "",
+        is_default: saved?.is_default ?? false,
+      };
+    });
   } catch (e: any) {
     companyError.value = e?.response?.data?.detail ?? "Failed to load company profile";
   } finally {
@@ -173,28 +153,23 @@ async function saveCompany() {
   companySaved.value = false;
   companySaving.value = true;
   try {
-    // Client-side guards mirror the API (unique currency, <=1 default).
-    // Validate before either PUT so a failed guard never leaves a partial save
-    // (profile committed but payment accounts not).
-    const currencies = paymentAccounts.value.map((a) => a.currency);
-    if (new Set(currencies).size !== currencies.length) {
-      throw new Error("Each currency can only have one payment account.");
-    }
-    if (paymentAccounts.value.filter((a) => a.is_default).length > 1) {
-      throw new Error("Only one account can be the default.");
+    // Persist only currencies that actually have instructions; blank rows are
+    // omitted. Ensure one of the saved accounts is the default.
+    const accounts = paymentAccounts.value
+      .filter((a) => a.instructions.trim())
+      .map((a) => ({
+        currency: a.currency,
+        instructions: a.instructions,
+        is_default: a.is_default,
+      }));
+    if (accounts.length > 0 && !accounts.some((a) => a.is_default)) {
+      accounts[0].is_default = true;
     }
     const payload = Object.fromEntries(
       Object.entries(company.value).map(([k, v]) => [k, v && String(v).trim() ? v : null]),
     );
     await api.put("/business-profile", payload);
-    await api.put(
-      "/business-profile/payment-accounts",
-      paymentAccounts.value.map((a) => ({
-        currency: a.currency,
-        instructions: a.instructions,
-        is_default: a.is_default,
-      })),
-    );
+    await api.put("/business-profile/payment-accounts", accounts);
     companySaved.value = true;
   } catch (e: any) {
     companyError.value =
@@ -428,26 +403,12 @@ function fmtDate(iso?: string) {
             <div class="pay-accounts">
               <div class="pay-accounts-head">
                 <span>Payment accounts</span>
-                <Button
-                  type="button"
-                  label="Add account"
-                  icon="pi pi-plus"
-                  text
-                  size="small"
-                  :disabled="!canAddAccount()"
-                  @click="addAccount"
-                />
               </div>
-              <small>Bank / PayNow details per currency. The default is used on invoices whose currency has no specific account.</small>
+              <small>Bank / PayNow details per currency. The default is used on invoices whose currency has no specific account. Leave a currency blank to omit it.</small>
 
-              <div v-for="(acct, i) in paymentAccounts" :key="i" class="pay-account-row">
+              <div v-for="(acct, i) in paymentAccounts" :key="acct.currency" class="pay-account-row">
                 <div class="pay-account-controls">
-                  <Dropdown
-                    v-model="acct.currency"
-                    :options="availableCurrencies(i)"
-                    placeholder="Currency"
-                    class="pay-currency"
-                  />
+                  <span class="pay-currency-label">{{ acct.currency }}</span>
                   <label class="pay-default">
                     <input
                       type="radio"
@@ -456,21 +417,9 @@ function fmtDate(iso?: string) {
                     />
                     Default
                   </label>
-                  <Button
-                    type="button"
-                    icon="pi pi-trash"
-                    severity="danger"
-                    text
-                    size="small"
-                    @click="removeAccount(i)"
-                  />
                 </div>
                 <Textarea v-model="acct.instructions" rows="4" placeholder="Bank / account details" />
               </div>
-
-              <small v-if="paymentAccounts.length === 0" class="pay-empty">
-                No payment accounts yet — add one so invoices show where to pay.
-              </small>
             </div>
 
             <Message v-if="companyError" severity="error" :closable="false">
@@ -675,6 +624,12 @@ function fmtDate(iso?: string) {
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+.pay-currency-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  min-width: 2.5rem;
+  color: var(--color-text);
 }
 .pay-default {
   display: inline-flex;
