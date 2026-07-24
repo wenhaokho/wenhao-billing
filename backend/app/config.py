@@ -88,6 +88,15 @@ class Settings(BaseSettings):
         default_factory=lambda: ["USD", "SGD"]
     )
 
+    # --- Resend (native HTTP API email) ---
+    # When resend_api_key is set it takes precedence over the SMTP_* settings.
+    # The sender domain must be verified in Resend.
+    resend_api_key: str | None = Field(default=None)
+    resend_from_email: str = Field(default="noreply@wenhao.id")
+    resend_from_name: str = Field(default="Wenhao Dev Billing")
+    resend_base_url: str = Field(default="https://api.resend.com")
+    resend_timeout_seconds: float = Field(default=15.0)
+
 
 @lru_cache
 def get_settings() -> Settings:
