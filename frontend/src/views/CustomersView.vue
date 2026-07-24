@@ -33,15 +33,15 @@ interface Customer {
 }
 
 // The edit form writes contact_first_name/contact_last_name; contact_name is a
-// legacy combined field. Prefer the legacy field when present, otherwise build
-// the display name from first + last so newer customers still show a contact.
+// legacy combined field that can hold a stale, differently-formatted value.
+// Prefer the editable first + last name so the table always matches the form,
+// and fall back to the legacy field only when first/last are both empty.
 function contactName(row: Customer): string | null {
-  if (row.contact_name) return row.contact_name;
   const joined = [row.contact_first_name, row.contact_last_name]
     .filter(Boolean)
     .join(" ")
     .trim();
-  return joined || null;
+  return joined || row.contact_name || null;
 }
 
 const router = useRouter();
