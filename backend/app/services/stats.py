@@ -18,6 +18,7 @@ from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.quotation import Quotation
+from app.services.fx import FxRateMissing, convert
 from app.services.recurring_schedule import (
     Schedule,
     ScheduleError,
@@ -121,6 +122,37 @@ def compute_mrr_by_currency(db: Session, *, today: date) -> list[dict]:
     ]
     rows.sort(key=lambda r: r["amount"], reverse=True)
     return rows
+
+
+def compute_open_ar_base_by_currency(
+    db: Session, *, today: date
+) -> tuple[list[dict], list[str]]:
+    """Open AR (SENT + PARTIAL balances) per currency, each converted to the
+    base currency (IDR) as of `today`.
+
+    Returns (rows, unconverted) where rows is
+    [{"currency": str, "base_amount": Decimal}] sorted base_amount-desc, and
+    unconverted lists currency codes that had no FX rate (skipped, never raised).
+    """
+    ar_rows = db.execute(
+        select(Invoice.currency, func.sum(Invoice.balance_due))
+        .where(Invoice.status.in_(_OPEN_STATUSES))
+        .group_by(Invoice.currency)
+    ).all()
+
+    converted: list[dict] = []
+    unconverted: list[str] = []
+    for currency, total in ar_rows:
+        amount = total or Decimal("0")
+        try:
+            base_amount = convert(db, amount, currency, today).base_amount
+        except FxRateMissing:
+            unconverted.append(currency)
+            continue
+        converted.append({"currency": currency, "base_amount": base_amount})
+    converted.sort(key=lambda r: r["base_amount"], reverse=True)
+    unconverted.sort()
+    return converted, unconverted
 
 
 def _bucket(db: Session, *, where_clause) -> list[CurrencyAmount]:
