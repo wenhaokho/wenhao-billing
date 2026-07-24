@@ -48,10 +48,15 @@ interface DashboardStats {
   open_ar_unconverted: string[];
   upcoming_invoices: UpcomingInvoiceItem[];
 }
-interface MonthlyRevenueBucket { month: string; totals: Record<string, string> }
+interface MonthlyRevenueBucket {
+  month: string;
+  totals: Record<string, string>;         // base-currency (IDR) per source currency
+  native_totals: Record<string, string>;  // original currency per source currency
+}
 interface MonthlyRevenueResponse {
   base_currency: string;
   currencies: string[];
+  unconverted: string[];
   months: MonthlyRevenueBucket[];
 }
 
@@ -100,7 +105,10 @@ const chartData = computed(() => {
   return { labels, datasets };
 });
 
-const chartOptions = computed(() => ({
+const chartOptions = computed(() => {
+  const base = revenueData.value?.base_currency ?? "";
+  const months = revenueData.value?.months ?? [];
+  return {
   maintainAspectRatio: false,
   responsive: true,
   plugins: {
@@ -110,9 +118,15 @@ const chartOptions = computed(() => ({
     },
     tooltip: {
       callbacks: {
-        label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) => {
+        // Plotted value is the IDR-converted amount; show the native amount
+        // alongside it (same shape as the open-AR pie tooltip).
+        label: (ctx: { dataset: { label?: string }; parsed: { y: number }; dataIndex: number }) => {
           const ccy = ctx.dataset.label ?? "";
-          return `${ccy} ${formatAmount(String(ctx.parsed.y), ccy)}`;
+          const native = months[ctx.dataIndex]?.native_totals?.[ccy];
+          const converted = `= ${formatAmount(String(ctx.parsed.y), base)} ${base}`;
+          return native
+            ? [`${formatAmount(native, ccy)} ${ccy}`, converted]
+            : converted;
         },
       },
     },
@@ -132,7 +146,8 @@ const chartOptions = computed(() => ({
       },
     },
   },
-}));
+  };
+});
 
 const hasRevenueData = computed(
   () => (revenueData.value?.currencies.length ?? 0) > 0,
@@ -301,7 +316,10 @@ function timeAgo(iso: string) {
         <div class="card-head">
           <div>
             <h3>Revenue — last 12 months</h3>
-            <p class="subtitle">Invoiced revenue (SENT + PARTIAL + PAID) by month, stacked per currency.</p>
+            <p class="subtitle">
+              Invoiced revenue (OPEN + SENT + PARTIAL + PAID) by month, stacked per
+              currency and converted to {{ revenueData?.base_currency ?? 'IDR' }}.
+            </p>
           </div>
         </div>
         <div v-if="!hasRevenueData" class="empty-state chart-empty">
@@ -311,6 +329,9 @@ function timeAgo(iso: string) {
         <div v-else class="chart-wrap">
           <Chart type="bar" :data="chartData" :options="chartOptions" />
         </div>
+        <p v-if="revenueData && revenueData.unconverted.length" class="pie-note">
+          Not shown (no FX rate): {{ revenueData.unconverted.join(', ') }}
+        </p>
       </div>
 
       <!-- Forward-looking: MRR + Upcoming -->

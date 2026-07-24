@@ -20,7 +20,7 @@ from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.quotation import Quotation
-from app.services.fx import FxRateMissing, convert
+from app.services.fx import FxRateMissing, convert, get_rate
 from app.services.recurring_schedule import (
     Schedule,
     ScheduleError,
@@ -166,6 +166,99 @@ def compute_open_ar_base_by_currency(
     converted.sort(key=lambda r: r["base_amount"], reverse=True)
     unconverted.sort()
     return converted, unconverted
+
+
+_REVENUE_STATUSES = ("OPEN", "SENT", "PARTIAL", "PAID")
+
+
+def _last_12_month_labels(today: date) -> list[str]:
+    """YYYY-MM labels for the 12 months ending with `today`'s month, oldest first."""
+    y, m = today.year, today.month
+    points: list[tuple[int, int]] = [(y, m)]
+    for _ in range(11):
+        m -= 1
+        if m == 0:
+            m = 12
+            y -= 1
+        points.append((y, m))
+    points.reverse()
+    return [f"{yy:04d}-{mm:02d}" for yy, mm in points]
+
+
+def compute_monthly_revenue_base(
+    db: Session, *, today: date
+) -> tuple[list[str], list[dict], list[str]]:
+    """Invoiced revenue for the last 12 calendar months, per source currency,
+    with each month's per-currency total also converted to base currency (IDR).
+
+    Revenue = Invoice.amount for non-template invoices whose status is in
+    OPEN/SENT/PARTIAL/PAID, bucketed by issue_date's YYYY-MM. DRAFT and VOID are
+    excluded; bills (AP) are not invoices and never counted.
+
+    Conversion uses today's FX rate for every month — the same basis as the open
+    AR pie chart (compute_open_ar_base_by_currency) — so a foreign month never
+    drops out just because an old historical rate is missing. Currencies with no
+    rate to base are excluded from the base totals and reported in `unconverted`
+    (skipped, never raised), mirroring the AR pie.
+
+    Returns (labels, months, unconverted):
+      - labels: 12 "YYYY-MM" strings, oldest first
+      - months: [{"month": lbl,
+                  "native_totals": {ccy: Decimal},   # original currency
+                  "base_totals": {ccy: Decimal}}]     # IDR; excludes unconverted ccys
+      - unconverted: sorted currency codes with no FX rate to base
+    """
+    labels = _last_12_month_labels(today)
+    oldest_y, oldest_m = int(labels[0][:4]), int(labels[0][5:])
+    window_start = date(oldest_y, oldest_m, 1)
+
+    month_expr = func.to_char(Invoice.issue_date, "YYYY-MM")
+    rows = db.execute(
+        select(month_expr.label("month"), Invoice.currency, func.sum(Invoice.amount))
+        .where(
+            Invoice.status.in_(_REVENUE_STATUSES),
+            Invoice.issue_date.is_not(None),
+            Invoice.issue_date >= window_start,
+            Invoice.is_template.is_(False),
+        )
+        .group_by("month", Invoice.currency)
+    ).all()
+
+    native: dict[str, dict[str, Decimal]] = {lbl: {} for lbl in labels}
+    for month, ccy, total in rows:
+        if month in native:
+            native[month][ccy] = native[month].get(ccy, Decimal("0")) + (
+                total or Decimal("0")
+            )
+
+    # One rate lookup per currency at today's date; a missing rate is discovered
+    # (and reported) once and then treated as "no base amount" for every month.
+    rate_cache: dict[str, Decimal | None] = {}
+    unconverted: set[str] = set()
+
+    def _rate(ccy: str) -> Decimal | None:
+        if ccy not in rate_cache:
+            try:
+                rate_cache[ccy] = get_rate(db, ccy, today)
+            except FxRateMissing:
+                rate_cache[ccy] = None
+                unconverted.add(ccy)
+        return rate_cache[ccy]
+
+    months: list[dict] = []
+    for lbl in labels:
+        native_row = native[lbl]
+        base_row: dict[str, Decimal] = {}
+        for ccy, amt in native_row.items():
+            rate = _rate(ccy)
+            if rate is None:
+                continue
+            base_row[ccy] = (amt * rate).quantize(Decimal("0.0001"))
+        months.append(
+            {"month": lbl, "native_totals": native_row, "base_totals": base_row}
+        )
+
+    return labels, months, sorted(unconverted)
 
 
 def _clamp_dom(year: int, month: int, day: int) -> date:
