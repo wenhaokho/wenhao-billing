@@ -130,7 +130,7 @@ function statusSeverity(s: string) {
   switch (s) {
     case "ACTIVE": case "PAID": return "success";
     case "ON_HOLD": case "PARTIAL": return "warning";
-    case "COMPLETED": case "SENT": return "info";
+    case "COMPLETED": case "OPEN": case "SENT": return "info";
     case "CANCELLED": case "VOID": return "danger";
     case "DRAFT": return "secondary";
     default: return undefined;

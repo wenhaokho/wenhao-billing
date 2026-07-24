@@ -135,7 +135,7 @@ def match_payment(
     payments row. The caller is responsible for the DB write and — only when
     status == CLEARED — for posting the journal entry.
     """
-    open_candidates = [c for c in candidates if c.status in ("SENT", "PARTIAL")]
+    open_candidates = [c for c in candidates if c.status in ("OPEN", "SENT", "PARTIAL")]
 
     if not open_candidates:
         return MatchResult(

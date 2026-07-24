@@ -20,7 +20,7 @@ from app.models.item import Item
 from app.services import cloudflare
 
 HOSTING_STATUSES = {"ACTIVE", "SUSPEND_PENDING", "SUSPENDED", "CANCELLED"}
-OPEN_INVOICE_STATUSES = ("SENT", "PARTIAL")
+OPEN_INVOICE_STATUSES = ("OPEN", "SENT", "PARTIAL")
 
 
 class HostingError(RuntimeError):

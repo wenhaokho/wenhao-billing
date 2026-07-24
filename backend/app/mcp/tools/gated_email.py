@@ -93,7 +93,7 @@ def send_invoice_email(
             attachments=[(fname, pdf, "application/pdf")],
         )
 
-        if inv.status == "DRAFT":
+        if inv.status in ("DRAFT", "OPEN"):
             inv.status = "SENT"
         db.flush()
         return {"sent": True, "invoice_id": str(inv.invoice_id), "recipient": recipient}

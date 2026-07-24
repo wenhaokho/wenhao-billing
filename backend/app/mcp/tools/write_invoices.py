@@ -90,7 +90,11 @@ def update_invoice(invoice_id: str, changes: dict) -> dict:
 
 @mcp.tool
 def finalize_invoice(invoice_id: str) -> dict:
-    """Promote a DRAFT invoice to SENT. Autonomous (internal, reversible via void)."""
+    """Issue a DRAFT invoice (-> OPEN; becomes SENT only when emailed).
+
+    Autonomous (internal, reversible via void). A zero-value invoice settles
+    straight to PAID.
+    """
     try:
         with tool_session() as db:
             inv = invoicing.finalize_invoice(db, UUID(invoice_id))

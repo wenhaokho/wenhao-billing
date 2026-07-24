@@ -209,7 +209,7 @@ def revenue_monthly(
 ) -> MonthlyRevenueResponse:
     """Invoiced revenue by calendar month for the last 12 months.
 
-    Revenue = invoice.amount for invoices with status in SENT/PARTIAL/PAID,
+    Revenue = invoice.amount for invoices with status in OPEN/SENT/PARTIAL/PAID,
     bucketed by issue_date's YYYY-MM. DRAFT and VOID are excluded. Bills (AP)
     are not revenue and are not counted. Grouped per currency so the chart can
     show a stacked bar or single series for the base currency.
@@ -225,7 +225,7 @@ def revenue_monthly(
     rows = db.execute(
         select(month_expr.label("month"), Invoice.currency, func.sum(Invoice.amount))
         .where(
-            Invoice.status.in_(("SENT", "PARTIAL", "PAID")),
+            Invoice.status.in_(("OPEN", "SENT", "PARTIAL", "PAID")),
             Invoice.issue_date.is_not(None),
             Invoice.issue_date >= window_start,
             Invoice.is_template.is_(False),

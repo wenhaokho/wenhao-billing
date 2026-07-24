@@ -168,11 +168,12 @@ def test_reversal_creates_balancing_entry_and_wires_link(db, sent_invoice, admin
     reversal = next(e for e in entries if e.reversed_by_entry_id is None)
     assert original.reversed_by_entry_id == reversal.entry_id
 
-    # Payment flagged, invoice re-opened
+    # Payment flagged, invoice re-opened. A reversal doesn't email anything, so
+    # the invoice re-opens to OPEN (not SENT — SENT means the email went out).
     db.refresh(payment)
     db.refresh(sent_invoice)
     assert payment.status == "FLAGGED"
-    assert sent_invoice.status == "SENT"
+    assert sent_invoice.status == "OPEN"
     assert sent_invoice.balance_due == Decimal("1000.0000")
 
 

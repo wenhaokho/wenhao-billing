@@ -47,14 +47,15 @@ def test_create_invoice_applies_percent_discount(mcp_tool_db, seed_customer):
     assert out["amount"] == "900.0000"
 
 
-def test_finalize_moves_draft_to_sent(mcp_tool_db, seed_customer):
+def test_finalize_moves_draft_to_open(mcp_tool_db, seed_customer):
     created = create_invoice(
         customer_id=str(seed_customer),
         currency="USD",
         line_items=[{"description": "x", "quantity": "1", "unit_price": "10"}],
     )
     out = finalize_invoice(invoice_id=created["invoice_id"])
-    assert out["status"] == "SENT"
+    # Finalizing issues the invoice (OPEN); it only becomes SENT once emailed.
+    assert out["status"] == "OPEN"
 
 
 def test_void_invoice_sets_void_and_zeroes_balance(mcp_tool_db, seed_invoice):

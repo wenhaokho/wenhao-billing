@@ -271,7 +271,7 @@ function timeAgo(iso: string) {
         <div class="stat-card" @click="router.push('/invoices')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
           <div class="stat-icon primary"><i class="pi pi-send" /></div>
           <div>
-            <div class="stat-label">SENT Invoices</div>
+            <div class="stat-label">Open Invoices</div>
             <div class="stat-value">{{ stats.sent_count }}</div>
             <div class="stat-hint">Outstanding to customers</div>
           </div>

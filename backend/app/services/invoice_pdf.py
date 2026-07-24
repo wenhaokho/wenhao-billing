@@ -48,6 +48,7 @@ PAPER = colors.white
 # Status → chip colour. Anything unknown falls back to the accent.
 STATUS_COLORS = {
     "PAID": colors.HexColor("#0E7C66"),
+    "OPEN": colors.HexColor("#15181C"),
     "SENT": colors.HexColor("#15181C"),
     "DRAFT": colors.HexColor("#727A85"),
     "PARTIAL": colors.HexColor("#B45309"),
