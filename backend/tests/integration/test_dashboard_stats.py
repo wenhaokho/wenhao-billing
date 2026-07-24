@@ -185,6 +185,17 @@ def _recurring_tmpl(db, customer, *, currency="USD", amount="1200"):
     return inv
 
 
+def test_draft_count_excludes_recurring_templates(db, customer):
+    """DRAFT count must match the Awaiting Finalization queue, which excludes
+    templates (is_template=True). Regression: recurring templates are stored as
+    DRAFT + is_template=True and were inflating the dashboard's draft_count even
+    though they never appear in /invoices/awaiting-finalization."""
+    _inv(db, customer, status="DRAFT")  # a real finalizable draft — counts
+    _recurring_tmpl(db, customer)  # a template — must NOT count
+    stats = compute_dashboard_stats(db)
+    assert stats["draft_count"] == 1
+
+
 def test_dashboard_stats_includes_mrr_and_base_ar(db, customer):
     _recurring_tmpl(db, customer, currency="USD", amount="1200")
     _inv(db, customer, currency="USD", status="SENT", balance_due="100")

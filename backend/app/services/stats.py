@@ -356,8 +356,17 @@ def compute_dashboard_stats(db: Session) -> dict:
         or 0
     )
 
+    # Exclude templates: recurring templates are DRAFT + is_template=True and
+    # must not inflate this count, which mirrors the Awaiting Finalization queue
+    # (GET /invoices/awaiting-finalization also filters is_template=False).
     draft_count = (
-        db.scalar(select(func.count(Invoice.invoice_id)).where(Invoice.status == "DRAFT")) or 0
+        db.scalar(
+            select(func.count(Invoice.invoice_id)).where(
+                Invoice.status == "DRAFT",
+                Invoice.is_template.is_(False),
+            )
+        )
+        or 0
     )
 
     # Outstanding, fully-unpaid invoices: OPEN (finalized, awaiting payment) plus
