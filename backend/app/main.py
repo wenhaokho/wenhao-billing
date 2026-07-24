@@ -1,8 +1,8 @@
 import os
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -81,6 +81,19 @@ def create_app() -> FastAPI:
     # not under /api/v1, so discovery URLs match the public base origin.
     if settings.mcp_enabled:
         app.include_router(build_oauth_router())
+
+        # The FastMCP sub-app serves at its mount root, so the live endpoint is
+        # "/mcp/" (trailing slash). Starlette's Mount doesn't match the bare
+        # "/mcp", which would otherwise fall through to the SPA catch-all below
+        # (405 on POST, 404 on GET). Redirect bare "/mcp" to "/mcp/" with a 307
+        # so the method and JSON-RPC body are preserved — clients that omit the
+        # trailing slash still connect.
+        @app.api_route(
+            "/mcp", methods=["GET", "POST", "DELETE"], include_in_schema=False
+        )
+        async def _mcp_slash_redirect(request: Request) -> RedirectResponse:
+            return RedirectResponse(url="/mcp/", status_code=307)
+
         app.mount("/mcp", mcp_http_app)
 
     # Serve the built SPA from the same origin as the API (single-container
