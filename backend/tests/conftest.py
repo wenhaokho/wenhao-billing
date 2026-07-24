@@ -472,7 +472,7 @@ def _seed_test_fx_rates(session: Session) -> None:
     """Make common non-base currencies convertible to IDR so ledger tests
     don't need to construct rates explicitly. Rollback-safe (per-test txn)."""
     today = date(2026, 1, 1)
-    pairs = [("USD", Decimal("16000")), ("SGD", Decimal("12000")), ("EUR", Decimal("17000"))]
+    pairs = [("USD", Decimal("16000")), ("SGD", Decimal("12000"))]
     for from_ccy, rate in pairs:
         session.add(
             FxRate(

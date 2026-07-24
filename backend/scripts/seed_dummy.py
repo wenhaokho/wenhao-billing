@@ -67,7 +67,7 @@ def seed() -> None:
         db.flush()
 
         # ---------- invoices ----------
-        # mix of DRAFT, SENT, PARTIAL, PAID across USD/EUR/SGD
+        # mix of DRAFT, SENT, PARTIAL, PAID across USD/SGD
         invoices = [
             # Acme — milestone, SENT, large USD
             Invoice(
@@ -117,12 +117,12 @@ def seed() -> None:
                 issue_date=_today() - timedelta(days=45),
                 due_date=_today() - timedelta(days=31),
             ),
-            # Initech — EUR milestone SENT
+            # Initech — SGD milestone SENT
             Invoice(
                 invoice_id=uuid.uuid4(),
                 customer_id=customers[2].customer_id,
                 invoice_type="MILESTONE",
-                currency="EUR",
+                currency="SGD",
                 amount=Decimal("12500.00"),
                 balance_due=Decimal("12500.00"),
                 status="SENT",
@@ -134,7 +134,7 @@ def seed() -> None:
                 invoice_id=uuid.uuid4(),
                 customer_id=customers[2].customer_id,
                 invoice_type="RECURRING",
-                currency="EUR",
+                currency="SGD",
                 amount=Decimal("3200.00"),
                 balance_due=Decimal("3200.00"),
                 status="DRAFT",
@@ -225,8 +225,8 @@ def seed() -> None:
             invoice_id=None,
             customer_id=None,
             amount=Decimal("12500.00"),
-            currency="EUR",
-            payer_name="Initech European Branch",
+            currency="SGD",
+            payer_name="Initech Singapore Branch",
             payer_reference="wire-ref-8821",
             payment_date=_today() - timedelta(days=2),
             intake_source="EMAIL",

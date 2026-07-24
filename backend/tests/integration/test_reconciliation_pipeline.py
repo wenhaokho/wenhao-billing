@@ -120,7 +120,7 @@ def test_amount_mismatch_holds_and_posts_no_journal(db, sent_invoice):
 
 def test_currency_mismatch_holds_regardless_of_amount(db, sent_invoice):
     payment = reconciliation.process_incoming_payment(
-        db, _payload(currency="EUR")
+        db, _payload(currency="GBP")
     )
     db.flush()
 

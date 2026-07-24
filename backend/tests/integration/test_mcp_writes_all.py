@@ -268,7 +268,7 @@ def test_resolve_reconciliation_match_currency_mismatch_refuses(mcp_tool_db, db,
     )
     payment = Payment(
         amount=Decimal("500.0000"),
-        currency="EUR",  # mismatched currency
+        currency="GBP",  # mismatched currency
         payer_name="Ambiguous LLC",
         payment_date=date(2026, 6, 5),
         intake_source="EMAIL",

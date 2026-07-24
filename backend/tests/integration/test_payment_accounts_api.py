@@ -50,6 +50,6 @@ def test_reject_two_defaults(admin_session):
 def test_reject_unsupported_currency(admin_session):
     r = admin_session.put(
         "/api/v1/business-profile/payment-accounts",
-        json=[{"currency": "EUR", "instructions": "SEPA", "is_default": True}],
+        json=[{"currency": "GBP", "instructions": "Barclays", "is_default": True}],
     )
     assert r.status_code == 422

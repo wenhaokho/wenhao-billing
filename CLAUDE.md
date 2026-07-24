@@ -25,7 +25,7 @@ Backend (inside `backend/`, or via `docker compose exec backend ...`):
 - Lint: `ruff check app`
 - Run all tests: `TEST_DATABASE_URL=postgresql+psycopg://... pytest`
 - Single test: `pytest tests/unit/test_matching_engine.py::test_name -x`
-- Tests **require a real Postgres** (see `tests/conftest.py`) — they skip if `TEST_DATABASE_URL` is unset. No DB mocks; per-test transactional rollback; FX rates USD/SGD/EUR→IDR are auto-seeded.
+- Tests **require a real Postgres** (see `tests/conftest.py`) — they skip if `TEST_DATABASE_URL` is unset. No DB mocks; per-test transactional rollback; FX rates USD/SGD→IDR are auto-seeded.
 
 Frontend (inside `frontend/`):
 - Dev: `npm run dev`

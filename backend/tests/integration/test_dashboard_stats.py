@@ -108,7 +108,7 @@ def test_open_ar_by_currency_sums_sent_and_partial_only(db, customer):
 def test_open_quotation_pipeline_sums_sent_and_accepted_only_sorted_desc(db, customer):
     _quote(db, customer, currency="USD", amount="500", status="SENT")
     _quote(db, customer, currency="SGD", amount="2000", status="ACCEPTED")
-    _quote(db, customer, currency="EUR", amount="999999", status="DECLINED")  # excluded
+    _quote(db, customer, currency="GBP", amount="999999", status="DECLINED")  # excluded
     stats = compute_dashboard_stats(db)
     assert stats["open_quotation_count"] == 2
     pipeline = stats["open_quotation_pipeline"]

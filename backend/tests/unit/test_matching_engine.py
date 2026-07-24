@@ -68,7 +68,7 @@ def test_overpayment_flagged_as_credit_on_account():
 
 def test_currency_mismatch_always_holds_even_with_exact_amount():
     result = match_payment(
-        _incoming(currency="EUR"), [_candidate(currency="USD")]
+        _incoming(currency="GBP"), [_candidate(currency="USD")]
     )
     assert result.status is PaymentStatus.PENDING_MANUAL_REVIEW
     assert result.currency_mismatch is True

@@ -13,7 +13,7 @@ import { api } from "@/api/client";
 const router = useRouter();
 const queryClient = useQueryClient();
 
-const currencyOptions = ["IDR", "SGD", "USD", "EUR"];
+const currencyOptions = ["IDR", "SGD", "USD"];
 const baseCurrency = ref("IDR");
 
 onMounted(async () => {
