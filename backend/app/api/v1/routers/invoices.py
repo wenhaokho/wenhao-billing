@@ -469,6 +469,26 @@ def record_payment(
     return payment
 
 
+@router.post("/{invoice_id}/mark-paid", response_model=InvoiceOut)
+def mark_paid(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(current_admin),
+) -> Invoice:
+    """Settle a zero-value invoice (SENT/PARTIAL with a 0 balance) to PAID.
+
+    The record-payment flow can't help here: it requires a positive amount
+    <= balance_due, which is impossible when balance_due is already 0.
+    """
+    try:
+        invoice = invoicing.settle_zero_value_invoice(db, invoice_id)
+    except invoicing.InvoicingError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    db.commit()
+    db.refresh(invoice)
+    return invoice
+
+
 @router.get("/{invoice_id}/pdf")
 def invoice_pdf(
     invoice_id: UUID,

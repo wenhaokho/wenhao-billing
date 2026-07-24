@@ -457,7 +457,39 @@ def finalize_invoice(db: Session, invoice_id: UUID) -> Invoice:
         raise InvoicingError(f"only DRAFT invoices can be finalized (got {invoice.status})")
     if invoice.is_template:
         raise InvoicingError("cannot finalize a recurring template")
-    invoice.status = "SENT"
+    # A zero-value invoice has nothing to collect — settle it straight to PAID
+    # so it never gets stuck in an unpayable SENT state (record-payment requires
+    # a positive amount <= balance_due, impossible when balance_due is 0).
+    if Decimal(invoice.balance_due) <= 0:
+        invoice.balance_due = Decimal("0")
+        invoice.status = "PAID"
+    else:
+        invoice.status = "SENT"
+    db.flush()
+    return invoice
+
+
+def settle_zero_value_invoice(db: Session, invoice_id: UUID) -> Invoice:
+    """Mark an already-finalized zero-value invoice as PAID.
+
+    For invoices that reached SENT/PARTIAL with a 0 balance (e.g. a genuinely
+    zero-total or fully-discounted invoice finalized before zero-value settling
+    was automatic). Refuses anything with an outstanding balance so a real
+    receivable can never be wiped out this way.
+    """
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None:
+        raise InvoicingError(f"invoice {invoice_id} not found")
+    if invoice.status not in ("SENT", "PARTIAL"):
+        raise InvoicingError(
+            f"only SENT or PARTIAL invoices can be settled this way (got {invoice.status})"
+        )
+    if Decimal(invoice.balance_due) > 0:
+        raise InvoicingError(
+            f"invoice has an outstanding balance of {invoice.balance_due} — record a payment instead"
+        )
+    invoice.balance_due = Decimal("0")
+    invoice.status = "PAID"
     db.flush()
     return invoice
 
