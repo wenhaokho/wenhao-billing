@@ -12,6 +12,8 @@
 # The shared Postgres/Redis must be attached to the same Docker network as this
 # resource so `app`/`worker` can reach them by hostname.
 
+name: wenhao-billing
+
 services:
   app:
     build:
