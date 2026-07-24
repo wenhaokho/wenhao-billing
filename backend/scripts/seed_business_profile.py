@@ -76,13 +76,10 @@ PAYMENT_ACCOUNTS = [
         "currency": "SGD",
         "is_default": False,
         "instructions": (
-            "PayNow: +6282121552288\n"
-            "\n"
-            "— or —\n"
-            "\n"
             "Beneficiary: Kardono Wijaya\n"
             "Bank: OCBC\n"
-            "Account Number: 602881245001"
+            "Account Number: 602881245001\n"
+            "PayNow: +6282121552288"
         ),
     },
 ]
