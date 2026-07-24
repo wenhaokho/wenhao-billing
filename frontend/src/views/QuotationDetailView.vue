@@ -23,7 +23,6 @@ const confirm = useConfirm();
 interface Customer {
   customer_id: string;
   name: string;
-  contact_name: string | null;
   contact_first_name: string | null;
   contact_last_name: string | null;
   contact_email: string | null;

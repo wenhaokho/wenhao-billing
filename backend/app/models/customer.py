@@ -19,8 +19,8 @@ class Customer(Base):
     )
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    # Primary contact (legacy single-field kept for backward compat; prefer first/last)
-    contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Primary contact — first/last are the single source of truth. The legacy
+    # combined `contact_name` column was dropped in 0024_customer_contact_single.
     contact_first_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     contact_last_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)

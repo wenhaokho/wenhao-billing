@@ -9,7 +9,6 @@ class CustomerBase(BaseModel):
     active: bool | None = None
 
     # Primary contact
-    contact_name: str | None = Field(default=None, max_length=255)
     contact_first_name: str | None = Field(default=None, max_length=120)
     contact_last_name: str | None = Field(default=None, max_length=120)
     contact_email: EmailStr | None = None
@@ -60,7 +59,6 @@ class CustomerOut(BaseModel):
     matching_aliases: list[str]
     active: bool
 
-    contact_name: str | None = None
     contact_first_name: str | None = None
     contact_last_name: str | None = None
     contact_email: str | None = None

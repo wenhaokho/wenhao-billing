@@ -36,7 +36,6 @@ const isRecurringRoute =
 interface Customer {
   customer_id: string;
   name: string;
-  contact_name: string | null;
   contact_first_name: string | null;
   contact_last_name: string | null;
   contact_email: string | null;
@@ -56,7 +55,7 @@ function composedContactName(c: Customer): string | null {
   const f = (c.contact_first_name ?? "").trim();
   const l = (c.contact_last_name ?? "").trim();
   const composed = [f, l].filter(Boolean).join(" ");
-  return composed || c.contact_name || null;
+  return composed || null;
 }
 
 function composedBillingAddress(c: Customer): string | null {

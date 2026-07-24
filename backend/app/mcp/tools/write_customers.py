@@ -29,18 +29,27 @@ from app.services import customers as customer_service
 def create_customer(
     name: str,
     contact_email: str | None = None,
-    contact_name: str | None = None,
+    contact_first_name: str | None = None,
+    contact_last_name: str | None = None,
     default_currency: str | None = None,
     notes: str | None = None,
 ) -> dict:
-    """Create a customer. Autonomous."""
+    """Create a customer. Autonomous.
+
+    The primary contact name is stored as first/last — the same fields the
+    customer edit form writes. There is deliberately no combined
+    `contact_name` arg: the legacy column was dropped in
+    0024_customer_contact_single because writing it here left records whose
+    contact name could not be edited in the UI.
+    """
     # No try/except: the customer service's create path never raises
     # CustomerError (only update does, on not-found), so wrapping it here would
     # be dead code.
     payload = CustomerCreate(
         name=name,
         contact_email=contact_email,
-        contact_name=contact_name,
+        contact_first_name=contact_first_name,
+        contact_last_name=contact_last_name,
         default_currency=default_currency,
         notes=notes,
     )

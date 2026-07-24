@@ -27,7 +27,6 @@ interface Customer {
   name: string;
   matching_aliases: string[];
   active: boolean;
-  contact_name: string | null;
   contact_first_name: string | null;
   contact_last_name: string | null;
   contact_email: string | null;
@@ -182,8 +181,7 @@ const lastItemLabel = computed(() => {
 });
 
 function displayContactName(c: Customer): string {
-  const full = [c.contact_first_name, c.contact_last_name].filter(Boolean).join(" ").trim();
-  return full || c.contact_name || "";
+  return [c.contact_first_name, c.contact_last_name].filter(Boolean).join(" ").trim();
 }
 
 function composedBillingAddress(c: Customer): string {
@@ -218,7 +216,6 @@ function customerToForm(c: Customer): CustomerFormData {
     name: c.name ?? "",
     matching_aliases: [...(c.matching_aliases ?? [])],
     active: c.active,
-    contact_name: c.contact_name ?? "",
     contact_first_name: c.contact_first_name ?? "",
     contact_last_name: c.contact_last_name ?? "",
     contact_email: c.contact_email ?? "",

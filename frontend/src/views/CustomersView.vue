@@ -24,7 +24,6 @@ interface Customer {
   name: string;
   matching_aliases: string[];
   active: boolean;
-  contact_name: string | null;
   contact_first_name: string | null;
   contact_last_name: string | null;
   contact_email: string | null;
@@ -32,16 +31,12 @@ interface Customer {
   billing_address: string | null;
 }
 
-// The edit form writes contact_first_name/contact_last_name; contact_name is a
-// legacy combined field that can hold a stale, differently-formatted value.
-// Prefer the editable first + last name so the table always matches the form,
-// and fall back to the legacy field only when first/last are both empty.
 function contactName(row: Customer): string | null {
   const joined = [row.contact_first_name, row.contact_last_name]
     .filter(Boolean)
     .join(" ")
     .trim();
-  return joined || row.contact_name || null;
+  return joined || null;
 }
 
 const router = useRouter();

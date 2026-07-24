@@ -3,7 +3,6 @@ export interface CustomerFormData {
   matching_aliases: string[];
   active: boolean;
 
-  contact_name: string;
   contact_first_name: string;
   contact_last_name: string;
   contact_email: string;
@@ -40,7 +39,6 @@ export function emptyCustomerForm(): CustomerFormData {
     name: "",
     matching_aliases: [],
     active: true,
-    contact_name: "",
     contact_first_name: "",
     contact_last_name: "",
     contact_email: "",
@@ -78,7 +76,6 @@ export function buildCustomerPayload(form: CustomerFormData): Record<string, unk
     name: form.name,
     matching_aliases: form.matching_aliases,
     active: form.active,
-    contact_name: s(form.contact_name),
     contact_first_name: s(form.contact_first_name),
     contact_last_name: s(form.contact_last_name),
     contact_email: s(form.contact_email),
