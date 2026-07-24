@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from app.services.invoice_pdf import _discount_amount, _fmt_num, _fmt_pct
+from app.services.invoice_pdf import _discount_amount, _fmt_num, _fmt_pct, _fmt_qty
 from app.services.pdf.assets import font_face_css
 from app.services.pdf.logo import resolve_logo
 
@@ -73,21 +73,25 @@ def _business_lines(business) -> list[str]:
     return lines
 
 
-def _item(li) -> dict:
+def _item(li, currency: str | None = None) -> dict:
     return {
         "desc": li.description,
-        "qty": f"{Decimal(li.quantity):g}",
-        "rate": _fmt_num(li.unit_price),
-        "amount": _fmt_num(li.amount),
+        "qty": _fmt_qty(li.quantity),
+        "rate": _fmt_num(li.unit_price, currency),
+        "amount": _fmt_num(li.amount, currency),
     }
 
 
-def _discount_row(discount_type, discount_value, subtotal):
+def _discount_row(discount_type, discount_value, subtotal, currency=None):
     disc = _discount_amount(discount_type, discount_value, subtotal)
     if disc is None:
         return None
     suffix = f" ({_fmt_pct(discount_value)}%)" if discount_type == "PERCENT" else ""
-    return {"label": f"Discount{suffix}", "value": f"−{_fmt_num(disc)}", "cls": "discount"}
+    return {
+        "label": f"Discount{suffix}",
+        "value": f"−{_fmt_num(disc, currency)}",
+        "cls": "discount",
+    }
 
 
 def resolve_payment_instructions(accounts, currency: str | None) -> str | None:
@@ -121,7 +125,7 @@ def _common(doc, customer, business) -> dict:
         "from_lines": _business_lines(business),
         "to_name": getattr(customer, "name", None) or "—",
         "to_lines": to_lines,
-        "items": [_item(li) for li in doc.line_items],
+        "items": [_item(li, doc.currency) for li in doc.line_items],
         "currency": doc.currency,
         "payment_instructions": resolve_payment_instructions(
             getattr(business, "payment_accounts", None), doc.currency
@@ -140,8 +144,9 @@ def _common(doc, customer, business) -> dict:
 
 def build_invoice_context(invoice, customer, business=None) -> dict:
     ctx = _common(invoice, customer, business)
-    rows = [{"label": "Subtotal", "value": _fmt_num(invoice.subtotal), "cls": "subtotal"}]
-    disc = _discount_row(invoice.discount_type, invoice.discount_value, invoice.subtotal)
+    cur = invoice.currency
+    rows = [{"label": "Subtotal", "value": _fmt_num(invoice.subtotal, cur), "cls": "subtotal"}]
+    disc = _discount_row(invoice.discount_type, invoice.discount_value, invoice.subtotal, cur)
     if disc:
         rows.append(disc)
     paid = None
@@ -150,8 +155,8 @@ def build_invoice_context(invoice, customer, business=None) -> dict:
         if p > 0:
             paid = p.quantize(Decimal("0.01"))
     if paid is not None:
-        rows.append({"label": "Total", "value": _fmt_num(invoice.amount), "cls": "total"})
-        rows.append({"label": "Paid", "value": f"−{_fmt_num(paid)}", "cls": "paid"})
+        rows.append({"label": "Total", "value": _fmt_num(invoice.amount, cur), "cls": "total"})
+        rows.append({"label": "Paid", "value": f"−{_fmt_num(paid, cur)}", "cls": "paid"})
     ctx.update({
         "doc_title": (getattr(business, "invoice_title", None) or "INVOICE").upper(),
         # "Net N" drives the due-date, not a customer-facing term; the
@@ -165,15 +170,18 @@ def build_invoice_context(invoice, customer, business=None) -> dict:
         ],
         "summary_rows": rows,
         "hero_label": "Total Due",
-        "hero_amount": _fmt_num(invoice.balance_due),
+        "hero_amount": _fmt_num(invoice.balance_due, cur),
     })
     return ctx
 
 
 def build_quotation_context(quotation, customer, business=None) -> dict:
     ctx = _common(quotation, customer, business)
-    rows = [{"label": "Subtotal", "value": _fmt_num(quotation.subtotal), "cls": "subtotal"}]
-    disc = _discount_row(quotation.discount_type, quotation.discount_value, quotation.subtotal)
+    cur = quotation.currency
+    rows = [{"label": "Subtotal", "value": _fmt_num(quotation.subtotal, cur), "cls": "subtotal"}]
+    disc = _discount_row(
+        quotation.discount_type, quotation.discount_value, quotation.subtotal, cur
+    )
     if disc:
         rows.append(disc)
     ctx.update({
@@ -186,6 +194,6 @@ def build_quotation_context(quotation, customer, business=None) -> dict:
         ],
         "summary_rows": rows,
         "hero_label": "Total",
-        "hero_amount": _fmt_num(quotation.amount),
+        "hero_amount": _fmt_num(quotation.amount, cur),
     })
     return ctx

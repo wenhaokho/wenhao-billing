@@ -6,7 +6,6 @@ Mirrors invoice_pdf.py with the header changed to QUOTATION and the
 
 from __future__ import annotations
 
-from decimal import Decimal
 from io import BytesIO
 
 from reportlab.lib import colors
@@ -17,13 +16,9 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from app.models.customer import Customer
 from app.models.quotation import Quotation
-
-
-def _fmt_amount(value: Decimal | None, currency: str) -> str:
-    if value is None:
-        return "—"
-    q = Decimal(value).quantize(Decimal("0.01"))
-    return f"{q:,.2f} {currency}"
+# Shared, currency-aware figure formatting (0dp for IDR and other zero-decimal
+# currencies, 2dp otherwise) — keep quotation and invoice output consistent.
+from app.services.invoice_pdf import _fmt_amount, _fmt_qty
 
 
 def _addr_lines(c: Customer) -> list[str]:
@@ -128,7 +123,7 @@ def render_quotation_pdf(quotation: Quotation, customer: Customer | None) -> byt
             [
                 str(li.position),
                 li.description,
-                f"{Decimal(li.quantity):g}",
+                _fmt_qty(li.quantity),
                 _fmt_amount(li.unit_price, quotation.currency),
                 _fmt_amount(li.amount, quotation.currency),
             ]
