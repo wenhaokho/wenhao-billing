@@ -155,6 +155,13 @@ const hasArPie = computed(
   () => (stats.value?.open_ar_base_by_currency.length ?? 0) > 0,
 );
 
+// Native (original-currency) AR total per currency, for the pie tooltip.
+const arNativeByCcy = computed<Record<string, string>>(() => {
+  const m: Record<string, string> = {};
+  for (const r of stats.value?.open_ar_by_currency ?? []) m[r.currency] = r.amount;
+  return m;
+});
+
 const arPieOptions = computed(() => {
   const base = stats.value?.base_currency ?? "";
   return {
@@ -164,8 +171,15 @@ const arPieOptions = computed(() => {
       legend: { position: "bottom" as const, labels: { font: { size: 11 }, boxWidth: 12 } },
       tooltip: {
         callbacks: {
-          label: (ctx: { label?: string; parsed: number }) =>
-            `${ctx.label}: ${formatAmount(String(ctx.parsed), base)} ${base}`,
+          // Show the native amount and the IDR-converted amount together.
+          label: (ctx: { label?: string; parsed: number }) => {
+            const ccy = ctx.label ?? "";
+            const native = arNativeByCcy.value[ccy];
+            const converted = `= ${formatAmount(String(ctx.parsed), base)} ${base}`;
+            return native
+              ? [`${formatAmount(native, ccy)} ${ccy}`, converted]
+              : converted;
+          },
         },
       },
     },
@@ -282,6 +296,23 @@ function timeAgo(iso: string) {
         </div>
       </div>
 
+      <!-- Revenue chart -->
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h3>Revenue — last 12 months</h3>
+            <p class="subtitle">Invoiced revenue (SENT + PARTIAL + PAID) by month, stacked per currency.</p>
+          </div>
+        </div>
+        <div v-if="!hasRevenueData" class="empty-state chart-empty">
+          <i class="pi pi-chart-bar" />
+          <div>No invoiced revenue yet in the last 12 months.</div>
+        </div>
+        <div v-else class="chart-wrap">
+          <Chart type="bar" :data="chartData" :options="chartOptions" />
+        </div>
+      </div>
+
       <!-- Forward-looking: MRR + Upcoming -->
       <div class="two-col">
         <!-- MRR -->
@@ -328,23 +359,6 @@ function timeAgo(iso: string) {
               </div>
             </li>
           </ul>
-        </div>
-      </div>
-
-      <!-- Revenue chart -->
-      <div class="card">
-        <div class="card-head">
-          <div>
-            <h3>Revenue — last 12 months</h3>
-            <p class="subtitle">Invoiced revenue (SENT + PARTIAL + PAID) by month, stacked per currency.</p>
-          </div>
-        </div>
-        <div v-if="!hasRevenueData" class="empty-state chart-empty">
-          <i class="pi pi-chart-bar" />
-          <div>No invoiced revenue yet in the last 12 months.</div>
-        </div>
-        <div v-else class="chart-wrap">
-          <Chart type="bar" :data="chartData" :options="chartOptions" />
         </div>
       </div>
 
