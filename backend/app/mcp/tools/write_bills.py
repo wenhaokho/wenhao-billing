@@ -6,6 +6,12 @@ routers/bills.py's own `update_bill`, this tool loads the row and returns
 a not-found error itself before delegating, exactly like the router does.
 Only `billing_ap.BillError` is caught for the service-raised failures
 (e.g. editing a non-DRAFT/OPEN bill).
+
+`update_bill` vets its `changes` dict with `reject_unknown_changes` before
+loading the row — see app/mcp/validate.py. That ordering is deliberate: a
+bad key is reported as a bad key even when the bill id is also wrong, so
+the caller fixes the name rather than chasing the not-found. Returns use
+`_BILL_DETAIL_FIELDS` so supplied notes/terms/discount are echoed back.
 """
 from __future__ import annotations
 
@@ -15,7 +21,8 @@ from uuid import UUID
 from app.mcp.db import tool_session
 from app.mcp.serialize import to_dict
 from app.mcp.server import mcp
-from app.mcp.tools.read_bills import _BILL_FIELDS
+from app.mcp.tools.read_bills import _BILL_DETAIL_FIELDS
+from app.mcp.validate import reject_unknown_changes
 from app.models.bill import Bill
 from app.schemas.bill import BillCreate, BillLineItemIn, BillUpdate
 from app.services import billing_ap
@@ -72,16 +79,23 @@ def create_bill(
         with tool_session() as db:
             bill = billing_ap.create_bill(db, payload)
             db.flush()
-            return to_dict(bill, _BILL_FIELDS)
+            return to_dict(bill, _BILL_DETAIL_FIELDS)
     except billing_ap.BillError as e:
         return {"error": str(e)}
 
 
 @mcp.tool
 def update_bill(bill_id: str, changes: dict) -> dict:
-    """Edit a DRAFT/OPEN bill. `changes` matches BillUpdate fields (e.g.
+    """Edit a DRAFT/OPEN bill. `changes` keys are BillUpdate field names (e.g.
     notes, payment_terms, discount_type/discount_value, line_items).
-    Autonomous."""
+    Autonomous.
+
+    Unknown keys are rejected rather than applied, so a near-miss like "note"
+    or "terms" errors instead of being dropped by Pydantic's default
+    extra="ignore" while the tool still reports success.
+    """
+    if (err := reject_unknown_changes(changes, BillUpdate)) is not None:
+        return err
     try:
         with tool_session() as db:
             bill = db.get(Bill, UUID(bill_id))
@@ -89,6 +103,6 @@ def update_bill(bill_id: str, changes: dict) -> dict:
                 return {"error": f"bill {bill_id} not found"}
             bill = billing_ap.update_bill(db, bill, BillUpdate(**changes))
             db.flush()
-            return to_dict(bill, _BILL_FIELDS)
+            return to_dict(bill, _BILL_DETAIL_FIELDS)
     except billing_ap.BillError as e:
         return {"error": str(e)}

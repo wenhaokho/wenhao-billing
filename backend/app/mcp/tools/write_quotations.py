@@ -4,6 +4,11 @@ Same pattern as write_invoices.py — `quoting.create_quotation` and
 `quoting.update_quotation` both take an id and self-raise
 `quoting.QuotingError` (not-found, wrong status), so this tool just
 builds args and delegates, catching only that error.
+
+`update_quotation` vets its `changes` dict with `reject_unknown_changes`
+before opening a session — see app/mcp/validate.py. Returns use
+`_QUOTATION_DETAIL_FIELDS` so supplied notes/terms/footer/discount are
+echoed back.
 """
 from __future__ import annotations
 
@@ -13,7 +18,8 @@ from uuid import UUID
 from app.mcp.db import tool_session
 from app.mcp.serialize import to_dict
 from app.mcp.server import mcp
-from app.mcp.tools.read_quotations import _QUOTATION_FIELDS
+from app.mcp.tools.read_quotations import _QUOTATION_DETAIL_FIELDS
+from app.mcp.validate import reject_unknown_changes
 from app.schemas.quotation import QuotationCreate, QuotationLineItemIn, QuotationUpdate
 from app.services import quoting
 
@@ -68,20 +74,27 @@ def create_quotation(
         with tool_session() as db:
             q = quoting.create_quotation(db, payload)
             db.flush()
-            return to_dict(q, _QUOTATION_FIELDS)
+            return to_dict(q, _QUOTATION_DETAIL_FIELDS)
     except quoting.QuotingError as e:
         return {"error": str(e)}
 
 
 @mcp.tool
 def update_quotation(quotation_id: str, changes: dict) -> dict:
-    """Edit a DRAFT/SENT quotation. `changes` matches QuotationUpdate
-    fields (e.g. notes, payment_terms, discount_type/discount_value,
-    line_items). Autonomous."""
+    """Edit a DRAFT/SENT quotation. `changes` keys are QuotationUpdate field
+    names (e.g. notes, payment_terms, discount_type/discount_value,
+    line_items). Autonomous.
+
+    Unknown keys are rejected rather than applied, so a near-miss like "note"
+    or "valid_till" (real field: `valid_until`) errors instead of being dropped
+    by Pydantic's default extra="ignore" while the tool still reports success.
+    """
+    if (err := reject_unknown_changes(changes, QuotationUpdate)) is not None:
+        return err
     try:
         with tool_session() as db:
             q = quoting.update_quotation(db, UUID(quotation_id), QuotationUpdate(**changes))
             db.flush()
-            return to_dict(q, _QUOTATION_FIELDS)
+            return to_dict(q, _QUOTATION_DETAIL_FIELDS)
     except quoting.QuotingError as e:
         return {"error": str(e)}

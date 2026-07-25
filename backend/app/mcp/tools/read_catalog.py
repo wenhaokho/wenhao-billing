@@ -14,12 +14,25 @@ item_type, description, default_currency, default_unit_price,
 default_purchase_price, revenue_account_id, expense_account_id, is_sold,
 is_purchased, active, is_hosting, hosting_domain, hosting_grace_days,
 hosting_suspension_enabled, hosting_status, hosting_last_paid_at,
-hosting_last_action_at, hosting_last_error, created_at (_ITEM_FIELDS is a
-deliberate subset).
+hosting_last_action_at, hosting_last_error, created_at.
 
 Real columns on Vendor (backend/app/models/vendor.py): vendor_id, name,
 contact_email, contact_name, default_currency, payment_terms_days,
-tax_id, notes, active, created_at (_VENDOR_FIELDS is a deliberate subset).
+tax_id, notes, active, created_at. Note there is deliberately no
+address or phone column on Vendor — unlike Customer, a vendor's postal
+address has never been modelled, so `update_vendor` rejecting an
+"address"/"phone" key is the honest answer rather than an omission.
+
+Two field sets per entity, deliberately (the read_customers.py pattern):
+
+- `_ITEM_FIELDS` / `_VENDOR_FIELDS` — the narrow subsets for the `list_*`
+  tools, which return up to 500 rows and would bloat if they carried every
+  column.
+- `_ITEM_DETAIL_FIELDS` / `_VENDOR_DETAIL_FIELDS` — every writable column,
+  used by single-record returns (the write tools in write_catalog.py).
+  Single-record returns MUST echo back what was supplied: when create_vendor
+  returned only `_VENDOR_FIELDS`, a caller that set tax_id/notes had no way
+  to see whether either landed.
 """
 from __future__ import annotations
 
@@ -43,6 +56,27 @@ _ITEM_FIELDS = [
     "is_hosting",
 ]
 
+_ITEM_DETAIL_FIELDS = [
+    "item_id",
+    "sku",
+    "name",
+    "item_type",
+    "description",
+    "default_currency",
+    "default_unit_price",
+    "default_purchase_price",
+    "revenue_account_id",
+    "expense_account_id",
+    "is_sold",
+    "is_purchased",
+    "active",
+    "is_hosting",
+    "hosting_domain",
+    "hosting_grace_days",
+    "hosting_suspension_enabled",
+    "hosting_status",
+]
+
 _VENDOR_FIELDS = [
     "vendor_id",
     "name",
@@ -50,6 +84,18 @@ _VENDOR_FIELDS = [
     "contact_name",
     "default_currency",
     "payment_terms_days",
+    "active",
+]
+
+_VENDOR_DETAIL_FIELDS = [
+    "vendor_id",
+    "name",
+    "contact_email",
+    "contact_name",
+    "default_currency",
+    "payment_terms_days",
+    "tax_id",
+    "notes",
     "active",
 ]
 

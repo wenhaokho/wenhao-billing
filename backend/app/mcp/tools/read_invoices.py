@@ -5,9 +5,17 @@ Mirrors the invoice router's list/get queries
 get_invoice ~L377-385).
 
 Real columns on Invoice (backend/app/models/invoice.py): invoice_id,
-invoice_number, customer_id, invoice_type, currency, amount, balance_due,
-status, issue_date, due_date (plus other fields not surfaced here —
-_INVOICE_FIELDS is a deliberate subset; Task 7 imports this list).
+invoice_number, customer_id, project_id, source_quote_id, invoice_type,
+po_so_number, currency, subtotal, discount_type, discount_value, amount,
+balance_due, status, billing_cycle_ref, issue_date, due_date,
+coverage_start, coverage_end, payment_terms, notes, footer, is_template,
+created_at (plus a line_items relationship not surfaced here).
+
+Two field sets, deliberately (the read_customers.py pattern):
+`_INVOICE_FIELDS` is the narrow subset for `list_invoices`;
+`_INVOICE_DETAIL_FIELDS` adds the editable terms/notes/footer/discount
+columns and is used by single-record returns (`get_invoice` and the
+write_invoices.py tools) so a caller can see that supplied data landed.
 """
 from __future__ import annotations
 
@@ -31,6 +39,19 @@ _INVOICE_FIELDS = [
     "status",
     "issue_date",
     "due_date",
+]
+
+_INVOICE_DETAIL_FIELDS = [
+    *_INVOICE_FIELDS,
+    "project_id",
+    "po_so_number",
+    "subtotal",
+    "discount_type",
+    "discount_value",
+    "payment_terms",
+    "notes",
+    "footer",
+    "is_template",
 ]
 
 
@@ -60,7 +81,8 @@ def list_invoices(
 
 @mcp.tool
 def get_invoice(invoice_id: str) -> dict:
-    """Fetch one invoice by id. Returns {} if not found."""
+    """Fetch one invoice by id, including terms/notes/footer/discount.
+    Returns {} if not found."""
     with tool_session() as db:
         inv = db.get(Invoice, UUID(invoice_id))
-        return to_dict(inv, _INVOICE_FIELDS) if inv else {}
+        return to_dict(inv, _INVOICE_DETAIL_FIELDS) if inv else {}
