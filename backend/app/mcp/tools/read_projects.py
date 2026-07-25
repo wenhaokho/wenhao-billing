@@ -5,8 +5,13 @@ Mirrors the projects router's list/get queries
 
 Real columns on Project (backend/app/models/project.py): project_id,
 customer_id, code, name, currency, contract_value, status, start_date,
-end_date, notes, active, created_at (_PROJECT_FIELDS is a deliberate
-subset, matching the read_invoices.py pattern).
+end_date, notes, active, created_at.
+
+Two field sets, deliberately (the read_customers.py pattern):
+`_PROJECT_FIELDS` is the narrow subset for `list_projects`;
+`_PROJECT_DETAIL_FIELDS` adds `notes` and is used by single-record returns
+(`get_project` and the write_projects.py tools) so a caller can see that
+supplied data landed.
 """
 from __future__ import annotations
 
@@ -32,6 +37,8 @@ _PROJECT_FIELDS = [
     "active",
 ]
 
+_PROJECT_DETAIL_FIELDS = [*_PROJECT_FIELDS, "notes"]
+
 
 @mcp.tool
 def list_projects(customer_id: str | None = None, limit: int = 200) -> list[dict]:
@@ -49,7 +56,7 @@ def list_projects(customer_id: str | None = None, limit: int = 200) -> list[dict
 
 @mcp.tool
 def get_project(project_id: str) -> dict:
-    """Fetch one project by id. Returns {} if not found."""
+    """Fetch one project by id, including notes. Returns {} if not found."""
     with tool_session() as db:
         p = db.get(Project, UUID(project_id))
-        return to_dict(p, _PROJECT_FIELDS) if p else {}
+        return to_dict(p, _PROJECT_DETAIL_FIELDS) if p else {}

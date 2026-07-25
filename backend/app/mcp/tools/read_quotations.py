@@ -7,9 +7,14 @@ Real columns on Quotation (backend/app/models/quotation.py): quotation_id,
 customer_id, project_id, quotation_number, po_so_number, currency,
 subtotal, discount_type, discount_value, amount, status, issue_date,
 valid_until, payment_terms, notes, footer, last_sent_at, accepted_at,
-accepted_by, converted_invoice_id, created_at (plus line_items
-relationship not surfaced here — _QUOTATION_FIELDS is a deliberate
-subset, matching the read_invoices.py pattern).
+accepted_by, converted_invoice_id, created_at (plus a line_items
+relationship not surfaced here).
+
+Two field sets, deliberately (the read_customers.py pattern):
+`_QUOTATION_FIELDS` is the narrow subset for `list_quotations`;
+`_QUOTATION_DETAIL_FIELDS` adds the editable terms/notes/footer/discount
+columns and is used by single-record returns (`get_quotation` and the
+write_quotations.py tools) so a caller can see that supplied data landed.
 """
 from __future__ import annotations
 
@@ -32,6 +37,17 @@ _QUOTATION_FIELDS = [
     "status",
     "issue_date",
     "valid_until",
+]
+
+_QUOTATION_DETAIL_FIELDS = [
+    *_QUOTATION_FIELDS,
+    "po_so_number",
+    "subtotal",
+    "discount_type",
+    "discount_value",
+    "payment_terms",
+    "notes",
+    "footer",
 ]
 
 
@@ -57,7 +73,8 @@ def list_quotations(
 
 @mcp.tool
 def get_quotation(quotation_id: str) -> dict:
-    """Fetch one quotation by id. Returns {} if not found."""
+    """Fetch one quotation by id, including terms/notes/footer/discount.
+    Returns {} if not found."""
     with tool_session() as db:
         q = db.get(Quotation, UUID(quotation_id))
-        return to_dict(q, _QUOTATION_FIELDS) if q else {}
+        return to_dict(q, _QUOTATION_DETAIL_FIELDS) if q else {}

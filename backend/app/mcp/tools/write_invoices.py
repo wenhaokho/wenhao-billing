@@ -3,8 +3,14 @@
 Never re-implement invoice/ledger logic here: every tool below just builds
 the matching Pydantic payload from tool args, calls the corresponding
 `app.services.invoicing` function, and serializes the result via
-`_INVOICE_FIELDS` (imported from read_invoices.py — the deliberate field
-subset shared by read and write tools).
+`_INVOICE_DETAIL_FIELDS` (imported from read_invoices.py). These are
+single-record returns, so they use the detail set rather than the narrow
+`_INVOICE_FIELDS` that `list_invoices` uses — a caller that supplied
+notes/terms/discount needs to see whether the values landed.
+
+`update_invoice` vets its `changes` dict with `reject_unknown_changes`
+before opening a session — see app/mcp/validate.py for why unknown keys
+must not be silently ignored.
 
 Error handling: `invoicing.InvoicingError` is caught at the tool boundary
 and returned as `{"error": str(e)}` instead of propagating — this lets the
@@ -22,8 +28,14 @@ from uuid import UUID
 from app.mcp.db import tool_session
 from app.mcp.serialize import to_dict
 from app.mcp.server import mcp
-from app.mcp.tools.read_invoices import _INVOICE_FIELDS
-from app.schemas.invoice import InvoiceCreate, InvoiceLineItemIn, InvoiceUpdate, RecurringTemplateCreate
+from app.mcp.tools.read_invoices import _INVOICE_DETAIL_FIELDS
+from app.mcp.validate import reject_unknown_changes
+from app.schemas.invoice import (
+    InvoiceCreate,
+    InvoiceLineItemIn,
+    InvoiceUpdate,
+    RecurringTemplateCreate,
+)
 from app.services import invoicing
 
 
@@ -69,21 +81,28 @@ def create_invoice(
         with tool_session() as db:
             inv = invoicing.create_invoice(db, payload)
             db.flush()
-            return to_dict(inv, _INVOICE_FIELDS)
+            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
 
 
 @mcp.tool
 def update_invoice(invoice_id: str, changes: dict) -> dict:
-    """Edit a DRAFT invoice. `changes` matches InvoiceUpdate fields (e.g.
+    """Edit a DRAFT invoice. `changes` keys are InvoiceUpdate field names (e.g.
     notes, payment_terms, discount_type/discount_value, line_items).
-    Autonomous."""
+    Autonomous.
+
+    Unknown keys are rejected rather than applied, so a near-miss like "note"
+    or "terms" errors instead of being dropped by Pydantic's default
+    extra="ignore" while the tool still reports success.
+    """
+    if (err := reject_unknown_changes(changes, InvoiceUpdate)) is not None:
+        return err
     try:
         with tool_session() as db:
             inv = invoicing.update_invoice(db, UUID(invoice_id), InvoiceUpdate(**changes))
             db.flush()
-            return to_dict(inv, _INVOICE_FIELDS)
+            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
 
@@ -99,7 +118,7 @@ def finalize_invoice(invoice_id: str) -> dict:
         with tool_session() as db:
             inv = invoicing.finalize_invoice(db, UUID(invoice_id))
             db.flush()
-            return to_dict(inv, _INVOICE_FIELDS)
+            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
 
@@ -111,7 +130,7 @@ def void_invoice(invoice_id: str) -> dict:
         with tool_session() as db:
             inv = invoicing.void_invoice(db, UUID(invoice_id))
             db.flush()
-            return to_dict(inv, _INVOICE_FIELDS)
+            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
 
@@ -150,7 +169,7 @@ def create_recurring_template(
         with tool_session() as db:
             inv = invoicing.create_recurring_template(db, payload)
             db.flush()
-            return to_dict(inv, _INVOICE_FIELDS)
+            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
 
@@ -165,6 +184,6 @@ def trigger_recurring(template_id: str, cycle_key: str) -> dict:
                 db, template_invoice_id=UUID(template_id), cycle_key=cycle_key
             )
             db.flush()
-            return to_dict(inv, _INVOICE_FIELDS)
+            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}

@@ -6,9 +6,14 @@ Mirrors the bills router's list/get queries
 Real columns on Bill (backend/app/models/bill.py): bill_id, vendor_id,
 project_id, bill_number, po_number, currency, subtotal, discount_type,
 discount_value, amount, balance_due, status, issue_date, due_date,
-payment_terms, notes, created_at (plus line_items relationship not
-surfaced here — _BILL_FIELDS is a deliberate subset, matching the
-read_invoices.py pattern).
+payment_terms, notes, created_at (plus a line_items relationship not
+surfaced here).
+
+Two field sets, deliberately (the read_customers.py pattern):
+`_BILL_FIELDS` is the narrow subset for `list_bills`;
+`_BILL_DETAIL_FIELDS` adds the editable terms/notes/discount columns and is
+used by single-record returns (`get_bill` and the write_bills.py tools) so a
+caller can see that supplied data landed.
 """
 from __future__ import annotations
 
@@ -35,6 +40,15 @@ _BILL_FIELDS = [
     "due_date",
 ]
 
+_BILL_DETAIL_FIELDS = [
+    *_BILL_FIELDS,
+    "subtotal",
+    "discount_type",
+    "discount_value",
+    "payment_terms",
+    "notes",
+]
+
 
 @mcp.tool
 def list_bills(
@@ -54,7 +68,8 @@ def list_bills(
 
 @mcp.tool
 def get_bill(bill_id: str) -> dict:
-    """Fetch one bill by id. Returns {} if not found."""
+    """Fetch one bill by id, including terms/notes/discount. Returns {} if not
+    found."""
     with tool_session() as db:
         b = db.get(Bill, UUID(bill_id))
-        return to_dict(b, _BILL_FIELDS) if b else {}
+        return to_dict(b, _BILL_DETAIL_FIELDS) if b else {}

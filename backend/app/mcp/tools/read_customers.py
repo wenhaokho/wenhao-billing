@@ -1,8 +1,15 @@
 """Customer read tools + the ambiguity-stop resolver.
 
-Real columns on Customer (backend/app/models/customer.py): customer_id,
-name, contact_email (plus many address/contact fields not surfaced here —
-_CUSTOMER_FIELDS is a deliberate subset, matching the read_misc.py pattern).
+Two field sets, deliberately:
+
+- `_CUSTOMER_FIELDS` — the narrow identity subset for `list_customers`,
+  which returns up to 500 rows and would bloat badly if it carried the full
+  profile (the read_misc.py pattern).
+- `_CUSTOMER_DETAIL_FIELDS` — the full profile, used by single-record
+  returns (`get_customer` and the write tools). Single-record returns MUST
+  echo phone/address back: when they returned only the identity subset, a
+  caller had no way to see that contact/address data it supplied had gone
+  nowhere.
 """
 from __future__ import annotations
 
@@ -17,6 +24,42 @@ from app.models.customer import Customer
 
 _CUSTOMER_FIELDS = ["customer_id", "name", "contact_email"]
 
+_CUSTOMER_DETAIL_FIELDS = [
+    "customer_id",
+    "name",
+    "active",
+    "matching_aliases",
+    # Primary contact
+    "contact_first_name",
+    "contact_last_name",
+    "contact_email",
+    "contact_phone",
+    "contact_phone_2",
+    # Misc profile
+    "account_number",
+    "website",
+    "notes",
+    # Billing
+    "default_currency",
+    "billing_address",  # legacy unstructured column: readable, never written here
+    "billing_address1",
+    "billing_address2",
+    "billing_city",
+    "billing_state",
+    "billing_postal_code",
+    "billing_country",
+    # Shipping
+    "ship_to_name",
+    "shipping_address1",
+    "shipping_address2",
+    "shipping_city",
+    "shipping_state",
+    "shipping_postal_code",
+    "shipping_country",
+    "shipping_phone",
+    "shipping_delivery_instructions",
+]
+
 
 @mcp.tool
 def list_customers(query: str | None = None, limit: int = 200) -> list[dict]:
@@ -30,10 +73,11 @@ def list_customers(query: str | None = None, limit: int = 200) -> list[dict]:
 
 @mcp.tool
 def get_customer(customer_id: str) -> dict:
-    """Fetch one customer by id. Returns {} if not found."""
+    """Fetch one customer by id, with its full contact/billing/shipping
+    profile. Returns {} if not found."""
     with tool_session() as db:
         c = db.get(Customer, UUID(customer_id))
-        return to_dict(c, _CUSTOMER_FIELDS) if c else {}
+        return to_dict(c, _CUSTOMER_DETAIL_FIELDS) if c else {}
 
 
 @mcp.tool
