@@ -44,7 +44,7 @@ async function submit() {
   error.value = null;
   submitting.value = true;
   try {
-    await auth.login(email.value, password.value);
+    await auth.login(email.value, password.value, remember.value);
     if (remember.value) {
       localStorage.setItem(REMEMBER_KEY, email.value);
     } else {
@@ -94,7 +94,7 @@ async function submit() {
 
       <label class="remember">
         <Checkbox v-model="remember" :binary="true" input-id="remember" />
-        <span>Remember my email on this device</span>
+        <span>Keep me signed in for 30 days</span>
       </label>
 
       <Message

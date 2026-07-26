@@ -7,6 +7,9 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # "Keep me logged in" — when true the session lasts 30 days and survives a
+    # browser restart; when false it expires after the short default (8h).
+    remember: bool = False
 
 
 class UserOut(BaseModel):

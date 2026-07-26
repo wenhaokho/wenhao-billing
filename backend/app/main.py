@@ -49,7 +49,12 @@ def create_app() -> FastAPI:
         SessionMiddleware,
         secret_key=settings.session_secret,
         session_cookie=settings.session_cookie_name,
-        max_age=settings.session_max_age_seconds,
+        # Sign/emit the cookie with the longest possible lifetime (30d "remember"
+        # window) so remembered logins survive a browser restart. The real,
+        # per-login expiry is enforced server-side via session["exp"] in
+        # deps.current_admin — a short (non-remember) login is rejected after 8h
+        # even though the cookie itself is still browser-valid.
+        max_age=settings.session_remember_max_age_seconds,
         same_site="lax",
         https_only=False,
     )

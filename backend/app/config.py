@@ -27,7 +27,14 @@ class Settings(BaseSettings):
 
     session_secret: str = Field(default="dev-session-secret-change-me")
     session_cookie_name: str = "billing_session"
+    # Default ("Keep me logged in" unchecked) session lifetime: 8 hours.
     session_max_age_seconds: int = 60 * 60 * 8
+    # "Keep me logged in" (remember) session lifetime: 30 days. The cookie is
+    # always signed/emitted with this longer TTL so the browser retains it; the
+    # *effective* expiry is enforced server-side per-login via session["exp"]
+    # (see auth.login / deps.current_admin), which is what actually distinguishes
+    # a remembered login from a short one.
+    session_remember_max_age_seconds: int = 60 * 60 * 24 * 30
 
     webhook_hmac_secret: str = Field(default="dev-webhook-secret-change-me")
     email_webhook_token: str = Field(default="dev-email-token-change-me")

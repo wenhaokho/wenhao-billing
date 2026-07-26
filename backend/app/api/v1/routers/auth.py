@@ -12,6 +12,7 @@ Endpoints:
 from __future__ import annotations
 
 import secrets
+import time
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -46,6 +47,16 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     if user is None or not _pwd.verify(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
     request.session["user_id"] = str(user.user_id)
+    # Absolute session expiry, enforced server-side in deps.current_admin. The
+    # cookie itself is always emitted with the 30d "remember" TTL; this stamp is
+    # what actually distinguishes a remembered login (30d) from a short one (8h).
+    settings = get_settings()
+    ttl = (
+        settings.session_remember_max_age_seconds
+        if payload.remember
+        else settings.session_max_age_seconds
+    )
+    request.session["exp"] = int(time.time()) + ttl
     return user
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import time
 from hashlib import sha256
 from uuid import UUID
 
@@ -18,6 +19,15 @@ def current_admin(request: Request, db: Session = Depends(get_db)) -> User:
     user_id = request.session.get("user_id")
     if user_id is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
+    # Server-enforced session expiry. The cookie is always signed with the long
+    # (30d) "remember" TTL, so a short (8h) login is only bounded by this stamp.
+    # A session without `exp` predates this scheme — treat it as expired.
+    exp = request.session.get("exp")
+    if exp is None or time.time() >= exp:
+        request.session.clear()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="session expired"
+        )
     user = db.get(User, UUID(user_id))
     if user is None or user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin required")
