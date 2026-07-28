@@ -177,6 +177,20 @@ def current_cycle(schedule: Schedule, today: date) -> Cycle | None:
     return Cycle(start=start, index=index)
 
 
+def is_cycle_start(schedule: Schedule, day: date) -> bool:
+    """True iff `day` is exactly the start of one of the schedule's cycles.
+
+    Rejects off-cycle dates (e.g. a monthly-on-the-1st schedule triggered for
+    the 15th) and, implicitly, malformed keys that don't land on a boundary.
+    Does not consider the end condition — a caller may legitimately re-trigger
+    a past cycle; end handling lives in the scanner.
+    """
+    if day < schedule.start_date:
+        return False
+    index = _index_for_day(schedule, day)
+    return _cycle_start_for_index(schedule, index) == day
+
+
 def next_cycle_after(schedule: Schedule, after: date) -> date | None:
     """Start of the next cycle strictly after `after`. None if past end."""
     if after < schedule.start_date:

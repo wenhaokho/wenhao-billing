@@ -158,12 +158,34 @@ def list_recurring_template_rows(
             )
         )
         generated_count = len(children)
-        previous_issue_date = children[0].issue_date if children else None
+        latest_child = children[0] if children else None
+        # "Previous" must reflect the scheduled cycle-start date, not the day
+        # the child invoice happened to be generated (issue_date = today at
+        # generation time). The cycle-start is stored on the child as
+        # billing_cycle_ref["cycle_key"] (ISO date), so it lines up with the
+        # schedule's day-of-month. Fall back to issue_date for legacy children
+        # that predate cycle_key.
+        previous_cycle_date: date | None = None
+        latest_issue_date = latest_child.issue_date if latest_child else None
+        if latest_child is not None:
+            cycle_key = (latest_child.billing_cycle_ref or {}).get("cycle_key")
+            if cycle_key:
+                try:
+                    previous_cycle_date = date.fromisoformat(cycle_key)
+                except ValueError:
+                    previous_cycle_date = latest_issue_date
+            else:
+                previous_cycle_date = latest_issue_date
 
         try:
             schedule = parse_schedule(t.billing_cycle_ref)
             schedule_desc = describe(schedule)
-            anchor = previous_issue_date or (schedule.start_date - timedelta(days=1))
+            # Next = previous cycle + one interval. Anchor on the scheduled
+            # cycle date (cycle_key), not the child's issue_date, so a cycle
+            # generated late (issue_date drifted into a later cycle) still
+            # rolls forward by exactly one interval. When nothing has been
+            # generated yet, anchor just before start so Next = first cycle.
+            anchor = previous_cycle_date or (schedule.start_date - timedelta(days=1))
             next_run = next_cycle_after(schedule, anchor)
             if is_paused(t.billing_cycle_ref):
                 status = "PAUSED"
@@ -195,7 +217,7 @@ def list_recurring_template_rows(
                 start_date=start_date,
                 end_mode=end_mode,
                 next_run_date=next_run,
-                previous_issue_date=previous_issue_date,
+                previous_issue_date=previous_cycle_date,
                 generated_count=generated_count,
                 status=status,
             )

@@ -24,7 +24,11 @@ from app.schemas.invoice import (
     InvoiceUpdate,
     RecurringTemplateCreate,
 )
-from app.services.recurring_schedule import ScheduleError, parse_schedule
+from app.services.recurring_schedule import (
+    ScheduleError,
+    is_cycle_start,
+    parse_schedule,
+)
 
 
 class InvoicingError(RuntimeError):
@@ -358,6 +362,27 @@ def trigger_recurring_cycle(
         raise InvoicingError(f"template invoice {template_invoice_id} not found")
     if template.invoice_type != "RECURRING":
         raise InvoicingError(f"invoice {template_invoice_id} is not RECURRING")
+
+    # Validate cycle_key is a real cycle-start for this template's schedule.
+    # This blocks malformed keys (e.g. "2026-03" year-month) and off-cycle
+    # dates that would otherwise create duplicate / mis-dated invoices and
+    # defeat the (template, cycle_key) idempotency guard below.
+    try:
+        schedule = parse_schedule(template.billing_cycle_ref)
+    except ScheduleError as e:
+        raise InvoicingError(
+            f"template {template_invoice_id} has an invalid schedule: {e}"
+        ) from e
+    try:
+        cycle_start = date.fromisoformat(cycle_key)
+    except ValueError as e:
+        raise InvoicingError(
+            f"cycle_key must be an ISO date (YYYY-MM-DD), got {cycle_key!r}"
+        ) from e
+    if not is_cycle_start(schedule, cycle_start):
+        raise InvoicingError(
+            f"cycle_key {cycle_key!r} is not a valid cycle start for this schedule"
+        )
 
     existing = db.scalar(
         select(Invoice)

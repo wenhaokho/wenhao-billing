@@ -142,3 +142,145 @@ def test_cycle_key_returns_none_if_config_missing(db):
     t.billing_cycle_ref = None
     db.flush()
     assert _cycle_key_for(date(2026, 5, 1), t) is None
+
+
+# ---------------------------------------------------------------------------
+# Recurring rows endpoint — "Previous" must be the scheduled cycle date,
+# not the day the child invoice happened to be generated.
+# ---------------------------------------------------------------------------
+
+
+def test_rows_previous_is_cycle_date_not_generation_date(admin_session, db):
+    """The 'Previous' column should show the scheduled cycle-start date
+    (billing_cycle_ref['cycle_key']), not the child's issue_date, which is
+    stamped with date.today() at generation time."""
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    # Generate a child for the June cycle. Its issue_date is date.today()
+    # (the real run date), but it belongs to the 2026-06-01 cycle.
+    invoicing.trigger_recurring_cycle(
+        db, template_invoice_id=t.invoice_id, cycle_key="2026-06-01"
+    )
+    db.flush()
+
+    resp = admin_session.get("/api/v1/invoices/recurring-templates/rows")
+    assert resp.status_code == 200, resp.text
+    row = next(r for r in resp.json() if r["template_id"] == str(t.invoice_id))
+
+    assert row["previous_issue_date"] == "2026-06-01"
+
+
+def test_rows_next_is_previous_cycle_plus_one_interval(admin_session, db):
+    """Rule: after a cycle generates, Next = previous cycle + one interval.
+    Next must be anchored on the cycle date, not the child's issue_date
+    (which is date.today() at generation and can fall in a later cycle)."""
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    invoicing.trigger_recurring_cycle(
+        db, template_invoice_id=t.invoice_id, cycle_key="2026-06-01"
+    )
+    db.flush()
+
+    resp = admin_session.get("/api/v1/invoices/recurring-templates/rows")
+    assert resp.status_code == 200, resp.text
+    row = next(r for r in resp.json() if r["template_id"] == str(t.invoice_id))
+
+    assert row["previous_issue_date"] == "2026-06-01"
+    assert row["next_run_date"] == "2026-07-01"  # previous cycle + 1 month
+
+
+# ---------------------------------------------------------------------------
+# trigger_recurring_cycle rejects malformed / off-cycle cycle_keys so it can't
+# create duplicate or mis-dated children (regression: "2026-03" year-month keys
+# bypassed idempotency and double-billed a cycle).
+# ---------------------------------------------------------------------------
+
+
+def test_trigger_rejects_year_month_cycle_key(db):
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    with pytest.raises(invoicing.InvoicingError, match="ISO date"):
+        invoicing.trigger_recurring_cycle(
+            db, template_invoice_id=t.invoice_id, cycle_key="2026-03"
+        )
+
+
+def test_trigger_rejects_off_cycle_date(db):
+    # Monthly on the 1st: the 15th is not a cycle start.
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    with pytest.raises(invoicing.InvoicingError, match="not a valid cycle start"):
+        invoicing.trigger_recurring_cycle(
+            db, template_invoice_id=t.invoice_id, cycle_key="2026-03-15"
+        )
+
+
+def test_trigger_accepts_valid_cycle_start(db):
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    inv = invoicing.trigger_recurring_cycle(
+        db, template_invoice_id=t.invoice_id, cycle_key="2026-03-01"
+    )
+    assert inv.billing_cycle_ref["cycle_key"] == "2026-03-01"
+
+
+# ---------------------------------------------------------------------------
+# Cleanup script: fix malformed cycle_keys + de-duplicate cycles.
+# ---------------------------------------------------------------------------
+
+
+def _mk_child(db, template, *, issue_date: date, cycle_key: str) -> Invoice:
+    """Insert a generated recurring child directly, bypassing trigger
+    validation, to reproduce legacy malformed-key rows."""
+    inv = Invoice(
+        customer_id=template.customer_id,
+        invoice_type="RECURRING",
+        is_template=False,
+        invoice_number=invoicing.generate_invoice_number(db),
+        currency=template.currency,
+        subtotal=template.subtotal,
+        amount=template.amount,
+        balance_due=template.amount,
+        status="DRAFT",
+        billing_cycle_ref={
+            "template_invoice_id": str(template.invoice_id),
+            "cycle_key": cycle_key,
+        },
+        issue_date=issue_date,
+        due_date=issue_date,
+    )
+    db.add(inv)
+    db.flush()
+    return inv
+
+
+def test_fix_recurring_cycle_keys_plan_and_apply(db):
+    from sqlalchemy import select
+
+    from scripts.fix_recurring_cycle_keys import (
+        DELETE,
+        FIX,
+        KEEP,
+        apply_plan,
+        build_plan,
+    )
+
+    # 6-monthly from 2026-01-01: cycles 2026-01-01, 2026-07-01, ...
+    t = _mk_template(db, frequency="MONTHLY", interval=6, start_date=date(2026, 1, 1))
+    jan = _mk_child(db, t, issue_date=date(2026, 1, 1), cycle_key="2026-01")  # unique
+    jul_bad = _mk_child(db, t, issue_date=date(2026, 7, 1), cycle_key="2026-07")  # dup
+    jul_ok = _mk_child(db, t, issue_date=date(2026, 7, 25), cycle_key="2026-07-01")
+
+    plan = {a.invoice_id: a for a in build_plan(db)}
+    assert plan[jan.invoice_id].kind == FIX
+    assert plan[jan.invoice_id].new_key == "2026-01-01"
+    assert plan[jul_bad.invoice_id].kind == DELETE
+    assert plan[jul_ok.invoice_id].kind == KEEP
+
+    apply_plan(db, list(plan.values()))
+    db.flush()
+
+    remaining = list(
+        db.scalars(
+            select(Invoice)
+            .where(Invoice.is_template.is_(False))
+            .where(Invoice.invoice_type == "RECURRING")
+        )
+    )
+    keys = sorted(r.billing_cycle_ref["cycle_key"] for r in remaining)
+    assert keys == ["2026-01-01", "2026-07-01"]  # Jan fixed, July deduped
