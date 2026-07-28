@@ -144,12 +144,15 @@ def list_recurring_template_rows(
     for t in templates:
         customer = db.get(Customer, t.customer_id) if t.customer_id else None
         # Latest generated child: same customer, RECURRING, not a template,
-        # with matching template_invoice_id in billing_cycle_ref.
+        # with matching template_invoice_id in billing_cycle_ref. VOID children
+        # are excluded — a voided invoice isn't a live generated invoice, so it
+        # must not inflate the count nor drive the "Previous" cycle date.
         children = list(
             db.scalars(
                 select(Invoice)
                 .where(Invoice.is_template.is_(False))
                 .where(Invoice.invoice_type == "RECURRING")
+                .where(Invoice.status != "VOID")
                 .where(
                     Invoice.billing_cycle_ref["template_invoice_id"].astext
                     == str(t.invoice_id)

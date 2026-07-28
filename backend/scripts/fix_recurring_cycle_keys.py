@@ -16,10 +16,13 @@ What it does
 ------------
 For every generated recurring child (``is_template = False``):
 
+  * VOID children are ignored (left as-is) — a cancelled invoice is never the
+    survivor and is never deleted; the live invoice for the cycle gets fixed.
   * Determine the child's true cycle-start from its schedule and issue_date.
-  * Group children by (template, true cycle-start).
+  * Group the remaining (non-VOID) children by (template, true cycle-start).
   * Per group:
-      - one child, malformed key  -> **FIX** the key to the ISO cycle-start.
+      - one child, malformed key  -> **FIX** the key to the ISO cycle-start
+        (metadata only — safe on SENT/OPEN/PAID invoices).
       - several children (duplicate cycle) -> **KEEP** one, **DELETE** the
         rest. A non-DRAFT invoice is never deleted (kept as the survivor, or
         flagged for manual handling if two non-DRAFT collide).
@@ -130,6 +133,13 @@ def build_plan(db: Session) -> list[Action]:
     for c in children:
         ref = c.billing_cycle_ref or {}
         old_key = ref.get("cycle_key")
+        # VOID invoices are cancelled records — never pick them as the survivor
+        # and never delete them. Leave them untouched and out of the grouping so
+        # the live invoice for the cycle is the one that gets fixed.
+        if c.status == "VOID":
+            actions.append(_mk_action(SKIP, c, cust_names, old_key, None,
+                                      "voided — left as-is"))
+            continue
         tpl_id = ref.get("template_invoice_id")
         tpl_uuid = UUID(tpl_id) if tpl_id else None
         schedule = schedule_for(tpl_uuid)

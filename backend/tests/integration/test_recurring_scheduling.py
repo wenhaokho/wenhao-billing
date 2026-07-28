@@ -284,3 +284,48 @@ def test_fix_recurring_cycle_keys_plan_and_apply(db):
     )
     keys = sorted(r.billing_cycle_ref["cycle_key"] for r in remaining)
     assert keys == ["2026-01-01", "2026-07-01"]  # Jan fixed, July deduped
+
+
+def test_rows_excludes_void_children(admin_session, db):
+    """A VOID child must not count toward Generated nor drive Previous."""
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    _mk_child(db, t, issue_date=date(2026, 6, 1), cycle_key="2026-06-01")  # live
+    voided = _mk_child(db, t, issue_date=date(2026, 7, 25), cycle_key="2026-07-01")
+    voided.status = "VOID"  # later + would otherwise be "latest"
+    db.flush()
+
+    resp = admin_session.get("/api/v1/invoices/recurring-templates/rows")
+    row = next(r for r in resp.json() if r["template_id"] == str(t.invoice_id))
+    assert row["generated_count"] == 1  # VOID excluded
+    assert row["previous_issue_date"] == "2026-06-01"  # from live, not VOID
+
+
+def test_fix_script_ignores_void_and_fixes_live_key(db):
+    """Reproduces the real Yayasan-July case: a live SENT invoice with a
+    malformed key alongside a VOID invoice with the valid key. The live one
+    must be fixed; the VOID one left untouched."""
+    from scripts.fix_recurring_cycle_keys import (
+        FIX,
+        SKIP,
+        apply_plan,
+        build_plan,
+    )
+
+    t = _mk_template(db, frequency="MONTHLY", interval=6, start_date=date(2026, 1, 1))
+    live = _mk_child(db, t, issue_date=date(2026, 7, 1), cycle_key="2026-07")
+    live.status = "SENT"
+    voided = _mk_child(db, t, issue_date=date(2026, 7, 25), cycle_key="2026-07-01")
+    voided.status = "VOID"
+    db.flush()
+
+    plan = {a.invoice_id: a for a in build_plan(db)}
+    assert plan[voided.invoice_id].kind == SKIP
+    assert plan[live.invoice_id].kind == FIX
+    assert plan[live.invoice_id].new_key == "2026-07-01"
+
+    apply_plan(db, list(plan.values()))
+    db.flush()
+    db.refresh(live)
+    db.refresh(voided)
+    assert live.billing_cycle_ref["cycle_key"] == "2026-07-01"
+    assert voided.status == "VOID"  # untouched
