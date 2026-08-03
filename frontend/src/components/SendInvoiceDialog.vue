@@ -5,6 +5,7 @@ import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
+import { useAuthStore } from "@/stores/auth";
 
 interface Props {
   visible: boolean;
@@ -26,6 +27,8 @@ const emit = defineEmits<{
   }): void;
 }>();
 
+const auth = useAuthStore();
+
 const toEmail = ref("");
 const ccEmail = ref("");
 const subject = ref("");
@@ -36,7 +39,7 @@ watch(
   (v) => {
     if (v) {
       toEmail.value = props.defaultTo ?? "";
-      ccEmail.value = "";
+      ccEmail.value = auth.user?.email ?? "";
       subject.value = props.defaultSubject;
       message.value = props.defaultMessage;
     }
