@@ -505,6 +505,24 @@ def record_payment(
     return payment
 
 
+@router.get("/{invoice_id}/payments", response_model=list[PaymentOut])
+def list_invoice_payments(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(current_admin),
+) -> list[Payment]:
+    """Payments recorded against this invoice, newest first (receipt dialog)."""
+    if db.get(Invoice, invoice_id) is None:
+        raise HTTPException(status_code=404, detail="invoice not found")
+    return list(
+        db.scalars(
+            select(Payment)
+            .where(Payment.invoice_id == invoice_id)
+            .order_by(Payment.payment_date.desc(), Payment.created_at.desc())
+        )
+    )
+
+
 @router.post("/{invoice_id}/mark-paid", response_model=InvoiceOut)
 def mark_paid(
     invoice_id: UUID,
