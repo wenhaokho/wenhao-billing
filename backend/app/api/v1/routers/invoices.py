@@ -35,12 +35,13 @@ from app.schemas.invoice import (
     UsageLockRequest,
     VoidRequest,
 )
-from app.schemas.payment import PaymentOut, RecordPaymentRequest
+from app.schemas.payment import PaymentOut, RecordPaymentRequest, SendReceiptRequest
 from app.services import draft_notifications, invoicing
 from app.services.email import send_email
 from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
 from app.services.invoice_pdf import _fmt_amount
 from app.services.pdf import render_invoice_pdf
+from app.services.receipt_pdf import balance_note, receipt_reference, render_receipt_pdf
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -522,6 +523,68 @@ def mark_paid(
     db.commit()
     db.refresh(invoice)
     return invoice
+
+
+@router.post("/{invoice_id}/payments/{payment_id}/send-receipt")
+def send_payment_receipt(
+    invoice_id: UUID,
+    payment_id: UUID,
+    payload: SendReceiptRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(current_admin),
+) -> dict:
+    """Email a payment-receipt PDF to the customer for a recorded payment.
+
+    Separate from record-payment so recording stays atomic: an email failure
+    here never rolls back the payment, and the call can be retried safely.
+    """
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="invoice not found")
+    payment = db.get(Payment, payment_id)
+    if payment is None or payment.invoice_id != invoice.invoice_id:
+        raise HTTPException(status_code=404, detail="payment not found on this invoice")
+
+    customer = db.get(Customer, invoice.customer_id) if invoice.customer_id else None
+    to_email = payload.to_email or (customer.contact_email if customer else None)
+    if not to_email:
+        raise HTTPException(
+            status_code=400,
+            detail="no recipient: provide to_email or set a contact_email on the customer",
+        )
+
+    business = db.get(BusinessProfile, 1)
+    pdf_bytes = render_receipt_pdf(payment, invoice, customer, business)
+    filename = f"receipt-{receipt_reference(payment)}.pdf"
+    subject = (
+        f"Payment receipt for invoice {invoice.invoice_number}"
+        if invoice.invoice_number
+        else "Payment receipt"
+    )
+    greeting_name = customer.name if customer else "there"
+    body_text = (
+        f"Hi {greeting_name},\n\n"
+        f"We have received your payment of "
+        f"{_fmt_amount(payment.amount, payment.currency)} "
+        f"against invoice {invoice.invoice_number or ''} "
+        f"on {payment.payment_date}.\n"
+        f"{balance_note(invoice)}\n\n"
+        "A PDF receipt is attached for your records.\n\n"
+        "Thank you."
+    )
+    try:
+        send_email(
+            to_email=to_email,
+            cc_email=payload.cc_email,
+            subject=subject,
+            body_text=body_text,
+            attachments=[(filename, pdf_bytes, "application/pdf")],
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="failed to send receipt email")
+    return {"sent_to": to_email}
 
 
 @router.get("/{invoice_id}/pdf")
