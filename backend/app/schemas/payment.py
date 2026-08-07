@@ -53,6 +53,14 @@ class RecordPaymentRequest(BaseModel):
     notes: str | None = None
 
 
+class SendReceiptRequest(BaseModel):
+    """Email a payment receipt (PDF) to the customer."""
+    to_email: str | None = Field(
+        default=None, description="Override recipient (defaults to customer contact_email)"
+    )
+    cc_email: str | None = None
+
+
 class EmailWebhookPayload(BaseModel):
     # Minimal SendGrid/Postmark-compatible shape; adapters may fill in more.
     model_config = ConfigDict(extra="allow")

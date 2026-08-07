@@ -9,12 +9,14 @@ import TabView from "primevue/tabview";
 import TabPanel from "primevue/tabpanel";
 import Tag from "primevue/tag";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
+import { useConfirm } from "primevue/useconfirm";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
 interface Customer {
   customer_id: string;
   name: string;
+  contact_email: string | null;
 }
 
 interface Invoice {
@@ -121,6 +123,36 @@ function openRecordPayment(row: Invoice) {
   paymentDialogVisible.value = true;
 }
 
+const confirm = useConfirm();
+
+const paymentCustomerEmail = computed(() => {
+  const cid = paymentTarget.value?.customer_id;
+  if (!cid) return null;
+  return (customers.value ?? []).find((c) => c.customer_id === cid)?.contact_email ?? null;
+});
+
+async function sendReceipt(
+  invoiceId: string,
+  paymentId: string,
+  receipt: { to_email: string; cc_email: string | null },
+) {
+  try {
+    await api.post(`/invoices/${invoiceId}/payments/${paymentId}/send-receipt`, receipt);
+  } catch (e) {
+    const detail =
+      (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+      "the email service returned an error";
+    confirm.require({
+      header: "Receipt email failed",
+      message: `The payment was recorded, but the receipt email to ${receipt.to_email} failed: ${detail}. Retry?`,
+      icon: "pi pi-envelope",
+      acceptLabel: "Retry",
+      rejectLabel: "Dismiss",
+      accept: () => void sendReceipt(invoiceId, paymentId, receipt),
+    });
+  }
+}
+
 const recordPayment = useMutation({
   mutationFn: async (payload: {
     amount: number;
@@ -128,12 +160,18 @@ const recordPayment = useMutation({
     payer_name: string | null;
     payer_reference: string | null;
     notes: string | null;
+    receipt: { to_email: string; cc_email: string | null } | null;
   }) => {
     const id = paymentTarget.value?.invoice_id;
     if (!id) throw new Error("no invoice id");
-    return (await api.post(`/invoices/${id}/record-payment`, payload)).data;
+    const { receipt: _receipt, ...body } = payload;
+    return (await api.post(`/invoices/${id}/record-payment`, body)).data;
   },
-  onSuccess: () => {
+  onSuccess: (data: { payment_id: string }, variables) => {
+    const invoiceId = paymentTarget.value?.invoice_id;
+    if (variables.receipt && invoiceId) {
+      void sendReceipt(invoiceId, data.payment_id, variables.receipt);
+    }
     paymentError.value = null;
     paymentDialogVisible.value = false;
     paymentTarget.value = null;
@@ -264,6 +302,7 @@ function statusSeverity(status: string) {
       :visible="paymentDialogVisible"
       :balance-due="paymentTarget.balance_due"
       :currency="paymentTarget.currency"
+      :customer-email="paymentCustomerEmail"
       mode="AR"
       :loading="recordPayment.isPending.value"
       :error="paymentError"

@@ -7,6 +7,7 @@ Mirrors invoice_pdf.py with the header changed to QUOTATION and the
 from __future__ import annotations
 
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -16,6 +17,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from app.models.customer import Customer
 from app.models.quotation import Quotation
+
 # Shared, currency-aware figure formatting (0dp for IDR and other zero-decimal
 # currencies, 2dp otherwise) — keep quotation and invoice output consistent.
 from app.services.invoice_pdf import _fmt_amount, _fmt_qty
@@ -107,11 +109,11 @@ def render_quotation_pdf(quotation: Quotation, customer: Customer | None) -> byt
 
     bill_lines = []
     if customer:
-        bill_lines.append(Paragraph(f"<b>{customer.name}</b>", normal))
+        bill_lines.append(Paragraph(f"<b>{escape(customer.name)}</b>", normal))
         for ln in _addr_lines(customer):
-            bill_lines.append(Paragraph(ln, small))
+            bill_lines.append(Paragraph(escape(ln), small))
         if customer.contact_email:
-            bill_lines.append(Paragraph(customer.contact_email, small))
+            bill_lines.append(Paragraph(escape(customer.contact_email), small))
     else:
         bill_lines.append(Paragraph("—", small))
 
@@ -191,17 +193,17 @@ def render_quotation_pdf(quotation: Quotation, customer: Customer | None) -> byt
 
     if quotation.payment_terms:
         story.append(Paragraph("PAYMENT TERMS", label))
-        story.append(Paragraph(quotation.payment_terms, normal))
+        story.append(Paragraph(escape(quotation.payment_terms), normal))
         story.append(Spacer(1, 4 * mm))
 
     if quotation.notes:
         story.append(Paragraph("NOTES", label))
-        story.append(Paragraph(quotation.notes.replace("\n", "<br/>"), normal))
+        story.append(Paragraph(escape(quotation.notes).replace("\n", "<br/>"), normal))
         story.append(Spacer(1, 4 * mm))
 
     if quotation.footer:
         story.append(Spacer(1, 6 * mm))
-        story.append(Paragraph(quotation.footer.replace("\n", "<br/>"), small))
+        story.append(Paragraph(escape(quotation.footer).replace("\n", "<br/>"), small))
 
     doc.build(story)
     return buf.getvalue()

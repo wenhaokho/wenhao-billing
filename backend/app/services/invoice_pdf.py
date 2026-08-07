@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
@@ -289,16 +290,16 @@ def render_invoice_pdf(
 
     # -- Masthead: title + brand on the left, status chip + meta on the right --
     title_txt = (getattr(business, "invoice_title", None) or "INVOICE").upper()
-    left_stack: list = [Paragraph(title_txt, s["title"])]
+    left_stack: list = [Paragraph(escape(title_txt), s["title"])]
     if business is not None and getattr(business, "name", None):
         left_stack.append(Spacer(1, 4))
-        left_stack.append(Paragraph(business.name, s["brand"]))
+        left_stack.append(Paragraph(escape(business.name), s["brand"]))
     if business is not None and getattr(business, "invoice_summary", None):
-        left_stack.append(Paragraph(business.invoice_summary, s["tagline"]))
+        left_stack.append(Paragraph(escape(business.invoice_summary), s["tagline"]))
 
     meta_rows = [
         [Paragraph("Invoice&nbsp;no.", s["meta_k"]),
-         Paragraph(invoice.invoice_number or "—", s["meta_v"])],
+         Paragraph(escape(invoice.invoice_number or "—"), s["meta_v"])],
         [Paragraph("Issue&nbsp;date", s["meta_k"]),
          Paragraph(str(invoice.issue_date) if invoice.issue_date else "—", s["meta_v"])],
         [Paragraph("Due&nbsp;date", s["meta_k"]),
@@ -307,7 +308,7 @@ def render_invoice_pdf(
     if invoice.po_so_number:
         meta_rows.append(
             [Paragraph("PO&nbsp;/&nbsp;SO", s["meta_k"]),
-             Paragraph(invoice.po_so_number, s["meta_v"])]
+             Paragraph(escape(invoice.po_so_number), s["meta_v"])]
         )
     meta_tbl = Table(meta_rows, colWidths=[26 * mm, 40 * mm])
     meta_tbl.setStyle(
@@ -336,19 +337,19 @@ def render_invoice_pdf(
     # -- From / Bill-to columns --
     from_cell: list = [Paragraph("FROM", s["label"])]
     if business is not None and getattr(business, "name", None):
-        from_cell.append(Paragraph(business.name, s["name"]))
+        from_cell.append(Paragraph(escape(business.name), s["name"]))
         for ln in _business_lines(business):
-            from_cell.append(Paragraph(ln, s["body"]))
+            from_cell.append(Paragraph(escape(ln), s["body"]))
     else:
         from_cell.append(Paragraph("—", s["body"]))
 
     bill_cell: list = [Paragraph("BILL TO", s["label"])]
     if customer:
-        bill_cell.append(Paragraph(customer.name, s["name"]))
+        bill_cell.append(Paragraph(escape(customer.name), s["name"]))
         for ln in _addr_lines(customer):
-            bill_cell.append(Paragraph(ln, s["body"]))
+            bill_cell.append(Paragraph(escape(ln), s["body"]))
         if customer.contact_email:
-            bill_cell.append(Paragraph(customer.contact_email, s["body"]))
+            bill_cell.append(Paragraph(escape(customer.contact_email), s["body"]))
     else:
         bill_cell.append(Paragraph("—", s["body"]))
 
@@ -376,7 +377,7 @@ def render_invoice_pdf(
         rows.append(
             [
                 str(li.position),
-                Paragraph(li.description, s["cell"]),
+                Paragraph(escape(li.description), s["cell"]),
                 _fmt_qty(li.quantity),
                 _fmt_num(li.unit_price, invoice.currency),
                 _fmt_num(li.amount, invoice.currency),
@@ -502,7 +503,7 @@ def render_invoice_pdf(
     if invoice.payment_terms:
         detail_cells.append(
             [Paragraph("PAYMENT TERMS", s["label"]),
-             Paragraph(invoice.payment_terms, s["notes"])]
+             Paragraph(escape(invoice.payment_terms), s["notes"])]
         )
     # Fall back to the business profile's default notes when the invoice
     # itself carries none.
@@ -510,7 +511,7 @@ def render_invoice_pdf(
     if notes_text:
         detail_cells.append(
             [Paragraph("NOTES", s["label"]),
-             Paragraph(notes_text.replace("\n", "<br/>"), s["notes"])]
+             Paragraph(escape(notes_text).replace("\n", "<br/>"), s["notes"])]
         )
     if len(detail_cells) == 2:
         details = Table(
@@ -538,7 +539,7 @@ def render_invoice_pdf(
         story.append(Spacer(1, 8 * mm))
         story.append(
             Paragraph(
-                invoice.footer.replace("\n", "<br/>"),
+                escape(invoice.footer).replace("\n", "<br/>"),
                 ParagraphStyle(
                     "foot", fontName="Helvetica", fontSize=8, leading=12,
                     textColor=FAINT,

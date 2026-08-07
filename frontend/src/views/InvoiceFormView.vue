@@ -11,6 +11,7 @@ import DatePicker from "primevue/calendar";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import Tag from "primevue/tag";
+import { useConfirm } from "primevue/useconfirm";
 import { api } from "@/api/client";
 import { formatAmount, formatMoney } from "@/utils/money";
 import {
@@ -303,6 +304,30 @@ const canMarkPaid = computed(
 const canRecordPayment = computed(
   () => isUnpaid.value && Number(existing.value?.balance_due ?? 0) > 0,
 );
+const confirm = useConfirm();
+
+async function sendReceipt(
+  invoiceId: string,
+  paymentId: string,
+  receipt: { to_email: string; cc_email: string | null },
+) {
+  try {
+    await api.post(`/invoices/${invoiceId}/payments/${paymentId}/send-receipt`, receipt);
+  } catch (e) {
+    const detail =
+      (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+      "the email service returned an error";
+    confirm.require({
+      header: "Receipt email failed",
+      message: `The payment was recorded, but the receipt email to ${receipt.to_email} failed: ${detail}. Retry?`,
+      icon: "pi pi-envelope",
+      acceptLabel: "Retry",
+      rejectLabel: "Dismiss",
+      accept: () => void sendReceipt(invoiceId, paymentId, receipt),
+    });
+  }
+}
+
 const recordPayment = useMutation({
   mutationFn: async (payload: {
     amount: number;
@@ -310,11 +335,16 @@ const recordPayment = useMutation({
     payer_name: string | null;
     payer_reference: string | null;
     notes: string | null;
+    receipt: { to_email: string; cc_email: string | null } | null;
   }) => {
     if (!props.id) throw new Error("no invoice id");
-    return (await api.post(`/invoices/${props.id}/record-payment`, payload)).data;
+    const { receipt: _receipt, ...body } = payload;
+    return (await api.post(`/invoices/${props.id}/record-payment`, body)).data;
   },
-  onSuccess: () => {
+  onSuccess: (data: { payment_id: string }, variables) => {
+    if (variables.receipt && props.id) {
+      void sendReceipt(props.id, data.payment_id, variables.receipt);
+    }
     paymentError.value = null;
     showPaymentDialog.value = false;
     queryClient.invalidateQueries({ queryKey: ["invoice", props.id] });
@@ -1010,6 +1040,7 @@ const canSave = computed(() => {
       :balance-due="existing.balance_due"
       :currency="existing.currency"
       mode="AR"
+      :customer-email="selectedCustomer?.contact_email ?? null"
       :loading="recordPayment.isPending.value"
       :error="paymentError"
       @submit="recordPayment.mutate($event)"
