@@ -7,7 +7,9 @@ import InputNumber from "primevue/inputnumber";
 import DatePicker from "primevue/calendar";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
+import Checkbox from "primevue/checkbox";
 import { formatAmount } from "@/utils/money";
+import { useAuthStore } from "@/stores/auth";
 
 interface Props {
   visible: boolean;
@@ -17,6 +19,7 @@ interface Props {
   mode: "AR" | "AP";
   loading?: boolean;
   error?: string | null;
+  customerEmail?: string | null;
 }
 
 const props = defineProps<Props>();
@@ -28,6 +31,7 @@ const emit = defineEmits<{
     payer_name: string | null;
     payer_reference: string | null;
     notes: string | null;
+    receipt: { to_email: string; cc_email: string | null } | null;
   }): void;
 }>();
 
@@ -36,6 +40,11 @@ const paymentDate = ref<Date>(new Date());
 const payerName = ref<string>("");
 const payerReference = ref<string>("");
 const notes = ref<string>("");
+
+const auth = useAuthStore();
+const sendReceipt = ref(false);
+const receiptTo = ref<string>("");
+const receiptCc = ref<string>("");
 
 const balanceNum = computed(() => Number(props.balanceDue || 0));
 
@@ -48,13 +57,20 @@ watch(
       payerName.value = "";
       payerReference.value = "";
       notes.value = "";
+      sendReceipt.value = props.mode === "AR";
+      receiptTo.value = props.customerEmail ?? "";
+      receiptCc.value = auth.user?.email ?? "";
     }
   },
 );
 
 const canSubmit = computed(
   () =>
-    !!amount.value && amount.value > 0 && amount.value <= balanceNum.value && !!paymentDate.value,
+    !!amount.value &&
+    amount.value > 0 &&
+    amount.value <= balanceNum.value &&
+    !!paymentDate.value &&
+    (props.mode !== "AR" || !sendReceipt.value || !!receiptTo.value.trim()),
 );
 
 function fillFullBalance() {
@@ -74,6 +90,10 @@ function submit() {
     payer_name: payerName.value.trim() || null,
     payer_reference: payerReference.value.trim() || null,
     notes: notes.value.trim() || null,
+    receipt:
+      props.mode === "AR" && sendReceipt.value
+        ? { to_email: receiptTo.value.trim(), cc_email: receiptCc.value.trim() || null }
+        : null,
   });
 }
 </script>
@@ -126,6 +146,25 @@ function submit() {
         <span>Notes <span class="muted">(optional)</span></span>
         <Textarea v-model="notes" rows="2" autoResize />
       </label>
+      <template v-if="mode === 'AR'">
+        <label class="field receipt-check">
+          <span class="receipt-row">
+            <Checkbox v-model="sendReceipt" binary :disabled="loading" />
+            Email receipt (PDF) to customer
+          </span>
+        </label>
+        <template v-if="sendReceipt">
+          <label class="field">
+            <span>To</span>
+            <InputText v-model="receiptTo" placeholder="customer@example.com" />
+          </label>
+          <label class="field">
+            <span>Cc <span class="muted">(optional)</span></span>
+            <InputText v-model="receiptCc" />
+          </label>
+          <p class="note"><i class="pi pi-paperclip" /> A PDF receipt will be attached automatically.</p>
+        </template>
+      </template>
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
     </div>
     <template #footer>
@@ -165,4 +204,8 @@ function submit() {
 .field :deep(.p-inputtext),
 .field :deep(.p-inputnumber),
 .field :deep(.p-datepicker) { width: 100%; }
+.receipt-check { border-top: 1px solid var(--color-border); padding-top: 0.6rem; }
+.receipt-row { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
+.note { font-size: 0.78rem; color: var(--color-text-muted); margin: 0; }
+.note i { margin-right: 0.3rem; }
 </style>
