@@ -219,6 +219,35 @@ def test_trigger_accepts_valid_cycle_start(db):
     assert inv.billing_cycle_ref["cycle_key"] == "2026-03-01"
 
 
+def test_manual_trigger_notifies_users_once(admin_session, db, monkeypatch):
+    """Manual trigger emails the approval digest for a NEW draft only —
+    an idempotent re-trigger of the same cycle stays silent."""
+    sent = []
+    monkeypatch.setattr(
+        "app.services.draft_notifications.send_recurring_drafts_email",
+        lambda *, to_email, drafts: sent.append((to_email, drafts)),
+    )
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+
+    resp = admin_session.post(
+        f"/api/v1/invoices/recurring/{t.invoice_id}/trigger",
+        json={"cycle_key": "2026-03-01"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(sent) >= 1
+    _, drafts = sent[0]
+    assert drafts[0]["cycle_date"] == "2026-03-01"
+    assert "/edit" in drafts[0]["link"]
+
+    sent.clear()
+    resp = admin_session.post(
+        f"/api/v1/invoices/recurring/{t.invoice_id}/trigger",
+        json={"cycle_key": "2026-03-01"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert sent == []
+
+
 def test_find_cycle_invoice_none_before_trigger_then_found(db):
     """The beat scanner uses find_cycle_invoice to tell newly created drafts
     apart from idempotent re-returns (drives the approval email)."""

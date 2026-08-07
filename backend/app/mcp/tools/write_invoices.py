@@ -36,7 +36,7 @@ from app.schemas.invoice import (
     InvoiceUpdate,
     RecurringTemplateCreate,
 )
-from app.services import invoicing
+from app.services import draft_notifications, invoicing
 
 
 def _lines(raw: list[dict]) -> list[InvoiceLineItemIn]:
@@ -180,10 +180,23 @@ def trigger_recurring(template_id: str, cycle_key: str) -> dict:
     (template_id, cycle_key). Autonomous."""
     try:
         with tool_session() as db:
+            existing = invoicing.find_cycle_invoice(
+                db, template_invoice_id=UUID(template_id), cycle_key=cycle_key
+            )
             inv = invoicing.trigger_recurring_cycle(
                 db, template_invoice_id=UUID(template_id), cycle_key=cycle_key
             )
             db.flush()
-            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
+            result = to_dict(inv, _INVOICE_DETAIL_FIELDS)
+            # Collect notification data before tool_session commits/closes;
+            # send only after the draft is committed.
+            new_drafts = (
+                [draft_notifications.draft_summary(db, inv, cycle_key)]
+                if existing is None
+                else []
+            )
+            emails = draft_notifications.user_emails(db) if new_drafts else []
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
+    draft_notifications.send_draft_notifications(emails, new_drafts)
+    return result

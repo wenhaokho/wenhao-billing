@@ -13,14 +13,14 @@ can sit unnoticed until the user happens to open the app.
 
 ## Goal
 
-When the beat scan generates one or more **new** DRAFT invoices, email every
+When a recurring cycle generates a **new** DRAFT invoice — via the beat scan,
+the UI "Trigger now" button, or the MCP `trigger_recurring` tool — email every
 app user (single-tenant: the admins) a digest listing the drafts with a link
-to review each one.
+to review each one. (Manual/MCP triggers were added by user follow-up: the
+email is wanted as a notification regardless of how the draft was created.)
 
 ## Non-goals
 
-- No notification for manually triggered cycles (UI "Trigger now" button, MCP
-  `trigger_recurring` tool) — the user is already looking at the app there.
 - No notification for usage-lock drafts (different pipeline; can be added later
   with the same email helper).
 - No per-user notification preferences (single-tenant, YAGNI).
@@ -48,14 +48,25 @@ is unit-testable without a transport.
 Links point at `{app_base_url}/invoices/{invoice_id}/edit` (the draft review /
 finalize screen).
 
-### 3. Scanner changes (`workers/tasks/recurring.py`)
+### 3. `services/draft_notifications.py` (shared notifier)
 
-Per template: check `find_cycle_invoice` first; if `None`, the subsequent
-`trigger_recurring_cycle` call created a new draft — collect its summary
-(customer name joined from `customers`). After `db.commit()`, send one digest
-per user in the `users` table. Email sending is wrapped in try/except per
-recipient: a mail failure is logged but never fails the beat task or rolls
-back committed drafts.
+`draft_summary(db, invoice, cycle_key)`, `user_emails(db)`,
+`send_draft_notifications(emails, drafts)` (log-and-continue per recipient),
+and the convenience `notify_users_of_new_drafts(db, drafts)`. All three
+trigger paths use it:
+
+- **Beat scanner** (`workers/tasks/recurring.py`): per template, check
+  `find_cycle_invoice` first; if `None` the trigger created a new draft —
+  collect its summary. Notify after `db.commit()`.
+- **UI trigger** (`routers/invoices.py` `POST /recurring/{id}/trigger`):
+  same check; notify after commit.
+- **MCP tool** (`mcp/tools/write_invoices.py` `trigger_recurring`): summaries
+  and recipient emails are collected inside `tool_session` (which commits on
+  exit); the send happens after the session block, so no email fires for a
+  rolled-back draft.
+
+In every path a mail failure is logged but never fails the operation or rolls
+back the committed draft.
 
 ## Error handling
 

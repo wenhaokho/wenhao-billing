@@ -36,7 +36,7 @@ from app.schemas.invoice import (
     VoidRequest,
 )
 from app.schemas.payment import PaymentOut, RecordPaymentRequest
-from app.services import invoicing
+from app.services import draft_notifications, invoicing
 from app.services.email import send_email
 from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
 from app.services.invoice_pdf import _fmt_amount
@@ -299,12 +299,21 @@ def trigger_recurring(
     _: User = Depends(current_admin),
 ) -> Invoice:
     try:
+        existing = invoicing.find_cycle_invoice(
+            db, template_invoice_id=template_id, cycle_key=payload.cycle_key
+        )
         invoice = invoicing.trigger_recurring_cycle(
             db, template_invoice_id=template_id, cycle_key=payload.cycle_key
         )
     except invoicing.InvoicingError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    new_drafts = (
+        [draft_notifications.draft_summary(db, invoice, payload.cycle_key)]
+        if existing is None
+        else []
+    )
     db.commit()
+    draft_notifications.notify_users_of_new_drafts(db, new_drafts)
     return invoice
 
 
