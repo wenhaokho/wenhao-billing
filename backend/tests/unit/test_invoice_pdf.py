@@ -139,6 +139,45 @@ def test_render_without_discount():
     assert out[:5] == b"%PDF-"
 
 
+def test_render_invoice_pdf_escapes_xml_special_chars_in_names():
+    """Customer/business names, addresses, descriptions, and free text
+    containing XML-special chars must not crash reportlab's Paragraph XML
+    parser (regression for raw 500 on names like "Smith & Co <bros Ltd" —
+    an unclosed tag start is a paraparser ValueError when interpolated
+    unescaped)."""
+    business = SimpleNamespace(
+        name="Smith & Co <bros Ltd",
+        address="R&D <lab, 1 Raffles Ave\nSingapore 048619",
+        contact_email="ap<br>illing@smith.example",
+        contact_phone="+65 6123 4567",
+        invoice_title="Tax <invoice",
+        invoice_summary="Design & <engineering",
+        default_notes=None,
+    )
+    customer = SimpleNamespace(
+        name="Jones & Sons <holdings",
+        billing_address1="2 Cecil <st",
+        billing_address2=None,
+        billing_city="Singapore",
+        billing_state=None,
+        billing_postal_code="048619",
+        billing_country="Singapore",
+        billing_address=None,
+        contact_email="ap<br>finance@jones.example",
+    )
+    inv = _invoice(
+        invoice_number="INV <draft 2026",
+        po_so_number="PO <2026 & co",
+        payment_terms="50% upfront <br> balance",
+        notes="Scope: design & build\n<subject to change",
+        footer="Thanks & regards\n<see terms",
+    )
+    inv.line_items[0].description = "Design & build <landing page"
+
+    out = render_invoice_pdf(inv, customer, business)
+    assert out[:5] == b"%PDF-"
+
+
 def test_notes_fall_back_to_business_default_when_invoice_has_none():
     # Renderer prefers invoice.notes; when absent it uses business.default_notes.
     from app.services import invoice_pdf as ip
