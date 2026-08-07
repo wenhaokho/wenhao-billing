@@ -351,6 +351,7 @@ const recordPayment = useMutation({
     queryClient.invalidateQueries({ queryKey: ["invoice", props.id] });
     queryClient.invalidateQueries({ queryKey: ["invoices"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["invoice-payments", props.id] });
   },
   onError: (e: { response?: { data?: { detail?: string } } }) => {
     paymentError.value = e?.response?.data?.detail ?? "Failed to record payment";

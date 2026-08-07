@@ -518,6 +518,7 @@ def list_invoice_payments(
         db.scalars(
             select(Payment)
             .where(Payment.invoice_id == invoice_id)
+            .where(Payment.status == "CLEARED")
             .order_by(Payment.payment_date.desc(), Payment.created_at.desc())
         )
     )
