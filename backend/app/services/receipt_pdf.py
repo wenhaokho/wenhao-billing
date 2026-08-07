@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -117,13 +118,13 @@ def render_receipt_pdf(
 
     story.append(Paragraph("RECEIVED FROM", label))
     if customer:
-        story.append(Paragraph(f"<b>{customer.name}</b>", normal))
+        story.append(Paragraph(f"<b>{escape(customer.name)}</b>", normal))
         for ln in _addr_lines(customer):
-            story.append(Paragraph(ln, small))
+            story.append(Paragraph(escape(ln), small))
         if customer.contact_email:
-            story.append(Paragraph(customer.contact_email, small))
+            story.append(Paragraph(escape(customer.contact_email), small))
     elif payment.payer_name:
-        story.append(Paragraph(f"<b>{payment.payer_name}</b>", normal))
+        story.append(Paragraph(f"<b>{escape(payment.payer_name)}</b>", normal))
     else:
         story.append(Paragraph("—", small))
     story.append(Spacer(1, 6 * mm))
@@ -158,7 +159,7 @@ def render_receipt_pdf(
     story.append(Paragraph("Thank you for your payment.", small))
     if business is not None and getattr(business, "name", None):
         story.append(Spacer(1, 2 * mm))
-        story.append(Paragraph(f"Received by {business.name}", small))
+        story.append(Paragraph(f"Received by {escape(business.name)}", small))
 
     doc.build(story)
     return buf.getvalue()

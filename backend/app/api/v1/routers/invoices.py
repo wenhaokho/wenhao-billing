@@ -562,11 +562,12 @@ def send_payment_receipt(
         else "Payment receipt"
     )
     greeting_name = customer.name if customer else "there"
+    inv_ref = f"invoice {invoice.invoice_number}" if invoice.invoice_number else "your invoice"
     body_text = (
         f"Hi {greeting_name},\n\n"
         f"We have received your payment of "
         f"{_fmt_amount(payment.amount, payment.currency)} "
-        f"against invoice {invoice.invoice_number or ''} "
+        f"against {inv_ref} "
         f"on {payment.payment_date}.\n"
         f"{balance_note(invoice)}\n\n"
         "A PDF receipt is attached for your records.\n\n"

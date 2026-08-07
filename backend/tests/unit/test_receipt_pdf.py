@@ -68,3 +68,16 @@ def test_render_receipt_pdf_without_customer():
     payment, invoice, _ = _make_objects("0")
     pdf = render_receipt_pdf(payment, invoice, None)
     assert pdf[:5] == b"%PDF-"
+
+
+def test_render_receipt_pdf_escapes_xml_special_chars_in_names():
+    """Customer/payer names containing XML-special chars must not crash
+    reportlab's Paragraph XML parser (regression for raw 500 on names like
+    "Smith & Co <Pte> Ltd")."""
+    payment, invoice, customer = _make_objects("600.0000")
+    customer.name = "Smith & Co <Pte> Ltd"
+    customer.billing_address1 = "1 Raffles & Robinson Ave"
+    payment.payer_name = "Smith & Co <Pte> Ltd"
+
+    pdf = render_receipt_pdf(payment, invoice, customer)
+    assert pdf[:5] == b"%PDF-"
