@@ -62,6 +62,7 @@ watch(
       receiptCc.value = auth.user?.email ?? "";
     }
   },
+  { immediate: true }
 );
 
 const canSubmit = computed(
