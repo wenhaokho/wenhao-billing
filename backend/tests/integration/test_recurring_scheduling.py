@@ -219,6 +219,26 @@ def test_trigger_accepts_valid_cycle_start(db):
     assert inv.billing_cycle_ref["cycle_key"] == "2026-03-01"
 
 
+def test_find_cycle_invoice_none_before_trigger_then_found(db):
+    """The beat scanner uses find_cycle_invoice to tell newly created drafts
+    apart from idempotent re-returns (drives the approval email)."""
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    assert (
+        invoicing.find_cycle_invoice(
+            db, template_invoice_id=t.invoice_id, cycle_key="2026-03-01"
+        )
+        is None
+    )
+    inv = invoicing.trigger_recurring_cycle(
+        db, template_invoice_id=t.invoice_id, cycle_key="2026-03-01"
+    )
+    found = invoicing.find_cycle_invoice(
+        db, template_invoice_id=t.invoice_id, cycle_key="2026-03-01"
+    )
+    assert found is not None
+    assert found.invoice_id == inv.invoice_id
+
+
 # ---------------------------------------------------------------------------
 # Cleanup script: fix malformed cycle_keys + de-duplicate cycles.
 # ---------------------------------------------------------------------------

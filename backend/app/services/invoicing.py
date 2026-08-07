@@ -350,6 +350,30 @@ def delete_invoice(db: Session, invoice_id: UUID) -> None:
     db.flush()
 
 
+def find_cycle_invoice(
+    db: Session,
+    *,
+    template_invoice_id: UUID,
+    cycle_key: str,
+) -> Invoice | None:
+    """Return the generated invoice for (template, cycle_key), if one exists.
+
+    Single definition of the idempotency lookup — used by
+    `trigger_recurring_cycle` and by the beat scanner to tell newly created
+    drafts apart from idempotent re-returns.
+    """
+    return db.scalar(
+        select(Invoice)
+        .where(Invoice.invoice_type == "RECURRING")
+        .where(Invoice.is_template.is_(False))
+        .where(
+            Invoice.billing_cycle_ref["template_invoice_id"].astext
+            == str(template_invoice_id)
+        )
+        .where(Invoice.billing_cycle_ref["cycle_key"].astext == cycle_key)
+    )
+
+
 def trigger_recurring_cycle(
     db: Session,
     *,
@@ -384,15 +408,8 @@ def trigger_recurring_cycle(
             f"cycle_key {cycle_key!r} is not a valid cycle start for this schedule"
         )
 
-    existing = db.scalar(
-        select(Invoice)
-        .where(Invoice.invoice_type == "RECURRING")
-        .where(Invoice.is_template.is_(False))
-        .where(
-            Invoice.billing_cycle_ref["template_invoice_id"].astext
-            == str(template.invoice_id)
-        )
-        .where(Invoice.billing_cycle_ref["cycle_key"].astext == cycle_key)
+    existing = find_cycle_invoice(
+        db, template_invoice_id=template.invoice_id, cycle_key=cycle_key
     )
     if existing is not None:
         return existing

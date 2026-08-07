@@ -146,6 +146,55 @@ def send_email(
         raise
 
 
+def build_recurring_drafts_email(
+    drafts: list[dict],
+) -> tuple[str, str, str]:
+    """Build (subject, text, html) for the recurring-draft approval digest.
+
+    Each draft dict: invoice_number, customer_name, amount (pre-formatted str),
+    currency, cycle_date (ISO str), link.
+    """
+    count = len(drafts)
+    plural = "s" if count != 1 else ""
+    subject = f"{count} draft invoice{plural} awaiting your approval"
+
+    intro = (
+        f"The recurring billing scan generated {count} draft invoice{plural} "
+        "that need your review and approval:"
+    )
+    outro = (
+        "Each invoice stays in the Awaiting Finalization queue until you "
+        "approve and issue it."
+    )
+    text_lines = ["Hi,", "", intro, ""]
+    html_rows = []
+    for d in drafts:
+        text_lines.append(
+            f"- {d['invoice_number']} · {d['customer_name']} · "
+            f"{d['currency']} {d['amount']} · cycle {d['cycle_date']}\n"
+            f"  {d['link']}"
+        )
+        html_rows.append(
+            "<li>"
+            f"<a href=\"{d['link']}\">{d['invoice_number']}</a> — "
+            f"{d['customer_name']} — {d['currency']} {d['amount']} — "
+            f"cycle {d['cycle_date']}"
+            "</li>"
+        )
+    text_lines += ["", outro]
+
+    text = "\n".join(text_lines) + "\n"
+    html = (
+        f"<p>Hi,</p><p>{intro}</p><ul>{''.join(html_rows)}</ul><p>{outro}</p>"
+    )
+    return subject, text, html
+
+
+def send_recurring_drafts_email(*, to_email: str, drafts: list[dict]) -> None:
+    subject, text, html = build_recurring_drafts_email(drafts)
+    send_email(to_email=to_email, subject=subject, body_text=text, body_html=html)
+
+
 def send_password_reset_email(*, to_email: str, reset_link: str) -> None:
     subject = "Reset your wenhao-billing password"
     text = (
