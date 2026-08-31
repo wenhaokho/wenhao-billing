@@ -1,8 +1,9 @@
 """Render a payment receipt to a PDF bytes buffer.
 
-Reportlab-only sibling of quotation_pdf.py. Receipts are simple one-page
-documents, so there is no HTML variant behind the services/pdf façade —
-callers import render_receipt_pdf from here directly.
+Reportlab sibling of quotation_pdf.py. The branded HTML variant lives behind
+the services/pdf façade (app.services.pdf.render_receipt_pdf) — this module
+is its automatic fallback, and still owns the receipt helpers
+(receipt_reference, balance_note) shared with the email body.
 """
 
 from __future__ import annotations

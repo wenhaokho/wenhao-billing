@@ -40,8 +40,8 @@ from app.services import draft_notifications, invoicing
 from app.services.email import send_email
 from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
 from app.services.invoice_pdf import _fmt_amount
-from app.services.pdf import render_invoice_pdf
-from app.services.receipt_pdf import balance_note, receipt_reference, render_receipt_pdf
+from app.services.pdf import render_invoice_pdf, render_receipt_pdf
+from app.services.receipt_pdf import balance_note, receipt_reference
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -503,6 +503,25 @@ def record_payment(
     db.commit()
     db.refresh(payment)
     return payment
+
+
+@router.get("/{invoice_id}/payments", response_model=list[PaymentOut])
+def list_invoice_payments(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(current_admin),
+) -> list[Payment]:
+    """Payments recorded against this invoice, newest first (receipt dialog)."""
+    if db.get(Invoice, invoice_id) is None:
+        raise HTTPException(status_code=404, detail="invoice not found")
+    return list(
+        db.scalars(
+            select(Payment)
+            .where(Payment.invoice_id == invoice_id)
+            .where(Payment.status == "CLEARED")
+            .order_by(Payment.payment_date.desc(), Payment.created_at.desc())
+        )
+    )
 
 
 @router.post("/{invoice_id}/mark-paid", response_model=InvoiceOut)

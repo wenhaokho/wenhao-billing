@@ -23,6 +23,7 @@ import {
 import InvoiceLineItemsTable from "@/components/InvoiceLineItemsTable.vue";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
 import SendInvoiceDialog from "@/components/SendInvoiceDialog.vue";
+import SendReceiptDialog, { type ReceiptPayment } from "@/components/SendReceiptDialog.vue";
 import { useReturnTo } from "@/composables/useReturnTo";
 
 const props = defineProps<{ id?: string }>();
@@ -350,6 +351,7 @@ const recordPayment = useMutation({
     queryClient.invalidateQueries({ queryKey: ["invoice", props.id] });
     queryClient.invalidateQueries({ queryKey: ["invoices"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["invoice-payments", props.id] });
   },
   onError: (e: { response?: { data?: { detail?: string } } }) => {
     paymentError.value = e?.response?.data?.detail ?? "Failed to record payment";
@@ -419,6 +421,35 @@ const sendDefaults = computed(() => {
       (inv?.due_date ? `Due date: ${inv.due_date}.\n` : "") +
       `\nThank you.`,
   };
+});
+
+const showReceiptDialog = ref(false);
+const receiptError = ref<string | null>(null);
+const canSendReceipt = computed(() => {
+  const s = existing.value?.status;
+  return s === "PAID" || s === "PARTIAL";
+});
+
+const { data: invoicePayments } = useQuery<ReceiptPayment[]>({
+  queryKey: ["invoice-payments", props.id],
+  queryFn: async () =>
+    (await api.get<ReceiptPayment[]>(`/invoices/${props.id}/payments`)).data,
+  enabled: () => !!props.id && canSendReceipt.value,
+});
+
+const resendReceipt = useMutation({
+  mutationFn: async (payload: { payment_id: string; to_email: string; cc_email: string | null }) => {
+    if (!props.id) throw new Error("no invoice id");
+    const { payment_id, ...body } = payload;
+    return (await api.post(`/invoices/${props.id}/payments/${payment_id}/send-receipt`, body)).data;
+  },
+  onSuccess: () => {
+    receiptError.value = null;
+    showReceiptDialog.value = false;
+  },
+  onError: (e: { response?: { data?: { detail?: string } } }) => {
+    receiptError.value = e?.response?.data?.detail ?? "Failed to send receipt";
+  },
 });
 
 function statusSeverity(status: string) {
@@ -692,6 +723,15 @@ const canSave = computed(() => {
             :loading="markPaid.isPending.value"
             title="This invoice has nothing to collect — mark it settled"
             @click="markPaid.mutate()"
+          />
+          <Button
+            v-if="canSendReceipt"
+            label="Send receipt"
+            icon="pi pi-envelope"
+            severity="secondary"
+            :disabled="!(invoicePayments?.length)"
+            :title="invoicePayments?.length ? 'Email a receipt for a recorded payment' : 'No payments recorded'"
+            @click="receiptError = null; showReceiptDialog = true"
           />
         </template>
         <template v-else>
@@ -1055,6 +1095,16 @@ const canSave = computed(() => {
       :loading="sendInvoice.isPending.value"
       :error="sendError"
       @submit="sendInvoice.mutate($event)"
+    />
+
+    <SendReceiptDialog
+      v-if="existing"
+      v-model:visible="showReceiptDialog"
+      :payments="invoicePayments ?? []"
+      :default-to="selectedCustomer?.contact_email ?? null"
+      :loading="resendReceipt.isPending.value"
+      :error="receiptError"
+      @submit="(payload) => resendReceipt.mutate(payload)"
     />
   </section>
 </template>
