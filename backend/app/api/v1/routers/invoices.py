@@ -40,8 +40,8 @@ from app.services import draft_notifications, invoicing
 from app.services.email import send_email
 from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
 from app.services.invoice_pdf import _fmt_amount
-from app.services.pdf import render_invoice_pdf
-from app.services.receipt_pdf import balance_note, receipt_reference, render_receipt_pdf
+from app.services.pdf import render_invoice_pdf, render_receipt_pdf
+from app.services.receipt_pdf import balance_note, receipt_reference
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 

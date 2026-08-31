@@ -63,6 +63,7 @@
   tbody td{padding:8px 18px; border-top:1px solid var(--border); font-size:13.5px; vertical-align:top}
   tbody tr:nth-child(even) td{background:#FBFCFE}
   td .desc{font-weight:600; color:var(--ink)}
+  td .sub{font-size:12px; color:var(--muted); margin-top:2px}
   td.num{text-align:right; font-family:var(--mono); font-size:13px; color:#334155; white-space:nowrap}
   td.amt{text-align:right; font-family:var(--mono); font-size:13px; font-weight:600; color:var(--navy); white-space:nowrap}
   td.idx{color:var(--muted); font-family:var(--mono); font-size:12px; width:34px}
@@ -154,12 +155,12 @@
       </div>
       <div class="parties">
         <div class="party from">
-          <div class="section-label">Bill From</div>
+          <div class="section-label">{{ from_label | default('Bill From') }}</div>
           <div class="name">{{ from_name }}</div>
           {% for line in from_lines %}<div class="line">{{ line }}</div>{% endfor %}
         </div>
         <div class="party to">
-          <div class="section-label">Bill To</div>
+          <div class="section-label">{{ to_label | default('Bill To') }}</div>
           <div class="name">{{ to_name }}</div>
           {% for line in to_lines %}<div class="line">{{ line }}</div>{% endfor %}
         </div>
@@ -168,16 +169,16 @@
         <table>
           <thead><tr>
             <th class="idx">#</th><th>Description</th>
-            <th class="num">Qty</th><th class="num">Rate</th>
+            {% if not simple_table %}<th class="num">Qty</th><th class="num">Rate</th>{% endif %}
             <th class="num">Amount · {{ currency }}</th>
           </tr></thead>
           <tbody>
             {% for it in items %}
             <tr>
               <td class="idx">{{ "%02d"|format(loop.index) }}</td>
-              <td><div class="desc">{{ it.desc }}</div></td>
-              <td class="num">{{ it.qty }}</td>
-              <td class="num">{{ it.rate }}</td>
+              <td><div class="desc">{{ it.desc }}</div>{% if it.sub %}<div class="sub">{{ it.sub }}</div>{% endif %}</td>
+              {% if not simple_table %}<td class="num">{{ it.qty }}</td>
+              <td class="num">{{ it.rate }}</td>{% endif %}
               <td class="amt">{{ it.amount }}</td>
             </tr>
             {% endfor %}

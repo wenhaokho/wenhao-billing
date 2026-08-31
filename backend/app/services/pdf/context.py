@@ -8,6 +8,7 @@ from decimal import Decimal
 from app.services.invoice_pdf import _discount_amount, _fmt_num, _fmt_pct, _fmt_qty
 from app.services.pdf.assets import font_face_css
 from app.services.pdf.logo import resolve_logo
+from app.services.receipt_pdf import _method_label, balance_note, receipt_reference
 
 _STATUS_BADGE = {
     # invoices
@@ -178,6 +179,79 @@ def build_invoice_context(invoice, customer, business=None) -> dict:
         "hero_amount": _fmt_num(invoice.balance_due, cur),
     })
     return ctx
+
+
+def build_receipt_context(payment, invoice, customer, business=None) -> dict:
+    """Context for a payment receipt on the shared document template.
+
+    Receipts have no line items or payment instructions; the single table row
+    describes the payment and the hero block carries the amount received.
+    """
+    cur = payment.currency
+    to_lines = _addr_lines(customer)
+    if getattr(customer, "contact_email", None):
+        to_lines = to_lines + [customer.contact_email]
+
+    desc = (
+        f"Payment for invoice {invoice.invoice_number}"
+        if invoice.invoice_number
+        else "Payment received"
+    )
+    sub_parts = [_method_label(payment)]
+    if payment.payer_reference:
+        sub_parts.append(f"Ref: {payment.payer_reference}")
+
+    ref = receipt_reference(payment)
+    return {
+        "font_face_css": font_face_css(),
+        "logo": resolve_logo(business),
+        "doc_title": "RECEIPT",
+        "ref": ref,
+        "status_label": "Received",
+        "status_class": "paid",
+        "from_label": "Received By",
+        "to_label": "Received From",
+        "from_name": getattr(business, "name", None) or "—",
+        "from_lines": _business_lines(business),
+        "to_name": getattr(customer, "name", None) or payment.payer_name or "—",
+        "to_lines": to_lines,
+        "simple_table": True,
+        "items": [{
+            "desc": desc,
+            "sub": " · ".join(sub_parts),
+            "amount": _fmt_num(payment.amount, cur),
+        }],
+        "currency": cur,
+        "meta": [
+            ("Receipt No.", ref),
+            ("Payment Date", _fmt_date(payment.payment_date)),
+            ("Invoice No.", invoice.invoice_number or "—"),
+        ],
+        "summary_rows": [
+            {
+                "label": "Invoice total",
+                "value": _fmt_num(invoice.amount, invoice.currency),
+                "cls": "subtotal",
+            },
+            {
+                "label": "Remaining balance",
+                "value": _fmt_num(Decimal(invoice.balance_due or 0), invoice.currency),
+                "cls": "total",
+            },
+        ],
+        "hero_label": "Amount Received",
+        "hero_amount": _fmt_num(payment.amount, cur),
+        "payment_instructions": None,
+        "notes": f"{balance_note(invoice)}\nThank you for your payment.",
+        "terms": None,
+        "foot_name": getattr(business, "name", None) or "",
+        "foot_meta": [
+            p for p in (
+                getattr(business, "contact_email", None),
+                getattr(business, "contact_phone", None),
+            ) if p
+        ],
+    }
 
 
 def build_quotation_context(quotation, customer, business=None) -> dict:
