@@ -160,10 +160,10 @@ function fmtDate(d: string | null) {
         <template #body="{ data: row }">
           <div class="row-actions">
             <Button
-              icon="pi pi-pencil"
+              :icon="row.status === 'ENDED' ? 'pi pi-eye' : 'pi pi-pencil'"
               text
               rounded
-              title="Edit"
+              :title="row.status === 'ENDED' ? 'View' : 'Edit'"
               @click="router.push({ name: 'invoice-recurring-edit', params: { id: row.template_id } })"
             />
             <Button

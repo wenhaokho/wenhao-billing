@@ -492,3 +492,66 @@ def test_rows_ended_schedule_outranks_paused_flag(admin_session, db):
 
     row = _row_for(admin_session, t.invoice_id)
     assert row["status"] == "ENDED"
+
+
+# ---------------------------------------------------------------------------
+# Ended templates are view-only: editing, pausing and resuming are refused.
+# ---------------------------------------------------------------------------
+
+
+def _template_put_payload(t) -> dict:
+    return {
+        "customer_id": str(t.customer_id),
+        "currency": "USD",
+        "payment_terms": "Net 30",
+        "line_items": [{"description": "Edited", "quantity": 1, "unit_price": 5}],
+        "schedule": {
+            "frequency": "MONTHLY",
+            "interval": 1,
+            "start_date": "2026-01-01",
+            "end_mode": "NEVER",
+        },
+    }
+
+
+def test_ended_template_rejects_edit(admin_session, db):
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    _end_now(admin_session, t.invoice_id)
+    db.expire(t)
+
+    resp = admin_session.put(
+        f"/api/v1/invoices/recurring-templates/{t.invoice_id}",
+        json=_template_put_payload(t),
+    )
+    assert resp.status_code == 409, resp.text
+    db.expire(t)
+    assert t.payment_terms == "Net 14"  # unchanged
+
+
+def test_ended_template_rejects_pause_and_resume(admin_session, db):
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    _end_now(admin_session, t.invoice_id)
+    for action in ("PAUSE", "RESUME"):
+        resp = admin_session.patch(
+            f"/api/v1/invoices/recurring-templates/{t.invoice_id}",
+            json={"action": action},
+        )
+        assert resp.status_code == 409, (action, resp.text)
+    # END_NOW stays idempotent on an already-ended template: re-ending must
+    # not rewrite end_date to "yesterday" and reopen cycles that ended earlier.
+    db.expire(t)
+    first_end = t.billing_cycle_ref["end_date"]
+    _end_now(admin_session, t.invoice_id)
+    db.expire(t)
+    assert t.billing_cycle_ref["end_date"] == first_end
+    assert _row_for(admin_session, t.invoice_id)["status"] == "ENDED"
+
+
+def test_active_template_still_accepts_edit(admin_session, db):
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    resp = admin_session.put(
+        f"/api/v1/invoices/recurring-templates/{t.invoice_id}",
+        json=_template_put_payload(t),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["payment_terms"] == "Net 30"
