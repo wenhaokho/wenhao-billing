@@ -167,6 +167,26 @@ def _previous_cycle_date(children: list[Invoice]) -> date | None:
     return latest.issue_date
 
 
+def _next_run_for(schedule, previous_cycle_date: date | None) -> date | None:
+    """Next = previous generated cycle + one interval; first cycle if none.
+
+    Anchoring on the scheduled cycle date (not the child's issue_date) means
+    a cycle generated late still rolls forward by exactly one interval.
+    """
+    anchor = previous_cycle_date or (schedule.start_date - timedelta(days=1))
+    return next_cycle_after(schedule, anchor)
+
+
+def _template_has_ended(db: Session, template: Invoice) -> bool:
+    """True when no cycle is left to generate. Ended templates are view-only."""
+    try:
+        schedule = parse_schedule(template.billing_cycle_ref)
+    except ScheduleError:
+        return False
+    previous = _previous_cycle_date(_generated_children(db, template.invoice_id))
+    return _next_run_for(schedule, previous) is None
+
+
 def _end_now_date(db: Session, template: Invoice) -> date:
     """End date that stops every cycle not generated yet.
 
@@ -181,8 +201,7 @@ def _end_now_date(db: Session, template: Invoice) -> date:
     except ScheduleError:
         return end_date
     previous = _previous_cycle_date(_generated_children(db, template.invoice_id))
-    anchor = previous or (schedule.start_date - timedelta(days=1))
-    next_run = next_cycle_after(schedule, anchor)
+    next_run = _next_run_for(schedule, previous)
     if next_run is not None:
         end_date = min(end_date, next_run - timedelta(days=1))
     return end_date
@@ -219,8 +238,7 @@ def list_recurring_template_rows(
             # generated late (issue_date drifted into a later cycle) still
             # rolls forward by exactly one interval. When nothing has been
             # generated yet, anchor just before start so Next = first cycle.
-            anchor = previous_cycle_date or (schedule.start_date - timedelta(days=1))
-            next_run = next_cycle_after(schedule, anchor)
+            next_run = _next_run_for(schedule, previous_cycle_date)
             # ENDED outranks PAUSED: a schedule with nothing left to run
             # can't be resumed, so a stale paused flag must not hide that.
             if next_run is None:
@@ -280,6 +298,11 @@ def update_recurring_template(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> Invoice:
+    template = db.get(Invoice, template_id)
+    if template is not None and template.is_template and _template_has_ended(db, template):
+        raise HTTPException(
+            status_code=409, detail="recurring template has ended and is view-only"
+        )
     try:
         template = invoicing.update_recurring_template(db, template_id, payload)
     except invoicing.InvoicingError as e:
@@ -306,6 +329,10 @@ def patch_recurring_template(
 
     cfg: dict = dict(template.billing_cycle_ref or {})
     action = payload.action.upper()
+    if action in ("PAUSE", "RESUME") and _template_has_ended(db, template):
+        raise HTTPException(
+            status_code=409, detail="recurring template has ended and is view-only"
+        )
     if action == "PAUSE":
         cfg["paused"] = True
     elif action == "RESUME":
@@ -313,9 +340,12 @@ def patch_recurring_template(
     elif action == "END_NOW":
         # Force schedule to stop: end_mode=ON_DATE with an end_date before
         # every cycle that hasn't been generated yet (see _end_now_date).
-        cfg["end_mode"] = "ON_DATE"
-        cfg["end_date"] = _end_now_date(db, template).isoformat()
-        cfg.pop("end_after_cycles", None)
+        # Idempotent: an already-ended template keeps its end config. Rewriting
+        # it to "yesterday" would reopen cycles that ended earlier than that.
+        if not _template_has_ended(db, template):
+            cfg["end_mode"] = "ON_DATE"
+            cfg["end_date"] = _end_now_date(db, template).isoformat()
+            cfg.pop("end_after_cycles", None)
         # Ending supersedes a pause; leaving the flag would show PAUSED.
         cfg.pop("paused", None)
     else:

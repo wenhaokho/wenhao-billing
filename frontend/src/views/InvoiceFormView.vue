@@ -292,7 +292,21 @@ watch(businessProfile, (bp) => {
   }
 }, { immediate: true });
 
-const readOnly = computed(() => !!(existing.value?.status && existing.value.status !== "DRAFT"));
+// Ended recurring templates are view-only. Status comes from the rows
+// endpoint, which is the single source of truth for ACTIVE/PAUSED/ENDED.
+const { data: templateRows } = useQuery<{ template_id: string; status: string }[]>({
+  queryKey: ["recurring-template-rows"],
+  enabled: () => isEdit.value && isRecurring.value && !!props.id,
+  queryFn: async () =>
+    (await api.get<{ template_id: string; status: string }[]>("/invoices/recurring-templates/rows")).data,
+});
+const templateEnded = computed(
+  () => templateRows.value?.find((r) => r.template_id === props.id)?.status === "ENDED",
+);
+
+const readOnly = computed(
+  () => templateEnded.value || !!(existing.value?.status && existing.value.status !== "DRAFT"),
+);
 
 const queryClient = useQueryClient();
 const showPaymentDialog = ref(false);
@@ -680,11 +694,14 @@ const canSave = computed(() => {
         <h1>
           {{
             isRecurring
-              ? (isEdit ? "Edit recurring invoice" : "New recurring invoice")
+              ? (templateEnded ? "Recurring invoice" : isEdit ? "Edit recurring invoice" : "New recurring invoice")
               : (isEdit ? "Edit invoice" : "New invoice")
           }}
         </h1>
-        <p v-if="readOnly" class="readonly-note">
+        <p v-if="templateEnded" class="readonly-note">
+          View only — this recurring template has ended and no longer generates invoices
+        </p>
+        <p v-else-if="readOnly" class="readonly-note">
           Read-only — {{ existing?.status }} invoices cannot be edited
         </p>
         <p
@@ -695,8 +712,9 @@ const canSave = computed(() => {
         </p>
       </div>
       <div class="page-actions">
+        <Tag v-if="templateEnded" value="ENDED" severity="secondary" />
         <Tag
-          v-if="existing?.status"
+          v-else-if="existing?.status"
           :value="existing.status"
           :severity="statusSeverity(existing.status)"
         />
@@ -910,7 +928,7 @@ const canSave = computed(() => {
           </template>
           <template v-else>
             <label class="meta-label">Payment due</label>
-            <Dropdown v-model="paymentTerms" :options="paymentTermsOptions" />
+            <Dropdown v-model="paymentTerms" :options="paymentTermsOptions" :disabled="readOnly" />
           </template>
         </div>
       </div>
@@ -927,7 +945,7 @@ const canSave = computed(() => {
 
     <div class="totals-wrap">
       <div
-        v-if="!readOnly && (!isEdit || isRecurring)"
+        v-if="isRecurring || (!readOnly && !isEdit)"
         class="card recurring-card"
         :class="{ 'is-active': isRecurring }"
       >
@@ -946,6 +964,7 @@ const canSave = computed(() => {
         <div v-if="isRecurring" class="schedule-grid">
           <label class="meta-label">Frequency</label>
           <Dropdown
+            :disabled="readOnly"
             v-model="frequency"
             :options="frequencyOptions"
             option-label="label"
@@ -955,7 +974,7 @@ const canSave = computed(() => {
 
           <label class="meta-label">Every</label>
           <div class="inline-row">
-            <InputNumber v-model="interval" :min="1" :max="99" class="schedule-interval" />
+            <InputNumber :disabled="readOnly" v-model="interval" :min="1" :max="99" class="schedule-interval" />
             <span class="muted small">{{
               frequency === "DAILY"
                 ? interval === 1 ? "day" : "days"
@@ -972,6 +991,7 @@ const canSave = computed(() => {
 
           <label class="meta-label">Ends</label>
           <Dropdown
+            :disabled="readOnly"
             v-model="endMode"
             :options="endModeOptions"
             option-label="label"
@@ -980,12 +1000,12 @@ const canSave = computed(() => {
 
           <template v-if="endMode === 'ON_DATE'">
             <label class="meta-label">End date</label>
-            <DatePicker v-model="endDate" date-format="yy-mm-dd" show-icon />
+            <DatePicker :disabled="readOnly" v-model="endDate" date-format="yy-mm-dd" show-icon />
           </template>
           <template v-else-if="endMode === 'AFTER_N'">
             <label class="meta-label">After</label>
             <div class="inline-row">
-              <InputNumber v-model="endAfterCycles" :min="1" class="schedule-interval" />
+              <InputNumber :disabled="readOnly" v-model="endAfterCycles" :min="1" class="schedule-interval" />
               <span class="muted small">cycles</span>
             </div>
           </template>
@@ -1085,6 +1105,7 @@ const canSave = computed(() => {
         rows="3"
         placeholder="Footer shown on every generated invoice."
         class="notes-textarea"
+        :disabled="readOnly"
       />
     </div>
 
