@@ -548,7 +548,7 @@ function toggleMoreMenu(event: Event) {
             </thead>
             <tbody>
               <tr v-for="ln in quote.line_items.slice().sort((a, b) => a.position - b.position)" :key="ln.line_item_id">
-                <td>{{ ln.description }}</td>
+                <td class="desc-col">{{ ln.description }}</td>
                 <td class="num-col num">{{ ln.quantity }}</td>
                 <td class="num-col num">{{ formatAmount(ln.unit_price, quote.currency) }}</td>
                 <td class="num-col num">{{ formatAmount(ln.amount, quote.currency) }}</td>
@@ -735,6 +735,7 @@ code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px
 }
 .items-table th { color: var(--color-text-muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .items-table .num-col { text-align: right; }
+.items-table .desc-col { white-space: pre-line; }
 .items-table .num { font-variant-numeric: tabular-nums; }
 .items-table tfoot td { border-bottom: none; color: var(--color-text-muted); padding-top: 0.7rem; }
 .items-table tfoot .total-row td { font-weight: 700; color: var(--color-text); font-size: 1rem; border-top: 2px solid var(--color-border); }
