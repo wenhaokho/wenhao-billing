@@ -49,6 +49,8 @@ class Invoice(Base):
     payment_terms: Mapped[str | None] = mapped_column(String(30), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     footer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Team-only note: never rendered on the PDF or sent to the customer.
+    internal_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_template: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), server_default=func.current_timestamp()

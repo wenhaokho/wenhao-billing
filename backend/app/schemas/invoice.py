@@ -63,6 +63,7 @@ class InvoiceCreate(BaseModel):
     payment_terms: str | None = None
     notes: str | None = None
     footer: str | None = None
+    internal_note: str | None = None
     discount_type: Literal["PERCENT", "AMOUNT"] | None = None
     discount_value: Decimal | None = Field(default=None, ge=0, max_digits=19, decimal_places=4)
     line_items: list[InvoiceLineItemIn] = Field(default_factory=list)
@@ -80,6 +81,7 @@ class InvoiceUpdate(BaseModel):
     payment_terms: str | None = None
     notes: str | None = None
     footer: str | None = None
+    internal_note: str | None = None
     discount_type: Literal["PERCENT", "AMOUNT"] | None = None
     discount_value: Decimal | None = Field(default=None, ge=0, max_digits=19, decimal_places=4)
     line_items: list[InvoiceLineItemIn] | None = None
@@ -102,6 +104,7 @@ class RecurringTemplateCreate(BaseModel):
     payment_terms: str
     notes: str | None = None
     footer: str | None = None
+    internal_note: str | None = None
     discount_type: Literal["PERCENT", "AMOUNT"] | None = None
     discount_value: Decimal | None = Field(default=None, ge=0, max_digits=19, decimal_places=4)
     line_items: list[InvoiceLineItemIn] = Field(default_factory=list)
@@ -142,6 +145,7 @@ class InvoiceOut(BaseModel):
     payment_terms: str | None
     notes: str | None
     footer: str | None
+    internal_note: str | None
     is_template: bool
     created_at: datetime
     line_items: list[InvoiceLineItemOut] = Field(default_factory=list)

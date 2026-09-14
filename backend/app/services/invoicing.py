@@ -173,6 +173,7 @@ def create_invoice(db: Session, payload: InvoiceCreate) -> Invoice:
         payment_terms=payload.payment_terms,
         notes=payload.notes,
         footer=payload.footer,
+        internal_note=payload.internal_note,
         is_template=False,
     )
     invoice.line_items = _build_line_items(payload.line_items)
@@ -203,6 +204,7 @@ def update_invoice(db: Session, invoice_id: UUID, payload: InvoiceUpdate) -> Inv
         "payment_terms",
         "notes",
         "footer",
+        "internal_note",
         "discount_type",
         "discount_value",
     ):
@@ -291,6 +293,7 @@ def create_recurring_template(db: Session, payload: RecurringTemplateCreate) -> 
         payment_terms=payload.payment_terms,
         notes=payload.notes,
         footer=payload.footer,
+        internal_note=payload.internal_note,
         is_template=True,
     )
     invoice.line_items = _build_line_items(payload.line_items)
@@ -324,6 +327,7 @@ def update_recurring_template(
     template.payment_terms = payload.payment_terms
     template.notes = payload.notes
     template.footer = payload.footer
+    template.internal_note = payload.internal_note
     template.discount_type = payload.discount_type
     template.discount_value = payload.discount_value
     template.subtotal = subtotal
@@ -438,6 +442,7 @@ def trigger_recurring_cycle(
         payment_terms=template.payment_terms,
         notes=template.notes,
         footer=template.footer,
+        internal_note=template.internal_note,
         is_template=False,
     )
     invoice.line_items = [
