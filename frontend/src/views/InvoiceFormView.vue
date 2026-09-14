@@ -29,11 +29,13 @@ import { useReturnTo } from "@/composables/useReturnTo";
 const props = defineProps<{ id?: string }>();
 const router = useRouter();
 const route = useRoute();
-const { backTo, goBack } = useReturnTo("/invoices");
 
 // Route name is fixed at navigation time; used only to seed recurring mode on mount.
 const isRecurringRoute =
   route.name === "invoice-recurring-new" || route.name === "invoice-recurring-edit";
+// Back / post-save target: the list we came from (?from=), else the list
+// that matches this form's mode so recurring templates return to their list.
+const { backTo, goBack } = useReturnTo(isRecurringRoute ? "/invoices/recurring" : "/invoices");
 
 interface Customer {
   customer_id: string;
@@ -649,7 +651,9 @@ const save = useMutation({
     return (await api.post<InvoiceOut>("/invoices", buildPayload())).data;
   },
   onSuccess: () => {
-    router.push(isRecurring.value ? "/invoices/recurring" : backTo.value);
+    // A plain invoice switched to Recurring on creation lands on the recurring
+    // list; everything else returns where it came from.
+    router.push(isRecurring.value && !isRecurringRoute ? "/invoices/recurring" : backTo.value);
   },
 });
 
@@ -686,7 +690,13 @@ const canSave = computed(() => {
 <template>
   <section class="invoice-form">
     <div class="back">
-      <Button label="Invoices" icon="pi pi-arrow-left" text size="small" @click="goBack" />
+      <Button
+        :label="isRecurring ? 'Recurring invoices' : 'Invoices'"
+        icon="pi pi-arrow-left"
+        text
+        size="small"
+        @click="goBack"
+      />
     </div>
 
     <header class="page-header sticky-header">

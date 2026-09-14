@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import { useConfirm } from "primevue/useconfirm";
 import DataTable from "primevue/datatable";
@@ -28,6 +28,7 @@ interface RecurringRow {
 }
 
 const router = useRouter();
+const route = useRoute();
 const confirm = useConfirm();
 const queryClient = useQueryClient();
 
@@ -70,7 +71,7 @@ const { data, isLoading } = useQuery<RecurringRow[]>({
 const rows = computed(() => data.value ?? []);
 
 function openNew() {
-  router.push({ name: "invoice-recurring-new" });
+  router.push({ name: "invoice-recurring-new", query: { from: route.fullPath } });
 }
 
 function statusSeverity(status: string) {
@@ -164,7 +165,7 @@ function fmtDate(d: string | null) {
               text
               rounded
               :title="row.status === 'ENDED' ? 'View' : 'Edit'"
-              @click="router.push({ name: 'invoice-recurring-edit', params: { id: row.template_id } })"
+              @click="router.push({ name: 'invoice-recurring-edit', params: { id: row.template_id }, query: { from: route.fullPath } })"
             />
             <Button
               v-if="row.status === 'ACTIVE'"
