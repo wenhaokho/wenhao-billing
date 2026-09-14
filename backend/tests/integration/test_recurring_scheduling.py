@@ -378,3 +378,79 @@ def test_fix_script_ignores_void_and_fixes_live_key(db):
     db.refresh(voided)
     assert live.billing_cycle_ref["cycle_key"] == "2026-07-01"
     assert voided.status == "VOID"  # untouched
+
+
+# ---------------------------------------------------------------------------
+# END_NOW must stop every cycle that has not been generated yet, including an
+# overdue current cycle, and the rows endpoint must report ENDED afterwards.
+# Regression: end_date=yesterday left templates with an un-generated past
+# cycle ACTIVE (and the scanner would still generate that cycle).
+# ---------------------------------------------------------------------------
+
+
+def _end_now(admin_session, template_id) -> dict:
+    resp = admin_session.patch(
+        f"/api/v1/invoices/recurring-templates/{template_id}",
+        json={"action": "END_NOW"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _row_for(admin_session, template_id) -> dict:
+    resp = admin_session.get("/api/v1/invoices/recurring-templates/rows")
+    assert resp.status_code == 200, resp.text
+    return next(r for r in resp.json() if r["template_id"] == str(template_id))
+
+
+def test_end_now_ends_template_with_overdue_cycle(admin_session, db):
+    """Previous cycle generated long ago, next cycle already in the past
+    (worker was down / backdated template). END_NOW must still show ENDED
+    and the scanner must not generate the overdue cycle."""
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    _mk_child(db, t, issue_date=date(2026, 6, 1), cycle_key="2026-06-01")
+    db.flush()
+    assert date.today() > date(2026, 7, 1)  # sanity: next cycle is overdue
+
+    _end_now(admin_session, t.invoice_id)
+    db.expire(t)
+
+    row = _row_for(admin_session, t.invoice_id)
+    assert row["status"] == "ENDED"
+    assert row["next_run_date"] is None
+    assert _cycle_key_for(date.today(), t) is None
+    assert t.billing_cycle_ref["end_mode"] == "ON_DATE"
+    assert t.billing_cycle_ref["end_date"] == "2026-06-30"
+
+
+def test_end_now_ends_template_that_never_generated(admin_session, db):
+    """Nothing generated yet and start date in the past: END_NOW must end it
+    before the first cycle so the scanner never generates anything."""
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+
+    _end_now(admin_session, t.invoice_id)
+    db.expire(t)
+
+    row = _row_for(admin_session, t.invoice_id)
+    assert row["status"] == "ENDED"
+    assert row["next_run_date"] is None
+    assert _cycle_key_for(date.today(), t) is None
+    assert t.billing_cycle_ref["end_date"] == "2025-12-31"
+
+
+def test_end_now_with_future_next_cycle_ends_yesterday(admin_session, db):
+    """Normal case: next cycle is in the future, so ending 'yesterday' is
+    both sufficient and the most natural end date to record."""
+    from datetime import timedelta
+
+    start = date.today() + timedelta(days=40)
+    t = _mk_template(db, frequency="MONTHLY", start_date=start)
+
+    _end_now(admin_session, t.invoice_id)
+    db.expire(t)
+
+    row = _row_for(admin_session, t.invoice_id)
+    assert row["status"] == "ENDED"
+    assert row["next_run_date"] is None
+    assert _cycle_key_for(date.today(), t) is None
+    assert t.billing_cycle_ref["end_date"] == (date.today() - timedelta(days=1)).isoformat()

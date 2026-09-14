@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import Button from "primevue/button";
 import Dropdown from "primevue/dropdown";
-import InputText from "primevue/inputtext";
+import Textarea from "primevue/textarea";
 import InputNumber from "primevue/inputnumber";
 import Tag from "primevue/tag";
 import { formatAmount } from "@/utils/money";
@@ -93,10 +93,12 @@ function rowAmount(row: LineItemRow): number {
           :disabled="readOnly"
           @update:model-value="(v) => onItemPicked(row, v as string | null)"
         />
-        <InputText
+        <Textarea
           v-model="row.description"
           placeholder="Description"
           class="desc"
+          rows="3"
+          auto-resize
           :disabled="readOnly"
         />
       </div>
@@ -193,7 +195,7 @@ function rowAmount(row: LineItemRow): number {
 }
 .col-item { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
 .item-pill { align-self: flex-start; }
-.desc { width: 100%; }
+.desc { width: 100%; resize: none; line-height: 1.5; }
 .col-qty, .col-price { padding-top: 0; }
 .col-qty :deep(.p-inputnumber),
 .col-qty :deep(.p-inputnumber-input),

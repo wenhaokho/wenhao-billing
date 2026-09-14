@@ -111,6 +111,7 @@ interface InvoiceOut {
   payment_terms: string | null;
   notes: string | null;
   footer: string | null;
+  internal_note: string | null;
   is_template: boolean;
   line_items: {
     line_item_id: string;
@@ -158,6 +159,7 @@ const issueDate = ref<Date | null>(new Date());
 const dueDate = ref<Date | null>(null);
 const currency = ref<string>("IDR");
 const notes = ref<string>("");
+const internalNote = ref<string>("");
 const paymentTerms = ref<string>("Net 7");
 
 const discountEnabled = ref(false);
@@ -212,6 +214,7 @@ interface TemplateResponse {
   payment_terms: string | null;
   notes: string | null;
   footer: string | null;
+  internal_note: string | null;
   discount_type: "PERCENT" | "AMOUNT" | null;
   discount_value: string | null;
   billing_cycle_ref: {
@@ -250,6 +253,7 @@ watch(
     paymentTerms.value = t.payment_terms ?? "On Receipt";
     notes.value = t.notes ?? "";
     footer.value = t.footer ?? "";
+    internalNote.value = t.internal_note ?? "";
     if (t.discount_type) {
       discountEnabled.value = true;
       discountType.value = t.discount_type;
@@ -522,6 +526,7 @@ watch(existing, (inv) => {
   dueDate.value = inv.due_date ? new Date(inv.due_date) : null;
   currency.value = inv.currency;
   notes.value = inv.notes ?? "";
+  internalNote.value = inv.internal_note ?? "";
   paymentTerms.value = inv.payment_terms ?? "On Receipt";
   discountType.value = (inv.discount_type as DiscountType | null) ?? null;
   discountValue.value = inv.discount_value != null ? Number(inv.discount_value) : null;
@@ -575,6 +580,7 @@ function buildPayload() {
     due_date: toISODate(dueDate.value),
     payment_terms: paymentTerms.value || null,
     notes: notes.value || null,
+    internal_note: internalNote.value || null,
     discount_type: discountEnabled.value ? discountType.value : null,
     discount_value: discountEnabled.value ? discountValue.value : null,
     line_items: clean,
@@ -599,6 +605,7 @@ function buildTemplatePayload() {
     payment_terms: paymentTerms.value,
     notes: notes.value || null,
     footer: footer.value || null,
+    internal_note: internalNote.value || null,
     discount_type: discountEnabled.value ? discountType.value : null,
     discount_value: discountEnabled.value ? discountValue.value : null,
     line_items: clean,
@@ -1055,6 +1062,17 @@ const canSave = computed(() => {
         v-model="notes"
         rows="5"
         placeholder="e.g. Price is included of 11% VAT. Price is excluded of any bank or transfer fees."
+        class="notes-textarea"
+        :disabled="readOnly"
+      />
+    </div>
+
+    <div class="card notes-card">
+      <label class="section-label">Internal note</label>
+      <Textarea
+        v-model="internalNote"
+        rows="3"
+        placeholder="Visible to your team only. Not shown to the customer or on the PDF."
         class="notes-textarea"
         :disabled="readOnly"
       />
