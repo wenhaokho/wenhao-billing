@@ -127,6 +127,67 @@ class RecurringTemplateRow(BaseModel):
     status: str  # ACTIVE / ENDED / MISCONFIGURED (R4 adds PAUSED)
 
 
+def _generated_children(db: Session, template_id: UUID) -> list[Invoice]:
+    """Live generated children of a template, latest issue_date first.
+
+    VOID children are excluded — a voided invoice isn't a live generated
+    invoice, so it must not inflate the count nor drive the "Previous" cycle.
+    """
+    return list(
+        db.scalars(
+            select(Invoice)
+            .where(Invoice.is_template.is_(False))
+            .where(Invoice.invoice_type == "RECURRING")
+            .where(Invoice.status != "VOID")
+            .where(
+                Invoice.billing_cycle_ref["template_invoice_id"].astext
+                == str(template_id)
+            )
+            .order_by(Invoice.issue_date.desc().nullslast())
+        )
+    )
+
+
+def _previous_cycle_date(children: list[Invoice]) -> date | None:
+    """Scheduled cycle-start date of the latest generated child.
+
+    Uses billing_cycle_ref["cycle_key"] (ISO date) so it lines up with the
+    schedule's day-of-month rather than the day generation happened to run.
+    Falls back to issue_date for legacy children that predate cycle_key.
+    """
+    if not children:
+        return None
+    latest = children[0]
+    cycle_key = (latest.billing_cycle_ref or {}).get("cycle_key")
+    if cycle_key:
+        try:
+            return date.fromisoformat(cycle_key)
+        except ValueError:
+            pass
+    return latest.issue_date
+
+
+def _end_now_date(db: Session, template: Invoice) -> date:
+    """End date that stops every cycle not generated yet.
+
+    "Yesterday" is enough when the next cycle is in the future, but a template
+    with an overdue, un-generated cycle (worker down, backdated start) would
+    stay ACTIVE and the scanner would still generate that cycle. So cap at the
+    day before the next un-generated cycle.
+    """
+    end_date = date.today() - timedelta(days=1)
+    try:
+        schedule = parse_schedule(template.billing_cycle_ref)
+    except ScheduleError:
+        return end_date
+    previous = _previous_cycle_date(_generated_children(db, template.invoice_id))
+    anchor = previous or (schedule.start_date - timedelta(days=1))
+    next_run = next_cycle_after(schedule, anchor)
+    if next_run is not None:
+        end_date = min(end_date, next_run - timedelta(days=1))
+    return end_date
+
+
 @router.get("/recurring-templates/rows", response_model=list[RecurringTemplateRow])
 def list_recurring_template_rows(
     db: Session = Depends(get_db),
@@ -144,42 +205,11 @@ def list_recurring_template_rows(
     out: list[RecurringTemplateRow] = []
     for t in templates:
         customer = db.get(Customer, t.customer_id) if t.customer_id else None
-        # Latest generated child: same customer, RECURRING, not a template,
-        # with matching template_invoice_id in billing_cycle_ref. VOID children
-        # are excluded — a voided invoice isn't a live generated invoice, so it
-        # must not inflate the count nor drive the "Previous" cycle date.
-        children = list(
-            db.scalars(
-                select(Invoice)
-                .where(Invoice.is_template.is_(False))
-                .where(Invoice.invoice_type == "RECURRING")
-                .where(Invoice.status != "VOID")
-                .where(
-                    Invoice.billing_cycle_ref["template_invoice_id"].astext
-                    == str(t.invoice_id)
-                )
-                .order_by(Invoice.issue_date.desc().nullslast())
-            )
-        )
+        children = _generated_children(db, t.invoice_id)
         generated_count = len(children)
-        latest_child = children[0] if children else None
-        # "Previous" must reflect the scheduled cycle-start date, not the day
-        # the child invoice happened to be generated (issue_date = today at
-        # generation time). The cycle-start is stored on the child as
-        # billing_cycle_ref["cycle_key"] (ISO date), so it lines up with the
-        # schedule's day-of-month. Fall back to issue_date for legacy children
-        # that predate cycle_key.
-        previous_cycle_date: date | None = None
-        latest_issue_date = latest_child.issue_date if latest_child else None
-        if latest_child is not None:
-            cycle_key = (latest_child.billing_cycle_ref or {}).get("cycle_key")
-            if cycle_key:
-                try:
-                    previous_cycle_date = date.fromisoformat(cycle_key)
-                except ValueError:
-                    previous_cycle_date = latest_issue_date
-            else:
-                previous_cycle_date = latest_issue_date
+        # "Previous" is the scheduled cycle-start date of the latest child,
+        # not the day it happened to be generated (see _previous_cycle_date).
+        previous_cycle_date = _previous_cycle_date(children)
 
         try:
             schedule = parse_schedule(t.billing_cycle_ref)
@@ -279,9 +309,10 @@ def patch_recurring_template(
     elif action == "RESUME":
         cfg.pop("paused", None)
     elif action == "END_NOW":
-        # Force schedule to stop: set end_mode=ON_DATE, end_date=yesterday.
+        # Force schedule to stop: end_mode=ON_DATE with an end_date before
+        # every cycle that hasn't been generated yet (see _end_now_date).
         cfg["end_mode"] = "ON_DATE"
-        cfg["end_date"] = (date.today() - timedelta(days=1)).isoformat()
+        cfg["end_date"] = _end_now_date(db, template).isoformat()
         cfg.pop("end_after_cycles", None)
     else:
         raise HTTPException(status_code=400, detail=f"unknown action: {payload.action}")
