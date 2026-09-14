@@ -221,10 +221,12 @@ def list_recurring_template_rows(
             # generated yet, anchor just before start so Next = first cycle.
             anchor = previous_cycle_date or (schedule.start_date - timedelta(days=1))
             next_run = next_cycle_after(schedule, anchor)
-            if is_paused(t.billing_cycle_ref):
-                status = "PAUSED"
-            elif next_run is None:
+            # ENDED outranks PAUSED: a schedule with nothing left to run
+            # can't be resumed, so a stale paused flag must not hide that.
+            if next_run is None:
                 status = "ENDED"
+            elif is_paused(t.billing_cycle_ref):
+                status = "PAUSED"
             else:
                 status = "ACTIVE"
             frequency = schedule.frequency
@@ -314,6 +316,8 @@ def patch_recurring_template(
         cfg["end_mode"] = "ON_DATE"
         cfg["end_date"] = _end_now_date(db, template).isoformat()
         cfg.pop("end_after_cycles", None)
+        # Ending supersedes a pause; leaving the flag would show PAUSED.
+        cfg.pop("paused", None)
     else:
         raise HTTPException(status_code=400, detail=f"unknown action: {payload.action}")
 
