@@ -454,3 +454,41 @@ def test_end_now_with_future_next_cycle_ends_yesterday(admin_session, db):
     assert row["next_run_date"] is None
     assert _cycle_key_for(date.today(), t) is None
     assert t.billing_cycle_ref["end_date"] == (date.today() - timedelta(days=1)).isoformat()
+
+
+def test_end_now_on_paused_template_shows_ended_not_paused(admin_session, db):
+    """Pausing then ending must leave the row ENDED: END_NOW clears the
+    paused flag, and an ended schedule outranks a stale paused flag."""
+    t = _mk_template(db, frequency="MONTHLY", start_date=date(2026, 1, 1))
+    resp = admin_session.patch(
+        f"/api/v1/invoices/recurring-templates/{t.invoice_id}",
+        json={"action": "PAUSE"},
+    )
+    assert resp.status_code == 200, resp.text
+    db.expire(t)
+    assert _row_for(admin_session, t.invoice_id)["status"] == "PAUSED"
+
+    _end_now(admin_session, t.invoice_id)
+    db.expire(t)
+
+    row = _row_for(admin_session, t.invoice_id)
+    assert row["status"] == "ENDED"
+    assert row["next_run_date"] is None
+    assert "paused" not in t.billing_cycle_ref
+
+
+def test_rows_ended_schedule_outranks_paused_flag(admin_session, db):
+    """A schedule that reached its end date while paused is ENDED, not
+    PAUSED — there is nothing left to resume."""
+    t = _mk_template(
+        db, frequency="MONTHLY", start_date=date(2026, 1, 1),
+        end_mode="ON_DATE", end_date=date(2026, 3, 31),
+    )
+    _mk_child(db, t, issue_date=date(2026, 3, 1), cycle_key="2026-03-01")
+    cfg = dict(t.billing_cycle_ref)
+    cfg["paused"] = True
+    t.billing_cycle_ref = cfg
+    db.flush()
+
+    row = _row_for(admin_session, t.invoice_id)
+    assert row["status"] == "ENDED"
