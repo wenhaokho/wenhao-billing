@@ -6,9 +6,9 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 Single-tenant agency accounting system.
 
-- **Backend:** FastAPI + SQLAlchemy 2.0 + Alembic, Celery (with beat) on Redis, Postgres 16. Package layout under `backend/app/` (`api/v1/routers`, `models`, `schemas`, `services`, `workers`, `db`).
+- **Backend:** FastAPI + SQLAlchemy 2.0 + Alembic, APScheduler (in-process), Postgres 16. Package layout under `backend/app/` (`api/v1/routers`, `models`, `schemas`, `services`, `workers`, `db`).
 - **Frontend:** Vue 3 + TypeScript + Vite, Pinia, vue-router, PrimeVue, @tanstack/vue-query, axios. Source under `frontend/src/` (`views`, `components`, `stores`, `composables`, `api`, `router`).
-- **Infra:** `docker-compose.yml` at repo root runs db, redis, a one-shot `migrate` service (blocks `backend`/`worker` until `alembic upgrade head` succeeds), backend (uvicorn reload), worker (`celery -A app.workers.celery_app worker --beat`), and frontend (vite dev server).
+- **Infra:** `docker-compose.yml` at repo root runs db, backend (`alembic upgrade head` then uvicorn reload; also runs the periodic jobs), and frontend (vite dev server). There is no separate worker or Redis.
 
 ## Common commands
 
@@ -40,13 +40,13 @@ Seed scripts (in `backend/scripts/`, run via `docker compose exec backend python
 
 **Payment reconciliation pipeline:** ingestion via `services/intake/` (webhook + email OCR) → `services/matching_engine.py` matches on (amount, currency, payer, date). Only ≥95% confidence auto-reconciles. **Any ambiguity or amount mismatch must set `PENDING_MANUAL_REVIEW`** — never guess or adjust amounts. Manual resolution lives in `ManualReviewView.vue` / `recon.py` router. Every automated action must be manually reversible.
 
-**Invoicing modes** (unified form — billing mode lives on the invoice, not the customer): milestone (manual), recurring (driven by `cycle_trigger_date`, Celery beat scans via `workers/tasks/recurring.py` and `services/recurring_schedule.py`), and usage-based (triggered by usage-lock at `cut_off_day`, see `workers/tasks/usage_lock.py`). Generated invoices land in an "Awaiting Finalization" queue before issue.
+**Invoicing modes** (unified form — billing mode lives on the invoice, not the customer): milestone (manual), recurring (driven by `cycle_trigger_date`, the scheduler scans via `workers/tasks/recurring.py` and `services/recurring_schedule.py`), and usage-based (triggered by usage-lock at `cut_off_day`, see `workers/tasks/usage_lock.py`). Generated invoices land in an "Awaiting Finalization" queue before issue.
 
 **Auth:** cookie session (Starlette `SessionMiddleware`) + password hashing via passlib/bcrypt. Routers: `auth.py` (login/logout/forgot/reset), `users.py` (admin CRUD + invite). Frontend guards in `router/index.ts` via `useAuthStore`.
 
 **Business-id scoping:** the PRD mandates every SELECT/INSERT/UPDATE filter by `business_id`. When adding new queries, preserve this — don't introduce unscoped reads.
 
-**Celery:** `app/workers/celery_app.py` with `beat_schedule.py`. The worker container runs worker+beat in one process (`--beat` flag). Tasks in `workers/tasks/`.
+**Scheduled jobs:** `app/workers/scheduler.py` runs an APScheduler `BackgroundScheduler` inside the API process, started from the FastAPI lifespan (disable with `SCHEDULER_ENABLED=false`; tests do). Each run holds a Postgres advisory lock so multiple uvicorn workers/replicas never run a job twice concurrently. Job functions are plain sync functions in `workers/tasks/`.
 
 ## Conventions and gotchas
 

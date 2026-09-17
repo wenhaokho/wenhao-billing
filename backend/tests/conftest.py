@@ -24,6 +24,10 @@ from app.models.fx import FxRate
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
+# Never start the in-process job scheduler from TestClient lifespans.
+os.environ["SCHEDULER_ENABLED"] = "false"
+get_settings.cache_clear()
+
 
 def _alembic_cfg(db_url: str) -> Config:
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))

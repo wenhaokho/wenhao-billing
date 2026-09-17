@@ -23,7 +23,9 @@ class Settings(BaseSettings):
             if value.startswith(prefix):
                 return "postgresql+psycopg://" + value[len(prefix):]
         return value
-    redis_url: str = Field(default="redis://localhost:6379/0")
+
+    # Run the periodic jobs inside the API process. Disabled in tests.
+    scheduler_enabled: bool = Field(default=True)
 
     session_secret: str = Field(default="dev-session-secret-change-me")
     session_cookie_name: str = "billing_session"

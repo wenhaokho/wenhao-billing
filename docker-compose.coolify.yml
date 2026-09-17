@@ -1,16 +1,17 @@
 # Production deployment for Coolify — single domain, FastAPI serves the SPA.
-# Uses SHARED Postgres + Redis (managed separately in Coolify); this stack only
-# ships the app + worker.
+# Uses a SHARED Postgres (managed separately in Coolify); this stack only ships
+# the app. Periodic jobs (recurring invoices, hosting enforcement, FX sync) run
+# on an in-process scheduler inside the app — there is no worker or Redis.
 #
 # In Coolify: New Resource -> Docker Compose (Build Pack), point it at this file.
 # Coolify auto-fills the SERVICE_* "magic" variables: it provisions the public
 # domain + Traefik route from SERVICE_FQDN_APP_8000 and generates every
 # SERVICE_BASE64_* secret once, then persists them.
 #
-# Set DATABASE_URL and REDIS_URL to the shared services' connection strings
+# Set DATABASE_URL to the shared Postgres connection string
 # (Coolify UI, or .env for a run outside Coolify — see .env.coolify.example).
-# The shared Postgres/Redis must be attached to the same Docker network as this
-# resource so `app`/`worker` can reach them by hostname.
+# The shared Postgres must be attached to the same Docker network as this
+# resource so the app can reach it by hostname.
 
 services:
   wenhao-billing-app:
@@ -22,10 +23,9 @@ services:
       # Presence of this key tells Coolify to generate the public FQDN for this
       # service on container port 8000 and wire up the Traefik route + TLS.
       SERVICE_FQDN_APP_8000: ${SERVICE_FQDN_APP_8000:-billing.wenhao.id}
-      # Shared services — full connection strings you provide. The DB URL MUST
+      # Shared Postgres — full connection string you provide. The DB URL MUST
       # use the postgresql+psycopg:// driver prefix (SQLAlchemy).
       DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
       # Backend serves the built SPA from this dir (baked in by Dockerfile.coolify).
       FRONTEND_DIST: /app/frontend_dist
       # Secrets — Coolify generates 64-char values once and persists them.
@@ -70,44 +70,3 @@ services:
         "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000",
       ]
 
-  wenhao-billing-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.coolify
-    image: wenhao-billing:coolify
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      MCP_ENABLED: ${MCP_ENABLED:-true}
-      MCP_CONFIRM_SECRET: ${SERVICE_BASE64_64_MCPCONFIRM}
-      MCP_TOKEN_SECRET: ${SERVICE_BASE64_64_MCPTOKEN}
-      MCP_PUBLIC_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
-      # Beat tasks send email (recurring-draft notifications) with absolute links
-      # back to the app, so the worker needs the same mail + base-URL settings.
-      APP_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-noreply@wenhao.id}
-      RESEND_FROM_NAME: ${RESEND_FROM_NAME:-Wenhao Dev Billing}
-      # Hosting enforcement (beat) suspends/restores Cloudflare DNS targets.
-      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
-    # The shared image bakes in an HTTP HEALTHCHECK against :8000/docs, but the
-    # worker runs Celery with no HTTP server — override it with a Celery ping of
-    # this node over the broker. (Disabling it outright makes Coolify report the
-    # whole stack as "Running (no healthcheck)".) `$$` escapes compose interpolation.
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME --timeout 10 || exit 1",
-        ]
-      interval: 60s
-      timeout: 20s
-      retries: 3
-      start_period: 60s
-    depends_on:
-      # Wait for `app` to be healthy so migrations run once before the worker starts.
-      wenhao-billing-app:
-        condition: service_healthy
-    # worker + beat in one process, matching the dev compose.
-    command:
-      ["celery", "-A", "app.workers.celery_app", "worker", "--beat", "--loglevel=info"]

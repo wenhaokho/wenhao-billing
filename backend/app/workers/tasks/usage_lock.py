@@ -1,4 +1,4 @@
-"""Beat task: fire Usage Lock for invoices whose cut_off_day fell yesterday.
+"""Scheduled job: fire Usage Lock for invoices whose cut_off_day fell yesterday.
 
 Phase 1 stub: iterates USAGE invoices whose `billing_cycle_ref.cut_off_day`
 matches yesterday's day-of-month and are still DRAFT. Accrued amount must be
@@ -18,14 +18,12 @@ from sqlalchemy import select
 from app.db.session import SessionLocal
 from app.models.invoice import Invoice
 from app.services import invoicing
-from app.workers.celery_app import celery_app
 
 
 def _stub_accrued(_invoice_id) -> Decimal:
     raise NotImplementedError("wire usage-metering source before enabling usage-lock beat")
 
 
-@celery_app.task(name="app.workers.tasks.usage_lock.cutoff_scan")
 def cutoff_scan(compute_accrued: Callable[[object], Decimal] = _stub_accrued) -> int:
     yesterday = date.today() - timedelta(days=1)
     locked = 0

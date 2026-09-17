@@ -180,7 +180,7 @@ def sync_fx_rates_now(
     """Pull the latest reference rates from the provider into fx_rates.
 
     Runs synchronously so the caller gets the result; the same core also runs
-    on the weekly Celery beat schedule.
+    on the weekly in-process schedule.
     """
     try:
         result = run_fx_sync(db)

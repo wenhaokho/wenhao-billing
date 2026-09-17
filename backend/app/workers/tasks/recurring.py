@@ -1,4 +1,4 @@
-"""Beat task: scan RECURRING templates and generate DRAFT invoices for today's cycles.
+"""Scheduled job: scan RECURRING templates and generate DRAFT invoices for today's cycles.
 
 Idempotency is delegated to `invoicing.trigger_recurring_cycle` — if a DRAFT
 for the same (template, cycle_key) already exists, it's returned unchanged.
@@ -24,14 +24,13 @@ from app.services.recurring_schedule import (
     is_paused,
     parse_schedule,
 )
-from app.workers.celery_app import celery_app
 
 
 def _cycle_key_for(today: date, template: Invoice) -> str | None:
     """Return the ISO cycle-start date if a cycle is due today, else None.
 
     Malformed / missing configs return None so a single bad template can't
-    crash the whole beat loop.
+    crash the whole scheduler loop.
     """
     if is_paused(template.billing_cycle_ref):
         return None
@@ -45,7 +44,6 @@ def _cycle_key_for(today: date, template: Invoice) -> str | None:
     return cycle_key(cycle)
 
 
-@celery_app.task(name="app.workers.tasks.recurring.scan_and_generate")
 def scan_and_generate() -> int:
     today = date.today()
     generated = 0
