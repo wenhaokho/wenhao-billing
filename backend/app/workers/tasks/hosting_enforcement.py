@@ -12,7 +12,6 @@ from app.services.hosting import (
     restore_hosting_if_eligible,
     suspend_hosting,
 )
-from app.workers.celery_app import celery_app
 
 
 def run_hosting_enforcement(db: Session, today: date | None = None) -> dict[str, int]:
@@ -41,7 +40,6 @@ def run_hosting_enforcement(db: Session, today: date | None = None) -> dict[str,
     return counts
 
 
-@celery_app.task(name="app.workers.tasks.hosting_enforcement.daily_hosting_enforcement")
 def daily_hosting_enforcement() -> dict[str, int]:
     with SessionLocal() as db:
         counts = run_hosting_enforcement(db)

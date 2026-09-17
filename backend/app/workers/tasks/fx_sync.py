@@ -1,6 +1,6 @@
 """Sync reference FX rates from the provider into the fx_rates table.
 
-The core ``run_fx_sync`` is shared by the weekly Celery beat job and the manual
+The core ``run_fx_sync`` is shared by the weekly scheduled job and the manual
 "Sync now" endpoint, so both paths behave identically. Upserts are keyed on the
 ``(from_currency, to_currency, as_of_date)`` unique constraint: a rate already
 stored for that provider date is updated in place (idempotent re-runs), never
@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models.fx import FxRate
 from app.services.fx_provider import SOURCE, fetch_latest_rates
-from app.workers.celery_app import celery_app
 
 
 def run_fx_sync(db: Session) -> dict[str, object]:
@@ -58,7 +57,6 @@ def run_fx_sync(db: Session) -> dict[str, object]:
     }
 
 
-@celery_app.task(name="app.workers.tasks.fx_sync.sync_fx_rates")
 def sync_fx_rates() -> dict[str, object]:
     from app.db.session import SessionLocal
 

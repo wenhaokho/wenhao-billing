@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,11 +40,27 @@ def create_app() -> FastAPI:
 
         mcp_http_app = _mcp_http_app
 
-    app = FastAPI(
-        title="wenhao-billing",
-        version="0.1.0",
-        lifespan=mcp_http_app.lifespan if mcp_http_app is not None else None,
-    )
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # Periodic jobs (recurring invoices, usage lock, hosting enforcement,
+        # FX sync) run in-process — there is no separate worker service.
+        scheduler = None
+        if settings.scheduler_enabled:
+            from app.workers.scheduler import build_scheduler
+
+            scheduler = build_scheduler()
+            scheduler.start()
+        try:
+            if mcp_http_app is not None:
+                async with mcp_http_app.lifespan(app):
+                    yield
+            else:
+                yield
+        finally:
+            if scheduler is not None:
+                scheduler.shutdown(wait=False)
+
+    app = FastAPI(title="wenhao-billing", version="0.1.0", lifespan=lifespan)
 
     app.add_middleware(
         SessionMiddleware,

@@ -1,7 +1,7 @@
 """Unit tests for the beat-task cycle-key helper.
 
 `_cycle_key_for` is the bridge between the recurring_schedule module (pure)
-and the Celery beat loop. These tests pin that bridge without touching the
+and the scheduled recurring job. These tests pin that bridge without touching the
 database — we construct Invoice objects in memory.
 """
 
