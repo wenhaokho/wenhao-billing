@@ -48,6 +48,8 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-noreply@wenhao.id}
       RESEND_FROM_NAME: ${RESEND_FROM_NAME:-Wenhao Dev Billing}
+      # Cloudflare DNS suspend/restore for hosting items. Set in the Coolify UI.
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
     healthcheck:
       test:
         [
@@ -80,11 +82,28 @@ services:
       MCP_CONFIRM_SECRET: ${SERVICE_BASE64_64_MCPCONFIRM}
       MCP_TOKEN_SECRET: ${SERVICE_BASE64_64_MCPTOKEN}
       MCP_PUBLIC_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
+      # Beat tasks send email (recurring-draft notifications) with absolute links
+      # back to the app, so the worker needs the same mail + base-URL settings.
+      APP_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-noreply@wenhao.id}
+      RESEND_FROM_NAME: ${RESEND_FROM_NAME:-Wenhao Dev Billing}
+      # Hosting enforcement (beat) suspends/restores Cloudflare DNS targets.
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
     # The shared image bakes in an HTTP HEALTHCHECK against :8000/docs, but the
-    # worker runs Celery with no HTTP server — disable it so the worker isn't
-    # perpetually reported unhealthy.
+    # worker runs Celery with no HTTP server — override it with a Celery ping of
+    # this node over the broker. (Disabling it outright makes Coolify report the
+    # whole stack as "Running (no healthcheck)".) `$$` escapes compose interpolation.
     healthcheck:
-      disable: true
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME --timeout 10 || exit 1",
+        ]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
     depends_on:
       # Wait for `app` to be healthy so migrations run once before the worker starts.
       wenhao-billing-app:
