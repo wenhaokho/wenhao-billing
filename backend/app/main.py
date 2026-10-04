@@ -83,6 +83,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.add_middleware(_NoStoreMiddleware)
+
     prefix = "/api/v1"
     app.include_router(auth.router, prefix=prefix)
     app.include_router(invoices.router, prefix=prefix)
@@ -124,6 +126,40 @@ def create_app() -> FastAPI:
     _mount_frontend(app, settings.frontend_dist)
 
     return app
+
+
+class _NoStoreMiddleware:
+    """Mark every API/OAuth/MCP response `Cache-Control: no-store`.
+
+    These responses are per-session and change on every write. Without an
+    explicit header a CDN in front of the app (Cloudflare) edge-caches the
+    GETs — serving stale lists (a finalized invoice still shown as DRAFT) and
+    handing one user's cached response to any other caller. Pure ASGI rather
+    than BaseHTTPMiddleware so MCP streaming responses pass through untouched.
+    """
+
+    _prefixes = ("/api/", "/oauth/", "/mcp", "/.well-known/")
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith(self._prefixes):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_no_store(message):
+            if message["type"] == "http.response.start":
+                headers = [
+                    (k, v)
+                    for k, v in message.get("headers", [])
+                    if k.lower() != b"cache-control"
+                ]
+                headers.append((b"cache-control", b"no-store"))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_no_store)
 
 
 def _mount_frontend(app: FastAPI, dist_dir: str | None) -> None:
