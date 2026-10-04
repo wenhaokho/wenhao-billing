@@ -190,11 +190,15 @@ def _mount_frontend(app: FastAPI, dist_dir: str | None) -> None:
         if (
             full_path
             and candidate.startswith(root + os.sep)
+            and candidate != index_file
             and os.path.isfile(candidate)
         ):
             return FileResponse(candidate)
-        # History-mode client route — hand back the SPA shell.
-        return FileResponse(index_file)
+        # History-mode client route — hand back the SPA shell. `no-cache` makes
+        # browsers and the CDN revalidate it on every load: the shell names the
+        # content-hashed bundles, which are replaced on each deploy, so a
+        # cached copy would point at bundles that no longer exist.
+        return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
 
 
 app = create_app()

@@ -56,3 +56,20 @@ def test_reserved_backend_segments_return_json_404(tmp_path: Path) -> None:
         resp = client.get(path)
         assert resp.status_code == 404, path
         assert resp.json() == {"detail": "Not Found"}, path
+
+
+def test_spa_shell_is_served_no_cache(tmp_path: Path) -> None:
+    # index.html references content-hashed bundles that change on every
+    # deploy — a cached shell points at bundles that no longer exist. It must
+    # be revalidated on every load, whichever URL it is reached through.
+    client = _client_with_dist(tmp_path)
+    for path in ("/", "/queue", "/index.html"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert resp.headers.get("cache-control") == "no-cache", path
+
+
+def test_static_files_are_not_forced_no_cache(tmp_path: Path) -> None:
+    client = _client_with_dist(tmp_path)
+    assert client.get("/favicon.ico").headers.get("cache-control") != "no-cache"
+    assert client.get("/assets/app.js").headers.get("cache-control") != "no-cache"
