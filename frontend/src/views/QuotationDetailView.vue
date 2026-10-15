@@ -26,6 +26,8 @@ interface Customer {
   contact_first_name: string | null;
   contact_last_name: string | null;
   contact_email: string | null;
+  quotation_cc_emails?: string[];
+  billing_cc_emails?: string[];
 }
 
 interface QuotationLineItem {
@@ -582,6 +584,7 @@ function toggleMoreMenu(event: Event) {
       <SendQuotationDialog
         v-model:visible="showSendDialog"
         :default-to="sendDefaults.to"
+        :default-cc="customer?.quotation_cc_emails ?? null"
         :default-subject="sendDefaults.subject"
         :default-message="sendDefaults.message"
         :loading="sendQuote.isPending.value"

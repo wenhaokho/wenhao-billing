@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.email import CcEmails
+
 
 class MilestoneInvoiceCreate(BaseModel):
     customer_id: UUID
@@ -115,7 +117,9 @@ class SendInvoiceRequest(BaseModel):
     to_email: str | None = Field(
         default=None, description="Override recipient (defaults to customer contact_email)"
     )
-    cc_email: str | None = None
+    cc_email: CcEmails = Field(
+        default=None, description="One or more CC addresses, comma-separated"
+    )
     subject: str | None = None
     message: str | None = None
 

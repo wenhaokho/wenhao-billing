@@ -3,6 +3,7 @@ import { ref, watch, computed } from "vue";
 import Dialog from "primevue/dialog";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
+import { joinCc } from "@/utils/email";
 import InputNumber from "primevue/inputnumber";
 import DatePicker from "primevue/calendar";
 import Textarea from "primevue/textarea";
@@ -20,6 +21,7 @@ interface Props {
   loading?: boolean;
   error?: string | null;
   customerEmail?: string | null;
+  customerCc?: string[] | null;
 }
 
 const props = defineProps<Props>();
@@ -59,7 +61,7 @@ watch(
       notes.value = "";
       sendReceipt.value = props.mode === "AR";
       receiptTo.value = props.customerEmail ?? "";
-      receiptCc.value = auth.user?.email ?? "";
+      receiptCc.value = joinCc(props.customerCc, auth.user?.email);
     }
   },
   { immediate: true }
@@ -161,7 +163,7 @@ function submit() {
           </label>
           <label class="field">
             <span>Cc <span class="muted">(optional)</span></span>
-            <InputText v-model="receiptCc" />
+            <InputText v-model="receiptCc" placeholder="Separate multiple with commas" />
           </label>
           <p class="note"><i class="pi pi-paperclip" /> A PDF receipt will be attached automatically.</p>
         </template>

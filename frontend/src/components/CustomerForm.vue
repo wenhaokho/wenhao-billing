@@ -184,6 +184,18 @@ function onToggleSameAsBilling(v: boolean) {
       </label>
 
       <label class="field">
+        <span class="field-label">CC on quotations</span>
+        <InputText v-model="local.quotation_cc_emails" placeholder="sales@acme.com, boss@acme.com" />
+        <small class="help">Prefilled as CC when emailing quotations. Separate multiple with commas.</small>
+      </label>
+
+      <label class="field">
+        <span class="field-label">CC on invoices &amp; receipts</span>
+        <InputText v-model="local.billing_cc_emails" placeholder="finance@acme.com, ap@acme.com" />
+        <small class="help">Prefilled as CC when emailing invoices and payment receipts.</small>
+      </label>
+
+      <label class="field">
         <span class="field-label">Phone</span>
         <InputText v-model="local.contact_phone" />
         <Button

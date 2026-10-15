@@ -17,6 +17,8 @@ interface Customer {
   customer_id: string;
   name: string;
   contact_email: string | null;
+  quotation_cc_emails?: string[];
+  billing_cc_emails?: string[];
 }
 
 interface Invoice {
@@ -125,11 +127,12 @@ function openRecordPayment(row: Invoice) {
 
 const confirm = useConfirm();
 
-const paymentCustomerEmail = computed(() => {
+const paymentCustomer = computed(() => {
   const cid = paymentTarget.value?.customer_id;
   if (!cid) return null;
-  return (customers.value ?? []).find((c) => c.customer_id === cid)?.contact_email ?? null;
+  return (customers.value ?? []).find((c) => c.customer_id === cid) ?? null;
 });
+const paymentCustomerEmail = computed(() => paymentCustomer.value?.contact_email ?? null);
 
 async function sendReceipt(
   invoiceId: string,
@@ -303,6 +306,7 @@ function statusSeverity(status: string) {
       :balance-due="paymentTarget.balance_due"
       :currency="paymentTarget.currency"
       :customer-email="paymentCustomerEmail"
+      :customer-cc="paymentCustomer?.billing_cc_emails ?? null"
       mode="AR"
       :loading="recordPayment.isPending.value"
       :error="paymentError"

@@ -3,6 +3,7 @@ import { ref, watch, computed } from "vue";
 import Dialog from "primevue/dialog";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
+import { joinCc } from "@/utils/email";
 import Dropdown from "primevue/dropdown";
 import Message from "primevue/message";
 import { useAuthStore } from "@/stores/auth";
@@ -20,6 +21,7 @@ interface Props {
   visible: boolean;
   payments: ReceiptPayment[];
   defaultTo: string | null;
+  defaultCc?: string[] | null;
   loading?: boolean;
   error?: string | null;
 }
@@ -51,7 +53,7 @@ watch(
     if (v) {
       paymentId.value = props.payments[0]?.payment_id ?? null;
       toEmail.value = props.defaultTo ?? "";
-      ccEmail.value = auth.user?.email ?? "";
+      ccEmail.value = joinCc(props.defaultCc, auth.user?.email);
     }
   },
   { immediate: true },
@@ -99,7 +101,7 @@ function submit() {
       </label>
       <label class="field">
         <span>Cc <span class="muted">(optional)</span></span>
-        <InputText v-model="ccEmail" />
+        <InputText v-model="ccEmail" placeholder="Separate multiple with commas" />
       </label>
       <p class="note">
         <i class="pi pi-paperclip" /> The receipt PDF will be attached automatically.

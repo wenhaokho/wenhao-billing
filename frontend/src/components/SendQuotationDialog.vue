@@ -3,12 +3,14 @@ import { ref, watch } from "vue";
 import Dialog from "primevue/dialog";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
+import { joinCc } from "@/utils/email";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 
 interface Props {
   visible: boolean;
   defaultTo: string | null;
+  defaultCc?: string[] | null;
   defaultSubject: string;
   defaultMessage: string;
   loading?: boolean;
@@ -36,7 +38,7 @@ watch(
   (v) => {
     if (v) {
       toEmail.value = props.defaultTo ?? "";
-      ccEmail.value = "";
+      ccEmail.value = joinCc(props.defaultCc);
       subject.value = props.defaultSubject;
       message.value = props.defaultMessage;
     }
@@ -74,7 +76,7 @@ function submit() {
       </label>
       <label class="field">
         <span>Cc <span class="muted">(optional)</span></span>
-        <InputText v-model="ccEmail" />
+        <InputText v-model="ccEmail" placeholder="Separate multiple with commas" />
       </label>
       <label class="field">
         <span>Subject</span>

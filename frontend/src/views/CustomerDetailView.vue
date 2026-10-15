@@ -32,6 +32,8 @@ interface Customer {
   contact_email: string | null;
   contact_phone: string | null;
   contact_phone_2: string | null;
+  quotation_cc_emails?: string[];
+  billing_cc_emails?: string[];
   account_number: string | null;
   website: string | null;
   notes: string | null;
@@ -221,6 +223,8 @@ function customerToForm(c: Customer): CustomerFormData {
     contact_email: c.contact_email ?? "",
     contact_phone: c.contact_phone ?? "",
     contact_phone_2: c.contact_phone_2 ?? "",
+    quotation_cc_emails: (c.quotation_cc_emails ?? []).join(", "),
+    billing_cc_emails: (c.billing_cc_emails ?? []).join(", "),
     account_number: c.account_number ?? "",
     website: c.website ?? "",
     notes: c.notes ?? "",

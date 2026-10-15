@@ -15,6 +15,7 @@ from email.message import EmailMessage
 import httpx
 
 from app.config import get_settings
+from app.schemas.email import split_emails
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ def _send_via_resend(
     subject: str,
     body_text: str,
     body_html: str | None,
-    cc_email: str | None,
+    cc_emails: list[str],
     attachments: list[tuple[str, bytes, str]] | None,
 ) -> None:
     """Send an email via the Resend HTTP API (https://resend.com/docs)."""
@@ -39,8 +40,8 @@ def _send_via_resend(
     }
     if body_html:
         payload["html"] = body_html
-    if cc_email:
-        payload["cc"] = [cc_email]
+    if cc_emails:
+        payload["cc"] = cc_emails
     if settings.smtp_reply_to:
         payload["reply_to"] = settings.smtp_reply_to
     if attachments:
@@ -84,15 +85,17 @@ def send_email(
     subject: str,
     body_text: str,
     body_html: str | None = None,
-    cc_email: str | None = None,
+    cc_email: str | list[str] | None = None,
     attachments: list[tuple[str, bytes, str]] | None = None,
 ) -> None:
     """Send an email.
 
+    cc_email: one address, a comma-separated string of addresses, or a list.
     attachments: list of (filename, content_bytes, mime_type) tuples, e.g.
                  ("invoice.pdf", b"...", "application/pdf").
     """
     settings = get_settings()
+    cc_emails = split_emails(cc_email)
 
     if settings.resend_api_key:
         _send_via_resend(
@@ -100,7 +103,7 @@ def send_email(
             subject=subject,
             body_text=body_text,
             body_html=body_html,
-            cc_email=cc_email,
+            cc_emails=cc_emails,
             attachments=attachments,
         )
         return
@@ -109,7 +112,7 @@ def send_email(
         log.info(
             "[email disabled] would send to=%s cc=%s subject=%r attachments=%s body=%s",
             to_email,
-            cc_email,
+            cc_emails,
             subject,
             [a[0] for a in (attachments or [])],
             body_text,
@@ -121,8 +124,8 @@ def send_email(
     msg["To"] = to_email
     if settings.smtp_reply_to:
         msg["Reply-To"] = settings.smtp_reply_to
-    if cc_email:
-        msg["Cc"] = cc_email
+    if cc_emails:
+        msg["Cc"] = ", ".join(cc_emails)
     msg["Subject"] = subject
     msg.set_content(body_text)
     if body_html:

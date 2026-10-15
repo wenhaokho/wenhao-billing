@@ -43,6 +43,8 @@ interface Customer {
   contact_first_name: string | null;
   contact_last_name: string | null;
   contact_email: string | null;
+  quotation_cc_emails?: string[];
+  billing_cc_emails?: string[];
   contact_phone: string | null;
   billing_address: string | null;
   billing_address1: string | null;
@@ -1130,6 +1132,7 @@ const canSave = computed(() => {
       :currency="existing.currency"
       mode="AR"
       :customer-email="selectedCustomer?.contact_email ?? null"
+      :customer-cc="selectedCustomer?.billing_cc_emails ?? null"
       :loading="recordPayment.isPending.value"
       :error="paymentError"
       @submit="recordPayment.mutate($event)"
@@ -1139,6 +1142,7 @@ const canSave = computed(() => {
       v-if="existing"
       v-model:visible="showSendDialog"
       :default-to="sendDefaults.to"
+      :default-cc="selectedCustomer?.billing_cc_emails ?? null"
       :default-subject="sendDefaults.subject"
       :default-message="sendDefaults.message"
       :loading="sendInvoice.isPending.value"
@@ -1151,6 +1155,7 @@ const canSave = computed(() => {
       v-model:visible="showReceiptDialog"
       :payments="invoicePayments ?? []"
       :default-to="selectedCustomer?.contact_email ?? null"
+      :default-cc="selectedCustomer?.billing_cc_emails ?? null"
       :loading="resendReceipt.isPending.value"
       :error="receiptError"
       @submit="(payload) => resendReceipt.mutate(payload)"

@@ -1,3 +1,5 @@
+import { splitEmails } from "@/utils/email";
+
 export interface CustomerFormData {
   name: string;
   matching_aliases: string[];
@@ -6,6 +8,8 @@ export interface CustomerFormData {
   contact_first_name: string;
   contact_last_name: string;
   contact_email: string;
+  quotation_cc_emails: string;
+  billing_cc_emails: string;
   contact_phone: string;
   contact_phone_2: string;
 
@@ -42,6 +46,8 @@ export function emptyCustomerForm(): CustomerFormData {
     contact_first_name: "",
     contact_last_name: "",
     contact_email: "",
+    quotation_cc_emails: "",
+    billing_cc_emails: "",
     contact_phone: "",
     contact_phone_2: "",
     account_number: "",
@@ -79,6 +85,8 @@ export function buildCustomerPayload(form: CustomerFormData): Record<string, unk
     contact_first_name: s(form.contact_first_name),
     contact_last_name: s(form.contact_last_name),
     contact_email: s(form.contact_email),
+    quotation_cc_emails: splitEmails(form.quotation_cc_emails),
+    billing_cc_emails: splitEmails(form.billing_cc_emails),
     contact_phone: s(form.contact_phone),
     contact_phone_2: s(form.contact_phone_2),
     account_number: s(form.account_number),
