@@ -24,6 +24,14 @@ class Customer(Base):
     contact_first_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     contact_last_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Default CC recipients prefilled in the send dialogs: quotations use their
+    # own list; invoices and payment receipts share the billing list.
+    quotation_cc_emails: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    billing_cc_emails: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
     contact_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     contact_phone_2: Mapped[str | None] = mapped_column(String(64), nullable=True)
 

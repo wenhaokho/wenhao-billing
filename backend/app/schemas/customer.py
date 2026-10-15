@@ -2,6 +2,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.schemas.email import EmailList
+
 
 class CustomerBase(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
@@ -12,6 +14,9 @@ class CustomerBase(BaseModel):
     contact_first_name: str | None = Field(default=None, max_length=120)
     contact_last_name: str | None = Field(default=None, max_length=120)
     contact_email: EmailStr | None = None
+    # Default CC recipients: quotations vs. invoices + payment receipts
+    quotation_cc_emails: EmailList | None = None
+    billing_cc_emails: EmailList | None = None
     contact_phone: str | None = Field(default=None, max_length=64)
     contact_phone_2: str | None = Field(default=None, max_length=64)
 
@@ -62,6 +67,8 @@ class CustomerOut(BaseModel):
     contact_first_name: str | None = None
     contact_last_name: str | None = None
     contact_email: str | None = None
+    quotation_cc_emails: list[str] = Field(default_factory=list)
+    billing_cc_emails: list[str] = Field(default_factory=list)
     contact_phone: str | None = None
     contact_phone_2: str | None = None
 

@@ -123,6 +123,25 @@ def test_resend_payload_includes_html_cc_and_attachments(monkeypatch):
     ]
 
 
+def test_resend_payload_splits_multiple_cc(monkeypatch):
+    _use_resend(monkeypatch)
+    try:
+        email_service.send_email(
+            to_email="client@example.com",
+            subject="Invoice",
+            body_text="see attached",
+            cc_email="a@example.com, b@example.com;c@example.com",
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert _FakeClient.captured["json"]["cc"] == [
+        "a@example.com",
+        "b@example.com",
+        "c@example.com",
+    ]
+
+
 def test_resend_raises_on_error_response(monkeypatch):
     _use_resend(monkeypatch, status_code=422)
     try:

@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.email import CcEmails
+
 
 QuotationStatus = Literal[
     "DRAFT", "SENT", "ACCEPTED", "DECLINED", "EXPIRED", "INVOICED", "VOID"
@@ -69,7 +71,9 @@ class QuotationUpdate(BaseModel):
 
 class SendQuotationRequest(BaseModel):
     to_email: str | None = None
-    cc_email: str | None = None
+    cc_email: CcEmails = Field(
+        default=None, description="One or more CC addresses, comma-separated"
+    )
     subject: str | None = None
     message: str | None = None
 
