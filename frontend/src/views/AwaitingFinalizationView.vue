@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
@@ -7,10 +9,16 @@ import Tag from "primevue/tag";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
+interface Customer {
+  customer_id: string;
+  name: string;
+}
+
 interface Invoice {
   invoice_id: string;
   customer_id: string;
   invoice_type: string;
+  invoice_number: string | null;
   currency: string;
   amount: string;
   balance_due: string;
@@ -21,6 +29,23 @@ interface Invoice {
 }
 
 const queryClient = useQueryClient();
+const router = useRouter();
+const route = useRoute();
+
+const { data: customers } = useQuery<Customer[]>({
+  queryKey: ["customers"],
+  queryFn: async () => (await api.get<Customer[]>("/customers")).data,
+});
+
+const customerNameById = computed(() => {
+  const map: Record<string, string> = {};
+  for (const c of customers.value ?? []) map[c.customer_id] = c.name;
+  return map;
+});
+
+function openInvoice(id: string) {
+  router.push({ path: `/invoices/${id}/edit`, query: { from: route.fullPath } });
+}
 
 const { data, isLoading } = useQuery<Invoice[]>({
   queryKey: ["awaiting-finalization"],
@@ -50,13 +75,31 @@ const voidInvoice = useMutation({
       </div>
     </header>
 
-    <DataTable :value="data ?? []" :loading="isLoading" data-key="invoice_id" striped-rows>
+    <DataTable
+      :value="data ?? []"
+      :loading="isLoading"
+      data-key="invoice_id"
+      striped-rows
+      selection-mode="single"
+      @row-click="(ev) => openInvoice((ev.data as Invoice).invoice_id)"
+    >
       <template #empty>
         <div class="empty-state">
           <i class="pi pi-check-circle" />
           <div>No drafts waiting. The finalization queue is clear.</div>
         </div>
       </template>
+      <Column header="Invoice #">
+        <template #body="{ data: row }">
+          <code v-if="row.invoice_number">{{ row.invoice_number }}</code>
+          <span v-else class="muted">—</span>
+        </template>
+      </Column>
+      <Column header="Customer">
+        <template #body="{ data: row }">
+          {{ customerNameById[row.customer_id] ?? row.customer_id.slice(0, 8) }}
+        </template>
+      </Column>
       <Column field="invoice_type" header="Type">
         <template #body="{ data: row }">
           <Tag :value="row.invoice_type" severity="info" />
@@ -72,7 +115,15 @@ const voidInvoice = useMutation({
       <Column field="due_date" header="Due" />
       <Column header="Actions">
         <template #body="{ data: row }">
-          <div class="actions">
+          <div class="actions" @click.stop>
+            <Button
+              label="View"
+              icon="pi pi-eye"
+              size="small"
+              severity="secondary"
+              outlined
+              @click="openInvoice(row.invoice_id)"
+            />
             <Button
               label="Finalize"
               icon="pi pi-check"
@@ -99,4 +150,5 @@ const voidInvoice = useMutation({
 <style scoped>
 .actions { display: flex; gap: 0.4rem; }
 .num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--p-text-muted-color); }
 </style>
