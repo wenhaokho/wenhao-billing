@@ -1,0 +1,19 @@
+# Build context for Dockerfile.coolify is the repo root. Keep local, git-ignored
+# artifacts (a Windows .venv, host node_modules, secrets) out of the image so a
+# local build matches what Coolify builds from a clean clone.
+.git
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+**/dist
+**/.vite
+**/*.tsbuildinfo
+**/.env
+**/*.env.local
+.vscode
+.idea
+.claude

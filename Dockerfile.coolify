@@ -16,30 +16,54 @@ COPY frontend/ ./
 # Produces /fe/dist (vue-tsc typecheck + vite build).
 RUN npm run build
 
-# ---------- stage 2: backend runtime (also serves the SPA) ----------
+# ---------- stage 2: build Python deps into a venv ----------
+FROM python:3.12-slim AS backend-build
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Build tools for any deps that compile from source (psycopg/bcrypt fallbacks).
+# They stay in this stage; the runtime image below never gets them.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
+# Python deps (cached layer). Editable install with only pyproject present
+# resolves/installs deps now and links the package via a .pth; the `app/`
+# source copied into the runtime stage satisfies imports. WORKDIR matches the
+# runtime stage so that link stays valid. No dev extras in prod.
+WORKDIR /app
+COPY backend/pyproject.toml ./
+RUN pip install --upgrade pip \
+    && pip install -e .
+
+# ---------- stage 3: backend runtime (also serves the SPA) ----------
 FROM python:3.12-slim AS backend
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PATH=/opt/venv/bin:$PATH \
     FRONTEND_DIST=/app/frontend_dist
 
 WORKDIR /app
 
-# Build tools for psycopg/bcrypt wheels + libpq runtime.
+# Runtime libpq only — no compilers or headers. Also upgrade the base image's
+# system pip, which the scanner flags even though the app runs from the venv.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && /usr/local/bin/python -m pip install --upgrade pip
 
-# Python deps first (cached layer). Editable install with only pyproject
-# present resolves/installs deps now and links the package via a .pth; the
-# `app/` source copied below satisfies imports at runtime. No dev extras in prod.
-COPY backend/pyproject.toml ./
-RUN pip install -e .
+COPY --from=backend-build /opt/venv /opt/venv
 
 # Headless Chromium for HTML->PDF invoice/quotation rendering (Playwright).
-RUN python -m playwright install --with-deps chromium
+RUN python -m playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 # Backend source.
 COPY backend/ ./
