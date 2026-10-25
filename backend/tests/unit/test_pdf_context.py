@@ -159,6 +159,42 @@ def test_invoice_context_selects_default_when_currency_unmatched():
     assert ctx["payment_instructions"] == "OCBC NISP IDR"
 
 
+def test_bill_to_joins_customer_email_and_phone():
+    cust = _cust()
+    cust.contact_phone = "+65 9123 4567"
+    ctx = build_invoice_context(_inv(), cust, _biz())
+    assert ctx["to_lines"][-1] == "ap@acme.example · +65 9123 4567"
+
+
+def test_bill_to_phone_only_when_no_email():
+    cust = _cust()
+    cust.contact_email = None
+    cust.contact_phone = "+65 9123 4567"
+    ctx = build_invoice_context(_inv(), cust, _biz())
+    assert ctx["to_lines"][-1] == "+65 9123 4567"
+
+
+def test_bill_to_email_only_when_no_phone():
+    ctx = build_invoice_context(_inv(), _cust(), _biz())
+    assert ctx["to_lines"][-1] == "ap@acme.example"
+
+
+def test_receipt_received_from_includes_customer_phone():
+    from uuid import uuid4
+
+    from app.services.pdf.context import build_receipt_context
+
+    cust = _cust()
+    cust.contact_phone = "+65 9123 4567"
+    payment = SimpleNamespace(
+        payment_id=uuid4(), amount=Decimal("400"), currency="SGD",
+        payer_name="Acme Pte Ltd", payer_reference=None,
+        payment_date=date(2026, 8, 7), intake_source="MANUAL",
+    )
+    ctx = build_receipt_context(payment, _inv(), cust, _biz())
+    assert ctx["to_lines"][-1] == "ap@acme.example · +65 9123 4567"
+
+
 def test_invoice_context_omits_block_when_no_accounts():
     biz = _biz()
     biz.payment_accounts = []
