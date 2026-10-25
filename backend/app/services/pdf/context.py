@@ -62,6 +62,19 @@ def _addr_lines(customer) -> list[str]:
     return lines
 
 
+def _customer_lines(customer) -> list[str]:
+    lines = _addr_lines(customer)
+    contact = " · ".join(
+        p for p in (
+            getattr(customer, "contact_email", None),
+            getattr(customer, "contact_phone", None),
+        ) if p
+    )
+    if contact:
+        lines = lines + [contact]
+    return lines
+
+
 def _business_lines(business) -> list[str]:
     if business is None:
         return []
@@ -119,9 +132,7 @@ def resolve_payment_instructions(accounts, currency: str | None) -> str | None:
 
 
 def _common(doc, customer, business) -> dict:
-    to_lines = _addr_lines(customer)
-    if getattr(customer, "contact_email", None):
-        to_lines = to_lines + [customer.contact_email]
+    to_lines = _customer_lines(customer)
     return {
         "font_face_css": font_face_css(),
         "logo": resolve_logo(business),
@@ -188,9 +199,7 @@ def build_receipt_context(payment, invoice, customer, business=None) -> dict:
     describes the payment and the hero block carries the amount received.
     """
     cur = payment.currency
-    to_lines = _addr_lines(customer)
-    if getattr(customer, "contact_email", None):
-        to_lines = to_lines + [customer.contact_email]
+    to_lines = _customer_lines(customer)
 
     desc = (
         f"Payment for invoice {invoice.invoice_number}"
