@@ -28,6 +28,7 @@ from app.schemas.quotation import (
     QuotationUpdate,
 )
 from app.services.invoicing import (
+    InvoicingError,
     _parse_payment_terms_days,
     _resolve_wht,
     generate_invoice_number,
@@ -285,7 +286,12 @@ def convert_to_invoice(
     if q.payment_terms:
         days = _parse_payment_terms_days(q.payment_terms)
 
-    wht_type, wht_rate, wht_gross_up = _resolve_wht(db, q.customer_id, None, None, None)
+    try:
+        wht_type, wht_rate, wht_gross_up = _resolve_wht(
+            db, q.customer_id, None, None, None
+        )
+    except InvoicingError as e:
+        raise QuotingError(str(e)) from e
     wht = compute_withholding(q.amount, q.currency, wht_type, wht_rate, wht_gross_up)
     invoice = Invoice(
         customer_id=q.customer_id,
