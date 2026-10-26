@@ -154,6 +154,7 @@ def _common(doc, customer, business) -> dict:
         "payment_instructions": resolve_payment_instructions(
             getattr(business, "payment_accounts", None), doc.currency
         ),
+        "npwp": None,
         "notes": doc.notes or getattr(business, "default_notes", None),
         "terms": doc.payment_terms,
         "foot_name": getattr(business, "name", None) or "",
@@ -168,8 +169,7 @@ def _common(doc, customer, business) -> dict:
 
 def build_invoice_context(invoice, customer, business=None) -> dict:
     ctx = _common(invoice, customer, business)
-    if npwp := _npwp_line(invoice, business):
-        ctx["from_lines"] = [*ctx["from_lines"], npwp]
+    ctx["npwp"] = _npwp_line(invoice, business)
     cur = invoice.currency
     rows =[{"label": "Subtotal", "value": _fmt_num(invoice.subtotal, cur), "cls": "subtotal"}]
     disc = _discount_row(invoice.discount_type, invoice.discount_value, invoice.subtotal, cur)
@@ -283,6 +283,7 @@ def build_receipt_context(payment, invoice, customer, business=None) -> dict:
         "hero_label": "Amount Received",
         "hero_amount": _fmt_num(payment.amount, cur),
         "payment_instructions": None,
+        "npwp": None,
         "notes": f"{balance_note(invoice)}\nThank you for your payment.",
         "terms": None,
         "foot_name": getattr(business, "name", None) or "",

@@ -216,7 +216,7 @@ def _business_lines(business) -> list[str]:
 
 
 def _npwp_line(invoice, business) -> str | None:
-    """The invoice From-block NPWP line ("NPWP <number> a.n. <taxpayer>").
+    """The NPWP line shown under payment instructions ("NPWP <number> a.n. <taxpayer>").
 
     Only invoices with PPh withholding show it: the customer needs the NPWP
     for the bukti potong, and plain invoices stay uncluttered.
@@ -357,8 +357,6 @@ def render_invoice_pdf(
         from_cell.append(Paragraph(escape(business.name), s["name"]))
         for ln in _business_lines(business):
             from_cell.append(Paragraph(escape(ln), s["body"]))
-        if npwp := _npwp_line(invoice, business):
-            from_cell.append(Paragraph(escape(npwp), s["body"]))
     else:
         from_cell.append(Paragraph("—", s["body"]))
 
@@ -525,8 +523,9 @@ def render_invoice_pdf(
     )
 
     totals_stack = [totals_inner, Spacer(1, 5), balance]
+    npwp = _npwp_line(invoice, business)
     totals_wrap = Table(
-        [["", totals_stack]],
+        [[Paragraph(escape(npwp), s["notes"]) if npwp else "", totals_stack]],
         colWidths=[CONTENT_W - 84 * mm, 84 * mm],
     )
     totals_wrap.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))

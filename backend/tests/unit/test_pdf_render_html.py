@@ -70,3 +70,24 @@ def test_quotation_html_renders_total():
     assert "QUOTATION" in html
     assert "Valid Until" in html
     assert "5,000.00" in html
+
+
+def test_invoice_html_puts_npwp_in_payment_panel_when_withholding():
+    import re
+
+    biz = _biz()
+    biz.npwp = "2102060605910001"
+    biz.npwp_name = "Kardono Wijaya"
+    inv = _inv()
+    inv.currency = "IDR"
+    inv.discount_type = None
+    inv.discount_value = None
+    inv.subtotal = inv.wht_base = Decimal("10000000")
+    inv.amount = inv.balance_due = Decimal("10256410")
+    inv.wht_type, inv.wht_rate, inv.wht_gross_up = "PPH21", Decimal("2.5"), True
+    inv.wht_amount = Decimal("256410")
+    html = render_invoice_html(inv, _cust(), biz)
+    panel = re.search(r'<div class="panel pay">(.*?)</div>\s*<div class="summary">',
+                      html, re.S).group(1)
+    assert "DBS 012-345678-9" in panel
+    assert "NPWP 2102060605910001 a.n. Kardono Wijaya" in panel

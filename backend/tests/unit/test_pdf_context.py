@@ -314,16 +314,17 @@ def _npwp_biz():
 def test_invoice_from_block_shows_npwp_when_withholding():
     ctx = build_invoice_context(_gross_up_inv(balance_due=Decimal(10204082)),
                                 _cust(), _npwp_biz())
-    assert ctx["from_lines"][-1] == "NPWP 2102060605910001 a.n. Kardono Wijaya"
+    assert ctx["npwp"] == "NPWP 2102060605910001 a.n. Kardono Wijaya"
+    assert not any(ln.startswith("NPWP") for ln in ctx["from_lines"])
 
 
 def test_invoice_from_block_omits_npwp_without_withholding():
     ctx = build_invoice_context(_inv(), _cust(), _npwp_biz())
-    assert not any(ln.startswith("NPWP") for ln in ctx["from_lines"])
+    assert ctx["npwp"] is None
 
 
 def test_invoice_from_block_omits_npwp_when_unset():
     ctx = build_invoice_context(_gross_up_inv(balance_due=Decimal(10204082)),
                                 _cust(), _biz())
-    assert not any(ln.startswith("NPWP") for ln in ctx["from_lines"])
+    assert ctx["npwp"] is None
 

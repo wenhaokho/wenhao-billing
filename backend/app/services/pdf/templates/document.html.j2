@@ -75,6 +75,7 @@
   .panel{border:1px solid var(--border); border-radius:12px; padding:15px 18px; background:#fff}
   .panel.pay{background:var(--soft); border-color:#CBDAEC}
   .note-text{font-size:12.5px; color:#475569; margin:0; white-space:pre-wrap}
+  .note-text + .note-text.npwp{margin-top:10px; padding-top:10px; border-top:1px solid #CBDAEC}
   .summary{border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#fff;
     width:340px; max-width:100%; flex:0 0 auto}
   .summary .row{display:flex; justify-content:space-between; align-items:center; padding:9px 18px; font-size:13.5px}
@@ -187,10 +188,13 @@
         </table>
       </div>
       <div class="lower">
-        {% if payment_instructions %}
+        {% if payment_instructions or npwp %}
         <div class="panel pay">
+          {% if payment_instructions %}
           <div class="section-label">Payment Instructions</div>
           <p class="note-text">{{ payment_instructions }}</p>
+          {% endif %}
+          {% if npwp %}<p class="note-text npwp">{{ npwp }}</p>{% endif %}
         </div>
         {% else %}<div></div>{% endif %}
         <div class="summary">
