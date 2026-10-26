@@ -103,7 +103,7 @@ def test_invoice_context_gross_up_rows():
     rows = [(r["label"], r["value"], r["cls"]) for r in ctx["summary_rows"]]
     assert rows == [
         ("Subtotal", "10,000,000", "subtotal"),
-        ("Gross-up PPh 23 (2%)", "204,082", "grossup"),
+        ("PPh 23 (2%)", "204,082", "grossup"),
         ("Total", "10,204,082", "total"),
         ("Less: PPh 23 withheld (2%)", "−204,082", "wht"),
     ]

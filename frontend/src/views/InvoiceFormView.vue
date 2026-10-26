@@ -1177,7 +1177,7 @@ const canSave = computed(() => {
         </div>
 
         <div v-if="whtType !== 'NONE' && whtGrossUp" class="totals-row">
-          <div class="totals-label">Gross-up {{ whtLabel }} ({{ whtRateLabel }})</div>
+          <div class="totals-label">{{ whtLabel }} ({{ whtRateLabel }})</div>
           <div class="totals-value num">{{ formatAmount(grossUpAmount, currency) }}</div>
         </div>
 
