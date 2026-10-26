@@ -20,9 +20,10 @@ from app.models.invoice import Invoice
 from app.models.journal import JournalEntry
 from app.models.payment import Payment
 from app.models.recon_log import ReconciliationLog
-from app.services import ledger
+from app.services import ledger, withholding
 from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
 from app.services.matching_engine import (
+    AMOUNT_EPSILON,
     AdjustmentType,
     IncomingPayment,
     InvoiceCandidate,
@@ -61,6 +62,7 @@ def _load_candidates(db: Session, currency: str) -> list[InvoiceCandidate]:
             issue_date=invoice.issue_date,
             due_date=invoice.due_date,
             status=invoice.status,
+            wht_outstanding=invoice.wht_amount - invoice.wht_booked,
         )
         for invoice, customer in rows
     ]
@@ -75,6 +77,34 @@ def _to_incoming(p: IntakePayload) -> IncomingPayment:
         payment_date=p.payment_date,
         intake_source=p.intake_source,
     )
+
+
+def _clear_against_invoice(db: Session, payment: Payment, invoice: Invoice) -> None:
+    """Post the cleared payment to the ledger and relieve the invoice.
+
+    The outstanding withholding tax (PPh) is booked to Prepaid Income Tax only
+    when the payment settles the invoice: same currency and exactly the
+    expected net cash, or a cross-currency full settle. Any other amount books
+    no withholding — the operator must handle the PPh slip explicitly.
+    """
+    same_currency = payment.currency == invoice.currency
+    settles = not same_currency or (
+        abs(payment.amount - withholding.expected_cash(invoice)) <= AMOUNT_EPSILON
+    )
+    withheld = invoice.wht_amount - invoice.wht_booked if settles else Decimal(0)
+
+    payment.wht_amount = withheld
+    # Post before touching balance_due: cross-currency AR relief reads it.
+    ledger.post_payment_cleared(db, payment, invoice, withheld)
+    invoice.wht_booked = invoice.wht_booked + withheld
+    if same_currency:
+        invoice.balance_due = max(
+            Decimal("0"), invoice.balance_due - (payment.amount + withheld)
+        )
+    else:
+        # Cross-currency settles the full balance; the base-currency
+        # difference is already in the FX gain/loss plug.
+        invoice.balance_due = Decimal("0")
 
 
 def _log_action(
@@ -123,7 +153,8 @@ def process_incoming_payment(
         invoice = db.get(Invoice, matched_invoice_id)
         if invoice is None:
             raise RuntimeError("CLEARED result without invoice — engine invariant violated")
-        ledger.post_payment_cleared(db, payment, invoice)
+        _clear_against_invoice(db, payment, invoice)
+        # Exact match within AMOUNT_EPSILON: treat any sub-epsilon residue as settled.
         invoice.balance_due = Decimal("0")
         if invoice.status != "PAID":
             invoice.status = "PAID"
@@ -144,7 +175,9 @@ def approve_manual_match(
 
     Cross-currency manual approvals are allowed — the ledger books an FX
     gain/loss plug and the invoice is treated as fully settled (operator has
-    explicitly chosen this match). Same-currency keeps the partial-pay semantics.
+    explicitly chosen this match). Same-currency keeps the partial-pay semantics:
+    the balance drops by the payment plus any withholding booked, and a
+    remaining balance leaves the invoice PARTIAL.
     """
     payment = db.get(Payment, payment_id)
     if payment is None:
@@ -162,16 +195,12 @@ def approve_manual_match(
     payment.adjustment_type = adjustment_type.value
     db.flush()
 
-    ledger.post_payment_cleared(db, payment, invoice)
-    if invoice.currency == payment.currency:
-        invoice.balance_due = max(Decimal("0"), invoice.balance_due - payment.amount)
-    else:
-        # Cross-currency manual approval settles the full balance; the
-        # base-currency difference is already in the FX gain/loss plug.
-        invoice.balance_due = Decimal("0")
+    _clear_against_invoice(db, payment, invoice)
     if invoice.balance_due == Decimal("0"):
         invoice.status = "PAID"
         ensure_subscription_restored(db, invoice)
+    else:
+        invoice.status = "PARTIAL"
 
     db.add(
         ReconciliationLog(
@@ -207,7 +236,13 @@ def reverse_payment(db: Session, payment_id: UUID, actor_user_id: UUID, reason: 
     if payment.invoice_id is not None:
         invoice = db.get(Invoice, payment.invoice_id)
         if invoice is not None:
-            invoice.balance_due = invoice.balance_due + payment.amount
+            invoice.balance_due = invoice.balance_due + payment.amount + payment.wht_amount
+            invoice.wht_booked = invoice.wht_booked - payment.wht_amount
+            if invoice.wht_booked < 0:
+                raise RuntimeError(
+                    f"invoice {invoice.invoice_id} wht_booked went negative on reversal "
+                    f"of payment {payment.payment_id} — withholding bookkeeping invariant violated"
+                )
             # Restore to OPEN (issued, awaiting payment). We don't persist
             # whether the invoice was emailed, so OPEN is the safe re-open state.
             invoice.status = "OPEN"

@@ -16,6 +16,8 @@ from enum import Enum
 from typing import Iterable, Optional
 from uuid import UUID
 
+from app.services import withholding
+
 AUTO_CLEAR_THRESHOLD = Decimal("95.0")
 AMOUNT_EPSILON = Decimal("0.0001")  # DECIMAL(19,4) floor
 DATE_WINDOW_DAYS = 14
@@ -55,11 +57,26 @@ class InvoiceCandidate:
     issue_date: date
     due_date: date
     status: str
+    # Withholding tax (PPh) the customer will deduct and not yet booked by a
+    # payment: invoice.wht_amount - invoice.wht_booked.
+    wht_outstanding: Decimal = Decimal(0)
+
+    @property
+    def expected_cash(self) -> Decimal:
+        """Cash the customer should actually transfer (balance net of PPh)."""
+        return self.balance_due - self.wht_outstanding
+
+
+def _expected_cash(invoice) -> Decimal:
+    if isinstance(invoice, InvoiceCandidate):
+        return invoice.expected_cash
+    return withholding.expected_cash(invoice)
 
 
 def is_exact_match(payment, invoice) -> bool:
     """True iff ``payment`` and ``invoice`` agree on currency AND on amount
-    (``payment.amount`` vs ``invoice.balance_due``) within ``AMOUNT_EPSILON``.
+    (``payment.amount`` vs the invoice's expected cash, i.e. ``balance_due``
+    net of unbooked withholding tax) within ``AMOUNT_EPSILON``.
 
     This is THE reconciliation exact-match predicate — the single condition
     under which a payment may auto-clear against an invoice without a human
@@ -69,7 +86,7 @@ def is_exact_match(payment, invoice) -> bool:
     the ORM ``Payment``/``Invoice`` models (all expose the same attributes).
     """
     currency_ok = payment.currency.upper() == invoice.currency.upper()
-    amount_ok = abs(Decimal(payment.amount) - Decimal(invoice.balance_due)) <= AMOUNT_EPSILON
+    amount_ok = abs(Decimal(payment.amount) - _expected_cash(invoice)) <= AMOUNT_EPSILON
     return currency_ok and amount_ok
 
 
@@ -112,7 +129,7 @@ def _score(payment: IncomingPayment, invoice: InvoiceCandidate) -> Decimal:
     signal; currency is a hard precondition (handled at the gate, not scored
     away). A zero on amount or currency collapses confidence below the 95 gate.
     """
-    amount_ok = abs(payment.amount - invoice.balance_due) <= AMOUNT_EPSILON
+    amount_ok = abs(payment.amount - invoice.expected_cash) <= AMOUNT_EPSILON
     currency_ok = payment.currency.upper() == invoice.currency.upper()
 
     amount_component = Decimal("50") if amount_ok else Decimal("0")
@@ -155,7 +172,8 @@ def match_payment(
     )
     confidence, best = scored[0]
 
-    amount_mismatch = abs(payment.amount - best.balance_due) > AMOUNT_EPSILON
+    expected = best.expected_cash
+    amount_mismatch = abs(payment.amount - expected) > AMOUNT_EPSILON
     currency_mismatch = payment.currency.upper() != best.currency.upper()
     exact_match = is_exact_match(payment, best)
 
@@ -165,7 +183,7 @@ def match_payment(
             f"currency mismatch: payment {payment.currency} vs invoice {best.currency}"
         )
     if amount_mismatch:
-        delta = payment.amount - best.balance_due
+        delta = payment.amount - expected
         reasons.append(f"amount mismatch: delta={delta}")
     if confidence < AUTO_CLEAR_THRESHOLD:
         reasons.append(f"confidence {confidence} below threshold {AUTO_CLEAR_THRESHOLD}")
@@ -175,9 +193,9 @@ def match_payment(
     if not exact_match or confidence < AUTO_CLEAR_THRESHOLD:
         if currency_mismatch:
             adjustment = AdjustmentType.NONE  # hard reject per PRD §2
-        elif payment.amount < best.balance_due:
+        elif payment.amount < expected:
             adjustment = AdjustmentType.PARTIAL_PAY
-        elif payment.amount > best.balance_due:
+        elif payment.amount > expected:
             adjustment = AdjustmentType.CREDIT_ON_ACCOUNT
         else:
             adjustment = AdjustmentType.NONE

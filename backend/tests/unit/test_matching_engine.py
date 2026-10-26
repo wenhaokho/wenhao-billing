@@ -127,3 +127,29 @@ def test_date_outside_window_still_holds_if_payer_weak():
     )
     result = match_payment(_incoming(payment_date=date(2026, 4, 15)), [invoice])
     assert result.status is PaymentStatus.PENDING_MANUAL_REVIEW
+
+
+def _wht_candidate() -> InvoiceCandidate:
+    # PPh 23 gross-up: 10,000,000 base -> 10,204,082 total, 204,082 withheld.
+    return _candidate(
+        currency="IDR",
+        balance_due=Decimal(10204082),
+        wht_outstanding=Decimal(204082),
+    )
+
+
+def test_withholding_net_payment_is_exact_match():
+    result = match_payment(
+        _incoming(amount=Decimal(10000000), currency="IDR"), [_wht_candidate()]
+    )
+    assert result.status is PaymentStatus.CLEARED
+    assert result.amount_mismatch is False
+
+
+def test_gross_payment_on_withholding_invoice_goes_to_review():
+    result = match_payment(
+        _incoming(amount=Decimal(10204082), currency="IDR"), [_wht_candidate()]
+    )
+    assert result.status is PaymentStatus.PENDING_MANUAL_REVIEW
+    assert result.amount_mismatch is True
+    assert result.adjustment_type is AdjustmentType.CREDIT_ON_ACCOUNT
