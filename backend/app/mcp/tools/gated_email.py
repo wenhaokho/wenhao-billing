@@ -17,7 +17,7 @@ from app.models.business_profile import BusinessProfile
 from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.services.email import send_email
-from app.services.invoice_pdf import render_invoice_pdf
+from app.services.pdf import render_invoice_pdf
 
 _ACTION = "send_invoice_email"
 _REMINDER_ACTION = "send_payment_reminder"
