@@ -1,6 +1,7 @@
 import uuid
+from decimal import Decimal
 
-from sqlalchemy import Boolean, String, Text
+from sqlalchemy import Boolean, Numeric, String, Text, false
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +34,14 @@ class Customer(Base):
         JSONB, nullable=False, default=list, server_default="[]"
     )
     contact_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Default withholding tax (PPh 21/23) copied onto new invoices.
+    default_wht_type: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="NONE", server_default="NONE"
+    )
+    default_wht_rate: Mapped[Decimal | None] = mapped_column(Numeric(7, 4), nullable=True)
+    default_wht_gross_up: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     contact_phone_2: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Misc profile fields
