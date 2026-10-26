@@ -215,6 +215,21 @@ def _business_lines(business) -> list[str]:
     return out
 
 
+def _npwp_line(invoice, business) -> str | None:
+    """The invoice From-block NPWP line ("NPWP <number> a.n. <taxpayer>").
+
+    Only invoices with PPh withholding show it: the customer needs the NPWP
+    for the bukti potong, and plain invoices stay uncluttered.
+    """
+    if (getattr(invoice, "wht_type", None) or "NONE") == "NONE":
+        return None
+    npwp = (getattr(business, "npwp", None) or "").strip()
+    if not npwp:
+        return None
+    name = (getattr(business, "npwp_name", None) or "").strip()
+    return f"NPWP {npwp} a.n. {name}" if name else f"NPWP {npwp}"
+
+
 def _status_chip(status: str) -> Table:
     """A small filled pill carrying the invoice status, coloured by state."""
     color = STATUS_COLORS.get((status or "").upper(), ACCENT)
@@ -342,6 +357,8 @@ def render_invoice_pdf(
         from_cell.append(Paragraph(escape(business.name), s["name"]))
         for ln in _business_lines(business):
             from_cell.append(Paragraph(escape(ln), s["body"]))
+        if npwp := _npwp_line(invoice, business):
+            from_cell.append(Paragraph(escape(npwp), s["body"]))
     else:
         from_cell.append(Paragraph("—", s["body"]))
 

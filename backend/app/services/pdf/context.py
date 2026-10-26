@@ -5,7 +5,13 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from app.services.invoice_pdf import _discount_amount, _fmt_num, _fmt_pct, _fmt_qty
+from app.services.invoice_pdf import (
+    _discount_amount,
+    _fmt_num,
+    _fmt_pct,
+    _fmt_qty,
+    _npwp_line,
+)
 from app.services.pdf.assets import font_face_css
 from app.services.pdf.logo import resolve_logo
 from app.services.receipt_pdf import _method_label, balance_note, receipt_reference
@@ -162,8 +168,10 @@ def _common(doc, customer, business) -> dict:
 
 def build_invoice_context(invoice, customer, business=None) -> dict:
     ctx = _common(invoice, customer, business)
+    if npwp := _npwp_line(invoice, business):
+        ctx["from_lines"] = [*ctx["from_lines"], npwp]
     cur = invoice.currency
-    rows = [{"label": "Subtotal", "value": _fmt_num(invoice.subtotal, cur), "cls": "subtotal"}]
+    rows =[{"label": "Subtotal", "value": _fmt_num(invoice.subtotal, cur), "cls": "subtotal"}]
     disc = _discount_row(invoice.discount_type, invoice.discount_value, invoice.subtotal, cur)
     if disc:
         rows.append(disc)

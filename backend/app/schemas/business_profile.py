@@ -14,6 +14,8 @@ class BusinessProfileUpdate(BaseModel):
     invoice_summary: str | None = None
     logo_url: str | None = None
     default_notes: str | None = None
+    npwp: str | None = None
+    npwp_name: str | None = None
 
 
 class BusinessProfileOut(BaseModel):
@@ -27,6 +29,8 @@ class BusinessProfileOut(BaseModel):
     invoice_summary: str | None
     logo_url: str | None
     default_notes: str | None
+    npwp: str | None = None
+    npwp_name: str | None = None
     updated_at: datetime
 
 
