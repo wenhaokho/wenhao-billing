@@ -26,6 +26,9 @@ class Payment(Base):
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(19, 4), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    wht_amount: Mapped[Decimal] = mapped_column(
+        Numeric(19, 4), nullable=False, default=Decimal(0), server_default="0"
+    )
     payer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     payer_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     payment_date: Mapped[date] = mapped_column(nullable=False)

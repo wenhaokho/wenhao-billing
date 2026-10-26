@@ -1,4 +1,5 @@
 import { computed, ref, type Ref } from "vue";
+import { computeWithholding, type WhtType } from "./withholding";
 
 export interface LineItemRow {
   item_id: string | null;
@@ -14,6 +15,10 @@ export interface UseInvoiceFormOptions {
   currency: Ref<string>;
   discountType: Ref<DiscountType | null>;
   discountValue: Ref<number | null>;
+  // Optional so forms without withholding (quotations) behave as before.
+  whtType?: Ref<WhtType>;
+  whtRate?: Ref<number | null>;
+  whtGrossUp?: Ref<boolean>;
 }
 
 function round4(n: number): number {
@@ -61,10 +66,27 @@ export function useInvoiceForm(opts: UseInvoiceFormOptions) {
     return round4(v);
   });
 
-  const total = computed(() => {
+  // Withholding base: subtotal less discount, floored at zero.
+  const base = computed(() => {
     const t = round4(subtotal.value - discountAmount.value);
-    return t < 0 ? 0 : t;
+    return Number.isFinite(t) && t > 0 ? t : 0;
   });
+
+  const withholding = computed(() =>
+    computeWithholding(
+      base.value,
+      opts.currency.value,
+      opts.whtType?.value ?? "NONE",
+      opts.whtRate?.value ?? null,
+      opts.whtGrossUp?.value ?? false,
+    ),
+  );
+
+  // Invoice total, including any gross-up.
+  const total = computed(() => withholding.value.total);
+  const whtAmount = computed(() => withholding.value.whtAmount);
+  const grossUpAmount = computed(() => round4(total.value - base.value));
+  const amountToTransfer = computed(() => round4(total.value - whtAmount.value));
 
   return {
     lineItems,
@@ -74,5 +96,8 @@ export function useInvoiceForm(opts: UseInvoiceFormOptions) {
     subtotal,
     discountAmount,
     total,
+    whtAmount,
+    grossUpAmount,
+    amountToTransfer,
   };
 }

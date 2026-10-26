@@ -6,7 +6,9 @@ import Dropdown from "primevue/dropdown";
 import Button from "primevue/button";
 import Chip from "primevue/chip";
 import Checkbox from "primevue/checkbox";
+import InputNumber from "primevue/inputnumber";
 import type { CustomerFormData } from "./customerForm";
+import { WHT_OPTIONS, WHT_DEFAULT_RATES, type WhtType } from "../composables/withholding";
 import { COUNTRIES } from "../constants/countries";
 
 // showAliases is a Boolean prop, so an *absent* prop is cast to false by Vue
@@ -47,6 +49,15 @@ const currencyOptions = [
   { label: "SGD — Singapore Dollar", value: "SGD" },
   { label: "USD — US Dollar", value: "USD" },
 ];
+
+function onWhtTypeChange(t: WhtType) {
+  if (t === "NONE") {
+    local.default_wht_rate = null;
+    local.default_wht_gross_up = false;
+  } else {
+    local.default_wht_rate = WHT_DEFAULT_RATES[t];
+  }
+}
 
 const aliasDraft = ref("");
 
@@ -280,6 +291,41 @@ function onToggleSameAsBilling(v: boolean) {
         </small>
       </label>
 
+      <div class="field-label">Withholding tax</div>
+      <div class="two-col">
+        <label class="field">
+          <span class="field-label muted">Type</span>
+          <Dropdown
+            v-model="local.default_wht_type"
+            :options="WHT_OPTIONS"
+            option-label="label"
+            option-value="value"
+            @update:modelValue="onWhtTypeChange"
+          />
+        </label>
+        <label class="field">
+          <span class="field-label muted">Rate</span>
+          <InputNumber
+            v-model="local.default_wht_rate"
+            suffix="%"
+            :min="0.0001"
+            :max="99.9999"
+            :min-fraction-digits="0"
+            :max-fraction-digits="4"
+            :disabled="local.default_wht_type === 'NONE'"
+          />
+        </label>
+      </div>
+      <label class="same-as-billing">
+        <Checkbox
+          v-model="local.default_wht_gross_up"
+          binary
+          :disabled="local.default_wht_type === 'NONE'"
+        />
+        <span>Gross up (customer withholds, invoice total is increased to compensate)</span>
+      </label>
+      <small class="help">Default for new invoices for this customer.</small>
+
       <div class="address-head">
         <span class="field-label">Billing address</span>
         <Button
@@ -452,7 +498,8 @@ function onToggleSameAsBilling(v: boolean) {
 }
 .field :deep(.p-inputtext),
 .field :deep(.p-inputtextarea),
-.field :deep(.p-dropdown) {
+.field :deep(.p-dropdown),
+.field :deep(.p-inputnumber) {
   width: 100%;
 }
 .field-label {

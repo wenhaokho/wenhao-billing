@@ -1,4 +1,5 @@
 import { splitEmails } from "@/utils/email";
+import type { WhtType } from "@/composables/withholding";
 
 export interface CustomerFormData {
   name: string;
@@ -36,6 +37,10 @@ export interface CustomerFormData {
   shipping_postal_code: string;
   shipping_phone: string;
   shipping_delivery_instructions: string;
+
+  default_wht_type: WhtType;
+  default_wht_rate: number | null;
+  default_wht_gross_up: boolean;
 }
 
 export function emptyCustomerForm(): CustomerFormData {
@@ -70,6 +75,9 @@ export function emptyCustomerForm(): CustomerFormData {
     shipping_postal_code: "",
     shipping_phone: "",
     shipping_delivery_instructions: "",
+    default_wht_type: "NONE",
+    default_wht_rate: null,
+    default_wht_gross_up: false,
   };
 }
 
@@ -109,5 +117,8 @@ export function buildCustomerPayload(form: CustomerFormData): Record<string, unk
     shipping_postal_code: s(form.shipping_postal_code),
     shipping_phone: s(form.shipping_phone),
     shipping_delivery_instructions: s(form.shipping_delivery_instructions),
+    default_wht_type: form.default_wht_type,
+    default_wht_rate: form.default_wht_type === "NONE" ? null : form.default_wht_rate,
+    default_wht_gross_up: form.default_wht_type === "NONE" ? false : form.default_wht_gross_up,
   };
 }

@@ -27,6 +27,7 @@ from app.services import fx
 
 OPERATING_BANK_CODE = "1000"
 ACCOUNTS_RECEIVABLE_CODE = "1100"
+PREPAID_TAX_CODE = "1300"
 FX_GAIN_CODE = "4900"
 FX_LOSS_CODE = "5900"
 
@@ -94,15 +95,22 @@ def _build_line(
     )
 
 
-def post_payment_cleared(db: Session, payment: Payment, invoice: Invoice) -> JournalEntry:
-    """DR Operating Bank / CR Accounts Receivable for a CLEARED payment.
+def post_payment_cleared(
+    db: Session, payment: Payment, invoice: Invoice, withheld: Decimal = Decimal(0)
+) -> JournalEntry:
+    """DR Operating Bank (+ DR Prepaid Income Tax) / CR Accounts Receivable
+    for a CLEARED payment.
 
-    Same-currency: AR is relieved for payment.amount in the shared currency.
+    ``withheld`` is the PPh the customer deducted at source, in the invoice
+    currency. It is debited to Prepaid Income Tax (1300); the line is omitted
+    when it is zero.
+
+    Same-currency: AR is relieved for payment.amount + withheld.
 
     Cross-currency: the payment is treated as fully settling the invoice's
     remaining balance. Bank is debited in payment.currency for payment.amount;
     AR is credited in invoice.currency for invoice.balance_due; the base-amount
-    difference is booked as realised FX Gain or FX Loss.
+    difference (bank + withheld - AR) is booked as realised FX Gain or FX Loss.
     """
     if payment.status != "CLEARED":
         raise LedgerError(
@@ -110,28 +118,50 @@ def post_payment_cleared(db: Session, payment: Payment, invoice: Invoice) -> Jou
             f"with status {payment.status!r} — only CLEARED may post"
         )
 
+    if withheld < 0:
+        raise LedgerError(f"withheld tax cannot be negative (got {withheld})")
+
     on_date = payment.payment_date
     same_currency = payment.currency == invoice.currency
 
+    bank_line = _build_line(
+        db,
+        account_id=_account_id(db, OPERATING_BANK_CODE),
+        debit=payment.amount,
+        credit=Decimal("0"),
+        currency=payment.currency,
+        on_date=on_date,
+    )
+    wht_line = (
+        _build_line(
+            db,
+            account_id=_account_id(db, PREPAID_TAX_CODE),
+            debit=withheld,
+            credit=Decimal("0"),
+            currency=invoice.currency,
+            on_date=on_date,
+        )
+        if withheld > 0
+        else None
+    )
+    debit_lines = [bank_line] if wht_line is None else [bank_line, wht_line]
+
     if same_currency:
-        lines = [
-            _build_line(
-                db,
-                account_id=_account_id(db, OPERATING_BANK_CODE),
-                debit=payment.amount,
-                credit=Decimal("0"),
-                currency=payment.currency,
-                on_date=on_date,
-            ),
-            _build_line(
-                db,
-                account_id=_account_id(db, ACCOUNTS_RECEIVABLE_CODE),
-                debit=Decimal("0"),
-                credit=payment.amount,
-                currency=payment.currency,
-                on_date=on_date,
-            ),
-        ]
+        ar_line = _build_line(
+            db,
+            account_id=_account_id(db, ACCOUNTS_RECEIVABLE_CODE),
+            debit=Decimal("0"),
+            credit=payment.amount + withheld,
+            currency=payment.currency,
+            on_date=on_date,
+        )
+        # Bank and PPh are converted separately, so their 4dp-rounded base
+        # amounts can differ from base(amount + withheld) by 0.0001. All lines
+        # share one rate; relieve AR by the exact sum of the debit bases.
+        ar_line.base_amount_credit = sum(
+            (line.base_amount_debit for line in debit_lines), Decimal(0)
+        )
+        lines = [*debit_lines, ar_line]
     else:
         ar_amount = invoice.balance_due
         if ar_amount <= 0:
@@ -139,14 +169,6 @@ def post_payment_cleared(db: Session, payment: Payment, invoice: Invoice) -> Jou
                 f"cross-currency settlement requires invoice balance_due > 0 "
                 f"(invoice {invoice.invoice_id} balance={ar_amount})"
             )
-        bank_line = _build_line(
-            db,
-            account_id=_account_id(db, OPERATING_BANK_CODE),
-            debit=payment.amount,
-            credit=Decimal("0"),
-            currency=payment.currency,
-            on_date=on_date,
-        )
         ar_line = _build_line(
             db,
             account_id=_account_id(db, ACCOUNTS_RECEIVABLE_CODE),
@@ -155,11 +177,12 @@ def post_payment_cleared(db: Session, payment: Payment, invoice: Invoice) -> Jou
             currency=invoice.currency,
             on_date=on_date,
         )
-        lines = [bank_line, ar_line]
-        # Base-currency plug. bank_base is DR; ar_base is CR. If bank_base <
-        # ar_base we received less value than we relieved — an FX loss (DR).
-        # If bank_base > ar_base we received more — an FX gain (CR).
-        diff = bank_line.base_amount_debit - ar_line.base_amount_credit
+        lines = [*debit_lines, ar_line]
+        # Base-currency plug. bank_base + wht_base is DR; ar_base is CR. If the
+        # debits are below ar_base we received less value than we relieved —
+        # an FX loss (DR). If above, we received more — an FX gain (CR).
+        wht_base = wht_line.base_amount_debit if wht_line is not None else Decimal(0)
+        diff = bank_line.base_amount_debit + wht_base - ar_line.base_amount_credit
         base_ccy = get_settings().base_currency
         if diff < 0:
             lines.append(

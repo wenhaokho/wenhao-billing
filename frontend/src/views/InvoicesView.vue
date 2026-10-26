@@ -9,6 +9,7 @@ import TabView from "primevue/tabview";
 import TabPanel from "primevue/tabpanel";
 import Tag from "primevue/tag";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
+import { whtOutstanding } from "@/composables/withholding";
 import { useConfirm } from "primevue/useconfirm";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
@@ -29,6 +30,8 @@ interface Invoice {
   currency: string;
   amount: string;
   balance_due: string;
+  wht_amount?: string;
+  wht_booked?: string;
   status: string;
   issue_date: string;
   due_date: string;
@@ -132,6 +135,10 @@ const paymentCustomer = computed(() => {
   if (!cid) return null;
   return (customers.value ?? []).find((c) => c.customer_id === cid) ?? null;
 });
+// PPh still expected to be withheld by the customer (not yet booked).
+const paymentWhtOutstanding = computed(() =>
+  paymentTarget.value ? whtOutstanding(paymentTarget.value) : 0,
+);
 const paymentCustomerEmail = computed(() => paymentCustomer.value?.contact_email ?? null);
 
 async function sendReceipt(
@@ -159,6 +166,7 @@ async function sendReceipt(
 const recordPayment = useMutation({
   mutationFn: async (payload: {
     amount: number;
+    wht_amount: number;
     payment_date: string;
     payer_name: string | null;
     payer_reference: string | null;
@@ -304,6 +312,7 @@ function statusSeverity(status: string) {
       v-if="paymentTarget"
       :visible="paymentDialogVisible"
       :balance-due="paymentTarget.balance_due"
+      :wht-outstanding="paymentWhtOutstanding"
       :currency="paymentTarget.currency"
       :customer-email="paymentCustomerEmail"
       :customer-cc="paymentCustomer?.billing_cc_emails ?? null"

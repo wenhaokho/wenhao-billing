@@ -31,6 +31,7 @@ from reportlab.platypus import (
 
 from app.models.customer import Customer
 from app.models.invoice import Invoice
+from app.services.withholding import WHT_LABELS, expected_cash
 
 # ---------------------------------------------------------------------------
 # Palette — one accent, held with discipline.
@@ -436,7 +437,17 @@ def render_invoice_pdf(
         else:
             disc_label = "Discount"
         small_rows.append([disc_label, f"-{money(disc_amount)}"])
+    total_idx = len(small_rows)
     small_rows.append(["Total", money(invoice.amount)])
+    wht = (invoice.wht_type or "NONE") != "NONE"
+    if wht:
+        small_rows.append([
+            (
+                f"Less: {WHT_LABELS[invoice.wht_type]} withheld "
+                f"({_fmt_pct(invoice.wht_rate)}%)"
+            ),
+            f"-{money(invoice.wht_amount)}",
+        ])
 
     totals_inner = Table(small_rows, colWidths=[42 * mm, 42 * mm])
     ti_style = [
@@ -450,10 +461,10 @@ def render_invoice_pdf(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         # emphasise the Total line
-        ("FONTNAME", (0, -1), (0, -1), "Helvetica-Bold"),
-        ("TEXTCOLOR", (0, -1), (-1, -1), INK),
-        ("LINEABOVE", (0, -1), (-1, -1), 0.5, HAIR),
-        ("TOPPADDING", (0, -1), (-1, -1), 7),
+        ("FONTNAME", (0, total_idx), (0, total_idx), "Helvetica-Bold"),
+        ("TEXTCOLOR", (0, total_idx), (-1, total_idx), INK),
+        ("LINEABOVE", (0, total_idx), (-1, total_idx), 0.5, HAIR),
+        ("TOPPADDING", (0, total_idx), (-1, total_idx), 7),
     ]
     totals_inner.setStyle(TableStyle(ti_style))
 
@@ -466,12 +477,15 @@ def render_invoice_pdf(
         "hero_val", fontName="Courier-Bold", fontSize=16, leading=18,
         textColor=PAPER, alignment=TA_RIGHT,
     )
+    hero_value = expected_cash(invoice) if wht else invoice.balance_due
     hero_amount = (
-        f"{_fmt_num(invoice.balance_due, invoice.currency)}"
+        f"{_fmt_num(hero_value, invoice.currency)}"
         f'<font face="Helvetica-Bold" size="9"> {invoice.currency}</font>'
     )
+    # Wraps onto two lines in the narrow label cell.
+    hero_text = "AMOUNT TO TRANSFER" if wht else "BALANCE&nbsp;DUE"
     balance = Table(
-        [[Paragraph("BALANCE&nbsp;DUE", hero_label),
+        [[Paragraph(hero_text, hero_label),
           Paragraph(hero_amount, hero_val)]],
         colWidths=[26 * mm, 58 * mm],
     )

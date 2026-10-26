@@ -9,7 +9,8 @@ invoice_number, customer_id, project_id, source_quote_id, invoice_type,
 po_so_number, currency, subtotal, discount_type, discount_value, amount,
 balance_due, status, billing_cycle_ref, issue_date, due_date,
 coverage_start, coverage_end, payment_terms, notes, footer, is_template,
-created_at (plus a line_items relationship not surfaced here).
+created_at, wht_type/wht_rate/wht_gross_up/wht_amount, and a computed
+`expected_cash` (plus a line_items relationship not surfaced here).
 
 Two field sets, deliberately (the read_customers.py pattern):
 `_INVOICE_FIELDS` is the narrow subset for `list_invoices`;
@@ -24,9 +25,10 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.mcp.db import tool_session
-from app.mcp.serialize import to_dict
+from app.mcp.serialize import coerce_value, to_dict
 from app.mcp.server import mcp
 from app.models.invoice import Invoice
+from app.services.withholding import expected_cash
 
 _INVOICE_FIELDS = [
     "invoice_id",
@@ -39,6 +41,10 @@ _INVOICE_FIELDS = [
     "status",
     "issue_date",
     "due_date",
+    "wht_type",
+    "wht_rate",
+    "wht_gross_up",
+    "wht_amount",
 ]
 
 _INVOICE_DETAIL_FIELDS = [
@@ -53,6 +59,14 @@ _INVOICE_DETAIL_FIELDS = [
     "footer",
     "is_template",
 ]
+
+
+def invoice_to_dict(inv: Invoice, fields: list[str]) -> dict:
+    """`to_dict` plus `expected_cash` (computed, not a column): the cash still
+    due after the client withholds PPh. Every invoice return goes through this."""
+    out = to_dict(inv, fields)
+    out["expected_cash"] = coerce_value(expected_cash(inv))
+    return out
 
 
 @mcp.tool
@@ -76,7 +90,7 @@ def list_invoices(
             stmt = stmt.where(Invoice.customer_id == UUID(customer_id))
         if invoice_type:
             stmt = stmt.where(Invoice.invoice_type == invoice_type)
-        return [to_dict(i, _INVOICE_FIELDS) for i in db.scalars(stmt)]
+        return [invoice_to_dict(i, _INVOICE_FIELDS) for i in db.scalars(stmt)]
 
 
 @mcp.tool
@@ -85,4 +99,4 @@ def get_invoice(invoice_id: str) -> dict:
     Returns {} if not found."""
     with tool_session() as db:
         inv = db.get(Invoice, UUID(invoice_id))
-        return to_dict(inv, _INVOICE_DETAIL_FIELDS) if inv else {}
+        return invoice_to_dict(inv, _INVOICE_DETAIL_FIELDS) if inv else {}

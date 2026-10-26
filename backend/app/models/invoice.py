@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, false, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +40,22 @@ class Invoice(Base):
     discount_value: Mapped[Decimal | None] = mapped_column(Numeric(19, 4), nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(19, 4), nullable=False)
     balance_due: Mapped[Decimal] = mapped_column(Numeric(19, 4), nullable=False)
+    # Withholding tax (PPh 21/23) snapshot; wht_booked is the part already
+    # recognised by payments.
+    wht_type: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="NONE", server_default="NONE"
+    )
+    wht_rate: Mapped[Decimal | None] = mapped_column(Numeric(7, 4), nullable=True)
+    wht_gross_up: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    wht_base: Mapped[Decimal | None] = mapped_column(Numeric(19, 4), nullable=True)
+    wht_amount: Mapped[Decimal] = mapped_column(
+        Numeric(19, 4), nullable=False, default=Decimal(0), server_default="0"
+    )
+    wht_booked: Mapped[Decimal] = mapped_column(
+        Numeric(19, 4), nullable=False, default=Decimal(0), server_default="0"
+    )
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     billing_cycle_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     issue_date: Mapped[date | None] = mapped_column(nullable=True)

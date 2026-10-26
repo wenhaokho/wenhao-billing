@@ -131,3 +131,13 @@ def test_get_invoice_found(mcp_tool_db, seed_invoice):
 def test_get_invoice_not_found_returns_empty_dict(mcp_tool_db, db):
     out = get_invoice(invoice_id=str(uuid.uuid4()))
     assert out == {}
+
+
+def test_get_and_list_invoices_include_withholding_fields(mcp_tool_db, seed_invoice):
+    detail = get_invoice(invoice_id=str(seed_invoice))
+    row = list_invoices()[0]
+    for out in (detail, row):
+        for key in ("wht_type", "wht_rate", "wht_gross_up", "wht_amount", "expected_cash"):
+            assert key in out
+        assert out["wht_type"] == "NONE"
+        assert out["expected_cash"] == out["balance_due"]

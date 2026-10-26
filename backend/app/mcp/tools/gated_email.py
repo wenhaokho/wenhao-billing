@@ -17,7 +17,8 @@ from app.models.business_profile import BusinessProfile
 from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.services.email import send_email
-from app.services.invoice_pdf import render_invoice_pdf
+from app.services.pdf import render_invoice_pdf
+from app.services.withholding import expected_cash
 
 _ACTION = "send_invoice_email"
 _REMINDER_ACTION = "send_payment_reminder"
@@ -35,7 +36,7 @@ def _payload(invoice: Invoice, to_email: str) -> dict:
 def _reminder_payload(invoice: Invoice, to_email: str) -> dict:
     return {
         "target_id": str(invoice.invoice_id),
-        "amount": str(invoice.balance_due),
+        "amount": str(expected_cash(invoice)),
         "currency": invoice.currency,
         "recipient": to_email,
     }
@@ -108,7 +109,7 @@ def send_payment_reminder(
     """Email a payment reminder for an outstanding invoice. GATED: first
     call (no confirm_token) previews the send and returns a confirm_token;
     call again passing that confirm_token to actually send. Bound to the
-    invoice's current balance_due (not the original amount) so a partial
+    invoice's cash still expected (balance_due less unbooked PPh) so a partial
     payment between preview and confirm invalidates a stale token. No PDF
     is attached — a plain-text/HTML reminder only."""
     with tool_session() as db:
@@ -130,7 +131,7 @@ def send_payment_reminder(
                 "invoice_id": str(inv.invoice_id),
                 "invoice_number": inv.invoice_number,
                 "recipient": recipient,
-                "amount": str(inv.balance_due),
+                "amount": str(expected_cash(inv)),
                 "currency": inv.currency,
                 "confirm_token": make_confirm_token(_REMINDER_ACTION, payload),
             }
@@ -143,7 +144,7 @@ def send_payment_reminder(
         subject = f"Payment reminder: invoice {inv.invoice_number}" if inv.invoice_number else "Payment reminder"
         body = (
             f"This is a reminder that invoice {inv.invoice_number or inv.invoice_id} "
-            f"has an outstanding balance of {inv.balance_due} {inv.currency}."
+            f"has an outstanding balance of {expected_cash(inv)} {inv.currency}."
         )
         send_email(
             to_email=recipient,

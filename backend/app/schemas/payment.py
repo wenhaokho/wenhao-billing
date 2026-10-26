@@ -15,6 +15,7 @@ class PaymentOut(BaseModel):
     invoice_id: UUID | None
     customer_id: UUID | None
     amount: Decimal
+    wht_amount: Decimal
     currency: str
     payer_name: str
     payer_reference: str | None
@@ -53,6 +54,16 @@ class RecordPaymentRequest(BaseModel):
     payer_name: str | None = None
     payer_reference: str | None = None
     notes: str | None = None
+
+
+class InvoiceRecordPaymentRequest(RecordPaymentRequest):
+    """Invoice payment; may include the PPh amount withheld by the customer.
+
+    ``amount`` may be 0 to record withheld PPh only; the endpoint rejects a
+    request where amount and wht_amount are both 0.
+    """
+    amount: Decimal = Field(ge=0, max_digits=19, decimal_places=4)
+    wht_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=19, decimal_places=4)
 
 
 class SendReceiptRequest(BaseModel):

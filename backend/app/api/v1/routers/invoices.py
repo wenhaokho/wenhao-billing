@@ -35,13 +35,18 @@ from app.schemas.invoice import (
     UsageLockRequest,
     VoidRequest,
 )
-from app.schemas.payment import PaymentOut, RecordPaymentRequest, SendReceiptRequest
+from app.schemas.payment import (
+    InvoiceRecordPaymentRequest,
+    PaymentOut,
+    SendReceiptRequest,
+)
 from app.services import draft_notifications, invoicing
 from app.services.email import send_email
 from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
 from app.services.invoice_pdf import _fmt_amount
 from app.services.pdf import render_invoice_pdf, render_receipt_pdf
 from app.services.receipt_pdf import balance_note, receipt_reference
+from app.services.withholding import expected_cash
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -505,7 +510,7 @@ def update_invoice(
 @router.post("/{invoice_id}/record-payment", response_model=PaymentOut, status_code=201)
 def record_payment(
     invoice_id: UUID,
-    payload: RecordPaymentRequest,
+    payload: InvoiceRecordPaymentRequest,
     db: Session = Depends(get_db),
     user: User = Depends(current_admin),
 ) -> Payment:
@@ -523,16 +528,34 @@ def record_payment(
             detail=f"cannot record payment on {invoice.status} invoice",
         )
     amount = Decimal(payload.amount)
-    if amount > Decimal(invoice.balance_due):
+    wht_amount = Decimal(payload.wht_amount)
+    settled = amount + wht_amount
+    if settled == 0:
         raise HTTPException(
             status_code=400,
-            detail=f"amount {amount} exceeds balance due {invoice.balance_due}",
+            detail="amount and withheld cannot both be zero",
+        )
+    if settled > Decimal(invoice.balance_due):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"amount + withheld {settled} exceeds balance due {invoice.balance_due}"
+                if wht_amount > 0
+                else f"amount {settled} exceeds balance due {invoice.balance_due}"
+            ),
+        )
+    wht_outstanding = Decimal(invoice.wht_amount) - Decimal(invoice.wht_booked)
+    if wht_amount > wht_outstanding:
+        raise HTTPException(
+            status_code=400,
+            detail=f"withheld {wht_amount} exceeds outstanding withholding {wht_outstanding}",
         )
 
     payment = Payment(
         invoice_id=invoice.invoice_id,
         customer_id=invoice.customer_id,
         amount=amount,
+        wht_amount=wht_amount,
         currency=invoice.currency,
         payer_name=payload.payer_name or "(manual entry)",
         payer_reference=payload.payer_reference,
@@ -544,7 +567,8 @@ def record_payment(
     )
     db.add(payment)
 
-    invoice.balance_due = Decimal(invoice.balance_due) - amount
+    invoice.balance_due = Decimal(invoice.balance_due) - settled
+    invoice.wht_booked = Decimal(invoice.wht_booked) + wht_amount
     if invoice.balance_due <= 0:
         invoice.balance_due = Decimal("0")
         invoice.status = "PAID"
@@ -729,6 +753,11 @@ def send_invoice(
         f"Please find attached invoice {invoice.invoice_number or ''} "
         f"for {_fmt_amount(invoice.amount, invoice.currency)}.\n"
     )
+    if invoice.wht_type != "NONE":
+        default_body += (
+            "Amount to transfer (after withholding tax): "
+            f"{_fmt_amount(expected_cash(invoice), invoice.currency)}.\n"
+        )
     if invoice.due_date:
         default_body += f"Due date: {invoice.due_date}.\n"
     default_body += "\nThank you."

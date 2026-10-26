@@ -15,6 +15,7 @@ before this except catches it).
 """
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
 from app.mcp.db import tool_session
@@ -39,6 +40,9 @@ def create_customer(
     website: str | None = None,
     notes: str | None = None,
     default_currency: str | None = None,
+    default_wht_type: str | None = None,
+    default_wht_rate: str | None = None,
+    default_wht_gross_up: bool | None = None,
     billing_address1: str | None = None,
     billing_address2: str | None = None,
     billing_city: str | None = None,
@@ -63,6 +67,11 @@ def create_customer(
     ended up folding both into `notes` — the data was in the record but not
     in the fields the UI, invoices, and matching read from.
 
+    `default_wht_type` (NONE|PPH21|PPH23), `default_wht_rate` (percent) and
+    `default_wht_gross_up` seed new invoices for this customer; gross-up raises
+    the invoice so that after the client withholds PPh you still receive the
+    full base amount.
+
     Address is structured (address1/address2/city/state/postal_code/country),
     matching the customer form. The legacy unstructured `billing_address`
     column is deliberately not writable here — it is read-only back-compat.
@@ -73,48 +82,59 @@ def create_customer(
     0024_customer_contact_single because writing it here left records whose
     contact name could not be edited in the UI.
     """
-    # No try/except: the customer service's create path never raises
-    # CustomerError (only update does, on not-found), so wrapping it here would
-    # be dead code.
-    payload = CustomerCreate(
-        name=name,
-        matching_aliases=matching_aliases or [],
-        contact_first_name=contact_first_name,
-        contact_last_name=contact_last_name,
-        contact_email=contact_email,
-        contact_phone=contact_phone,
-        contact_phone_2=contact_phone_2,
-        account_number=account_number,
-        website=website,
-        notes=notes,
-        default_currency=default_currency,
-        billing_address1=billing_address1,
-        billing_address2=billing_address2,
-        billing_city=billing_city,
-        billing_state=billing_state,
-        billing_postal_code=billing_postal_code,
-        billing_country=billing_country,
-        ship_to_name=ship_to_name,
-        shipping_address1=shipping_address1,
-        shipping_address2=shipping_address2,
-        shipping_city=shipping_city,
-        shipping_state=shipping_state,
-        shipping_postal_code=shipping_postal_code,
-        shipping_country=shipping_country,
-        shipping_phone=shipping_phone,
-        shipping_delivery_instructions=shipping_delivery_instructions,
-    )
-    with tool_session() as db:
-        customer = customer_service.create_customer(db, payload)
-        db.flush()
-        return to_dict(customer, _CUSTOMER_DETAIL_FIELDS)
+    try:
+        wht_rate = Decimal(default_wht_rate) if default_wht_rate else None
+    except InvalidOperation:
+        return {"error": f"invalid default_wht_rate: {default_wht_rate!r}"}
+    try:
+        payload = CustomerCreate(
+            name=name,
+            matching_aliases=matching_aliases or [],
+            contact_first_name=contact_first_name,
+            contact_last_name=contact_last_name,
+            contact_email=contact_email,
+            contact_phone=contact_phone,
+            contact_phone_2=contact_phone_2,
+            account_number=account_number,
+            website=website,
+            notes=notes,
+            default_currency=default_currency,
+            default_wht_type=default_wht_type,
+            default_wht_rate=wht_rate,
+            default_wht_gross_up=default_wht_gross_up,
+            billing_address1=billing_address1,
+            billing_address2=billing_address2,
+            billing_city=billing_city,
+            billing_state=billing_state,
+            billing_postal_code=billing_postal_code,
+            billing_country=billing_country,
+            ship_to_name=ship_to_name,
+            shipping_address1=shipping_address1,
+            shipping_address2=shipping_address2,
+            shipping_city=shipping_city,
+            shipping_state=shipping_state,
+            shipping_postal_code=shipping_postal_code,
+            shipping_country=shipping_country,
+            shipping_phone=shipping_phone,
+            shipping_delivery_instructions=shipping_delivery_instructions,
+        )
+        with tool_session() as db:
+            customer = customer_service.create_customer(db, payload)
+            db.flush()
+            return to_dict(customer, _CUSTOMER_DETAIL_FIELDS)
+    # ValueError covers pydantic validation and withholding normalization.
+    except ValueError as e:
+        return {"error": str(e)}
 
 
 @mcp.tool
 def update_customer(customer_id: str, changes: dict) -> dict:
     """Edit a customer. `changes` keys are CustomerUpdate field names — the
     same names `create_customer` takes (e.g. contact_phone, billing_address1,
-    billing_city, notes, default_currency, active). Autonomous.
+    billing_city, notes, default_currency, active,
+    default_wht_type/default_wht_rate/default_wht_gross_up). Gross-up raises the
+    invoice so that after the client withholds PPh you still receive the full
+    base amount. Autonomous.
 
     Unknown keys are rejected rather than applied: CustomerUpdate's default
     extra="ignore" would otherwise drop a near-miss key like "phone" or
@@ -130,5 +150,5 @@ def update_customer(customer_id: str, changes: dict) -> dict:
             )
             db.flush()
             return to_dict(customer, _CUSTOMER_DETAIL_FIELDS)
-    except customer_service.CustomerError as e:
+    except (customer_service.CustomerError, ValueError) as e:
         return {"error": str(e)}

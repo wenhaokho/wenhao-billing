@@ -9,6 +9,7 @@ from app.services.invoice_pdf import _discount_amount, _fmt_num, _fmt_pct, _fmt_
 from app.services.pdf.assets import font_face_css
 from app.services.pdf.logo import resolve_logo
 from app.services.receipt_pdf import _method_label, balance_note, receipt_reference
+from app.services.withholding import WHT_LABELS, expected_cash
 
 _STATUS_BADGE = {
     # invoices
@@ -166,12 +167,35 @@ def build_invoice_context(invoice, customer, business=None) -> dict:
     disc = _discount_row(invoice.discount_type, invoice.discount_value, invoice.subtotal, cur)
     if disc:
         rows.append(disc)
+    wht = invoice.wht_type != "NONE"
     paid = None
     if invoice.amount is not None and invoice.balance_due is not None:
-        p = Decimal(invoice.amount) - Decimal(invoice.balance_due)
+        # balance_due also drops by booked PPh, which is not cash received.
+        p = (
+            Decimal(invoice.amount)
+            - Decimal(invoice.balance_due)
+            - Decimal(invoice.wht_booked or 0)
+        )
         if p > 0:
             paid = p.quantize(Decimal("0.01"))
-    if paid is not None:
+    if wht:
+        label = WHT_LABELS[invoice.wht_type]
+        rate = _fmt_pct(invoice.wht_rate)
+        if invoice.wht_gross_up:
+            rows.append({
+                "label": f"Gross-up {label} ({rate}%)",
+                "value": _fmt_num(Decimal(invoice.amount) - Decimal(invoice.wht_base), cur),
+                "cls": "grossup",
+            })
+        rows.append({"label": "Total", "value": _fmt_num(invoice.amount, cur), "cls": "total"})
+        rows.append({
+            "label": f"Less: {label} withheld ({rate}%)",
+            "value": f"−{_fmt_num(invoice.wht_amount, cur)}",
+            "cls": "wht",
+        })
+        if paid is not None:
+            rows.append({"label": "Paid", "value": f"−{_fmt_num(paid, cur)}", "cls": "paid"})
+    elif paid is not None:
         rows.append({"label": "Total", "value": _fmt_num(invoice.amount, cur), "cls": "total"})
         rows.append({"label": "Paid", "value": f"−{_fmt_num(paid, cur)}", "cls": "paid"})
     ctx.update({
@@ -186,8 +210,8 @@ def build_invoice_context(invoice, customer, business=None) -> dict:
             ("Due Date", _fmt_date(invoice.due_date)),
         ],
         "summary_rows": rows,
-        "hero_label": "Total Due",
-        "hero_amount": _fmt_num(invoice.balance_due, cur),
+        "hero_label": "Amount to Transfer" if wht else "Total Due",
+        "hero_amount": _fmt_num(expected_cash(invoice) if wht else invoice.balance_due, cur),
     })
     return ctx
 

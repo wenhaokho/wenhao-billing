@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -45,6 +46,11 @@ class CustomerBase(BaseModel):
     shipping_postal_code: str | None = Field(default=None, max_length=32)
     shipping_phone: str | None = Field(default=None, max_length=64)
     shipping_delivery_instructions: str | None = None
+
+    # Default withholding tax (PPh 21 / PPh 23); normalised in the service
+    default_wht_type: str | None = Field(default=None, max_length=16)
+    default_wht_rate: Decimal | None = None
+    default_wht_gross_up: bool | None = None
 
 
 class CustomerCreate(CustomerBase):
@@ -94,3 +100,7 @@ class CustomerOut(BaseModel):
     shipping_postal_code: str | None = None
     shipping_phone: str | None = None
     shipping_delivery_instructions: str | None = None
+
+    default_wht_type: str = "NONE"
+    default_wht_rate: Decimal | None = None
+    default_wht_gross_up: bool = False

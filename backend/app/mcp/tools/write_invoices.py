@@ -26,9 +26,8 @@ from decimal import Decimal
 from uuid import UUID
 
 from app.mcp.db import tool_session
-from app.mcp.serialize import to_dict
 from app.mcp.server import mcp
-from app.mcp.tools.read_invoices import _INVOICE_DETAIL_FIELDS
+from app.mcp.tools.read_invoices import _INVOICE_DETAIL_FIELDS, invoice_to_dict
 from app.mcp.validate import reject_unknown_changes
 from app.schemas.invoice import (
     InvoiceCreate,
@@ -65,8 +64,16 @@ def create_invoice(
     discount_value: str | None = None,
     payment_terms: str | None = None,
     notes: str | None = None,
+    wht_type: str | None = None,
+    wht_rate: str | None = None,
+    wht_gross_up: bool | None = None,
 ) -> dict:
-    """Create a DRAFT invoice (lands in Awaiting Finalization). Autonomous."""
+    """Create a DRAFT invoice (lands in Awaiting Finalization). Autonomous.
+
+    Optional withholding: `wht_type` NONE|PPH21|PPH23, `wht_rate` percent
+    (defaults 2.5 for PPH21, 2 for PPH23), `wht_gross_up`; gross-up raises the
+    invoice so that after the client withholds PPh you still receive the full
+    base amount. Omitted values fall back to the customer's defaults."""
     try:
         payload = InvoiceCreate(
             customer_id=UUID(customer_id),
@@ -77,11 +84,14 @@ def create_invoice(
             discount_value=Decimal(discount_value) if discount_value else None,
             payment_terms=payment_terms,
             notes=notes,
+            wht_type=wht_type,
+            wht_rate=Decimal(wht_rate) if wht_rate else None,
+            wht_gross_up=wht_gross_up,
         )
         with tool_session() as db:
             inv = invoicing.create_invoice(db, payload)
             db.flush()
-            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
+            return invoice_to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
 
@@ -89,8 +99,9 @@ def create_invoice(
 @mcp.tool
 def update_invoice(invoice_id: str, changes: dict) -> dict:
     """Edit a DRAFT invoice. `changes` keys are InvoiceUpdate field names (e.g.
-    notes, payment_terms, discount_type/discount_value, line_items).
-    Autonomous.
+    notes, payment_terms, discount_type/discount_value, line_items,
+    wht_type/wht_rate/wht_gross_up). Gross-up raises the invoice so that after
+    the client withholds PPh you still receive the full base amount. Autonomous.
 
     Unknown keys are rejected rather than applied, so a near-miss like "note"
     or "terms" errors instead of being dropped by Pydantic's default
@@ -102,7 +113,7 @@ def update_invoice(invoice_id: str, changes: dict) -> dict:
         with tool_session() as db:
             inv = invoicing.update_invoice(db, UUID(invoice_id), InvoiceUpdate(**changes))
             db.flush()
-            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
+            return invoice_to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
 
@@ -118,7 +129,7 @@ def finalize_invoice(invoice_id: str) -> dict:
         with tool_session() as db:
             inv = invoicing.finalize_invoice(db, UUID(invoice_id))
             db.flush()
-            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
+            return invoice_to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
 
@@ -130,7 +141,7 @@ def void_invoice(invoice_id: str) -> dict:
         with tool_session() as db:
             inv = invoicing.void_invoice(db, UUID(invoice_id))
             db.flush()
-            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
+            return invoice_to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
 
@@ -148,10 +159,16 @@ def create_recurring_template(
     footer: str | None = None,
     discount_type: str | None = None,
     discount_value: str | None = None,
+    wht_type: str | None = None,
+    wht_rate: str | None = None,
+    wht_gross_up: bool | None = None,
 ) -> dict:
     """Create a recurring invoice template (is_template=True, DRAFT).
     `schedule` matches RecurringSchedule fields (frequency, interval,
-    start_date, end_mode, end_date?, end_after_cycles?). Autonomous."""
+    start_date, end_mode, end_date?, end_after_cycles?). Optional withholding
+    via `wht_type` NONE|PPH21|PPH23, `wht_rate`, `wht_gross_up`; gross-up
+    raises the invoice so that after the client withholds PPh you still
+    receive the full base amount. Autonomous."""
     try:
         payload = RecurringTemplateCreate(
             customer_id=UUID(customer_id) if customer_id else None,
@@ -165,11 +182,14 @@ def create_recurring_template(
             discount_value=Decimal(discount_value) if discount_value else None,
             line_items=_lines(line_items),
             schedule=schedule,
+            wht_type=wht_type,
+            wht_rate=Decimal(wht_rate) if wht_rate else None,
+            wht_gross_up=wht_gross_up,
         )
         with tool_session() as db:
             inv = invoicing.create_recurring_template(db, payload)
             db.flush()
-            return to_dict(inv, _INVOICE_DETAIL_FIELDS)
+            return invoice_to_dict(inv, _INVOICE_DETAIL_FIELDS)
     except invoicing.InvoicingError as e:
         return {"error": str(e)}
 
@@ -187,7 +207,7 @@ def trigger_recurring(template_id: str, cycle_key: str) -> dict:
                 db, template_invoice_id=UUID(template_id), cycle_key=cycle_key
             )
             db.flush()
-            result = to_dict(inv, _INVOICE_DETAIL_FIELDS)
+            result = invoice_to_dict(inv, _INVOICE_DETAIL_FIELDS)
             # Collect notification data before tool_session commits/closes;
             # send only after the draft is committed.
             new_drafts = (
