@@ -80,7 +80,10 @@ def create_customer(
     db: Session = Depends(get_db),
     _: User = Depends(current_admin),
 ) -> Customer:
-    customer = customer_service.create_customer(db, payload)
+    try:
+        customer = customer_service.create_customer(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     db.commit()
     db.refresh(customer)
     return customer
@@ -109,6 +112,8 @@ def update_customer(
         customer = customer_service.update_customer(db, customer_id, payload)
     except customer_service.CustomerError:
         raise HTTPException(status_code=404, detail="customer not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     db.commit()
     db.refresh(customer)
     return customer

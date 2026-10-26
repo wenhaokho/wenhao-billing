@@ -130,5 +130,5 @@ def update_customer(customer_id: str, changes: dict) -> dict:
             )
             db.flush()
             return to_dict(customer, _CUSTOMER_DETAIL_FIELDS)
-    except customer_service.CustomerError as e:
+    except (customer_service.CustomerError, ValueError) as e:
         return {"error": str(e)}
