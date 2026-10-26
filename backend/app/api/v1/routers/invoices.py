@@ -523,16 +523,19 @@ def record_payment(
             detail=f"cannot record payment on {invoice.status} invoice",
         )
     amount = Decimal(payload.amount)
-    if amount > Decimal(invoice.balance_due):
+    wht_amount = Decimal(payload.wht_amount)
+    settled = amount + wht_amount
+    if settled > Decimal(invoice.balance_due):
         raise HTTPException(
             status_code=400,
-            detail=f"amount {amount} exceeds balance due {invoice.balance_due}",
+            detail=f"amount {settled} exceeds balance due {invoice.balance_due}",
         )
 
     payment = Payment(
         invoice_id=invoice.invoice_id,
         customer_id=invoice.customer_id,
         amount=amount,
+        wht_amount=wht_amount,
         currency=invoice.currency,
         payer_name=payload.payer_name or "(manual entry)",
         payer_reference=payload.payer_reference,
@@ -544,7 +547,8 @@ def record_payment(
     )
     db.add(payment)
 
-    invoice.balance_due = Decimal(invoice.balance_due) - amount
+    invoice.balance_due = Decimal(invoice.balance_due) - settled
+    invoice.wht_booked = Decimal(invoice.wht_booked) + wht_amount
     if invoice.balance_due <= 0:
         invoice.balance_due = Decimal("0")
         invoice.status = "PAID"

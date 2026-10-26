@@ -15,6 +15,7 @@ class PaymentOut(BaseModel):
     invoice_id: UUID | None
     customer_id: UUID | None
     amount: Decimal
+    wht_amount: Decimal
     currency: str
     payer_name: str
     payer_reference: str | None
@@ -49,6 +50,7 @@ class WebhookPayload(BaseModel):
 class RecordPaymentRequest(BaseModel):
     """Manually recorded payment against an invoice or bill."""
     amount: Decimal = Field(gt=0, max_digits=19, decimal_places=4)
+    wht_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=19, decimal_places=4)
     payment_date: date
     payer_name: str | None = None
     payer_reference: str | None = None
