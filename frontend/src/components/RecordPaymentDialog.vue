@@ -15,6 +15,8 @@ import { useAuthStore } from "@/stores/auth";
 interface Props {
   visible: boolean;
   balanceDue: string | number;
+  // PPh the customer is expected to withhold (invoice wht_amount - wht_booked).
+  whtOutstanding?: string | number;
   currency: string;
   // "AR" = invoice side (needs payer_name), "AP" = bill side
   mode: "AR" | "AP";
@@ -29,6 +31,7 @@ const emit = defineEmits<{
   (e: "update:visible", v: boolean): void;
   (e: "submit", payload: {
     amount: number;
+    wht_amount: number;
     payment_date: string;
     payer_name: string | null;
     payer_reference: string | null;
@@ -38,6 +41,7 @@ const emit = defineEmits<{
 }>();
 
 const amount = ref<number | null>(null);
+const whtAmount = ref<number | null>(null);
 const paymentDate = ref<Date>(new Date());
 const payerName = ref<string>("");
 const payerReference = ref<string>("");
@@ -49,12 +53,32 @@ const receiptTo = ref<string>("");
 const receiptCc = ref<string>("");
 
 const balanceNum = computed(() => Number(props.balanceDue || 0));
+const whtOutstandingNum = computed(() => {
+  const v = Number(props.whtOutstanding || 0);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+});
+// Only AR invoices that carry withholding show the "PPh withheld" field.
+const showWht = computed(() => props.mode === "AR" && whtOutstandingNum.value > 0);
+const whtNum = computed(() => (showWht.value ? Number(whtAmount.value ?? 0) : 0));
+
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
+}
+
+// Cash expected after the customer withholds the outstanding PPh.
+const fullCash = computed(() =>
+  Math.max(0, round4(balanceNum.value - (showWht.value ? whtOutstandingNum.value : 0))),
+);
+const exceedsBalance = computed(
+  () => round4(Number(amount.value ?? 0) + whtNum.value) > balanceNum.value,
+);
 
 watch(
   () => props.visible,
   (v) => {
     if (v) {
-      amount.value = balanceNum.value;
+      whtAmount.value = showWht.value ? whtOutstandingNum.value : null;
+      amount.value = fullCash.value;
       paymentDate.value = new Date();
       payerName.value = "";
       payerReference.value = "";
@@ -71,13 +95,15 @@ const canSubmit = computed(
   () =>
     !!amount.value &&
     amount.value > 0 &&
-    amount.value <= balanceNum.value &&
+    whtNum.value >= 0 &&
+    !exceedsBalance.value &&
     !!paymentDate.value &&
     (props.mode !== "AR" || !sendReceipt.value || !!receiptTo.value.trim()),
 );
 
 function fillFullBalance() {
-  amount.value = balanceNum.value;
+  if (showWht.value) whtAmount.value = whtOutstandingNum.value;
+  amount.value = fullCash.value;
 }
 
 function close() {
@@ -89,6 +115,7 @@ function submit() {
   const iso = paymentDate.value.toISOString().slice(0, 10);
   emit("submit", {
     amount: amount.value,
+    wht_amount: whtNum.value,
     payment_date: iso,
     payer_name: payerName.value.trim() || null,
     payer_reference: payerReference.value.trim() || null,
@@ -133,6 +160,20 @@ function submit() {
           />
         </div>
       </label>
+      <label v-if="showWht" class="field">
+        <span>PPh withheld</span>
+        <InputNumber
+          v-model="whtAmount"
+          :min-fraction-digits="0"
+          :max-fraction-digits="4"
+          :use-grouping="true"
+          :min="0"
+          :max="balanceNum"
+        />
+      </label>
+      <Message v-if="exceedsBalance" severity="warn" :closable="false">
+        {{ showWht ? "Amount plus PPh withheld" : "Amount" }} exceeds the balance due.
+      </Message>
       <label class="field">
         <span>Payment date</span>
         <DatePicker v-model="paymentDate" date-format="yy-mm-dd" show-icon />

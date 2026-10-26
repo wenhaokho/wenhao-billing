@@ -29,6 +29,8 @@ interface Invoice {
   currency: string;
   amount: string;
   balance_due: string;
+  wht_amount?: string;
+  wht_booked?: string;
   status: string;
   issue_date: string;
   due_date: string;
@@ -132,6 +134,13 @@ const paymentCustomer = computed(() => {
   if (!cid) return null;
   return (customers.value ?? []).find((c) => c.customer_id === cid) ?? null;
 });
+// PPh still expected to be withheld by the customer (not yet booked).
+const paymentWhtOutstanding = computed(() => {
+  const t = paymentTarget.value;
+  if (!t) return 0;
+  const v = Number(t.wht_amount ?? 0) - Number(t.wht_booked ?? 0);
+  return Number.isFinite(v) && v > 0 ? Math.round(v * 10000) / 10000 : 0;
+});
 const paymentCustomerEmail = computed(() => paymentCustomer.value?.contact_email ?? null);
 
 async function sendReceipt(
@@ -159,6 +168,7 @@ async function sendReceipt(
 const recordPayment = useMutation({
   mutationFn: async (payload: {
     amount: number;
+    wht_amount: number;
     payment_date: string;
     payer_name: string | null;
     payer_reference: string | null;
@@ -304,6 +314,7 @@ function statusSeverity(status: string) {
       v-if="paymentTarget"
       :visible="paymentDialogVisible"
       :balance-due="paymentTarget.balance_due"
+      :wht-outstanding="paymentWhtOutstanding"
       :currency="paymentTarget.currency"
       :customer-email="paymentCustomerEmail"
       :customer-cc="paymentCustomer?.billing_cc_emails ?? null"

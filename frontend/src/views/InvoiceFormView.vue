@@ -20,6 +20,7 @@ import {
   type LineItemRow,
   type DiscountType,
 } from "@/composables/useInvoiceForm";
+import { WHT_OPTIONS, WHT_DEFAULT_RATES, type WhtType } from "@/composables/withholding";
 import InvoiceLineItemsTable from "@/components/InvoiceLineItemsTable.vue";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
 import SendInvoiceDialog from "@/components/SendInvoiceDialog.vue";
@@ -55,6 +56,9 @@ interface Customer {
   billing_country: string | null;
   default_currency: string | null;
   ship_to_name: string | null;
+  default_wht_type?: WhtType;
+  default_wht_rate?: string | null;
+  default_wht_gross_up?: boolean;
 }
 
 function composedContactName(c: Customer): string | null {
@@ -105,6 +109,13 @@ interface InvoiceOut {
   subtotal: string | null;
   discount_type: string | null;
   discount_value: string | null;
+  wht_type: WhtType;
+  wht_rate: string | null;
+  wht_gross_up: boolean;
+  wht_base: string | null;
+  wht_amount: string;
+  wht_booked: string;
+  expected_cash: string;
   amount: string;
   balance_due: string;
   status: string;
@@ -170,10 +181,46 @@ const discountEnabled = ref(false);
 const discountType = ref<DiscountType | null>(null);
 const discountValue = ref<number | null>(null);
 
-const { lineItems, addLine, removeLine, subtotal, total } = useInvoiceForm({
+const whtType = ref<WhtType>("NONE");
+const whtRate = ref<number | null>(null);
+const whtGrossUp = ref(false);
+
+function onWhtTypeChange(t: WhtType) {
+  if (t === "NONE") {
+    whtRate.value = null;
+    whtGrossUp.value = false;
+  } else {
+    whtRate.value = WHT_DEFAULT_RATES[t];
+  }
+}
+
+function setWht(type: WhtType | null | undefined, rate: string | null | undefined, grossUp: boolean | null | undefined) {
+  whtType.value = type ?? "NONE";
+  whtRate.value = whtType.value !== "NONE" && rate != null ? Number(rate) : null;
+  whtGrossUp.value = whtType.value !== "NONE" && !!grossUp;
+}
+
+const whtLabel = computed(() => WHT_OPTIONS.find((o) => o.value === whtType.value)?.label ?? "");
+const whtRateLabel = computed(() =>
+  whtRate.value == null ? "" : `${Number(whtRate.value.toFixed(4))}%`,
+);
+
+const {
+  lineItems,
+  addLine,
+  removeLine,
+  subtotal,
+  total,
+  whtAmount,
+  grossUpAmount,
+  amountToTransfer,
+} = useInvoiceForm({
   currency,
   discountType,
   discountValue,
+  whtType,
+  whtRate,
+  whtGrossUp,
 });
 
 const isEdit = computed(() => !!props.id);
@@ -221,6 +268,9 @@ interface TemplateResponse {
   internal_note: string | null;
   discount_type: "PERCENT" | "AMOUNT" | null;
   discount_value: string | null;
+  wht_type: WhtType;
+  wht_rate: string | null;
+  wht_gross_up: boolean;
   billing_cycle_ref: {
     frequency?: Frequency;
     interval?: number;
@@ -263,6 +313,7 @@ watch(
       discountType.value = t.discount_type;
       discountValue.value = t.discount_value ? Number(t.discount_value) : null;
     }
+    setWht(t.wht_type, t.wht_rate, t.wht_gross_up);
     const cfg = t.billing_cycle_ref ?? {};
     if (cfg.frequency) frequency.value = cfg.frequency;
     if (cfg.interval) interval.value = cfg.interval;
@@ -327,6 +378,13 @@ const canMarkPaid = computed(
 const canRecordPayment = computed(
   () => isUnpaid.value && Number(existing.value?.balance_due ?? 0) > 0,
 );
+// PPh still expected to be withheld by the customer (not yet booked).
+const whtOutstanding = computed(() => {
+  const inv = existing.value;
+  if (!inv) return 0;
+  const v = Number(inv.wht_amount ?? 0) - Number(inv.wht_booked ?? 0);
+  return Number.isFinite(v) && v > 0 ? Math.round(v * 10000) / 10000 : 0;
+});
 const confirm = useConfirm();
 
 async function sendReceipt(
@@ -354,6 +412,7 @@ async function sendReceipt(
 const recordPayment = useMutation({
   mutationFn: async (payload: {
     amount: number;
+    wht_amount: number;
     payment_date: string;
     payer_name: string | null;
     payer_reference: string | null;
@@ -513,6 +572,8 @@ watch(customerId, (newId, oldId) => {
   if (isEdit.value) return;
   const c = (customers.value ?? []).find((c) => c.customer_id === newId);
   if (c?.default_currency) currency.value = c.default_currency;
+  // Withholding defaults follow the customer on a user-driven change (new only).
+  if (c) setWht(c.default_wht_type, c.default_wht_rate, c.default_wht_gross_up);
 });
 
 // When a project is picked, inherit its currency (only for new invoices)
@@ -549,6 +610,7 @@ watch(existing, (inv) => {
   discountType.value = (inv.discount_type as DiscountType | null) ?? null;
   discountValue.value = inv.discount_value != null ? Number(inv.discount_value) : null;
   discountEnabled.value = !!inv.discount_type;
+  setWht(inv.wht_type, inv.wht_rate, inv.wht_gross_up);
   if (inv.line_items?.length) {
     lineItems.value = inv.line_items
       .slice()
@@ -577,6 +639,15 @@ function toISODate(d: Date | null): string | null {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function whtPayload() {
+  const none = whtType.value === "NONE";
+  return {
+    wht_type: whtType.value,
+    wht_rate: none ? null : whtRate.value,
+    wht_gross_up: none ? false : whtGrossUp.value,
+  };
+}
+
 function buildPayload() {
   const clean = (lineItems.value as LineItemRow[])
     .filter((ln) => (ln.description && ln.description.trim()) || ln.item_id)
@@ -601,6 +672,7 @@ function buildPayload() {
     internal_note: internalNote.value || null,
     discount_type: discountEnabled.value ? discountType.value : null,
     discount_value: discountEnabled.value ? discountValue.value : null,
+    ...whtPayload(),
     line_items: clean,
   };
 }
@@ -626,6 +698,7 @@ function buildTemplatePayload() {
     internal_note: internalNote.value || null,
     discount_type: discountEnabled.value ? discountType.value : null,
     discount_value: discountEnabled.value ? discountValue.value : null,
+    ...whtPayload(),
     line_items: clean,
     schedule: {
       frequency: frequency.value,
@@ -677,6 +750,7 @@ const nextInvoiceDate = computed<string>(() => {
 
 const canSave = computed(() => {
   if (!currency.value) return false;
+  if (whtType.value !== "NONE" && !(whtRate.value != null && whtRate.value > 0)) return false;
   if (isRecurring.value) {
     if (!paymentTerms.value || !issueDate.value) return false;
     if (endMode.value === "ON_DATE" && !endDate.value) return false;
@@ -1068,6 +1142,45 @@ const canSave = computed(() => {
           </div>
         </div>
 
+        <div class="wht-controls">
+          <div class="wht-input">
+            <Dropdown
+              v-model="whtType"
+              :options="WHT_OPTIONS"
+              option-label="label"
+              option-value="value"
+              class="wht-type"
+              aria-label="Withholding tax"
+              :disabled="readOnly"
+              @update:modelValue="onWhtTypeChange"
+            />
+            <InputNumber
+              v-model="whtRate"
+              suffix="%"
+              :min="0.0001"
+              :max="99.9999"
+              :min-fraction-digits="0"
+              :max-fraction-digits="4"
+              class="wht-rate"
+              aria-label="Withholding rate"
+              :disabled="readOnly || whtType === 'NONE'"
+            />
+          </div>
+          <label class="wht-gross">
+            <Checkbox
+              v-model="whtGrossUp"
+              binary
+              :disabled="readOnly || whtType === 'NONE'"
+            />
+            <span>Gross up</span>
+          </label>
+        </div>
+
+        <div v-if="whtType !== 'NONE' && whtGrossUp" class="totals-row">
+          <div class="totals-label">Gross-up {{ whtLabel }} ({{ whtRateLabel }})</div>
+          <div class="totals-value num">{{ formatAmount(grossUpAmount, currency) }}</div>
+        </div>
+
         <div class="totals-row total">
           <div class="totals-label">
             <Dropdown
@@ -1081,7 +1194,17 @@ const canSave = computed(() => {
           <div class="totals-value num">{{ formatAmount(total, currency) }}</div>
         </div>
 
-        <div class="totals-row due">
+        <template v-if="whtType !== 'NONE'">
+          <div class="totals-row">
+            <div class="totals-label">Less: {{ whtLabel }} withheld ({{ whtRateLabel }})</div>
+            <div class="totals-value num">−{{ formatAmount(whtAmount, currency) }}</div>
+          </div>
+          <div class="totals-row due">
+            <div class="totals-label">Amount to Transfer</div>
+            <div class="totals-value num">{{ formatAmount(amountToTransfer, currency) }}</div>
+          </div>
+        </template>
+        <div v-else class="totals-row due">
           <div class="totals-label">Amount Due</div>
           <div class="totals-value num">{{ formatAmount(total, currency) }}</div>
         </div>
@@ -1129,6 +1252,7 @@ const canSave = computed(() => {
       v-if="existing"
       v-model:visible="showPaymentDialog"
       :balance-due="existing.balance_due"
+      :wht-outstanding="whtOutstanding"
       :currency="existing.currency"
       mode="AR"
       :customer-email="selectedCustomer?.contact_email ?? null"
@@ -1508,6 +1632,30 @@ const canSave = computed(() => {
 .discount-value :deep(.p-inputnumber),
 .discount-value :deep(.p-inputnumber-input) {
   width: 100%;
+}
+.wht-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.wht-input {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+}
+.wht-type { width: 110px; flex: 0 0 auto; }
+.wht-rate { flex: 1; }
+.wht-rate :deep(.p-inputnumber),
+.wht-rate :deep(.p-inputnumber-input) {
+  width: 100%;
+}
+.wht-gross {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
 }
 .ccy-select { width: 110px; }
 .num { font-variant-numeric: tabular-nums; }
