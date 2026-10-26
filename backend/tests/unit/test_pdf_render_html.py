@@ -33,6 +33,8 @@ def _inv():
         amount=Decimal("11058.00"), balance_due=Decimal("6058.00"), status="PARTIALLY_PAID",
         issue_date=date(2026, 7, 23), due_date=date(2026, 8, 22),
         payment_terms="Net 30", notes=None,
+        wht_type="NONE", wht_rate=None, wht_gross_up=False, wht_base=None,
+        wht_amount=Decimal("0"), wht_booked=Decimal("0"),
         line_items=[SimpleNamespace(position=1, description="Frontend engineering",
                     quantity=Decimal("40"), unit_price=Decimal("85"), amount=Decimal("3400"))],
     )
