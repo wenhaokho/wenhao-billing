@@ -22,6 +22,10 @@ class BusinessProfile(Base):
     invoice_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Taxpayer identity printed on invoices so customers can issue PPh bukti
+    # potong; npwp_name is the registered taxpayer, which may differ from name.
+    npwp: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    npwp_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),
         server_default=func.current_timestamp(),

@@ -11,7 +11,7 @@ from app.services.stats import compute_dashboard_stats
 
 # Real columns on BusinessProfile (backend/app/models/business_profile.py):
 # id, name, address, contact_email, contact_phone, invoice_title,
-# invoice_summary, logo_url, default_notes, updated_at. There is no
+# invoice_summary, logo_url, default_notes, npwp, npwp_name, updated_at. There is no
 # "legal_name" / "base_currency" column on this model (base_currency is a
 # global app setting, not per-business-profile data).
 _PROFILE_FIELDS = [
@@ -24,6 +24,8 @@ _PROFILE_FIELDS = [
     "invoice_summary",
     "logo_url",
     "default_notes",
+    "npwp",
+    "npwp_name",
     "updated_at",
 ]
 

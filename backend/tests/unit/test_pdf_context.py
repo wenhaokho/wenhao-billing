@@ -302,3 +302,17 @@ def test_invoice_context_omits_block_when_no_accounts():
     biz.payment_accounts = []
     ctx = build_invoice_context(_inv(), _cust(), biz)
     assert ctx["payment_instructions"] is None
+
+
+def test_invoice_from_block_shows_npwp_with_taxpayer_name():
+    biz = _biz()
+    biz.npwp = "2102060605910001"
+    biz.npwp_name = "Kardono Wijaya"
+    ctx = build_invoice_context(_inv(), _cust(), biz)
+    assert ctx["from_lines"][-1] == "NPWP 2102060605910001 a.n. Kardono Wijaya"
+
+
+def test_invoice_from_block_omits_npwp_when_unset():
+    ctx = build_invoice_context(_inv(), _cust(), _biz())
+    assert not any(ln.startswith("NPWP") for ln in ctx["from_lines"])
+

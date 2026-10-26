@@ -81,6 +81,8 @@ interface BusinessProfile {
   invoice_summary: string | null;
   logo_url: string | null;
   default_notes: string | null;
+  npwp: string | null;
+  npwp_name: string | null;
 }
 const company = ref<BusinessProfile>({
   name: "",
@@ -91,6 +93,8 @@ const company = ref<BusinessProfile>({
   invoice_summary: "",
   logo_url: "",
   default_notes: "",
+  npwp: "",
+  npwp_name: "",
 });
 const companyLoading = ref(false);
 const companySaving = ref(false);
@@ -128,6 +132,8 @@ async function loadCompany() {
       invoice_summary: data.invoice_summary ?? "",
       logo_url: data.logo_url ?? "",
       default_notes: data.default_notes ?? "",
+      npwp: data.npwp ?? "",
+      npwp_name: data.npwp_name ?? "",
     };
     const accts = await api.get("/business-profile/payment-accounts");
     const byCurrency = new Map(
@@ -343,6 +349,18 @@ function fmtDate(iso?: string) {
               <label>
                 Contact phone
                 <InputText v-model="company.contact_phone" maxlength="50" />
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                NPWP
+                <InputText v-model="company.npwp" maxlength="32" />
+                <small>Printed on invoices for PPh bukti potong (NIK for individuals).</small>
+              </label>
+              <label>
+                Taxpayer name
+                <InputText v-model="company.npwp_name" maxlength="255" />
+                <small>Name registered on the NPWP, if different from the company name.</small>
               </label>
             </div>
             <label>
