@@ -74,3 +74,18 @@ def test_record_without_wht_unchanged(client, admin_session, db, wht_invoice):
     assert wht_invoice.status == "PARTIAL"
     assert wht_invoice.balance_due == GROSS - Decimal(1000000)
     assert wht_invoice.wht_booked == 0
+
+
+def test_record_partial_with_wht_reduces_balance_by_both(client, admin_session, db, wht_invoice):
+    r = _post(client, wht_invoice.invoice_id, amount="5000000", wht_amount="100000")
+    assert r.status_code == 201, r.text
+    db.refresh(wht_invoice)
+    assert wht_invoice.status == "PARTIAL"
+    assert wht_invoice.balance_due == GROSS - Decimal(5100000)
+    assert wht_invoice.wht_booked == Decimal(100000)
+
+
+def test_exceeding_error_mentions_withheld(client, admin_session, wht_invoice):
+    r = _post(client, wht_invoice.invoice_id, amount="10000000", wht_amount="204083")
+    assert r.status_code == 400
+    assert "amount + withheld" in r.json()["detail"]

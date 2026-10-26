@@ -50,11 +50,15 @@ class WebhookPayload(BaseModel):
 class RecordPaymentRequest(BaseModel):
     """Manually recorded payment against an invoice or bill."""
     amount: Decimal = Field(gt=0, max_digits=19, decimal_places=4)
-    wht_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=19, decimal_places=4)
     payment_date: date
     payer_name: str | None = None
     payer_reference: str | None = None
     notes: str | None = None
+
+
+class InvoiceRecordPaymentRequest(RecordPaymentRequest):
+    """Invoice payment; may include the PPh amount withheld by the customer."""
+    wht_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=19, decimal_places=4)
 
 
 class SendReceiptRequest(BaseModel):

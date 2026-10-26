@@ -35,7 +35,11 @@ from app.schemas.invoice import (
     UsageLockRequest,
     VoidRequest,
 )
-from app.schemas.payment import PaymentOut, RecordPaymentRequest, SendReceiptRequest
+from app.schemas.payment import (
+    InvoiceRecordPaymentRequest,
+    PaymentOut,
+    SendReceiptRequest,
+)
 from app.services import draft_notifications, invoicing
 from app.services.email import send_email
 from app.services.hosting import ensure_hosting_restored as ensure_subscription_restored
@@ -505,7 +509,7 @@ def update_invoice(
 @router.post("/{invoice_id}/record-payment", response_model=PaymentOut, status_code=201)
 def record_payment(
     invoice_id: UUID,
-    payload: RecordPaymentRequest,
+    payload: InvoiceRecordPaymentRequest,
     db: Session = Depends(get_db),
     user: User = Depends(current_admin),
 ) -> Payment:
@@ -528,7 +532,11 @@ def record_payment(
     if settled > Decimal(invoice.balance_due):
         raise HTTPException(
             status_code=400,
-            detail=f"amount {settled} exceeds balance due {invoice.balance_due}",
+            detail=(
+                f"amount + withheld {settled} exceeds balance due {invoice.balance_due}"
+                if wht_amount > 0
+                else f"amount {settled} exceeds balance due {invoice.balance_due}"
+            ),
         )
 
     payment = Payment(
