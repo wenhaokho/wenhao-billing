@@ -103,9 +103,9 @@ def test_invoice_context_gross_up_rows():
     rows = [(r["label"], r["value"], r["cls"]) for r in ctx["summary_rows"]]
     assert rows == [
         ("Subtotal", "10,000,000", "subtotal"),
-        ("Gross-up PPh 23 (2%)", "204,082", "grossup"),
+        ("PPh 23 (2%)", "204,082", "grossup"),
         ("Total", "10,204,082", "total"),
-        ("Less: PPh 23 withheld (2%)", "−204,082", "wht"),
+        ("PPh 23 withholding (2%)", "−204,082", "wht"),
     ]
     assert ctx["hero_label"] == "Amount to Transfer"
     assert ctx["hero_amount"] == "10,000,000"
@@ -124,7 +124,7 @@ def test_invoice_context_wht_without_gross_up():
     assert rows == [
         ("Subtotal", "10,000,000"),
         ("Total", "10,000,000"),
-        ("Less: PPh 23 withheld (2%)", "−200,000"),
+        ("PPh 23 withholding (2%)", "−200,000"),
     ]
     assert ctx["hero_amount"] == "9,800,000"
 
@@ -140,7 +140,7 @@ def test_invoice_context_wht_with_partial_payment():
     ctx = build_invoice_context(inv, _cust(), _biz())
     labels = [r["label"] for r in ctx["summary_rows"]]
     assert labels == [
-        "Subtotal", "Total", "Less: PPh 23 withheld (2%)", "Paid",
+        "Subtotal", "Total", "PPh 23 withholding (2%)", "Paid",
     ]
     assert ctx["summary_rows"][-1]["value"] == "−4,000,000"
     assert ctx["hero_amount"] == "5,800,000"      # expected_cash
@@ -165,7 +165,7 @@ def test_invoice_context_paid_gross_up_excludes_booked_wht():
     rows = [(r["label"], r["value"]) for r in ctx["summary_rows"]]
     assert rows[-3:] == [
         ("Total", "10,204,082"),
-        ("Less: PPh 23 withheld (2%)", "−204,082"),
+        ("PPh 23 withholding (2%)", "−204,082"),
         ("Paid", "−10,000,000"),
     ]
     assert ctx["hero_amount"] == "0"

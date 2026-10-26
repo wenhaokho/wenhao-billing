@@ -44,6 +44,7 @@ HAIR = colors.HexColor("#E4E7EC")      # hairline rules
 PANEL = colors.HexColor("#F6F6F3")     # warm off-white panel fill
 ZEBRA = colors.HexColor("#FAFAF8")     # barely-there alternate row
 ACCENT = colors.HexColor("#0E7C66")    # emerald teal
+WHT_RED = colors.HexColor("#EF5B5B")   # PPh withholding amount
 ACCENT_DK = colors.HexColor("#0A5C4C")
 PAPER = colors.white
 
@@ -443,7 +444,7 @@ def render_invoice_pdf(
     if wht:
         small_rows.append([
             (
-                f"Less: {WHT_LABELS[invoice.wht_type]} withheld "
+                f"{WHT_LABELS[invoice.wht_type]} withholding "
                 f"({_fmt_pct(invoice.wht_rate)}%)"
             ),
             f"-{money(invoice.wht_amount)}",
@@ -466,6 +467,9 @@ def render_invoice_pdf(
         ("LINEABOVE", (0, total_idx), (-1, total_idx), 0.5, HAIR),
         ("TOPPADDING", (0, total_idx), (-1, total_idx), 7),
     ]
+    if wht:
+        # withholding amount in red, matching the HTML renderer
+        ti_style.append(("TEXTCOLOR", (1, total_idx + 1), (1, total_idx + 1), WHT_RED))
     totals_inner.setStyle(TableStyle(ti_style))
 
     # Hero panel — Balance Due, accent fill, white figures.

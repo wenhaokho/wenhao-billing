@@ -1177,7 +1177,7 @@ const canSave = computed(() => {
         </div>
 
         <div v-if="whtType !== 'NONE' && whtGrossUp" class="totals-row">
-          <div class="totals-label">Gross-up {{ whtLabel }} ({{ whtRateLabel }})</div>
+          <div class="totals-label">{{ whtLabel }} ({{ whtRateLabel }})</div>
           <div class="totals-value num">{{ formatAmount(grossUpAmount, currency) }}</div>
         </div>
 
@@ -1196,8 +1196,8 @@ const canSave = computed(() => {
 
         <template v-if="whtType !== 'NONE'">
           <div class="totals-row">
-            <div class="totals-label">Less: {{ whtLabel }} withheld ({{ whtRateLabel }})</div>
-            <div class="totals-value num">−{{ formatAmount(whtAmount, currency) }}</div>
+            <div class="totals-label">{{ whtLabel }} withholding ({{ whtRateLabel }})</div>
+            <div class="totals-value num wht-amount">−{{ formatAmount(whtAmount, currency) }}</div>
           </div>
           <div class="totals-row due">
             <div class="totals-label">Amount to Transfer</div>
@@ -1605,6 +1605,9 @@ const canSave = computed(() => {
 .totals-row.total .totals-label {
   color: var(--color-text);
   font-size: 1rem;
+}
+.totals-value.wht-amount {
+  color: var(--color-danger);
 }
 .totals-row.due {
   margin-top: 0.25rem;

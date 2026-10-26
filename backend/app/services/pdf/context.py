@@ -183,13 +183,13 @@ def build_invoice_context(invoice, customer, business=None) -> dict:
         rate = _fmt_pct(invoice.wht_rate)
         if invoice.wht_gross_up:
             rows.append({
-                "label": f"Gross-up {label} ({rate}%)",
+                "label": f"{label} ({rate}%)",
                 "value": _fmt_num(Decimal(invoice.amount) - Decimal(invoice.wht_base), cur),
                 "cls": "grossup",
             })
         rows.append({"label": "Total", "value": _fmt_num(invoice.amount, cur), "cls": "total"})
         rows.append({
-            "label": f"Less: {label} withheld ({rate}%)",
+            "label": f"{label} withholding ({rate}%)",
             "value": f"−{_fmt_num(invoice.wht_amount, cur)}",
             "cls": "wht",
         })

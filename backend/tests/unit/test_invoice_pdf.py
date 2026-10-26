@@ -247,7 +247,7 @@ def test_render_wht_invoice_hero_is_amount_to_transfer():
     assert any("AMOUNT TO TRANSFER" in (t or "") for t in texts)
     assert not any("BALANCE&nbsp;DUE" in (t or "") for t in texts)
     assert any((t or "").startswith("10,000,000<") for t in texts)
-    assert ["Less: PPh 23 withheld (2%)", "-204,082 IDR"] in rows
+    assert ["PPh 23 withholding (2%)", "-204,082 IDR"] in rows
 
 
 def test_render_no_wht_invoice_hero_is_balance_due():
