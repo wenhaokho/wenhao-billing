@@ -13,6 +13,7 @@ from datetime import date
 from decimal import Decimal
 from difflib import SequenceMatcher
 from enum import Enum
+from types import SimpleNamespace
 from typing import Iterable, Optional
 from uuid import UUID
 
@@ -63,8 +64,20 @@ class InvoiceCandidate:
 
     @property
     def expected_cash(self) -> Decimal:
-        """Cash the customer should actually transfer (balance net of PPh)."""
-        return self.balance_due - self.wht_outstanding
+        """Cash the customer should actually transfer (balance net of PPh).
+
+        Delegates to ``withholding.expected_cash`` so candidates and ORM
+        invoices share one definition (including its clamp at zero). The
+        candidate only carries the unbooked remainder, so it is presented as
+        ``wht_amount`` with nothing booked.
+        """
+        return withholding.expected_cash(
+            SimpleNamespace(
+                balance_due=self.balance_due,
+                wht_amount=self.wht_outstanding,
+                wht_booked=Decimal(0),
+            )
+        )
 
 
 def _expected_cash(invoice) -> Decimal:

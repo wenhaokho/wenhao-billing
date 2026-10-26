@@ -190,3 +190,20 @@ def test_foreign_currency_withholding_entry_balances_in_base(db):
     assert sum(l.debit - l.credit for l in entry.lines) == 0
     assert sum(l.base_amount_debit - l.base_amount_credit for l in entry.lines) == 0
     assert {l.currency for l in entry.lines} == {"USD"}
+
+
+def test_gross_payment_is_held_without_side_effects(db, wht_invoice):
+    # Paying the gross total means the customer did not withhold — ambiguous,
+    # so it must stop for a human: no ledger, no invoice change.
+    payment = reconciliation.process_incoming_payment(db, _payload(GROSS))
+    db.flush()
+
+    assert payment.status == "PENDING_MANUAL_REVIEW"
+    assert payment.wht_amount == 0
+    assert db.scalar(
+        select(JournalEntry).where(JournalEntry.source_id == payment.payment_id)
+    ) is None
+    db.refresh(wht_invoice)
+    assert wht_invoice.balance_due == GROSS
+    assert wht_invoice.wht_booked == 0
+    assert wht_invoice.status == "OPEN"

@@ -33,7 +33,7 @@ from app.mcp.server import mcp
 from app.mcp.tools.read_recon import _PAYMENT_FIELDS
 from app.models.invoice import Invoice
 from app.models.payment import Payment
-from app.services import reconciliation
+from app.services import reconciliation, withholding
 from app.services.matching_engine import is_exact_match
 
 
@@ -78,7 +78,7 @@ def resolve_reconciliation_match(payment_id: str, invoice_id: str) -> dict:
                 return {
                     "error": (
                         f"amount mismatch: payment {payment.amount} vs invoice "
-                        f"balance_due {invoice.balance_due} — refusing "
+                        f"expected cash {withholding.expected_cash(invoice)} — refusing "
                         "autonomous resolution, route to manual review"
                     )
                 }
