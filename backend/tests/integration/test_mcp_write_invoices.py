@@ -149,3 +149,45 @@ def test_create_recurring_template_and_trigger_recurring(mcp_tool_db, seed_custo
 def test_trigger_recurring_on_non_recurring_template_returns_error(mcp_tool_db, seed_invoice):
     out = trigger_recurring(template_id=str(seed_invoice), cycle_key="2026-08-01")
     assert out == {"error": f"invoice {seed_invoice} is not RECURRING"}
+
+
+def test_mcp_create_invoice_with_pph23_gross_up(mcp_tool_db, seed_customer):
+    out = create_invoice(
+        customer_id=str(seed_customer),
+        currency="IDR",
+        line_items=[{"description": "Design", "quantity": "1", "unit_price": "980000"}],
+        wht_type="PPH23",
+        wht_rate="2",
+        wht_gross_up=True,
+    )
+    assert out["wht_type"] == "PPH23"
+    assert out["wht_gross_up"] is True
+    assert Decimal(out["amount"]) == Decimal(1000000)
+    assert Decimal(out["wht_amount"]) == Decimal(20000)
+    assert Decimal(out["expected_cash"]) == Decimal(980000)
+
+
+def test_mcp_create_invoice_invalid_wht_rate_returns_error(mcp_tool_db, seed_customer):
+    out = create_invoice(
+        customer_id=str(seed_customer),
+        currency="IDR",
+        line_items=[{"description": "x", "quantity": "1", "unit_price": "1000"}],
+        wht_type="PPH23",
+        wht_rate="150",
+    )
+    assert "error" in out
+
+
+def test_mcp_update_invoice_sets_withholding(mcp_tool_db, seed_customer):
+    created = create_invoice(
+        customer_id=str(seed_customer),
+        currency="IDR",
+        line_items=[{"description": "x", "quantity": "1", "unit_price": "100000"}],
+    )
+    out = update_invoice(
+        invoice_id=created["invoice_id"],
+        changes={"wht_type": "PPH23", "wht_rate": "2"},
+    )
+    assert out["wht_type"] == "PPH23"
+    assert Decimal(out["wht_amount"]) == Decimal(2000)
+    assert Decimal(out["expected_cash"]) == Decimal(98000)

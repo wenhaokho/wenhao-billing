@@ -15,6 +15,7 @@ before this except catches it).
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from uuid import UUID
 
 from app.mcp.db import tool_session
@@ -39,6 +40,9 @@ def create_customer(
     website: str | None = None,
     notes: str | None = None,
     default_currency: str | None = None,
+    default_wht_type: str | None = None,
+    default_wht_rate: str | None = None,
+    default_wht_gross_up: bool | None = None,
     billing_address1: str | None = None,
     billing_address2: str | None = None,
     billing_city: str | None = None,
@@ -62,6 +66,11 @@ def create_customer(
     for a customer "with phone X at address Y" had nowhere to put either and
     ended up folding both into `notes` — the data was in the record but not
     in the fields the UI, invoices, and matching read from.
+
+    `default_wht_type` (NONE|PPH21|PPH23), `default_wht_rate` (percent) and
+    `default_wht_gross_up` seed new invoices for this customer; gross-up raises
+    the invoice so that after the client withholds PPh you still receive the
+    full base amount.
 
     Address is structured (address1/address2/city/state/postal_code/country),
     matching the customer form. The legacy unstructured `billing_address`
@@ -88,6 +97,9 @@ def create_customer(
         website=website,
         notes=notes,
         default_currency=default_currency,
+        default_wht_type=default_wht_type,
+        default_wht_rate=Decimal(default_wht_rate) if default_wht_rate else None,
+        default_wht_gross_up=default_wht_gross_up,
         billing_address1=billing_address1,
         billing_address2=billing_address2,
         billing_city=billing_city,
@@ -114,7 +126,10 @@ def create_customer(
 def update_customer(customer_id: str, changes: dict) -> dict:
     """Edit a customer. `changes` keys are CustomerUpdate field names — the
     same names `create_customer` takes (e.g. contact_phone, billing_address1,
-    billing_city, notes, default_currency, active). Autonomous.
+    billing_city, notes, default_currency, active,
+    default_wht_type/default_wht_rate/default_wht_gross_up). Gross-up raises the
+    invoice so that after the client withholds PPh you still receive the full
+    base amount. Autonomous.
 
     Unknown keys are rejected rather than applied: CustomerUpdate's default
     extra="ignore" would otherwise drop a near-miss key like "phone" or

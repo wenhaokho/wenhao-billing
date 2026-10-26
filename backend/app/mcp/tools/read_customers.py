@@ -41,6 +41,9 @@ _CUSTOMER_DETAIL_FIELDS = [
     "notes",
     # Billing
     "default_currency",
+    "default_wht_type",
+    "default_wht_rate",
+    "default_wht_gross_up",
     "billing_address",  # legacy unstructured column: readable, never written here
     "billing_address1",
     "billing_address2",
