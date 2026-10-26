@@ -13,6 +13,7 @@ import Message from "primevue/message";
 import { api } from "@/api/client";
 import { formatAmount, formatMoney } from "@/utils/money";
 import CustomerForm from "@/components/CustomerForm.vue";
+import type { WhtType } from "@/composables/withholding";
 import {
   emptyCustomerForm,
   buildCustomerPayload,
@@ -54,6 +55,9 @@ interface Customer {
   shipping_postal_code: string | null;
   shipping_phone: string | null;
   shipping_delivery_instructions: string | null;
+  default_wht_type?: WhtType;
+  default_wht_rate?: string | null;
+  default_wht_gross_up?: boolean;
 }
 
 interface InvoiceRow {
@@ -245,6 +249,9 @@ function customerToForm(c: Customer): CustomerFormData {
     shipping_postal_code: c.shipping_postal_code ?? "",
     shipping_phone: c.shipping_phone ?? "",
     shipping_delivery_instructions: c.shipping_delivery_instructions ?? "",
+    default_wht_type: c.default_wht_type ?? "NONE",
+    default_wht_rate: c.default_wht_rate != null ? Number(c.default_wht_rate) : null,
+    default_wht_gross_up: c.default_wht_gross_up ?? false,
   };
 }
 
