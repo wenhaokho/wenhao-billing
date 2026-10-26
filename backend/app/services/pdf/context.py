@@ -189,7 +189,7 @@ def build_invoice_context(invoice, customer, business=None) -> dict:
             })
         rows.append({"label": "Total", "value": _fmt_num(invoice.amount, cur), "cls": "total"})
         rows.append({
-            "label": f"Less: {label} withheld ({rate}%)",
+            "label": f"{label} withholding ({rate}%)",
             "value": f"−{_fmt_num(invoice.wht_amount, cur)}",
             "cls": "wht",
         })
