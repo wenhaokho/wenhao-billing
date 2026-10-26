@@ -308,8 +308,8 @@ function onToggleSameAsBilling(v: boolean) {
           <InputNumber
             v-model="local.default_wht_rate"
             suffix="%"
-            :min="0"
-            :max="100"
+            :min="0.0001"
+            :max="99.9999"
             :min-fraction-digits="0"
             :max-fraction-digits="4"
             :disabled="local.default_wht_type === 'NONE'"

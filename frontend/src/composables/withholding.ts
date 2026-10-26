@@ -11,10 +11,9 @@ export const WHT_DEFAULT_RATES: Record<"PPH21" | "PPH23", number> = {
   PPH23: 2,
 };
 
-// Half-up rounding to `decimals` places (amounts are non-negative).
-function roundHalfUp(value: number, decimals: number): number {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
+// Exact integer half-up division: round(n / d) for non-negative n, positive d.
+function divHalfUp(n: bigint, d: bigint): bigint {
+  return (2n * n + d) / (2n * d);
 }
 
 /**
@@ -31,14 +30,19 @@ export function computeWithholding(
   rate: number | null,
   grossUp: boolean,
 ): { total: number; whtAmount: number } {
-  if (type === "NONE" || rate == null || !(rate > 0)) {
+  if (type === "NONE" || rate == null || !(rate > 0 && rate < 100)) {
     return { total: base, whtAmount: 0 };
   }
   const decimals = currency === "IDR" ? 0 : 2;
-  const r = (v: number) => roundHalfUp(v, decimals);
+  const scale = 10 ** decimals;
+  // Scaled-integer arithmetic so half-up matches the backend's Decimal math.
+  const baseMinor = BigInt(Math.round(base * scale));
+  const rateE4 = BigInt(Math.round(rate * 10000)); // ten-thousandths of a percent
+  const E6 = 1_000_000n; // 100% in ten-thousandths of a percent
   if (!grossUp) {
-    return { total: base, whtAmount: r((base * rate) / 100) };
+    const wht = divHalfUp(baseMinor * rateE4, E6);
+    return { total: base, whtAmount: Number(wht) / scale };
   }
-  const total = r(base / (1 - rate / 100));
-  return { total, whtAmount: r(total - base) };
+  const total = divHalfUp(baseMinor * E6, E6 - rateE4);
+  return { total: Number(total) / scale, whtAmount: Number(total - baseMinor) / scale };
 }
