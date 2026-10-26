@@ -20,7 +20,12 @@ import {
   type LineItemRow,
   type DiscountType,
 } from "@/composables/useInvoiceForm";
-import { WHT_OPTIONS, WHT_DEFAULT_RATES, type WhtType } from "@/composables/withholding";
+import {
+  WHT_OPTIONS,
+  WHT_DEFAULT_RATES,
+  whtOutstanding,
+  type WhtType,
+} from "@/composables/withholding";
 import InvoiceLineItemsTable from "@/components/InvoiceLineItemsTable.vue";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
 import SendInvoiceDialog from "@/components/SendInvoiceDialog.vue";
@@ -379,12 +384,7 @@ const canRecordPayment = computed(
   () => isUnpaid.value && Number(existing.value?.balance_due ?? 0) > 0,
 );
 // PPh still expected to be withheld by the customer (not yet booked).
-const whtOutstanding = computed(() => {
-  const inv = existing.value;
-  if (!inv) return 0;
-  const v = Number(inv.wht_amount ?? 0) - Number(inv.wht_booked ?? 0);
-  return Number.isFinite(v) && v > 0 ? Math.round(v * 10000) / 10000 : 0;
-});
+const invoiceWhtOutstanding = computed(() => (existing.value ? whtOutstanding(existing.value) : 0));
 const confirm = useConfirm();
 
 async function sendReceipt(
@@ -1252,7 +1252,7 @@ const canSave = computed(() => {
       v-if="existing"
       v-model:visible="showPaymentDialog"
       :balance-due="existing.balance_due"
-      :wht-outstanding="whtOutstanding"
+      :wht-outstanding="invoiceWhtOutstanding"
       :currency="existing.currency"
       mode="AR"
       :customer-email="selectedCustomer?.contact_email ?? null"

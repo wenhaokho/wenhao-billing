@@ -46,3 +46,12 @@ export function computeWithholding(
   const total = divHalfUp(baseMinor * E6, E6 - rateE4);
   return { total: Number(total) / scale, whtAmount: Number(total - baseMinor) / scale };
 }
+
+/** PPh still expected to be withheld on an invoice: max(0, wht_amount - wht_booked). */
+export function whtOutstanding(inv: {
+  wht_amount?: string | number | null;
+  wht_booked?: string | number | null;
+}): number {
+  const v = Number(inv.wht_amount ?? 0) - Number(inv.wht_booked ?? 0);
+  return Number.isFinite(v) && v > 0 ? Math.round(v * 10000) / 10000 : 0;
+}

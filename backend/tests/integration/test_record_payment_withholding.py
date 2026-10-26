@@ -89,3 +89,23 @@ def test_exceeding_error_mentions_withheld(client, admin_session, wht_invoice):
     r = _post(client, wht_invoice.invoice_id, amount="10000000", wht_amount="204083")
     assert r.status_code == 400
     assert "amount + withheld" in r.json()["detail"]
+
+
+def test_withheld_above_outstanding_400(client, admin_session, db, wht_invoice):
+    # Fits the balance due, but withholds more PPh than the invoice carries.
+    r = _post(client, wht_invoice.invoice_id, amount="1000000", wht_amount="204083")
+    assert r.status_code == 400, r.text
+    assert "exceeds outstanding withholding" in r.json()["detail"]
+    db.refresh(wht_invoice)
+    assert wht_invoice.balance_due == GROSS
+    assert wht_invoice.wht_booked == 0
+
+
+def test_withheld_above_remaining_after_partial_400(client, admin_session, db, wht_invoice):
+    r = _post(client, wht_invoice.invoice_id, amount="5000000", wht_amount="100000")
+    assert r.status_code == 201, r.text
+    r = _post(client, wht_invoice.invoice_id, amount="1000000", wht_amount="104083")
+    assert r.status_code == 400, r.text
+    assert "outstanding withholding 104082" in r.json()["detail"]
+    r = _post(client, wht_invoice.invoice_id, amount="1000000", wht_amount="104082")
+    assert r.status_code == 201, r.text

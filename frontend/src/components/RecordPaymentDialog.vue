@@ -65,9 +65,12 @@ function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
 }
 
+// PPh can't exceed what is outstanding on the invoice nor the balance due.
+const whtMax = computed(() => Math.min(balanceNum.value, whtOutstandingNum.value));
+
 // Cash expected after the customer withholds the outstanding PPh.
 const fullCash = computed(() =>
-  Math.max(0, round4(balanceNum.value - (showWht.value ? whtOutstandingNum.value : 0))),
+  Math.max(0, round4(balanceNum.value - (showWht.value ? whtMax.value : 0))),
 );
 const exceedsBalance = computed(
   () => round4(Number(amount.value ?? 0) + whtNum.value) > balanceNum.value,
@@ -77,7 +80,7 @@ watch(
   () => props.visible,
   (v) => {
     if (v) {
-      whtAmount.value = showWht.value ? whtOutstandingNum.value : null;
+      whtAmount.value = showWht.value ? whtMax.value : null;
       amount.value = fullCash.value;
       paymentDate.value = new Date();
       payerName.value = "";
@@ -95,14 +98,13 @@ const canSubmit = computed(
   () =>
     !!amount.value &&
     amount.value > 0 &&
-    whtNum.value >= 0 &&
     !exceedsBalance.value &&
     !!paymentDate.value &&
     (props.mode !== "AR" || !sendReceipt.value || !!receiptTo.value.trim()),
 );
 
 function fillFullBalance() {
-  if (showWht.value) whtAmount.value = whtOutstandingNum.value;
+  if (showWht.value) whtAmount.value = whtMax.value;
   amount.value = fullCash.value;
 }
 
@@ -168,7 +170,7 @@ function submit() {
           :max-fraction-digits="4"
           :use-grouping="true"
           :min="0"
-          :max="balanceNum"
+          :max="whtMax"
         />
       </label>
       <Message v-if="exceedsBalance" severity="warn" :closable="false">

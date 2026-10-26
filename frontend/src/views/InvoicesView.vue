@@ -9,6 +9,7 @@ import TabView from "primevue/tabview";
 import TabPanel from "primevue/tabpanel";
 import Tag from "primevue/tag";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
+import { whtOutstanding } from "@/composables/withholding";
 import { useConfirm } from "primevue/useconfirm";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
@@ -135,12 +136,9 @@ const paymentCustomer = computed(() => {
   return (customers.value ?? []).find((c) => c.customer_id === cid) ?? null;
 });
 // PPh still expected to be withheld by the customer (not yet booked).
-const paymentWhtOutstanding = computed(() => {
-  const t = paymentTarget.value;
-  if (!t) return 0;
-  const v = Number(t.wht_amount ?? 0) - Number(t.wht_booked ?? 0);
-  return Number.isFinite(v) && v > 0 ? Math.round(v * 10000) / 10000 : 0;
-});
+const paymentWhtOutstanding = computed(() =>
+  paymentTarget.value ? whtOutstanding(paymentTarget.value) : 0,
+);
 const paymentCustomerEmail = computed(() => paymentCustomer.value?.contact_email ?? null);
 
 async function sendReceipt(

@@ -538,6 +538,12 @@ def record_payment(
                 else f"amount {settled} exceeds balance due {invoice.balance_due}"
             ),
         )
+    wht_outstanding = Decimal(invoice.wht_amount) - Decimal(invoice.wht_booked)
+    if wht_amount > wht_outstanding:
+        raise HTTPException(
+            status_code=400,
+            detail=f"withheld {wht_amount} exceeds outstanding withholding {wht_outstanding}",
+        )
 
     payment = Payment(
         invoice_id=invoice.invoice_id,
