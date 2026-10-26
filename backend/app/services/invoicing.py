@@ -16,6 +16,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.invoice_line_item import InvoiceLineItem
 from app.schemas.invoice import (
@@ -29,6 +30,7 @@ from app.services.recurring_schedule import (
     is_cycle_start,
     parse_schedule,
 )
+from app.services.withholding import WhtResult, compute_withholding, normalize
 
 
 class InvoicingError(RuntimeError):
@@ -46,7 +48,12 @@ def _compute_totals(
     lines: list[InvoiceLineItemIn],
     discount_type: str | None,
     discount_value: Decimal | None,
-) -> tuple[Decimal, Decimal]:
+    currency: str,
+    wht_type: str = "NONE",
+    wht_rate: Decimal | None = None,
+    wht_gross_up: bool = False,
+) -> tuple[Decimal, Decimal, WhtResult]:
+    """Return ``(subtotal, total, wht)``; ``total`` includes any gross-up."""
     subtotal = Decimal("0")
     for ln in lines:
         subtotal += Decimal(ln.quantity) * Decimal(ln.unit_price)
@@ -62,7 +69,77 @@ def _compute_totals(
 
     if amount < 0:
         amount = Decimal("0")
-    return subtotal, amount
+    wht = compute_withholding(amount, currency, wht_type, wht_rate, wht_gross_up)
+    return subtotal, wht.total, wht
+
+
+def _normalize_wht(
+    wht_type: str, rate: Decimal | None, gross_up: bool
+) -> tuple[str, Decimal | None, bool]:
+    try:
+        return normalize(wht_type, rate, gross_up)
+    except ValueError as e:
+        raise InvoicingError(str(e)) from e
+
+
+def _resolve_wht(
+    db: Session,
+    customer_id: UUID | None,
+    payload_type: str | None,
+    payload_rate: Decimal | None,
+    payload_gross_up: bool | None,
+) -> tuple[str, Decimal | None, bool]:
+    """Payload wins when it sets ``wht_type`` (even "NONE"); else the
+    customer's defaults; else NONE."""
+    if payload_type is not None:
+        return _normalize_wht(payload_type, payload_rate, bool(payload_gross_up))
+    customer = db.get(Customer, customer_id) if customer_id is not None else None
+    if customer is None:
+        return "NONE", None, False
+    return _normalize_wht(
+        customer.default_wht_type,
+        customer.default_wht_rate,
+        customer.default_wht_gross_up,
+    )
+
+
+def _merge_wht(
+    current: Invoice, data: dict[str, Any]
+) -> tuple[str, Decimal | None, bool]:
+    """Overlay supplied wht fields onto the record's stored values."""
+    if not any(k in data for k in ("wht_type", "wht_rate", "wht_gross_up")):
+        return current.wht_type, current.wht_rate, current.wht_gross_up
+    wht_type = data.get("wht_type") or current.wht_type
+    rate = data.get("wht_rate")
+    if rate is None and wht_type == current.wht_type:
+        rate = current.wht_rate
+    gross_up = data.get("wht_gross_up")
+    if gross_up is None:
+        gross_up = current.wht_gross_up
+    return _normalize_wht(wht_type, rate, gross_up)
+
+
+def _apply_wht(
+    invoice: Invoice, wht_type: str, rate: Decimal | None, gross_up: bool, wht: WhtResult
+) -> None:
+    invoice.wht_type = wht_type
+    invoice.wht_rate = rate
+    invoice.wht_gross_up = gross_up
+    invoice.wht_base = wht.base
+    invoice.wht_amount = wht.wht_amount
+
+
+def _lines_as_inputs(invoice: Invoice) -> list[InvoiceLineItemIn]:
+    return [
+        InvoiceLineItemIn(
+            item_id=ln.item_id,
+            description=ln.description,
+            quantity=ln.quantity,
+            unit_price=ln.unit_price,
+            position=ln.position,
+        )
+        for ln in invoice.line_items
+    ]
 
 
 def _parse_payment_terms_days(terms: str | None) -> int:
@@ -124,13 +201,20 @@ def create_milestone_invoice(
     project_id: UUID | None = None,
 ) -> Invoice:
     today = issue_date or date.today()
+    wht_type, wht_rate, wht_gross_up = _resolve_wht(db, customer_id, None, None, None)
+    wht = compute_withholding(amount, currency, wht_type, wht_rate, wht_gross_up)
     invoice = Invoice(
         customer_id=customer_id,
         project_id=project_id,
         invoice_type="MILESTONE",
         currency=currency,
-        amount=amount,
-        balance_due=amount,
+        wht_type=wht_type,
+        wht_rate=wht_rate,
+        wht_gross_up=wht_gross_up,
+        wht_base=wht.base,
+        wht_amount=wht.wht_amount,
+        amount=wht.total,
+        balance_due=wht.total,
         status="DRAFT",
         billing_cycle_ref={"milestone_ref": milestone_ref},
         issue_date=today,
@@ -145,8 +229,17 @@ def create_invoice(db: Session, payload: InvoiceCreate) -> Invoice:
     if not payload.line_items:
         raise InvoicingError("invoice must have at least one line item")
 
-    subtotal, amount = _compute_totals(
-        payload.line_items, payload.discount_type, payload.discount_value
+    wht_type, wht_rate, wht_gross_up = _resolve_wht(
+        db, payload.customer_id, payload.wht_type, payload.wht_rate, payload.wht_gross_up
+    )
+    subtotal, amount, wht = _compute_totals(
+        payload.line_items,
+        payload.discount_type,
+        payload.discount_value,
+        payload.currency,
+        wht_type,
+        wht_rate,
+        wht_gross_up,
     )
 
     invoice_number = payload.invoice_number or generate_invoice_number(db)
@@ -165,6 +258,11 @@ def create_invoice(db: Session, payload: InvoiceCreate) -> Invoice:
         subtotal=subtotal,
         discount_type=payload.discount_type,
         discount_value=payload.discount_value,
+        wht_type=wht_type,
+        wht_rate=wht_rate,
+        wht_gross_up=wht_gross_up,
+        wht_base=wht.base,
+        wht_amount=wht.wht_amount,
         amount=amount,
         balance_due=amount,
         status="DRAFT",
@@ -219,19 +317,17 @@ def update_invoice(db: Session, invoice_id: UUID, payload: InvoiceUpdate) -> Inv
             invoice.line_items.append(built)
 
     # recompute totals from current lines
-    current_inputs = [
-        InvoiceLineItemIn(
-            item_id=ln.item_id,
-            description=ln.description,
-            quantity=ln.quantity,
-            unit_price=ln.unit_price,
-            position=ln.position,
-        )
-        for ln in invoice.line_items
-    ]
-    subtotal, amount = _compute_totals(
-        current_inputs, invoice.discount_type, invoice.discount_value
+    wht_type, wht_rate, wht_gross_up = _merge_wht(invoice, data)
+    subtotal, amount, wht = _compute_totals(
+        _lines_as_inputs(invoice),
+        invoice.discount_type,
+        invoice.discount_value,
+        invoice.currency,
+        wht_type,
+        wht_rate,
+        wht_gross_up,
     )
+    _apply_wht(invoice, wht_type, wht_rate, wht_gross_up, wht)
     invoice.subtotal = subtotal
     invoice.amount = amount
     invoice.balance_due = amount
@@ -271,8 +367,17 @@ def create_recurring_template(db: Session, payload: RecurringTemplateCreate) -> 
 
     schedule_dict = _schedule_to_json(payload)
 
-    subtotal, amount = _compute_totals(
-        payload.line_items, payload.discount_type, payload.discount_value
+    wht_type, wht_rate, wht_gross_up = _resolve_wht(
+        db, payload.customer_id, payload.wht_type, payload.wht_rate, payload.wht_gross_up
+    )
+    subtotal, amount, wht = _compute_totals(
+        payload.line_items,
+        payload.discount_type,
+        payload.discount_value,
+        payload.currency,
+        wht_type,
+        wht_rate,
+        wht_gross_up,
     )
     invoice = Invoice(
         customer_id=payload.customer_id,
@@ -284,6 +389,11 @@ def create_recurring_template(db: Session, payload: RecurringTemplateCreate) -> 
         subtotal=subtotal,
         discount_type=payload.discount_type,
         discount_value=payload.discount_value,
+        wht_type=wht_type,
+        wht_rate=wht_rate,
+        wht_gross_up=wht_gross_up,
+        wht_base=wht.base,
+        wht_amount=wht.wht_amount,
         amount=amount,
         balance_due=amount,
         status="DRAFT",
@@ -317,9 +427,19 @@ def update_recurring_template(
     if (template.billing_cycle_ref or {}).get("paused"):
         schedule_dict["paused"] = True
 
-    subtotal, amount = _compute_totals(
-        payload.line_items, payload.discount_type, payload.discount_value
+    wht_type, wht_rate, wht_gross_up = _merge_wht(
+        template, payload.model_dump(exclude_unset=True)
     )
+    subtotal, amount, wht = _compute_totals(
+        payload.line_items,
+        payload.discount_type,
+        payload.discount_value,
+        payload.currency,
+        wht_type,
+        wht_rate,
+        wht_gross_up,
+    )
+    _apply_wht(template, wht_type, wht_rate, wht_gross_up, wht)
     template.customer_id = payload.customer_id
     template.project_id = payload.project_id
     template.currency = payload.currency
@@ -420,6 +540,15 @@ def trigger_recurring_cycle(
 
     today = date.today()
     due_days = _parse_payment_terms_days(template.payment_terms)
+    subtotal, amount, wht = _compute_totals(
+        _lines_as_inputs(template),
+        template.discount_type,
+        template.discount_value,
+        template.currency,
+        template.wht_type,
+        template.wht_rate,
+        template.wht_gross_up,
+    )
     invoice = Invoice(
         customer_id=template.customer_id,
         project_id=template.project_id,
@@ -427,11 +556,16 @@ def trigger_recurring_cycle(
         invoice_number=generate_invoice_number(db),
         po_so_number=template.po_so_number,
         currency=template.currency,
-        subtotal=template.subtotal,
+        subtotal=subtotal,
         discount_type=template.discount_type,
         discount_value=template.discount_value,
-        amount=template.amount,
-        balance_due=template.amount,
+        wht_type=template.wht_type,
+        wht_rate=template.wht_rate,
+        wht_gross_up=template.wht_gross_up,
+        wht_base=wht.base,
+        wht_amount=wht.wht_amount,
+        amount=amount,
+        balance_due=amount,
         status="DRAFT",
         billing_cycle_ref={
             "template_invoice_id": str(template.invoice_id),
@@ -487,8 +621,17 @@ def lock_usage_invoice(
     if invoice.status != "DRAFT":
         raise InvoicingError(f"usage invoice already locked (status={invoice.status})")
 
-    invoice.amount = accrued_amount
-    invoice.balance_due = accrued_amount
+    wht = compute_withholding(
+        accrued_amount,
+        invoice.currency,
+        invoice.wht_type,
+        invoice.wht_rate,
+        invoice.wht_gross_up,
+    )
+    invoice.wht_base = wht.base
+    invoice.wht_amount = wht.wht_amount
+    invoice.amount = wht.total
+    invoice.balance_due = wht.total
     billing_ref: dict[str, Any] = dict(invoice.billing_cycle_ref or {})
     billing_ref["cutoff_date"] = cutoff_date.isoformat()
     billing_ref["locked"] = True

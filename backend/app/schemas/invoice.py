@@ -3,9 +3,10 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.schemas.email import CcEmails
+from app.services.withholding import expected_cash as _expected_cash
 
 
 class MilestoneInvoiceCreate(BaseModel):
@@ -68,6 +69,9 @@ class InvoiceCreate(BaseModel):
     internal_note: str | None = None
     discount_type: Literal["PERCENT", "AMOUNT"] | None = None
     discount_value: Decimal | None = Field(default=None, ge=0, max_digits=19, decimal_places=4)
+    wht_type: Literal["NONE", "PPH21", "PPH23"] | None = None
+    wht_rate: Decimal | None = Field(default=None, max_digits=7, decimal_places=4)
+    wht_gross_up: bool | None = None
     line_items: list[InvoiceLineItemIn] = Field(default_factory=list)
 
 
@@ -86,6 +90,9 @@ class InvoiceUpdate(BaseModel):
     internal_note: str | None = None
     discount_type: Literal["PERCENT", "AMOUNT"] | None = None
     discount_value: Decimal | None = Field(default=None, ge=0, max_digits=19, decimal_places=4)
+    wht_type: Literal["NONE", "PPH21", "PPH23"] | None = None
+    wht_rate: Decimal | None = Field(default=None, max_digits=7, decimal_places=4)
+    wht_gross_up: bool | None = None
     line_items: list[InvoiceLineItemIn] | None = None
 
 
@@ -109,6 +116,9 @@ class RecurringTemplateCreate(BaseModel):
     internal_note: str | None = None
     discount_type: Literal["PERCENT", "AMOUNT"] | None = None
     discount_value: Decimal | None = Field(default=None, ge=0, max_digits=19, decimal_places=4)
+    wht_type: Literal["NONE", "PPH21", "PPH23"] | None = None
+    wht_rate: Decimal | None = Field(default=None, max_digits=7, decimal_places=4)
+    wht_gross_up: bool | None = None
     line_items: list[InvoiceLineItemIn] = Field(default_factory=list)
     schedule: RecurringSchedule
 
@@ -138,6 +148,12 @@ class InvoiceOut(BaseModel):
     subtotal: Decimal | None
     discount_type: str | None
     discount_value: Decimal | None
+    wht_type: str
+    wht_rate: Decimal | None
+    wht_gross_up: bool
+    wht_base: Decimal | None
+    wht_amount: Decimal
+    wht_booked: Decimal
     amount: Decimal
     balance_due: Decimal
     status: str
@@ -153,3 +169,8 @@ class InvoiceOut(BaseModel):
     is_template: bool
     created_at: datetime
     line_items: list[InvoiceLineItemOut] = Field(default_factory=list)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def expected_cash(self) -> Decimal:
+        return _expected_cash(self)
