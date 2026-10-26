@@ -304,15 +304,26 @@ def test_invoice_context_omits_block_when_no_accounts():
     assert ctx["payment_instructions"] is None
 
 
-def test_invoice_from_block_shows_npwp_with_taxpayer_name():
+def _npwp_biz():
     biz = _biz()
     biz.npwp = "2102060605910001"
     biz.npwp_name = "Kardono Wijaya"
-    ctx = build_invoice_context(_inv(), _cust(), biz)
+    return biz
+
+
+def test_invoice_from_block_shows_npwp_when_withholding():
+    ctx = build_invoice_context(_gross_up_inv(balance_due=Decimal(10204082)),
+                                _cust(), _npwp_biz())
     assert ctx["from_lines"][-1] == "NPWP 2102060605910001 a.n. Kardono Wijaya"
 
 
+def test_invoice_from_block_omits_npwp_without_withholding():
+    ctx = build_invoice_context(_inv(), _cust(), _npwp_biz())
+    assert not any(ln.startswith("NPWP") for ln in ctx["from_lines"])
+
+
 def test_invoice_from_block_omits_npwp_when_unset():
-    ctx = build_invoice_context(_inv(), _cust(), _biz())
+    ctx = build_invoice_context(_gross_up_inv(balance_due=Decimal(10204082)),
+                                _cust(), _biz())
     assert not any(ln.startswith("NPWP") for ln in ctx["from_lines"])
 

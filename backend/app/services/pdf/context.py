@@ -168,7 +168,7 @@ def _common(doc, customer, business) -> dict:
 
 def build_invoice_context(invoice, customer, business=None) -> dict:
     ctx = _common(invoice, customer, business)
-    if npwp := _npwp_line(business):
+    if npwp := _npwp_line(invoice, business):
         ctx["from_lines"] = [*ctx["from_lines"], npwp]
     cur = invoice.currency
     rows =[{"label": "Subtotal", "value": _fmt_num(invoice.subtotal, cur), "cls": "subtotal"}]

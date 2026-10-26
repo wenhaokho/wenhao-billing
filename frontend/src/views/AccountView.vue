@@ -355,7 +355,7 @@ function fmtDate(iso?: string) {
               <label>
                 NPWP
                 <InputText v-model="company.npwp" maxlength="32" />
-                <small>Printed on invoices for PPh bukti potong (NIK for individuals).</small>
+                <small>Printed only on invoices with PPh withholding (NIK for individuals).</small>
               </label>
               <label>
                 Taxpayer name
