@@ -29,7 +29,12 @@ def _normalize_wht(data: dict, stored: tuple[str, object, bool]) -> None:
     if not any(f in data for f in _WHT_FIELDS):
         return
     wht_type = data.get("default_wht_type")
-    rate = data["default_wht_rate"] if "default_wht_rate" in data else stored[1]
+    if "default_wht_rate" in data:
+        rate = data["default_wht_rate"]
+    elif wht_type is not None and wht_type != stored[0]:
+        rate = None  # type switch without a rate: use the new type's default
+    else:
+        rate = stored[1]
     gross_up = data.get("default_wht_gross_up")
     wht_type, rate, gross_up = withholding.normalize(
         stored[0] if wht_type is None else wht_type,

@@ -94,3 +94,18 @@ def test_patch_partial_wht_merges_with_stored(client, admin_session):
 
     r = client.patch(f"/api/v1/customers/{cid}", json={"default_wht_rate": 150})
     assert r.status_code == 422
+
+
+def test_patch_type_switch_uses_new_default_rate(client, admin_session):
+    r = client.post(
+        "/api/v1/customers",
+        json={"name": "Switch Co", "default_wht_type": "PPH23", "default_wht_gross_up": True},
+    )
+    cid = r.json()["customer_id"]
+    assert r.json()["default_wht_rate"] == "2.0000"
+    r = client.patch(f"/api/v1/customers/{cid}", json={"default_wht_type": "PPH21"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["default_wht_type"] == "PPH21"
+    assert body["default_wht_rate"] == "2.5000"
+    assert body["default_wht_gross_up"] is True
