@@ -170,7 +170,12 @@ def build_invoice_context(invoice, customer, business=None) -> dict:
     wht = invoice.wht_type != "NONE"
     paid = None
     if invoice.amount is not None and invoice.balance_due is not None:
-        p = Decimal(invoice.amount) - Decimal(invoice.balance_due)
+        # balance_due also drops by booked PPh, which is not cash received.
+        p = (
+            Decimal(invoice.amount)
+            - Decimal(invoice.balance_due)
+            - Decimal(invoice.wht_booked or 0)
+        )
         if p > 0:
             paid = p.quantize(Decimal("0.01"))
     if wht:

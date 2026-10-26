@@ -146,6 +146,43 @@ def test_invoice_context_wht_with_partial_payment():
     assert ctx["hero_amount"] == "5,800,000"      # expected_cash
 
 
+def _gross_up_inv(**over):
+    base = {
+        "currency": "IDR", "subtotal": Decimal(10000000), "discount_type": None,
+        "discount_value": None, "amount": Decimal(10204082),
+        "wht_type": "PPH23", "wht_rate": Decimal("2.0000"), "wht_gross_up": True,
+        "wht_base": Decimal(10000000), "wht_amount": Decimal(204082),
+    }
+    base.update(over)
+    return _inv(**base)
+
+
+def test_invoice_context_paid_gross_up_excludes_booked_wht():
+    inv = _gross_up_inv(
+        balance_due=Decimal(0), status="PAID", wht_booked=Decimal(204082),
+    )
+    ctx = build_invoice_context(inv, _cust(), _biz())
+    rows = [(r["label"], r["value"]) for r in ctx["summary_rows"]]
+    assert rows[-3:] == [
+        ("Total", "10,204,082"),
+        ("Less: PPh 23 withheld (2%)", "−204,082"),
+        ("Paid", "−10,000,000"),
+    ]
+    assert ctx["hero_amount"] == "0"
+
+
+def test_invoice_context_partial_gross_up_excludes_booked_wht():
+    # 5,000,000 cash + 204,082 PPh booked against 10,204,082.
+    inv = _gross_up_inv(
+        balance_due=Decimal(5000000), status="PARTIALLY_PAID",
+        wht_booked=Decimal(204082),
+    )
+    ctx = build_invoice_context(inv, _cust(), _biz())
+    assert ctx["summary_rows"][-1]["label"] == "Paid"
+    assert ctx["summary_rows"][-1]["value"] == "−5,000,000"
+    assert ctx["hero_amount"] == "5,000,000"
+
+
 def test_invoice_context_no_wht_unchanged():
     ctx = build_invoice_context(_inv(), _cust(), _biz())
     assert [r["label"] for r in ctx["summary_rows"]] == [

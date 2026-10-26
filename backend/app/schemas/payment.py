@@ -57,7 +57,12 @@ class RecordPaymentRequest(BaseModel):
 
 
 class InvoiceRecordPaymentRequest(RecordPaymentRequest):
-    """Invoice payment; may include the PPh amount withheld by the customer."""
+    """Invoice payment; may include the PPh amount withheld by the customer.
+
+    ``amount`` may be 0 to record withheld PPh only; the endpoint rejects a
+    request where amount and wht_amount are both 0.
+    """
+    amount: Decimal = Field(ge=0, max_digits=19, decimal_places=4)
     wht_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=19, decimal_places=4)
 
 

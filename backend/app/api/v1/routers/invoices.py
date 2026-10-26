@@ -46,6 +46,7 @@ from app.services.hosting import ensure_hosting_restored as ensure_subscription_
 from app.services.invoice_pdf import _fmt_amount
 from app.services.pdf import render_invoice_pdf, render_receipt_pdf
 from app.services.receipt_pdf import balance_note, receipt_reference
+from app.services.withholding import expected_cash
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -529,6 +530,11 @@ def record_payment(
     amount = Decimal(payload.amount)
     wht_amount = Decimal(payload.wht_amount)
     settled = amount + wht_amount
+    if settled == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="amount and withheld cannot both be zero",
+        )
     if settled > Decimal(invoice.balance_due):
         raise HTTPException(
             status_code=400,
@@ -747,6 +753,11 @@ def send_invoice(
         f"Please find attached invoice {invoice.invoice_number or ''} "
         f"for {_fmt_amount(invoice.amount, invoice.currency)}.\n"
     )
+    if invoice.wht_type != "NONE":
+        default_body += (
+            "Amount to transfer (after withholding tax): "
+            f"{_fmt_amount(expected_cash(invoice), invoice.currency)}.\n"
+        )
     if invoice.due_date:
         default_body += f"Due date: {invoice.due_date}.\n"
     default_body += "\nThank you."

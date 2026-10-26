@@ -109,3 +109,94 @@ def test_withheld_above_remaining_after_partial_400(client, admin_session, db, w
     assert "outstanding withholding 104082" in r.json()["detail"]
     r = _post(client, wht_invoice.invoice_id, amount="1000000", wht_amount="104082")
     assert r.status_code == 201, r.text
+
+
+def test_pph_only_payment_settles_stuck_partial(client, admin_session, db, wht_invoice):
+    # Customer paid the full net in cash without a PPh slip; the remaining
+    # balance equals the outstanding PPh, so the cash-to-receive is 0.
+    r = _post(client, wht_invoice.invoice_id, amount="10000000")
+    assert r.status_code == 201, r.text
+    db.refresh(wht_invoice)
+    assert wht_invoice.balance_due == WHT
+    r = _post(client, wht_invoice.invoice_id, amount="0", wht_amount="204082")
+    assert r.status_code == 201, r.text
+    db.refresh(wht_invoice)
+    assert wht_invoice.status == "PAID"
+    assert wht_invoice.balance_due == 0
+    assert wht_invoice.wht_booked == WHT
+
+
+def test_zero_amount_and_zero_withheld_400(client, admin_session, db, wht_invoice):
+    r = _post(client, wht_invoice.invoice_id, amount="0", wht_amount="0")
+    assert r.status_code == 400, r.text
+    db.refresh(wht_invoice)
+    assert wht_invoice.balance_due == GROSS
+
+
+def test_send_invoice_body_quotes_amount_to_transfer(
+    client, admin_session, wht_invoice, monkeypatch
+):
+    calls = []
+    monkeypatch.setattr(
+        "app.api.v1.routers.invoices.send_email", lambda **kw: calls.append(kw)
+    )
+    monkeypatch.setattr(
+        "app.api.v1.routers.invoices.render_invoice_pdf", lambda *a, **k: b"%PDF"
+    )
+    r = client.post(
+        f"/api/v1/invoices/{wht_invoice.invoice_id}/send",
+        json={"to_email": "ap@acme.example"},
+    )
+    assert r.status_code == 200, r.text
+    body = calls[0]["body_text"]
+    assert "for 10,204,082 IDR." in body
+    assert "Amount to transfer (after withholding tax): 10,000,000 IDR." in body
+
+
+def test_send_invoice_body_without_wht_unchanged(
+    client, admin_session, seed_invoice, monkeypatch
+):
+    calls = []
+    monkeypatch.setattr(
+        "app.api.v1.routers.invoices.send_email", lambda **kw: calls.append(kw)
+    )
+    monkeypatch.setattr(
+        "app.api.v1.routers.invoices.render_invoice_pdf", lambda *a, **k: b"%PDF"
+    )
+    r = client.post(
+        f"/api/v1/invoices/{seed_invoice}/send", json={"to_email": "ap@acme.example"}
+    )
+    assert r.status_code == 200, r.text
+    assert "Amount to transfer" not in calls[0]["body_text"]
+
+
+def test_payment_reminder_quotes_expected_cash(mcp_tool_db, wht_invoice):
+    from unittest.mock import patch
+
+    from app.mcp.tools.gated_email import send_payment_reminder
+
+    preview = send_payment_reminder(
+        invoice_id=str(wht_invoice.invoice_id), to_email="ap@acme.example"
+    )
+    assert Decimal(preview["amount"]) == NET
+    with patch("app.mcp.tools.gated_email.send_email") as mock_send:
+        out = send_payment_reminder(
+            invoice_id=str(wht_invoice.invoice_id),
+            to_email="ap@acme.example",
+            confirm_token=preview["confirm_token"],
+        )
+    assert out["sent"] is True
+    assert "outstanding balance of 10000000" in mock_send.call_args.kwargs["body_text"]
+
+
+def test_bill_payment_schema_still_requires_positive_amount():
+    from pydantic import ValidationError
+
+    from app.schemas.payment import InvoiceRecordPaymentRequest, RecordPaymentRequest
+
+    with pytest.raises(ValidationError):
+        RecordPaymentRequest(amount=Decimal(0), payment_date=date(2026, 4, 20))
+    req = InvoiceRecordPaymentRequest(
+        amount=Decimal(0), wht_amount=Decimal(1), payment_date=date(2026, 4, 20)
+    )
+    assert req.amount == 0

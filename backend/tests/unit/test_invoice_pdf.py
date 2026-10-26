@@ -205,3 +205,52 @@ def test_notes_fall_back_to_business_default_when_invoice_has_none():
         assert not any("Payable within 30 days." in (t or "") for t in captured)
     finally:
         ip.Paragraph = original
+
+
+# --- withholding tax: customer-facing amount -------------------------------
+
+def _capture_render(inv):
+    """Render ``inv`` and return (paragraph texts, table data rows)."""
+    from app.services import invoice_pdf as ip
+
+    texts: list[str] = []
+    tables: list[list] = []
+    orig_p, orig_t = ip.Paragraph, ip.Table
+
+    def p_spy(text, style, *a, **k):
+        texts.append(text)
+        return orig_p(text, style, *a, **k)
+
+    def t_spy(data, *a, **k):
+        tables.append(data)
+        return orig_t(data, *a, **k)
+
+    ip.Paragraph, ip.Table = p_spy, t_spy
+    try:
+        out = ip.render_invoice_pdf(inv, None)
+    finally:
+        ip.Paragraph, ip.Table = orig_p, orig_t
+    assert out[:5] == b"%PDF-"
+    return texts, [row for data in tables for row in data]
+
+
+def test_render_wht_invoice_hero_is_amount_to_transfer():
+    inv = _invoice(
+        currency="IDR", subtotal=Decimal(10000000), discount_type=None,
+        discount_value=None, amount=Decimal(10204082),
+        balance_due=Decimal(10204082),
+        wht_type="PPH23", wht_rate=Decimal("2.0000"), wht_gross_up=True,
+        wht_base=Decimal(10000000), wht_amount=Decimal(204082),
+        wht_booked=Decimal(0),
+    )
+    texts, rows = _capture_render(inv)
+    assert any("AMOUNT TO TRANSFER" in (t or "") for t in texts)
+    assert not any("BALANCE&nbsp;DUE" in (t or "") for t in texts)
+    assert any((t or "").startswith("10,000,000<") for t in texts)
+    assert ["Less: PPh 23 withheld (2%)", "-204,082 IDR"] in rows
+
+
+def test_render_no_wht_invoice_hero_is_balance_due():
+    texts, rows = _capture_render(_invoice(wht_type="NONE"))
+    assert any("BALANCE&nbsp;DUE" in (t or "") for t in texts)
+    assert not any(str(r[0]).startswith("Less:") for r in rows if r)

@@ -94,10 +94,16 @@ watch(
   { immediate: true }
 );
 
+// AR may record PPh only (cash 0) when withheld PPh > 0; AP needs cash > 0.
+const amountOk = computed(() => {
+  const cash = Number(amount.value ?? 0);
+  if (cash > 0) return true;
+  return props.mode === "AR" && cash === 0 && amount.value !== null && whtNum.value > 0;
+});
+
 const canSubmit = computed(
   () =>
-    !!amount.value &&
-    amount.value > 0 &&
+    amountOk.value &&
     !exceedsBalance.value &&
     !!paymentDate.value &&
     (props.mode !== "AR" || !sendReceipt.value || !!receiptTo.value.trim()),
@@ -113,10 +119,10 @@ function close() {
 }
 
 function submit() {
-  if (!canSubmit.value || !amount.value || !paymentDate.value) return;
+  if (!canSubmit.value || !paymentDate.value) return;
   const iso = paymentDate.value.toISOString().slice(0, 10);
   emit("submit", {
-    amount: amount.value,
+    amount: Number(amount.value ?? 0),
     wht_amount: whtNum.value,
     payment_date: iso,
     payer_name: payerName.value.trim() || null,

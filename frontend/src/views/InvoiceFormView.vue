@@ -1644,7 +1644,8 @@ const canSave = computed(() => {
   align-items: center;
   width: 100%;
 }
-.wht-type { width: 110px; flex: 0 0 auto; }
+/* min-width keeps "PPh 23" fully visible beside the dropdown trigger. */
+.wht-type { width: 9rem; min-width: 9rem; flex: 0 0 auto; }
 .wht-rate { flex: 1; }
 .wht-rate :deep(.p-inputnumber),
 .wht-rate :deep(.p-inputnumber-input) {
