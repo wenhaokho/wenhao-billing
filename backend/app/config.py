@@ -106,6 +106,14 @@ class Settings(BaseSettings):
     resend_base_url: str = Field(default="https://api.resend.com")
     resend_timeout_seconds: float = Field(default=15.0)
 
+    # --- Sentry error monitoring ---
+    # Disabled when sentry_dsn is unset (dev, tests). ERROR-level log records —
+    # including failed scheduler jobs (log.exception) — are sent as events.
+    sentry_dsn: str | None = Field(default=None)
+    sentry_environment: str = Field(default="development")
+    # Fraction of requests traced for performance monitoring (0 = errors only).
+    sentry_traces_sample_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+
 
 @lru_cache
 def get_settings() -> Settings:

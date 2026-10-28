@@ -23,12 +23,13 @@ from app.api.v1.routers import (
     users,
     vendors,
 )
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.mcp.oauth import build_oauth_router
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    _init_sentry(settings)
 
     # The FastMCP sub-app owns its own lifespan (streamable-HTTP session
     # manager startup/shutdown) — it must be imported before FastAPI() is
@@ -126,6 +127,23 @@ def create_app() -> FastAPI:
     _mount_frontend(app, settings.frontend_dist)
 
     return app
+
+
+def _init_sentry(settings: Settings) -> None:
+    if not settings.sentry_dsn:
+        return
+
+    import sentry_sdk
+
+    # The FastAPI/Starlette and logging integrations auto-enable once the SDK
+    # is initialised before the app is built. send_default_pii stays off: this
+    # is financial data, so request bodies, cookies and user IPs are not sent.
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.sentry_environment,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+        send_default_pii=False,
+    )
 
 
 class _NoStoreMiddleware:
