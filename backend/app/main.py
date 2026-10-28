@@ -138,11 +138,14 @@ def _init_sentry(settings: Settings) -> None:
     # The FastAPI/Starlette and logging integrations auto-enable once the SDK
     # is initialised before the app is built. send_default_pii stays off: this
     # is financial data, so request bodies, cookies and user IPs are not sent.
+    # Stack-frame locals are dropped too — they'd carry amounts, payer names
+    # and invoice contents from any frame that raises.
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         environment=settings.sentry_environment,
         traces_sample_rate=settings.sentry_traces_sample_rate,
         send_default_pii=False,
+        include_local_variables=False,
     )
 
 
