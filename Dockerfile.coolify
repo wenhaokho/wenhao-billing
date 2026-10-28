@@ -13,6 +13,13 @@ COPY frontend/package.json ./
 RUN npm install
 
 COPY frontend/ ./
+# Vite inlines VITE_* vars at build time, so Sentry config arrives as build args.
+ARG VITE_SENTRY_DSN=""
+ARG VITE_SENTRY_ENVIRONMENT="production"
+ARG VITE_SENTRY_TRACES_SAMPLE_RATE="0"
+ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN \
+    VITE_SENTRY_ENVIRONMENT=$VITE_SENTRY_ENVIRONMENT \
+    VITE_SENTRY_TRACES_SAMPLE_RATE=$VITE_SENTRY_TRACES_SAMPLE_RATE
 # Produces /fe/dist (vue-tsc typecheck + vite build).
 RUN npm run build
 

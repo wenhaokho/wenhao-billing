@@ -31,6 +31,8 @@ services:
       MCP_PUBLIC_BASE_URL: ${MCP_PUBLIC_BASE_URL:-http://localhost:8000}
       MCP_ACCESS_TOKEN_TTL_SECONDS: ${MCP_ACCESS_TOKEN_TTL_SECONDS:-3600}
       MCP_REFRESH_TOKEN_TTL_SECONDS: ${MCP_REFRESH_TOKEN_TTL_SECONDS:-2592000}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-development}
     ports:
       - "${BACKEND_HOST_PORT:-8000}:8000"
     depends_on:
@@ -69,6 +71,8 @@ services:
       VITE_API_PROXY_TARGET: http://backend:8000
       # Bind-mounts on Windows/WSL2 often need polling for file watching.
       CHOKIDAR_USEPOLLING: "true"
+      VITE_SENTRY_DSN: ${SENTRY_DSN_FRONTEND:-}
+      VITE_SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-development}
     ports:
       - "${FRONTEND_HOST_PORT:-5173}:5173"
     depends_on:

@@ -18,6 +18,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.coolify
+      # Frontend Sentry config is inlined into the SPA bundle at build time.
+      args:
+        VITE_SENTRY_DSN: ${SENTRY_DSN_FRONTEND:-}
+        VITE_SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+        VITE_SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
     image: wenhao-billing:coolify
     environment:
       # Presence of this key tells Coolify to generate the public FQDN for this
@@ -50,6 +55,10 @@ services:
       RESEND_FROM_NAME: ${RESEND_FROM_NAME:-Wenhao Dev Billing}
       # Cloudflare DNS suspend/restore for hosting items. Set in the Coolify UI.
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      # Sentry error monitoring (backend). Off when SENTRY_DSN is empty.
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
     healthcheck:
       test:
         [
