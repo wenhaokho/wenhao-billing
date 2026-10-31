@@ -661,7 +661,9 @@ function buildPayload() {
   return {
     customer_id: customerId.value,
     project_id: projectId.value,
-    invoice_type: "MILESTONE",
+    // Type is set at creation only. Sending it on edit would turn RECURRING and
+    // USAGE drafts into MILESTONE, dropping them out of the scheduled jobs.
+    ...(isEdit.value ? {} : { invoice_type: "MILESTONE" }),
     currency: currency.value,
     invoice_number: invoiceNumber.value || null,
     po_so_number: poSoNumber.value || null,
