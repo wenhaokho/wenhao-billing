@@ -31,6 +31,7 @@ dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
     "pytest-postgresql>=6.0",
+    "pytest-timeout>=2.3",
     "ruff>=0.5",
 ]
 
@@ -49,3 +50,8 @@ target-version = "py311"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# A hung test fails instead of blocking the run. The slowest real test takes
+# well under 2s; the margin covers a cold `alembic upgrade head` on a fresh
+# test database during the first test's setup.
+timeout = 120

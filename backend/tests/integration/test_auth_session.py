@@ -10,19 +10,16 @@ The login cookie is always signed with the long (30d) remember TTL, but the
 from __future__ import annotations
 
 import pytest
-from passlib.context import CryptContext
 
 from app.config import get_settings
 from app.models.user import User
 
-_PWD = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 @pytest.fixture()
-def admin(db):
+def admin(db, pwd):
     user = User(
         email="session-admin@example.com",
-        password_hash=_PWD.hash("test-password"),
+        password_hash=pwd.hash("test-password"),
         role="admin",
     )
     db.add(user)

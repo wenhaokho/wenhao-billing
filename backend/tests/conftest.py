@@ -14,6 +14,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm import sessionmaker as _sessionmaker
 
+from passlib.context import CryptContext
+from sqlalchemy.exc import OperationalError
+
 from app.config import get_settings
 from app.mcp.db import reset_tool_session_factory, set_tool_session_factory
 from app.mcp.verifier import (
@@ -27,6 +30,39 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 # Never start the in-process job scheduler from TestClient lifespans.
 os.environ["SCHEDULER_ENABLED"] = "false"
 get_settings.cache_clear()
+
+# bcrypt's production work factor (12 rounds, ~0.2s per hash *and* per verify)
+# was the single biggest cost in the suite: every test that logs in paid ~0.4s
+# in setup. Tests hash with the minimum work factor instead. Verification cost
+# follows the rounds encoded in the hash, so logins against these hashes are
+# fast while the app's own CryptContext objects stay untouched for hashing —
+# except where `_cheap_bcrypt_for_app` below lowers them for the test session.
+_TEST_BCRYPT_ROUNDS = 4
+TEST_PWD = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=_TEST_BCRYPT_ROUNDS)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cheap_bcrypt_for_app():
+    """Lower the work factor of the app's module-level CryptContexts for the
+    whole test session, so endpoints that *create* hashes (user invite, password
+    reset/change) don't pay the production cost either. Test-only: the app's
+    defaults are restored on teardown and never changed through a setting."""
+    from app.api.v1.routers import auth as auth_router
+    from app.api.v1.routers import users as users_router
+
+    contexts = [auth_router._pwd, users_router._pwd]
+    saved = [ctx.to_dict() for ctx in contexts]
+    for ctx in contexts:
+        ctx.update(bcrypt__rounds=_TEST_BCRYPT_ROUNDS)
+    yield
+    for ctx, cfg in zip(contexts, saved):
+        ctx.load(cfg)
+
+
+@pytest.fixture()
+def pwd() -> CryptContext:
+    """Cheap bcrypt context for seeding users in tests (see TEST_PWD)."""
+    return TEST_PWD
 
 
 def _alembic_cfg(db_url: str) -> Config:
@@ -53,7 +89,22 @@ def migrated_engine(db_url: str):
     os.environ["DATABASE_URL"] = db_url
     get_settings.cache_clear()
     try:
-        engine = create_engine(db_url, future=True)
+        # Fail fast and *skip* when Postgres is unreachable: this fixture is
+        # session-scoped, so pytest caches the skip and every DB-backed test
+        # skips immediately with one clear reason instead of each erroring
+        # after its own connection timeout.
+        engine = create_engine(
+            db_url, future=True, connect_args={"connect_timeout": 5}
+        )
+        try:
+            with engine.connect():
+                pass
+        except OperationalError as exc:
+            engine.dispose()
+            pytest.skip(
+                f"Postgres at TEST_DATABASE_URL is unreachable; start the db "
+                f"service to run DB-backed tests ({exc.orig!s}".strip() + ")"
+            )
         command.upgrade(_alembic_cfg(db_url), "head")
         yield engine
         engine.dispose()
@@ -108,14 +159,11 @@ def client(db):
 
 
 @pytest.fixture()
-def admin_session(client, db):
+def admin_session(client, db, pwd):
     """Seed an admin user and log in through the real ``/api/v1/auth/login``
     endpoint so the session cookie is set on ``client``."""
-    from passlib.context import CryptContext
-
     from app.models.user import User
 
-    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     user = User(
         email="oauth-admin@example.com",
         password_hash=pwd.hash("test-password"),
@@ -133,13 +181,10 @@ def admin_session(client, db):
 
 
 @pytest.fixture()
-def seed_admin(db):
+def seed_admin(db, pwd):
     """Insert one admin User into `db`; return its user_id."""
-    from passlib.context import CryptContext
-
     from app.models.user import User
 
-    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     user = User(
         email="mcp-tool-admin@example.com",
         password_hash=pwd.hash("test-password"),

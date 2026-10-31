@@ -191,18 +191,15 @@ def test_e2e_send_invoice_email_requires_confirmation_over_transport(
     assert data["recipient"] == "a@b.com"
 
 
-def test_e2e_non_admin_token_rejected(client, db, mcp_tool_db):
+def test_e2e_non_admin_token_rejected(client, db, mcp_tool_db, pwd):
     """A validly-signed access token whose subject is a non-admin user must be
     rejected at the /mcp transport (401) — the admin-role gate in
     BillingTokenVerifier, not just a good signature, decides access."""
     import time
 
-    from passlib.context import CryptContext
-
     from app.mcp.tokens import mint_access_token
     from app.models.user import User
 
-    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     staff = User(
         email="staff-e2e@example.com", password_hash=pwd.hash("x"), role="staff"
     )
