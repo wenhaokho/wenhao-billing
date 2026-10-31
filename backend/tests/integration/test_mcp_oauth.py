@@ -218,13 +218,10 @@ def test_full_consent_flow_mints_code(client, admin_session):
     assert "code" in qs
 
 
-def test_authorize_refuses_non_admin_session(client, db):
+def test_authorize_refuses_non_admin_session(client, db, pwd):
     """A logged-in but non-admin user must not be able to mint an MCP token."""
-    from passlib.context import CryptContext
-
     from app.models.user import User
 
-    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     db.add(
         User(
             email="staff-authorize@example.com",
@@ -379,17 +376,14 @@ def test_token_verifier_accepts_valid_access_token_for_admin(db, mcp_tool_db, se
     assert at.claims["user_id"] == str(seed_admin)
 
 
-def test_token_verifier_rejects_non_admin_subject(db, mcp_tool_db):
+def test_token_verifier_rejects_non_admin_subject(db, mcp_tool_db, pwd):
     """A validly-signed token whose subject is a non-admin user is rejected
     (returns None -> 401): a signature is necessary but not sufficient."""
     import asyncio
 
-    from passlib.context import CryptContext
-
     from app.models.user import User
     from app.mcp.verifier import BillingTokenVerifier
 
-    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     staff = User(
         email="staff-verifier@example.com",
         password_hash=pwd.hash("x"),

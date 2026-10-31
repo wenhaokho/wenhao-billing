@@ -23,8 +23,9 @@ Backend (inside `backend/`, or via `docker compose exec backend ...`):
 - Create migration: `alembic revision --autogenerate -m "<msg>"` — **revision id must be <32 chars** (Alembic `version_num` column limit).
 - Apply migrations: `alembic upgrade head`
 - Lint: `ruff check app`
-- Run all tests: `TEST_DATABASE_URL=postgresql+psycopg://... pytest`
+- Run all tests: `TEST_DATABASE_URL=postgresql+psycopg://... pytest` (whole suite ≈30s; from the host: `docker compose exec -T -e TEST_DATABASE_URL=postgresql+psycopg://billing:billing@db:5432/billing_test backend pytest`)
 - Single test: `pytest tests/unit/test_matching_engine.py::test_name -x`
+- Test-only speedups live in `tests/conftest.py`, never in app settings: bcrypt runs at 4 rounds (use the `pwd` fixture to hash passwords in tests), and when `TEST_DATABASE_URL` points at an unreachable Postgres every DB-backed test skips at once with one clear reason instead of erroring. `pytest-timeout` fails any test after 120s (`timeout` in `pyproject.toml`).
 - Tests **require a real Postgres** (see `tests/conftest.py`) — they skip if `TEST_DATABASE_URL` is unset. No DB mocks; per-test transactional rollback; FX rates USD/SGD→IDR are auto-seeded.
 
 Frontend (inside `frontend/`):
