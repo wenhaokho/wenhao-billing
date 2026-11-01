@@ -376,81 +376,46 @@ function timeAgo(iso: string) {
             <div class="stat-hint">Active</div>
           </div>
         </div>
-      </div>
 
-      <!-- Revenue chart -->
-      <div class="card">
-        <div class="card-head">
-          <div>
-            <h3>Revenue — last 12 months</h3>
-            <p class="subtitle">
-              Invoiced revenue by month, stacked per currency and converted to
-              {{ revenueData?.base_currency ?? 'IDR' }}. Faded segments are still unpaid.
-            </p>
+        <div class="stat-card" @click="router.push('/invoices/recurring')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
+          <div class="stat-icon info"><i class="pi pi-sync" /></div>
+          <div class="stat-body">
+            <div class="stat-label">Monthly Recurring</div>
+            <div v-if="!stats.mrr_by_currency.length" class="stat-value">0</div>
+            <ul v-else class="mrr-list">
+              <li v-for="row in stats.mrr_by_currency" :key="row.currency" class="num">
+                {{ formatAmount(row.amount, row.currency) }} {{ row.currency }}
+              </li>
+            </ul>
+            <div class="stat-hint">Active recurring templates</div>
           </div>
         </div>
-        <div v-if="!hasRevenueData" class="empty-state chart-empty">
-          <i class="pi pi-chart-bar" />
-          <div>No invoiced revenue yet in the last 12 months.</div>
-        </div>
-        <div v-else class="chart-wrap">
-          <Chart type="bar" :data="chartData" :options="chartOptions" />
-        </div>
-        <p v-if="revenueData && revenueData.unconverted.length" class="pie-note">
-          Not shown (no FX rate): {{ revenueData.unconverted.join(', ') }}
-        </p>
       </div>
 
-      <!-- Forward-looking: MRR + Upcoming -->
-      <div class="two-col">
-        <!-- MRR -->
+      <div class="chart-row">
+        <!-- Revenue chart -->
         <div class="card">
           <div class="card-head">
             <div>
-              <h3>Monthly Recurring Revenue</h3>
-              <p class="subtitle">Normalized monthly value of active recurring templates, by currency.</p>
+              <h3>Revenue — last 12 months</h3>
+              <p class="subtitle">
+                Invoiced revenue by month, stacked per currency and converted to
+                {{ revenueData?.base_currency ?? 'IDR' }}. Faded segments are still unpaid.
+              </p>
             </div>
           </div>
-          <div v-if="!stats.mrr_by_currency.length" class="empty-state">
-            <i class="pi pi-sync" />
-            <div>No active recurring revenue.</div>
+          <div v-if="!hasRevenueData" class="empty-state chart-empty">
+            <i class="pi pi-chart-bar" />
+            <div>No invoiced revenue yet in the last 12 months.</div>
           </div>
-          <ul v-else class="ar-list">
-            <li v-for="row in stats.mrr_by_currency" :key="row.currency">
-              <span class="ar-ccy">{{ row.currency }}</span>
-              <span class="ar-amt num">{{ formatAmount(row.amount, row.currency) }}</span>
-            </li>
-          </ul>
+          <div v-else class="chart-wrap">
+            <Chart type="bar" :data="chartData" :options="chartOptions" />
+          </div>
+          <p v-if="revenueData && revenueData.unconverted.length" class="pie-note">
+            Not shown (no FX rate): {{ revenueData.unconverted.join(', ') }}
+          </p>
         </div>
 
-        <!-- Upcoming -->
-        <div class="card">
-          <div class="card-head">
-            <div>
-              <h3>Upcoming Invoices</h3>
-              <p class="subtitle">Recurring &amp; usage invoices generating in the next 90 days.</p>
-            </div>
-          </div>
-          <div v-if="!stats.upcoming_invoices.length" class="empty-state">
-            <i class="pi pi-calendar" />
-            <div>Nothing scheduled in the next 90 days.</div>
-          </div>
-          <ul v-else class="activity upcoming-list">
-            <li v-for="u in stats.upcoming_invoices" :key="u.invoice_id">
-              <div class="act-head">
-                <Tag :value="u.mode === 'USAGE' ? 'Usage' : 'Recurring'" :severity="modeSeverity(u.mode)" />
-                <span class="act-payer">{{ u.customer_name ?? '—' }}</span>
-                <span class="act-amt num">
-                  {{ formatAmount(u.amount, u.currency) }} {{ u.currency }}<template v-if="u.amount_is_estimate"> · est.</template>
-                </span>
-                <span class="act-time">{{ formatDate(u.next_date) }}</span>
-              </div>
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="two-col">
         <!-- Open AR -->
         <div class="card">
           <div class="card-head">
@@ -477,6 +442,34 @@ function timeAgo(iso: string) {
           <p v-if="stats.open_ar_unconverted.length" class="pie-note">
             Not shown (no FX rate): {{ stats.open_ar_unconverted.join(', ') }}
           </p>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <!-- Upcoming -->
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Upcoming Invoices</h3>
+              <p class="subtitle">Recurring &amp; usage invoices generating in the next 90 days.</p>
+            </div>
+          </div>
+          <div v-if="!stats.upcoming_invoices.length" class="empty-state">
+            <i class="pi pi-calendar" />
+            <div>Nothing scheduled in the next 90 days.</div>
+          </div>
+          <ul v-else class="activity upcoming-list">
+            <li v-for="u in stats.upcoming_invoices" :key="u.invoice_id">
+              <div class="act-head">
+                <Tag :value="u.mode === 'USAGE' ? 'Usage' : 'Recurring'" :severity="modeSeverity(u.mode)" />
+                <span class="act-payer">{{ u.customer_name ?? '—' }}</span>
+                <span class="act-amt num">
+                  {{ formatAmount(u.amount, u.currency) }} {{ u.currency }}<template v-if="u.amount_is_estimate"> · est.</template>
+                </span>
+                <span class="act-time">{{ formatDate(u.next_date) }}</span>
+              </div>
+            </li>
+          </ul>
         </div>
 
         <!-- Recent activity -->
@@ -515,11 +508,14 @@ function timeAgo(iso: string) {
 .loading { display: grid; place-items: center; padding: 4rem; }
 .error { color: var(--color-danger); display: flex; align-items: center; gap: 1rem; }
 
+/* Six across on a desktop; the last column is wider for the MRR amounts. */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1.35fr);
   gap: 1rem;
 }
+@media (max-width: 1280px) { .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .stat-card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -553,6 +549,16 @@ function timeAgo(iso: string) {
 .stat-label { font-size: 0.78rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
 .stat-value { font-size: 1.9rem; font-weight: 700; color: var(--color-text); line-height: 1.1; margin-top: 0.15rem; letter-spacing: -0.01em; }
 .stat-hint { font-size: 0.78rem; color: var(--color-text-subtle); margin-top: 0.2rem; }
+.stat-body { min-width: 0; }
+.mrr-list { list-style: none; padding: 0; margin: 0.25rem 0 0; font-weight: 700; font-size: 1rem; line-height: 1.35; color: var(--color-text); }
+/* Keep labels on the card once six columns get narrow on a laptop screen. */
+@media (max-width: 1500px) {
+  .stat-card { padding: 0.85rem 0.9rem; gap: 0.6rem; }
+  .stat-icon { width: 32px; height: 32px; font-size: 0.9rem; }
+  .stat-label { font-size: 0.7rem; letter-spacing: 0.02em; }
+  .stat-value { font-size: 1.6rem; }
+  .stat-hint { font-size: 0.72rem; }
+}
 
 .two-col {
   display: grid;
@@ -560,6 +566,16 @@ function timeAgo(iso: string) {
   gap: 1rem;
 }
 @media (max-width: 1000px) { .two-col { grid-template-columns: 1fr; } }
+
+/* Bar chart gets the width its 12 months need; it grows to match the AR card's height. */
+.chart-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+@media (max-width: 1000px) { .chart-row { grid-template-columns: minmax(0, 1fr); } }
+.chart-row > .card { display: flex; flex-direction: column; }
+.chart-row > .card > .chart-wrap:not(.ar-pie) { flex: 1 1 320px; height: auto; min-height: 320px; }
 
 .card-head {
   display: flex;
