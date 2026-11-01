@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import { useConfirm } from "primevue/useconfirm";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
+import TabView from "primevue/tabview";
+import TabPanel from "primevue/tabpanel";
 import Tag from "primevue/tag";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
@@ -31,6 +33,27 @@ const router = useRouter();
 const route = useRoute();
 const confirm = useConfirm();
 const queryClient = useQueryClient();
+
+// ---- tab filter: 0 = Active, 1 = Paused, 2 = Ended, 3 = All ----
+// Reflect the active status tab in the URL as a readable slug (?tab=paused)
+// so it is restored when navigating back to this list after opening an item.
+const TAB_SLUGS = ["active", "paused", "ended", "all"];
+function readTabFromQuery(): number {
+  const i = TAB_SLUGS.indexOf(String(route.query.tab));
+  return i >= 0 ? i : 0;
+}
+const activeTab = ref(readTabFromQuery());
+watch(activeTab, (t) => {
+  router.replace({ query: { ...route.query, tab: TAB_SLUGS[t] ?? TAB_SLUGS[0] } });
+});
+// MISCONFIGURED sits with PAUSED: neither is generating invoices, and it must
+// not be out of sight on anything but the All tab.
+const TAB_TO_STATUSES: Record<number, string[] | null> = {
+  0: ["ACTIVE"],
+  1: ["PAUSED", "MISCONFIGURED"],
+  2: ["ENDED"],
+  3: null,
+};
 
 const patchTemplate = useMutation({
   mutationFn: async (vars: { templateId: string; action: string }) =>
@@ -68,7 +91,13 @@ const { data, isLoading } = useQuery<RecurringRow[]>({
     (await api.get<RecurringRow[]>("/invoices/recurring-templates/rows")).data,
 });
 
-const rows = computed(() => data.value ?? []);
+// Status is derived server-side per row, so the filter runs on the loaded list.
+const rows = computed(() => {
+  const statuses = TAB_TO_STATUSES[activeTab.value];
+  const all = data.value ?? [];
+  return statuses ? all.filter((r) => statuses.includes(r.status)) : all;
+});
+const hasTemplates = computed(() => (data.value ?? []).length > 0);
 
 function openNew() {
   router.push({ name: "invoice-recurring-new", query: { from: route.fullPath } });
@@ -103,6 +132,13 @@ function fmtDate(d: string | null) {
       </div>
     </header>
 
+    <TabView v-model:active-index="activeTab" class="status-tabs">
+      <TabPanel header="Active" />
+      <TabPanel header="Paused" />
+      <TabPanel header="Ended" />
+      <TabPanel header="All" />
+    </TabView>
+
     <DataTable
       :value="rows"
       :loading="isLoading"
@@ -112,7 +148,8 @@ function fmtDate(d: string | null) {
       <template #empty>
         <div class="empty-state">
           <i class="pi pi-replay" />
-          <div>
+          <div v-if="hasTemplates">No recurring templates match the current filter.</div>
+          <div v-else>
             No recurring templates yet. Click
             <strong>New recurring invoice</strong> to create one.
           </div>
@@ -204,6 +241,8 @@ function fmtDate(d: string | null) {
 </template>
 
 <style scoped>
+.status-tabs { margin-bottom: 0.5rem; }
+.status-tabs :deep(.p-tabview-panels) { display: none; }
 .muted { color: var(--color-text-subtle); }
 .small { font-size: 0.8rem; }
 .num { font-variant-numeric: tabular-nums; }
