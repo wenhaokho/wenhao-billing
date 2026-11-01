@@ -31,6 +31,15 @@ interface ActivityItem {
   payer_name: string | null;
   amount: string | null;
   currency: string | null;
+  payment_date: string | null;
+  payer_reference: string | null;
+  wht_amount: string | null;
+  confidence_score: string | null;
+  intake_source: string | null;
+  invoice_id: string | null;
+  invoice_number: string | null;
+  customer_name: string | null;
+  actor_name: string | null;
 }
 interface DashboardStats {
   awaiting_review_count: number;
@@ -290,6 +299,13 @@ function actionSeverity(a: string) {
   }
 }
 
+// MANUAL is left out: those rows already carry a "manual-entry" reason chip.
+function intakeSourceLabel(source: string | null) {
+  if (!source || source === "MANUAL") return null;
+  const words = source.replace(/_/g, " ").toLowerCase();
+  return words[0].toUpperCase() + words.slice(1);
+}
+
 function timeAgo(iso: string) {
   // Backend timestamps are naive UTC (e.g. "2026-07-24T02:00:00") with no
   // timezone designator. JS parses those as *local* time, which skews the
@@ -492,6 +508,19 @@ function timeAgo(iso: string) {
                 <span class="act-amt num">{{ formatAmount(a.amount, a.currency) }} {{ a.currency ?? '' }}</span>
                 <span class="act-time">{{ timeAgo(a.created_at) }}</span>
               </div>
+              <div class="act-details">
+                <RouterLink
+                  v-if="a.invoice_id"
+                  :to="{ path: `/invoices/${a.invoice_id}/edit`, query: { from: '/dashboard' } }"
+                >Invoice {{ a.invoice_number ?? '(no number)' }}</RouterLink>
+                <span v-if="a.customer_name">{{ a.customer_name }}</span>
+                <span v-if="a.payment_date">Paid {{ formatDate(a.payment_date) }}</span>
+                <span v-if="Number(a.wht_amount)">WHT {{ formatAmount(a.wht_amount, a.currency) }} {{ a.currency }}</span>
+                <span v-if="a.payer_reference">Ref {{ a.payer_reference }}</span>
+                <span v-if="a.confidence_score !== null">Confidence {{ Number(a.confidence_score) }}%</span>
+                <span v-if="intakeSourceLabel(a.intake_source)">Via {{ intakeSourceLabel(a.intake_source) }}</span>
+                <span v-if="a.actor_name">By {{ a.actor_name }}</span>
+              </div>
               <div v-if="a.reasons.length" class="act-reasons">
                 <span v-for="r in a.reasons" :key="r" class="reason-chip">{{ r }}</span>
               </div>
@@ -615,6 +644,8 @@ function timeAgo(iso: string) {
 .act-payer { font-weight: 500; }
 .act-amt { font-variant-numeric: tabular-nums; color: var(--color-text-muted); font-size: 0.85rem; }
 .act-time { margin-left: auto; color: var(--color-text-subtle); font-size: 0.78rem; }
+.act-details { margin-top: 0.35rem; color: var(--color-text-muted); font-size: 0.8rem; }
+.act-details > * + *::before { content: " · "; color: var(--color-text-subtle); }
 .act-reasons { margin-top: 0.35rem; display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .chart-wrap { padding: 1rem 1.25rem 1.25rem; height: 320px; position: relative; }
 .chart-wrap :deep(.p-chart),

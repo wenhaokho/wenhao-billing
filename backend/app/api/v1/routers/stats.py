@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.api.deps import current_admin
 from app.db.session import get_db
 from app.models.customer import Customer
+from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.recon_log import ReconciliationLog
 from app.models.user import User
@@ -56,6 +57,15 @@ class ActivityItem(BaseModel):
     payer_name: str | None = None
     amount: Decimal | None = None
     currency: str | None = None
+    payment_date: date | None = None
+    payer_reference: str | None = None
+    wht_amount: Decimal | None = None
+    confidence_score: Decimal | None = None
+    intake_source: str | None = None
+    invoice_id: UUID | None = None
+    invoice_number: str | None = None
+    customer_name: str | None = None
+    actor_name: str | None = None
 
 
 class MonthlyRevenueBucket(BaseModel):
@@ -132,8 +142,24 @@ def dashboard(
             Payment.payer_name,
             Payment.amount,
             Payment.currency,
+            Payment.payment_date,
+            Payment.payer_reference,
+            Payment.wht_amount,
+            Payment.confidence_score,
+            Payment.intake_source,
+            Payment.invoice_id,
+            Invoice.invoice_number,
+            Customer.name.label("customer_name"),
+            func.coalesce(User.display_name, User.email).label("actor_name"),
         )
         .join(Payment, Payment.payment_id == ReconciliationLog.payment_id, isouter=True)
+        .join(Invoice, Invoice.invoice_id == Payment.invoice_id, isouter=True)
+        .join(
+            Customer,
+            Customer.customer_id == func.coalesce(Payment.customer_id, Invoice.customer_id),
+            isouter=True,
+        )
+        .join(User, User.user_id == ReconciliationLog.actor_user_id, isouter=True)
         .order_by(ReconciliationLog.created_at.desc())
         .limit(10)
     ).all()
@@ -149,6 +175,15 @@ def dashboard(
             payer_name=r.payer_name,
             amount=r.amount,
             currency=r.currency,
+            payment_date=r.payment_date,
+            payer_reference=r.payer_reference,
+            wht_amount=r.wht_amount,
+            confidence_score=r.confidence_score,
+            intake_source=r.intake_source,
+            invoice_id=r.invoice_id,
+            invoice_number=r.invoice_number,
+            customer_name=r.customer_name,
+            actor_name=r.actor_name,
         )
         for r in activity_rows
     ]
