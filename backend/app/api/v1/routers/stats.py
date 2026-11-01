@@ -67,6 +67,10 @@ class MonthlyRevenueBucket(BaseModel):
     totals: dict[str, Decimal]
     # Original-currency revenue per source currency, for the tooltip.
     native_totals: dict[str, Decimal]
+    # The still-owed part (balance_due) of `totals` and `native_totals`. A currency
+    # with nothing owed that month is absent.
+    unpaid_totals: dict[str, Decimal]
+    native_unpaid_totals: dict[str, Decimal]
 
 
 class MonthlyRevenueResponse(BaseModel):
@@ -220,6 +224,8 @@ def revenue_monthly(
                 month=m["month"],
                 totals=m["base_totals"],
                 native_totals=m["native_totals"],
+                unpaid_totals=m["base_unpaid_totals"],
+                native_unpaid_totals=m["native_unpaid_totals"],
             )
         )
 

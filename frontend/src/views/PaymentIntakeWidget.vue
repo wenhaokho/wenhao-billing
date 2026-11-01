@@ -52,6 +52,8 @@ interface MonthlyRevenueBucket {
   month: string;
   totals: Record<string, string>;         // base-currency (IDR) per source currency
   native_totals: Record<string, string>;  // original currency per source currency
+  unpaid_totals: Record<string, string>;         // still-owed part of totals
+  native_unpaid_totals: Record<string, string>;  // still-owed part of native_totals
 }
 interface MonthlyRevenueResponse {
   base_currency: string;
@@ -116,14 +118,31 @@ const chartData = computed(() => {
   const r = revenueData.value;
   if (!r) return { labels: [], datasets: [] };
   const labels = r.months.map((m) => m.month);
-  const datasets = r.currencies.map((ccy) => ({
+  const paid = r.currencies.map((ccy) => ({
     label: ccy,
+    currency: ccy,
+    unpaid: false,
     backgroundColor: colorForCurrency(ccy),
     borderColor: colorForCurrency(ccy),
-    data: r.months.map((m) => Number(m.totals[ccy] ?? 0)),
+    data: r.months.map(
+      (m) => Number(m.totals[ccy] ?? 0) - Number(m.unpaid_totals[ccy] ?? 0),
+    ),
     stack: "revenue",
   }));
-  return { labels, datasets };
+  // Same hue as the paid segment, faded, stacked above every paid segment so the
+  // faded top of a bar reads as the whole unpaid portion of that month. The solid
+  // outline keeps the pale fill visible against the card in both themes.
+  const unpaid = r.currencies.map((ccy) => ({
+    label: `${ccy} unpaid`,
+    currency: ccy,
+    unpaid: true,
+    backgroundColor: `${colorForCurrency(ccy)}4d`,
+    borderColor: colorForCurrency(ccy),
+    borderWidth: 1,
+    data: r.months.map((m) => Number(m.unpaid_totals[ccy] ?? 0)),
+    stack: "revenue",
+  }));
+  return { labels, datasets: [...paid, ...unpaid] };
 });
 
 const chartOptions = computed(() => {
@@ -141,15 +160,22 @@ const chartOptions = computed(() => {
       callbacks: {
         // Plotted value is the IDR-converted amount; show the native amount
         // alongside it (same shape as the open-AR pie tooltip).
-        label: (ctx: { dataset: { label?: string }; parsed: { y: number }; dataIndex: number }) => {
-          const ccy = ctx.dataset.label ?? "";
+        label: (ctx: {
+          dataset: { currency?: string; unpaid?: boolean };
+          parsed: { y: number };
+          dataIndex: number;
+        }) => {
+          const ccy = ctx.dataset.currency ?? "";
+          const state = ctx.dataset.unpaid ? "Unpaid" : "Paid";
           const converted = `${formatAmount(String(ctx.parsed.y), base)} ${base}`;
           // The base-currency series is already IDR — a "= … IDR" line would repeat it.
-          if (ccy === base) return converted;
-          const native = months[ctx.dataIndex]?.native_totals?.[ccy];
-          return native
-            ? [`${formatAmount(native, ccy)} ${ccy}`, `= ${converted}`]
-            : converted;
+          if (ccy === base) return `${state}: ${converted}`;
+          const m = months[ctx.dataIndex];
+          const nativeUnpaid = Number(m?.native_unpaid_totals?.[ccy] ?? 0);
+          const native = ctx.dataset.unpaid
+            ? nativeUnpaid
+            : Number(m?.native_totals?.[ccy] ?? 0) - nativeUnpaid;
+          return [`${state}: ${formatAmount(String(native), ccy)} ${ccy}`, `= ${converted}`];
         },
       },
     },
@@ -347,7 +373,7 @@ function timeAgo(iso: string) {
             <h3>Revenue — last 12 months</h3>
             <p class="subtitle">
               Invoiced revenue by month, stacked per currency and converted to
-              {{ revenueData?.base_currency ?? 'IDR' }}.
+              {{ revenueData?.base_currency ?? 'IDR' }}. Faded segments are still unpaid.
             </p>
           </div>
         </div>
