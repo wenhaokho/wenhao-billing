@@ -29,6 +29,10 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 # Never start the in-process job scheduler from TestClient lifespans.
 os.environ["SCHEDULER_ENABLED"] = "false"
+# Never report to Sentry: the dev container carries a real DSN, and tests that
+# exercise failure paths would send their deliberate errors to the live project.
+# Empty rather than unset, so a DSN in an env file can't fill the gap.
+os.environ["SENTRY_DSN"] = ""
 get_settings.cache_clear()
 
 # bcrypt's production work factor (12 rounds, ~0.2s per hash *and* per verify)
