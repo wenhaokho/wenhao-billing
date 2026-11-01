@@ -151,12 +151,16 @@ const chartOptions = computed(() => {
   return {
   maintainAspectRatio: false,
   responsive: true,
+  // One tooltip per bar: hovering anywhere over a month lists all its segments.
+  interaction: { mode: "index" as const, intersect: false },
   plugins: {
     legend: {
       position: "bottom" as const,
       labels: { font: { size: 11 }, boxWidth: 12 },
     },
     tooltip: {
+      // Most months have only some of the series; a month with none shows no tooltip.
+      filter: (ctx: { parsed: { y: number } }) => ctx.parsed.y !== 0,
       callbacks: {
         // Plotted value is the IDR-converted amount; show the native amount
         // alongside it (same shape as the open-AR pie tooltip).
@@ -166,16 +170,24 @@ const chartOptions = computed(() => {
           dataIndex: number;
         }) => {
           const ccy = ctx.dataset.currency ?? "";
-          const state = ctx.dataset.unpaid ? "Unpaid" : "Paid";
+          const state = ctx.dataset.unpaid ? "unpaid" : "paid";
           const converted = `${formatAmount(String(ctx.parsed.y), base)} ${base}`;
-          // The base-currency series is already IDR — a "= … IDR" line would repeat it.
-          if (ccy === base) return `${state}: ${converted}`;
+          // The base-currency series is already IDR — a "= … IDR" part would repeat it.
+          if (ccy === base) return `${ccy} ${state}: ${converted}`;
           const m = months[ctx.dataIndex];
           const nativeUnpaid = Number(m?.native_unpaid_totals?.[ccy] ?? 0);
           const native = ctx.dataset.unpaid
             ? nativeUnpaid
             : Number(m?.native_totals?.[ccy] ?? 0) - nativeUnpaid;
-          return [`${state}: ${formatAmount(String(native), ccy)} ${ccy}`, `= ${converted}`];
+          return `${ccy} ${state}: ${formatAmount(String(native), ccy)} ${ccy} = ${converted}`;
+        },
+        footer: (items: { dataset: { unpaid?: boolean }; parsed: { y: number } }[]) => {
+          if (!items.length) return "";
+          const sum = (rows: typeof items) => rows.reduce((acc, i) => acc + i.parsed.y, 0);
+          const unpaid = sum(items.filter((i) => i.dataset.unpaid));
+          const lines = [`Total: ${formatAmount(String(sum(items)), base)} ${base}`];
+          if (unpaid) lines.push(`Unpaid: ${formatAmount(String(unpaid), base)} ${base}`);
+          return lines;
         },
       },
     },
