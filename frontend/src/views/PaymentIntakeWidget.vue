@@ -447,7 +447,7 @@ function timeAgo(iso: string) {
 
       <div class="two-col">
         <!-- Upcoming -->
-        <div class="card">
+        <div class="card upcoming-card">
           <div class="card-head">
             <div>
               <h3>Upcoming Invoices</h3>
@@ -607,8 +607,10 @@ function timeAgo(iso: string) {
   padding: 0.8rem 1.25rem;
 }
 .activity li:not(:last-child) { border-bottom: 1px solid var(--color-border); }
-/* Upcoming list: show ~5 rows, then scroll. */
-.upcoming-list { max-height: 15.5rem; overflow-y: auto; }
+/* Upcoming list: fill the card, whose height follows the activity card beside it,
+   then scroll. height: 0 stops a long list from stretching the row; ~5 rows minimum. */
+.upcoming-card { display: flex; flex-direction: column; }
+.upcoming-list { flex: 1 1 0; height: 0; min-height: 15.5rem; overflow-y: auto; }
 .act-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .act-payer { font-weight: 500; }
 .act-amt { font-variant-numeric: tabular-nums; color: var(--color-text-muted); font-size: 0.85rem; }
