@@ -18,6 +18,8 @@ from app.models.customer import Customer
 from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.quotation import Quotation
+from app.models.recon_log import ReconciliationLog
+from app.models.user import User
 from app.services.stats import compute_dashboard_stats
 
 
@@ -170,6 +172,75 @@ def test_dashboard_endpoint_matches_service_function(admin_session, db, customer
 
     # recent_activity is router-only (not part of compute_dashboard_stats).
     assert "recent_activity" in body
+
+
+def test_recent_activity_includes_payment_invoice_and_actor_details(
+    admin_session, db, customer, pwd
+):
+    actor = User(
+        email="actor@example.com",
+        password_hash=pwd.hash("test-password"),
+        role="admin",
+        display_name="Dana",
+    )
+    db.add(actor)
+    db.flush()
+    inv = _inv(db, customer, status="PAID", balance_due="0")
+    inv.invoice_number = "INV-TEST-1"
+    p = _payment(db, inv)
+    p.payer_name = "Someone Else Ltd"
+    p.payer_reference = "BANK-REF-9"
+    p.wht_amount = Decimal("20")
+    p.confidence_score = Decimal("97.50")
+    db.add(
+        ReconciliationLog(
+            payment_id=p.payment_id,
+            action="CLEARED",
+            reasons=["exact-match"],
+            actor_user_id=actor.user_id,
+        )
+    )
+    db.flush()
+
+    r = admin_session.get("/api/v1/stats/dashboard")
+    assert r.status_code == 200, r.text
+    row = next(a for a in r.json()["recent_activity"] if a["payment_id"] == str(p.payment_id))
+
+    assert row["payer_name"] == "Someone Else Ltd"
+    assert row["customer_name"] == "Acme Corp"
+    assert row["invoice_id"] == str(inv.invoice_id)
+    assert row["invoice_number"] == "INV-TEST-1"
+    assert row["payment_date"] == "2026-07-01"
+    assert row["payer_reference"] == "BANK-REF-9"
+    assert Decimal(row["wht_amount"]) == Decimal("20")
+    assert Decimal(row["confidence_score"]) == Decimal("97.50")
+    assert row["intake_source"] == "TEST"
+    assert row["actor_name"] == "Dana"
+
+
+def test_recent_activity_details_empty_for_unmatched_system_payment(admin_session, db):
+    p = Payment(
+        amount=Decimal("10"),
+        currency="USD",
+        payer_name="Unknown Payer",
+        payment_date=date(2026, 7, 1),
+        intake_source="TEST",
+        external_ref=f"EXT-{uuid.uuid4()}",
+        status="PENDING_MANUAL_REVIEW",
+    )
+    db.add(p)
+    db.flush()
+    db.add(ReconciliationLog(payment_id=p.payment_id, action="HELD", reasons=["no-match"]))
+    db.flush()
+
+    r = admin_session.get("/api/v1/stats/dashboard")
+    assert r.status_code == 200, r.text
+    row = next(a for a in r.json()["recent_activity"] if a["payment_id"] == str(p.payment_id))
+
+    assert row["invoice_id"] is None
+    assert row["invoice_number"] is None
+    assert row["customer_name"] is None
+    assert row["actor_name"] is None
 
 
 def _recurring_tmpl(db, customer, *, currency="USD", amount="1200"):
