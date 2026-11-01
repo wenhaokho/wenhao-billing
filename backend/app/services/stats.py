@@ -205,7 +205,9 @@ def compute_monthly_revenue_base(
       - labels: 12 "YYYY-MM" strings, oldest first
       - months: [{"month": lbl,
                   "native_totals": {ccy: Decimal},   # original currency
-                  "base_totals": {ccy: Decimal}}]     # IDR; excludes unconverted ccys
+                  "base_totals": {ccy: Decimal},      # IDR; excludes unconverted ccys
+                  "native_unpaid_totals": {ccy: Decimal},  # balance_due; zero omitted
+                  "base_unpaid_totals": {ccy: Decimal}}]   # same, converted to IDR
       - unconverted: sorted currency codes with no FX rate to base
     """
     labels = _last_12_month_labels(today)
@@ -214,7 +216,12 @@ def compute_monthly_revenue_base(
 
     month_expr = func.to_char(Invoice.issue_date, "YYYY-MM")
     rows = db.execute(
-        select(month_expr.label("month"), Invoice.currency, func.sum(Invoice.amount))
+        select(
+            month_expr.label("month"),
+            Invoice.currency,
+            func.sum(Invoice.amount),
+            func.sum(Invoice.balance_due),
+        )
         .where(
             Invoice.status.in_(_REVENUE_STATUSES),
             Invoice.issue_date.is_not(None),
@@ -225,11 +232,14 @@ def compute_monthly_revenue_base(
     ).all()
 
     native: dict[str, dict[str, Decimal]] = {lbl: {} for lbl in labels}
-    for month, ccy, total in rows:
+    native_unpaid: dict[str, dict[str, Decimal]] = {lbl: {} for lbl in labels}
+    for month, ccy, total, unpaid in rows:
         if month in native:
             native[month][ccy] = native[month].get(ccy, Decimal("0")) + (
                 total or Decimal("0")
             )
+            if unpaid:
+                native_unpaid[month][ccy] = unpaid
 
     # One rate lookup per currency at today's date; a missing rate is discovered
     # (and reported) once and then treated as "no base amount" for every month.
@@ -254,8 +264,21 @@ def compute_monthly_revenue_base(
             if rate is None:
                 continue
             base_row[ccy] = (amt * rate).quantize(Decimal("0.0001"))
+        native_unpaid_row = native_unpaid[lbl]
+        base_unpaid_row: dict[str, Decimal] = {}
+        for ccy, amt in native_unpaid_row.items():
+            rate = _rate(ccy)
+            if rate is None:
+                continue
+            base_unpaid_row[ccy] = (amt * rate).quantize(Decimal("0.0001"))
         months.append(
-            {"month": lbl, "native_totals": native_row, "base_totals": base_row}
+            {
+                "month": lbl,
+                "native_totals": native_row,
+                "base_totals": base_row,
+                "native_unpaid_totals": native_unpaid_row,
+                "base_unpaid_totals": base_unpaid_row,
+            }
         )
 
     return labels, months, sorted(unconverted)

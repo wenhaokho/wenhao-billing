@@ -115,3 +115,45 @@ def test_same_currency_summed_across_invoices_in_a_month(db, customer):
     mar = next(m for m in months if m["month"] == "2026-03")
     assert mar["native_totals"] == {"USD": Decimal("150")}
     assert mar["base_totals"] == {"USD": Decimal("2400000.0000")}  # 150 * 16000
+
+
+def test_unpaid_split_tracks_remaining_balance(db, customer):
+    _inv(db, customer, currency="IDR", amount="1000", issue_date=date(2026, 7, 1))
+    partial = _inv(
+        db, customer, currency="USD", amount="100", issue_date=date(2026, 7, 2), status="PARTIAL"
+    )
+    partial.balance_due = Decimal("40")
+    paid = _inv(
+        db, customer, currency="USD", amount="50", issue_date=date(2026, 7, 3), status="PAID"
+    )
+    paid.balance_due = Decimal("0")
+    db.flush()
+    _, months, _unconverted = compute_monthly_revenue_base(db, today=TODAY)
+    jul = next(m for m in months if m["month"] == "2026-07")
+    # Totals still count the full invoiced amount; unpaid is the part of it still owed.
+    assert jul["native_totals"] == {"IDR": Decimal("1000"), "USD": Decimal("150")}
+    assert jul["native_unpaid_totals"] == {"IDR": Decimal("1000"), "USD": Decimal("40")}
+    assert jul["base_unpaid_totals"] == {
+        "IDR": Decimal("1000.0000"),
+        "USD": Decimal("640000.0000"),  # 40 * 16000
+    }
+
+
+def test_fully_paid_month_has_no_unpaid_entry(db, customer):
+    paid = _inv(
+        db, customer, currency="USD", amount="50", issue_date=date(2026, 7, 3), status="PAID"
+    )
+    paid.balance_due = Decimal("0")
+    db.flush()
+    _, months, _unconverted = compute_monthly_revenue_base(db, today=TODAY)
+    jul = next(m for m in months if m["month"] == "2026-07")
+    assert jul["native_unpaid_totals"] == {}
+    assert jul["base_unpaid_totals"] == {}
+
+
+def test_unconverted_currency_has_no_base_unpaid(db, customer):
+    _inv(db, customer, currency="GBP", amount="100", issue_date=date(2026, 5, 5))
+    _, months, _unconverted = compute_monthly_revenue_base(db, today=TODAY)
+    may = next(m for m in months if m["month"] == "2026-05")
+    assert may["native_unpaid_totals"] == {"GBP": Decimal("100")}
+    assert may["base_unpaid_totals"] == {}
