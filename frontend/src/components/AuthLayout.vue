@@ -23,7 +23,7 @@ defineProps<{
           <p>
             {{
               heroTagline ??
-              "Billing, reconciliations, and client reporting in one workspace built for small agency teams."
+              "Billing, reconciliations, and client reporting in one workspace built for small software houses."
             }}
           </p>
         </div>

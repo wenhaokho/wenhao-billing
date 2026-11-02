@@ -71,7 +71,7 @@ async function submit() {
           required
           autofocus
           autocomplete="username"
-          placeholder="you@agency.com"
+          placeholder="you@company.com"
           :aria-invalid="!!error || undefined"
         />
       </label>
