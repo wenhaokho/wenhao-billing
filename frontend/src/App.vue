@@ -158,7 +158,7 @@ function closeMobileNav() { mobileNavOpen.value = false; }
         </div>
         <div class="brand-text">
           <div class="brand-name">Wenhao Billing</div>
-          <div class="brand-sub">agency accounting</div>
+          <div class="brand-sub">software house</div>
         </div>
       </div>
 

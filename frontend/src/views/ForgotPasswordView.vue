@@ -42,7 +42,7 @@ async function submit() {
           type="email"
           required
           autofocus
-          placeholder="you@agency.com"
+          placeholder="you@company.com"
         />
       </label>
 
