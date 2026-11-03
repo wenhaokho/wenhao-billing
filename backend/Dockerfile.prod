@@ -1,30 +1,10 @@
 # syntax=docker/dockerfile:1.7
-# Single-image production build for Coolify: builds the Vue SPA, then bakes the
-# static `dist/` into the FastAPI image so one container serves both API + UI.
-# Build context is the REPO ROOT (see docker-compose.coolify.yml) so this can
-# COPY from both frontend/ and backend/.
+# Production API image (no dev extras). The SPA ships separately in
+# frontend/Dockerfile.prod, whose nginx proxies the API paths here.
+# Build context is backend/.
 
-# ---------- stage 1: build the frontend ----------
-FROM node:22-alpine AS frontend-build
-WORKDIR /fe
-
-# Install deps first (cached until package.json changes).
-COPY frontend/package.json ./
-RUN npm install
-
-COPY frontend/ ./
-# Vite inlines VITE_* vars at build time, so Sentry config arrives as build args.
-ARG VITE_SENTRY_DSN=""
-ARG VITE_SENTRY_ENVIRONMENT="production"
-ARG VITE_SENTRY_TRACES_SAMPLE_RATE="0"
-ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN \
-    VITE_SENTRY_ENVIRONMENT=$VITE_SENTRY_ENVIRONMENT \
-    VITE_SENTRY_TRACES_SAMPLE_RATE=$VITE_SENTRY_TRACES_SAMPLE_RATE
-# Produces /fe/dist (vue-tsc typecheck + vite build).
-RUN npm run build
-
-# ---------- stage 2: build Python deps into a venv ----------
-FROM python:3.12-slim AS backend-build
+# ---------- stage 1: build Python deps into a venv ----------
+FROM python:3.12-slim AS build
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -43,19 +23,18 @@ ENV PATH=/opt/venv/bin:$PATH
 # source copied into the runtime stage satisfies imports. WORKDIR matches the
 # runtime stage so that link stays valid. No dev extras in prod.
 WORKDIR /app
-COPY backend/pyproject.toml ./
+COPY pyproject.toml ./
 RUN pip install --upgrade pip \
     && pip install -e .
 
-# ---------- stage 3: backend runtime (also serves the SPA) ----------
-FROM python:3.12-slim AS backend
+# ---------- stage 2: runtime ----------
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PATH=/opt/venv/bin:$PATH \
-    FRONTEND_DIST=/app/frontend_dist
+    PATH=/opt/venv/bin:$PATH
 
 WORKDIR /app
 
@@ -69,13 +48,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && /usr/local/bin/python -m pip install --upgrade pip
 
-COPY --from=backend-build /opt/venv /opt/venv
+COPY --from=build /opt/venv /opt/venv
 
-# Backend source.
-COPY backend/ ./
-
-# Built SPA from stage 1 — served by FastAPI when FRONTEND_DIST is set.
-COPY --from=frontend-build /fe/dist /app/frontend_dist
+COPY . .
 
 EXPOSE 8000
 

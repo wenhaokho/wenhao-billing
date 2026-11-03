@@ -9,6 +9,7 @@ Single-tenant agency accounting system.
 - **Backend:** FastAPI + SQLAlchemy 2.0 + Alembic, APScheduler (in-process), Postgres 16. Package layout under `backend/app/` (`api/v1/routers`, `models`, `schemas`, `services`, `workers`, `db`).
 - **Frontend:** Vue 3 + TypeScript + Vite, Pinia, vue-router, PrimeVue, @tanstack/vue-query, axios. Source under `frontend/src/` (`views`, `components`, `stores`, `composables`, `api`, `router`).
 - **Infra:** `docker-compose.yml` at repo root runs db, backend (`alembic upgrade head` then uvicorn reload; also runs the periodic jobs), and frontend (vite dev server). There is no separate worker or Redis.
+- **Production (Coolify):** `docker-compose.coolify.yml` runs two containers from `backend/Dockerfile.prod` (API only) and `frontend/Dockerfile.prod` (nginx serving the SPA). Only the web container is public; its `frontend/nginx.conf.template` proxies `/api`, `/mcp`, `/oauth`, `/.well-known` and `/docs` to the API, so the browser sees one origin. Add new top-level backend paths there too.
 
 ## Common commands
 
