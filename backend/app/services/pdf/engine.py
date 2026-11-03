@@ -1,31 +1,19 @@
-"""HTML→PDF via headless Chromium (Playwright), launched per request.
+"""HTML→PDF via WeasyPrint.
 
-Sync Playwright is created and destroyed within one call, so it is safe
-inside FastAPI's sync-endpoint threadpool (no cross-thread object sharing).
+The rendered HTML is fully self-contained (fonts and logo are data URIs), so
+the URL fetcher allows only data: URIs: a stray file:// or http(s) reference
+in the template or in user-entered content can never read the container's
+filesystem or reach the network.
 """
 from __future__ import annotations
 
-from playwright.sync_api import sync_playwright
+from weasyprint import HTML
+from weasyprint.urls import URLFetcher
 
-from app.config import get_settings
+
+def _fetcher() -> URLFetcher:
+    return URLFetcher(allowed_protocols={"data"})
 
 
 def html_to_pdf(html: str) -> bytes:
-    timeout = get_settings().pdf_render_timeout_ms
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--no-sandbox"])
-        try:
-            page = browser.new_page()
-            page.set_default_timeout(timeout)
-            page.set_content(html, wait_until="load")
-            # Page margins (which reserve the bands for the repeated fixed
-            # header/footer) are controlled by the CSS `@page` rule in
-            # templates/document.html.j2 — with prefer_css_page_size the CSS
-            # @page wins, so passing margin here would have no effect.
-            return page.pdf(
-                format="A4",
-                print_background=True,
-                prefer_css_page_size=True,
-            )
-        finally:
-            browser.close()
+    return HTML(string=html, url_fetcher=_fetcher()).write_pdf()

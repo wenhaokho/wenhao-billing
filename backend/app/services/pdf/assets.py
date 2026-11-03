@@ -1,7 +1,7 @@
 """Load and cache bundled PDF assets (fonts, default logo) as data URIs.
 
 Everything is embedded so the rendered HTML is fully self-contained — the
-headless browser never needs network access.
+renderer never needs network or filesystem access.
 """
 from __future__ import annotations
 
@@ -26,8 +26,9 @@ def font_face_css() -> str:
     for family, fname in _FONT_FILES.items():
         b64 = b64encode((_FONTS / fname).read_bytes()).decode("ascii")
         rules.append(
+            # No font-weight range descriptor (WeasyPrint rejects it); Pango
+            # still drives the variable font's weight axis per element.
             f"@font-face{{font-family:'{family}';font-style:normal;"
-            f"font-weight:100 900;font-display:swap;"
             f"src:url(data:font/woff2;base64,{b64}) format('woff2');}}"
         )
     return "\n".join(rules)
