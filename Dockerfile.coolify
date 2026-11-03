@@ -59,18 +59,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Runtime libpq only — no compilers or headers. Also upgrade the base image's
+# Runtime libpq only — no compilers or headers. Pango/HarfBuzz are WeasyPrint's
+# text layout libraries for HTML->PDF rendering; DejaVu is the fontconfig
+# fallback for glyphs the embedded fonts lack. Also upgrade the base image's
 # system pip, which the scanner flags even though the app runs from the venv.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 \
+       libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
     && /usr/local/bin/python -m pip install --upgrade pip
 
 COPY --from=backend-build /opt/venv /opt/venv
-
-# Headless Chromium for HTML->PDF invoice/quotation rendering (Playwright).
-RUN python -m playwright install --with-deps chromium \
-    && rm -rf /var/lib/apt/lists/*
 
 # Backend source.
 COPY backend/ ./
