@@ -32,12 +32,22 @@ _PROFILE_FIELDS = [
 
 @mcp.tool
 def get_business_profile() -> dict:
-    """Return the agency's business profile (name, contact, address, etc.)."""
+    """Return the agency's business profile (name, contact, address, etc.).
+
+    An uploaded logo is stored as a base64 data URI (often hundreds of KB), so
+    `logo_url` is replaced by a short placeholder in that case; a regular URL
+    is returned as-is. `has_logo` says whether any logo is set."""
     with tool_session() as db:
         row = db.scalar(select(BusinessProfile))
         if row is None:
             return {}
-        return to_dict(row, _PROFILE_FIELDS)
+        result = to_dict(row, _PROFILE_FIELDS)
+        logo = result.get("logo_url")
+        result["has_logo"] = bool(logo)
+        if logo and logo.startswith("data:"):
+            mime = logo[5:].split(";", 1)[0].split(",", 1)[0] or "unknown"
+            result["logo_url"] = f"<inline {mime} image, {len(logo) // 1024} KB omitted>"
+        return result
 
 
 def _coerce_currency_rows(rows: list[dict]) -> list[dict]:
