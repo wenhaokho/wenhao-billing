@@ -31,6 +31,31 @@ def test_get_business_profile_returns_dict(mcp_tool_db, seed_business_profile):
     assert result["contact_email"] == "hello@wenhao.example"
     # Decimal/UUID/datetime fields (if any) must already be JSON-safe strings.
     assert isinstance(result["updated_at"], str)
+    assert result["has_logo"] is False
+
+
+def test_get_business_profile_omits_inline_logo(mcp_tool_db, db, seed_business_profile):
+    from app.models.business_profile import BusinessProfile
+
+    profile = db.get(BusinessProfile, seed_business_profile)
+    profile.logo_url = "data:image/png;base64," + "A" * 200_000
+    db.flush()
+
+    result = get_business_profile()
+    assert result["has_logo"] is True
+    assert result["logo_url"] == "<inline image/png image, 195 KB omitted>"
+
+
+def test_get_business_profile_keeps_regular_logo_url(mcp_tool_db, db, seed_business_profile):
+    from app.models.business_profile import BusinessProfile
+
+    profile = db.get(BusinessProfile, seed_business_profile)
+    profile.logo_url = "https://cdn.example/logo.png"
+    db.flush()
+
+    result = get_business_profile()
+    assert result["has_logo"] is True
+    assert result["logo_url"] == "https://cdn.example/logo.png"
 
 
 def test_get_stats_returns_dict_with_expected_keys(mcp_tool_db, db):
