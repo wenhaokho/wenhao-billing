@@ -1,50 +1,44 @@
-# Production deployment for Coolify — single domain, FastAPI serves the SPA.
+# Production deployment for Coolify — two containers on one domain:
+#   wenhao-billing-web  nginx serving the built SPA; it is the only public service
+#                       and proxies /api, /mcp, /oauth, /.well-known and /docs to
+#                       the API, so the browser sees a single origin.
+#   wenhao-billing-api  FastAPI only (no public domain of its own).
 # Uses a SHARED Postgres (managed separately in Coolify); this stack only ships
 # the app. Periodic jobs (recurring invoices, hosting enforcement, FX sync) run
-# on an in-process scheduler inside the app — there is no worker or Redis.
+# on an in-process scheduler inside the API — there is no worker or Redis.
 #
 # In Coolify: New Resource -> Docker Compose (Build Pack), point it at this file.
 # Coolify auto-fills the SERVICE_* "magic" variables: it provisions the public
-# domain + Traefik route from SERVICE_FQDN_APP_8000 and generates every
+# domain + Traefik route from SERVICE_FQDN_WEB_80 and generates every
 # SERVICE_BASE64_* secret once, then persists them.
 #
 # Set DATABASE_URL to the shared Postgres connection string
 # (Coolify UI, or .env for a run outside Coolify — see .env.coolify.example).
 # The shared Postgres must be attached to the same Docker network as this
-# resource so the app can reach it by hostname.
+# resource so the API can reach it by hostname.
 
 services:
-  wenhao-billing-app:
+  wenhao-billing-api:
     build:
-      context: .
-      dockerfile: Dockerfile.coolify
-      # Frontend Sentry config is inlined into the SPA bundle at build time.
-      args:
-        VITE_SENTRY_DSN: ${SENTRY_DSN_FRONTEND:-}
-        VITE_SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
-        VITE_SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
-    image: wenhao-billing:coolify
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    image: wenhao-billing-api:coolify
     environment:
-      # Presence of this key tells Coolify to generate the public FQDN for this
-      # service on container port 8000 and wire up the Traefik route + TLS.
-      SERVICE_FQDN_APP_8000: ${SERVICE_FQDN_APP_8000:-billing.wenhao.id}
       # Shared Postgres — full connection string you provide. The DB URL MUST
       # use the postgresql+psycopg:// driver prefix (SQLAlchemy).
       DATABASE_URL: ${DATABASE_URL}
-      # Backend serves the built SPA from this dir (baked in by Dockerfile.coolify).
-      FRONTEND_DIST: /app/frontend_dist
       # Secrets — Coolify generates 64-char values once and persists them.
       SESSION_SECRET: ${SERVICE_BASE64_64_SESSION}
       WEBHOOK_HMAC_SECRET: ${SERVICE_BASE64_64_WEBHOOK}
       EMAIL_WEBHOOK_TOKEN: ${SERVICE_BASE64_64_EMAILTOKEN}
-      # Single origin — the SPA is same-origin with the API, so this is really
-      # only needed for non-browser cross-origin callers.
-      CORS_ORIGINS: '["${SERVICE_URL_APP_8000:-https://billing.wenhao.id}"]'
-      APP_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
+      # Single origin — the SPA is same-origin with the API (via the web
+      # proxy), so this is really only needed for non-browser cross-origin callers.
+      CORS_ORIGINS: '["${SERVICE_URL_WEB_80:-https://billing.wenhao.id}"]'
+      APP_BASE_URL: ${SERVICE_URL_WEB_80:-https://billing.wenhao.id}
       MCP_ENABLED: ${MCP_ENABLED:-true}
       MCP_CONFIRM_SECRET: ${SERVICE_BASE64_64_MCPCONFIRM}
       MCP_TOKEN_SECRET: ${SERVICE_BASE64_64_MCPTOKEN}
-      MCP_PUBLIC_BASE_URL: ${SERVICE_URL_APP_8000:-https://billing.wenhao.id}
+      MCP_PUBLIC_BASE_URL: ${SERVICE_URL_WEB_80:-https://billing.wenhao.id}
       MCP_ACCESS_TOKEN_TTL_SECONDS: ${MCP_ACCESS_TOKEN_TTL_SECONDS:-3600}
       MCP_REFRESH_TOKEN_TTL_SECONDS: ${MCP_REFRESH_TOKEN_TTL_SECONDS:-2592000}
       # Resend email (native API). Set RESEND_API_KEY in the Coolify UI to enable;
@@ -79,3 +73,28 @@ services:
         "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000",
       ]
 
+  wenhao-billing-web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      # Frontend Sentry config is inlined into the SPA bundle at build time.
+      args:
+        VITE_SENTRY_DSN: ${SENTRY_DSN_FRONTEND:-}
+        VITE_SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+        VITE_SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+    image: wenhao-billing-web:coolify
+    environment:
+      # Presence of this key tells Coolify to generate the public FQDN for this
+      # service on container port 80 and wire up the Traefik route + TLS.
+      SERVICE_FQDN_WEB_80: ${SERVICE_FQDN_WEB_80:-billing.wenhao.id}
+      # Where nginx proxies the API paths (compose service name + port).
+      BACKEND_UPSTREAM: wenhao-billing-api:8000
+    depends_on:
+      wenhao-billing-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s

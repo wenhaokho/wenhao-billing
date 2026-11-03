@@ -1,10 +1,8 @@
-import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1.routers import (
@@ -109,8 +107,7 @@ def create_app() -> FastAPI:
 
         # The FastMCP sub-app serves at its mount root, so the live endpoint is
         # "/mcp/" (trailing slash). Starlette's Mount doesn't match the bare
-        # "/mcp", which would otherwise fall through to the SPA catch-all below
-        # (405 on POST, 404 on GET). Redirect bare "/mcp" to "/mcp/" with a 307
+        # "/mcp", which would otherwise 404. Redirect bare "/mcp" to "/mcp/" with a 307
         # so the method and JSON-RPC body are preserved — clients that omit the
         # trailing slash still connect.
         @app.api_route(
@@ -120,11 +117,6 @@ def create_app() -> FastAPI:
             return RedirectResponse(url="/mcp/", status_code=307)
 
         app.mount("/mcp", mcp_http_app)
-
-    # Serve the built SPA from the same origin as the API (single-container
-    # deploy). Registered LAST so it never shadows the API, MCP, OAuth, or docs
-    # routes above — the catch-all only fires for paths nothing else matched.
-    _mount_frontend(app, settings.frontend_dist)
 
     return app
 
@@ -181,45 +173,6 @@ class _NoStoreMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_no_store)
-
-
-def _mount_frontend(app: FastAPI, dist_dir: str | None) -> None:
-    if not dist_dir or not os.path.isdir(dist_dir):
-        return
-
-    root = os.path.abspath(dist_dir)
-    index_file = os.path.join(root, "index.html")
-    assets_dir = os.path.join(root, "assets")
-    if os.path.isdir(assets_dir):
-        # Hashed JS/CSS bundles — immutable, safe to serve directly.
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-
-    # Backend path segments that must never resolve to the SPA shell. Unknown
-    # routes under these return a real 404 (JSON) instead of index.html, so a bad
-    # API call doesn't silently get an HTML 200. Matched against the FIRST path
-    # segment — not a raw substring — so a client route like "mcp-integration"
-    # isn't swallowed by the reserved "mcp" prefix.
-    reserved = {"api", "mcp", "oauth", ".well-known", "docs", "redoc", "openapi.json"}
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def spa_fallback(full_path: str) -> FileResponse:
-        if full_path.split("/", 1)[0] in reserved:
-            raise HTTPException(status_code=404, detail="Not Found")
-        candidate = os.path.normpath(os.path.join(root, full_path))
-        # Serve a real static file (favicon, etc.) only if it stays inside the
-        # dist root — guards against path-traversal escaping via `..`.
-        if (
-            full_path
-            and candidate.startswith(root + os.sep)
-            and candidate != index_file
-            and os.path.isfile(candidate)
-        ):
-            return FileResponse(candidate)
-        # History-mode client route — hand back the SPA shell. `no-cache` makes
-        # browsers and the CDN revalidate it on every load: the shell names the
-        # content-hashed bundles, which are replaced on each deploy, so a
-        # cached copy would point at bundles that no longer exist.
-        return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
 
 
 app = create_app()
