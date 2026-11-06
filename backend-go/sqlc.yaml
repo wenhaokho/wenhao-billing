@@ -1,0 +1,10 @@
+version: "2"
+sql:
+  - engine: postgresql
+    schema: migrations/00001_baseline.sql
+    queries: queries
+    gen:
+      go:
+        package: dbquery
+        out: internal/dbquery
+        sql_package: pgx/v5

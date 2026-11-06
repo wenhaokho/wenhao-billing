@@ -1,0 +1,12 @@
+# Task 56 report
+
+Implemented `backend-go/internal/recurringschedule`: JSON parsing, cycle lookup and boundaries, strict next cycle, key, paused truthiness and descriptions. Calendar arithmetic clamps against the original start date and bounds arithmetic before multiplication. Out-of-range dates return errors. JSON integer booleans and integers exceeding Go's int range are rejected; dates require extended ISO format. These are deliberate differences from permissive Python internals. Current-cycle and boundary lookup also avoid Python’s overflow from probing a nonexistent next monthly or yearly cycle near year 9999.
+
+Verification from `backend-go`:
+
+- Initial `go test ./internal/recurringschedule` failed to compile because the requested API did not yet exist. After implementation, the focused suite passed.
+- A null end-mode regression test failed before its fix; the focused suite then passed with `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH=/home/wenhao/.codex/worktrees/billing-go-replacement/wenhao-billing/backend go test -count=1 ./internal/recurringschedule`.
+- `TestPythonDifferential` invokes the Python implementation locally for 315,576 combinations: four frequencies, three intervals, three end modes, three month-end/leap starts, and every date in 2018–2025. It compares current cycle, next cycle, boundary, description and paused status. Separate tests cover invalid configuration and date overflow. A separate Python differential checks eight invalid configurations.
+- Four independent temporary-copy mutations to clamp, end count, start guard and default interval each caused focused tests to fail. The originals were never mutated.
+- Review regressions: large paused numbers and the AFTER_N date overflow each failed before fixes; independent temporary mutations of both fixes also failed. Python pause differential covers large integers, floating point overflow and underflow, zero, nested values and malformed JSON. A positive underflow case failed before the float-conversion fix; an independent reversion mutation also failed on that case.
+- Full suite command: `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH=/home/wenhao/.codex/worktrees/billing-go-replacement/wenhao-billing/backend PGTESTDB_URL=postgres://billing:billing@127.0.0.1:64392/billing_task2_clean?sslmode=disable go test -count=1 ./...` passed after all review fixes (platform 222.975s; recurring schedule 8.930s; migrations 18.668s).

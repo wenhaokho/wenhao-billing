@@ -1,0 +1,14 @@
+# Task 69 report
+
+The API now starts configured recurring notification and hosting restore workers after opening its listener, cancels and waits for them before closing the pool, and disables both with `SCHEDULER_ENABLED=false`. Each job is serial per process, with a 30-second delay after a pass and a one-minute pass deadline. Existing two-minute claims, durable retries and provider-level timeouts remain in effect. Missing provider credentials log an unavailable worker and leave its queue untouched; invalid configured providers fail startup. Provider and worker failures are logged without error details; panics are isolated. See `backend-go/DELIVERY_WORKERS.md` for settings and operational limits.
+
+Mandatory follow-up: implement the recurring invoice generation, usage lock, FX sync and hosting suspension schedules before replacing Python's scheduler.
+
+Evidence:
+- Test-first lifecycle and redacted-provider tests failed to compile because the new entry points did not exist, then passed after implementation.
+- `PGTESTDB_URL=postgres://billing:billing@127.0.0.1:52677/billing_alembic_ref?sslmode=disable go test ./cmd/api -run TestWorkersDeliverDurableQueuesAcrossReplicas -count=1` passed with real PostgreSQL and fake providers: disabled workers make no calls, two worker instances claim each queued item only once, a failed notification remains due for a later retry, and two separate OS processes claim the same notification only once.
+- `PGTESTDB_URL=postgres://billing:billing@127.0.0.1:52677/billing_alembic_ref?sslmode=disable go test -race -count=1 ./cmd/api -run 'TestWorkers|TestWorkerErrors|TestSchedulerConfiguration|TestProviderFailures'` passed.
+- In an isolated copy, disabling the enable guard failed with `disabled worker ran`; suppressing startup failed with `worker did not start`; ignoring cancellation in the pass context failed with `worker did not stop`. The shutdown mutation initially survived with a one-second pass timeout; the test was strengthened to use a one-hour timeout before confirming failure.
+- Full suite passed: `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH=/home/wenhao/.codex/worktrees/billing-go-replacement/wenhao-billing/backend PGTESTDB_URL=postgres://billing:billing@127.0.0.1:52677/billing_alembic_ref?sslmode=disable go test -count=1 ./...` (platform 328.014s; all packages passed).
+
+Limits: the separate process test covers notification claims; hosting claims are tested with two concurrent worker instances in one process. Fake providers are used and no live provider calls were made. Cancellation requires provider implementations to honor context; built-in adapters do so. Provider acceptance before a crash or cancellation can result in at-least-once duplicate delivery after lease expiry. Existing consumer tests exercise lease expiration and retries; the lifecycle test does not simulate a process crash.

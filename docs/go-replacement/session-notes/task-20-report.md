@@ -1,0 +1,23 @@
+# Task 20 report
+
+Implemented public Huma forgot/reset endpoints with bounded parsing, no-store middleware, normalized email, a 32-byte crypto-random URL-safe token, one-hour expiration, transactional row locking and consumption, expired-token clearing, Argon2id using production defaults, and generic non-enumerating forgot responses. Delivery is attempted only after commit via internal/email; failed or disabled delivery produces a generic redacted log and the same public response. Runtime config supplies Python's sender defaults, Resend precedence and SMTP settings. Base URL is checked before handler startup. No email leaves tests.
+
+Verification:
+- `TestPasswordRecoveryHTTP`: actual HTTP and pgtestdb Postgres; known/unknown response equality, expiry, URL escaping, token rotation, concurrent single use, expired-token clearing, password verification and other-user preservation, malformed/oversized/redacted validation, a captured/failing sender, no-store, OpenAPI paths, public security, request fields, password constraints and response schemas, failed write rollback using a Postgres trigger, and a held-row-lock concurrent revocation scenario.
+- `TestRecoveryPythonHTTPDifferential`: FastAPI TestClient HTTP request validation status and error type/location/message versus Go for seven representative valid and invalid payloads. Go intentionally redacts error inputs. It does not compare every Python error detail or live Python database/email behavior.
+- Independent temporary mutations restored after tests: deterministic token, two-hour expiry, retaining token after reset, adding session authentication, lowering password minimum, exposing short password, and removing `FOR UPDATE` all caused `TestPasswordRecoveryHTTP` to fail. A mutation replacing deferred rollback with commit survived: each failed update leaves the PostgreSQL transaction aborted and this path performs no earlier writes, so the test does not independently prove the defer. Post-failure state is verified using trigger failures; connection-release behavior is not separately tested.
+- Full suite command: `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH=/home/wenhao/.codex/worktrees/billing-go-replacement/wenhao-billing/backend PGTESTDB_URL=postgres://billing:billing@127.0.0.1:57793/billing_task2_clean?sslmode=disable go test -count=1 ./...` (see final result below).
+
+Additional verification: `go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0 generate` succeeded and generated query methods are used. `TestRecoveryOpenAPIContract` verifies request and response schemas, status codes and public security. `TestRecoveryMailConfig` checks disabled delivery, invalid SMTP settings and Resend priority without network calls. `TestRecoveryProductionArgon2Defaults` checks and exercises production-cost parameters.
+
+Limitations: mail configuration tests do not connect to SMTP or Resend. Exact Python differential error positions/shapes for malformed bodies are not guaranteed; secret-bearing inputs are deliberately redacted. No deployment, production database or external email was used.
+
+Final full suite result after restoring all mutations and adding redacted delivery logging: PASS (`cmd/api`, `internal/email`, `internal/fx`, `internal/ledger`, `internal/platform`, `internal/withholding`, and `migrations`; `internal/dbquery` has no test files).
+
+## Review follow-up
+
+Resend selection now bypasses parsing inactive SMTP port and TLS values, so stale malformed SMTP settings do not prevent startup when a Resend key is configured. Both recovery routes recognize the parser's absent-body sentinel and return the FastAPI-compatible `missing` error at `body` with null input. The Python HTTP differential now includes empty requests for both routes; `TestRecoveryMissingBodyAndRedaction` additionally checks the complete absent-body shape and secret redaction for malformed objects and arrays.
+
+Before the fix, the focused tests reproduced all three defects. After the fix, `go test -count=1 ./cmd/api ./internal/platform -run '^(TestRecoveryMailConfig|TestRecoveryPythonHTTPDifferential|TestRecoveryMissingBodyAndRedaction|TestPasswordRecoveryHTTP)$'` passed with the task's Python and Postgres environment. Three independent temporary mutations reverted the Resend priority guard, forgot-body guard, and reset-body guard respectively; each caused its corresponding focused test to fail. All mutations were restored.
+
+The full task command `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH=/home/wenhao/.codex/worktrees/billing-go-replacement/wenhao-billing/backend PGTESTDB_URL=postgres://billing:billing@127.0.0.1:57793/billing_task2_clean?sslmode=disable go test -count=1 ./...` passed after these follow-up fixes and mutation restoration.

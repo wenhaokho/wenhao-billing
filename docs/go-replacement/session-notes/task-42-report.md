@@ -1,0 +1,11 @@
+# Task 42: Recurring template reads
+
+Implemented GET `/api/v1/invoices/recurring-templates` and `/{template_id}` using sqlc list query, persisted-admin authentication, shared invoice/line serialization, and Huma schemas. List includes every invoice with `is_template=true` irrespective of type/status, ordered by `created_at DESC`, just as Python does; list ignores extra query parameters. Detail returns a template or the Python 404 and validates the path UUID. Empty list is `[]`; nonfinite stored numeric values fail safely.
+
+Test-first: `TestInvoiceReadsDifferential` was expanded before implementation and failed on both missing routes (422 or 404 versus Python). After implementation, `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH="$PWD/../backend" PGTESTDB_URL='postgres://billing:billing@127.0.0.1:57793/billing_task2_clean?sslmode=disable' go test ./internal/platform -run '^TestInvoiceReadsDifferential$' -count=1` passed (4.278s). It uses separate real Postgres databases and FastAPI TestClient, compares exact JSON numbers, and includes two templates with different type/status/customer/order, line item and nested large integer, ignored invalid extra filters, detail, malformed UUID, missing/non-template IDs, auth variants, no-store, array/security OpenAPI, unchanged invoice snapshots, empty list, and stored NaN safety. It also exercises existing invoice endpoints.
+
+Guard mutations were individually applied to generated SQL/handler then restored: removing list template filter, reversing list order, and allowing non-template detail each failed `TestInvoiceReadsDifferential` (exit 1). Authentication variants independently assert 401/403. `go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0 generate` passed.
+
+Limits: tests don't exhaust all UUID encodings, every stored invalid field, tied `created_at` ordering (Python leaves ties unspecified), all schema fields, full related-table snapshots, or actual production traffic. `/recurring-templates/rows`, writes, and scheduler remain future work. No production or external provider contacted.
+
+Full suite after restored mutations and final tests: `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH="$PWD/../backend" PGTESTDB_URL='postgres://billing:billing@127.0.0.1:57793/billing_task2_clean?sslmode=disable' go test -count=1 ./...` passed all packages (platform 152.061s, migrations 20.535s).

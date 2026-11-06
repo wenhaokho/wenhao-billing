@@ -1,0 +1,11 @@
+# Task 29 report
+
+Implemented DELETE `/api/v1/vendors/{vendor_id}` as a transactional soft deactivation. The handler authenticates and rechecks the persisted administrator under a row lock, parses UUIDs using the shared parser, updates only the selected vendor, validates and serializes the full response before commit, and sanitizes database errors. Registered the operation and responses in OpenAPI. Regenerated sqlc with `go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0 generate`.
+
+`TestVendorDeletePostgres` uses actual HTTP and pgtestdb/Postgres. It covers missing, tampered and non-admin sessions; deterministic admin demotion with synchronization at the lock and observed database lock wait; malformed, wrapped, valid and missing IDs; repeated deletion; response parity against Python HTTP; invalid stored email and schema rollback; deferred commit failure and sanitization; unchanged complete related bill and unrelated vendor snapshots; no-store and OpenAPI response/security registration. The initial test failed with 405 before implementation.
+
+Independent temporary mutations were applied and restored. The test failed for each: bypassing authentication (200 instead of 401); skipping the locked admin-role recheck (200 instead of 403); changing selection from `=` to `<>` (404 instead of 200); writing `active=true` (response remained active); and committing after response validation failed (the vendor remained deactivated). The generated SQL mutation was restored after each check.
+
+Full suite command: `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH=/home/wenhao/.codex/worktrees/billing-go-replacement/wenhao-billing/backend PGTESTDB_URL=postgres://billing:billing@127.0.0.1:57793/billing_task2_clean?sslmode=disable go test -count=1 ./...`. It passed twice. The second run compiled before the final test-only additions; the updated focused integration test passed separately after those additions.
+
+Limitations: Invalid stored output coverage exercises email and payment terms, not every schema constraint. Python differential covers the full successful response for one fully persisted vendor, rather than a matrix of responses. No production, deploy, Python source changes, or commits were made.

@@ -1,0 +1,14 @@
+# Task 39: Project PATCH
+
+Implemented PATCH `/api/v1/projects/{project_id}` using sqlc queries, transaction-bound admin and project row locks, and a typed update of the locked current row. It supports every ProjectUpdate field, omission/null distinctions, normalization, redacted input errors and pre-commit output serialization. Required database fields supplied as null return Python's domain 400 without modifying data. Go does not write numbers that the exact NUMERIC(19,4) validator rejects. Requests are limited to 1 MiB.
+
+Verification:
+- `go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0 generate` completed.
+- Test-first `TestProjectUpdatePostgres` initially failed with 405; now passes against real Postgres. Actual FastAPI HTTP differential on separate databases covers every writable field, omitted/unknown fields, null nullable and non-nullable fields, underscore decimals, NaN, extra precision, invalid enum/UUID/multiple errors, code conflict, nonexisting customer and boolean coercion. Validation input values are deliberately redacted to match the existing Go write policy.
+- Focused test covers absent authentication, malformed and missing IDs, bounded/non-JSON body, no-store, 422 secret redaction, a second unchanged project's selected fields, OpenAPI operation/security, and concurrent disjoint changes by distinct admins while a third transaction holds the project lock. A separate concurrent admin demotion is prevented from writing.
+- Removing the transaction role guard made the demotion test fail (200 and persisted `demoted`); restored. Removing `FOR UPDATE` from LockProject generated SQL made the concurrency regression fail with a lost change; restored.
+- Focused command: `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH=$PWD/../backend PGTESTDB_URL=postgres://billing:billing@127.0.0.1:57793/billing_task2_clean?sslmode=disable go test ./internal/platform -run '^TestProjectUpdatePostgres$' -count=1` passed (2.083s).
+
+Limits: Python's entire Pydantic coercion space and malformed request precedence are not exhaustive; tests sample field-level OpenAPI rather than assert every property constraint; unrelated-project snapshot checks selected fields rather than the full row, and no targeted deferred commit-failure test is included. Request validation inputs are redacted (intentional Python parity exception). Concurrent tests use time-bounded lock waiting; other schedules are not exhaustive. No production or external provider access.
+
+Final full suite: `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH=$PWD/../backend PGTESTDB_URL=postgres://billing:billing@127.0.0.1:57793/billing_task2_clean?sslmode=disable go test -count=1 ./...` passed after the final test additions (platform 221.213s, migrations 24.666s; all other packages passed). The run took longer than earlier runs but completed successfully.

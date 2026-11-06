@@ -1,0 +1,19 @@
+# Task 5 report
+
+Implemented the HTTP application skeleton in `backend-go/cmd/api/main.go` and `backend-go/internal/platform/server.go`, with tests alongside them. Updated `backend-go/go.mod` and `go.sum` for pinned chi v5.5.0 and Huma v2.40.0. No Python, production database, migrations, scheduler, business routes, deployment, or commits were changed.
+
+Public interfaces: `platform.OpenDB(ctx, url)` validates configuration, uses gokit `db.Open`, and redacts underlying errors; `platform.NewHandler(pool, origins)` provides `/health`, `/openapi.json`, CORS and FastAPI-style 404; `platform.NoStore(handler)` applies the existing path-prefix policy, preserving flush and response-controller access. The executable accepts `DATABASE_URL`, `PORT` (default 8000), and `CORS_ORIGINS` (JSON array or comma-separated; default localhost:5173). It connects with a timeout and shuts down on SIGINT/SIGTERM. A failed ping returns 503.
+
+Test-first: tests for the foundation were written before implementation and initially failed with missing interfaces; the origin parsing test initially failed for its missing function. Tests use pgtestdb against the specified isolated database, close the actual pool to test health failure, exercise an unreachable endpoint and invalid configuration, check 404, all cache prefixes and boundary paths, origin allow/deny, OpenAPI and streaming flush. Security/availability mutations were run and restored: removing the health ping gave closed database status 200; changing no-store to public failed all prefix and streaming checks; inverting origin matching failed CORS; bypassing URL validation failed the missing-configuration assertion; exposing the driver error failed the secret-containing malformed pool setting assertion.
+
+Verification from `backend-go`: `PGTESTDB_URL=postgres://billing:billing@127.0.0.1:57793/billing_task2_clean?sslmode=disable go test -count=1 ./...` passed for cmd/api, internal/platform, internal/withholding and migrations.
+
+Limitations: no production integration or end-to-end deployed server test was performed. The current foundation contains no business routes and does not start background jobs or run migrations. Huma defaults expose its documentation endpoints in addition to `/openapi.json`.
+
+## Review round 1
+
+Fixed no-store for implicit empty responses, including a handler that replaces the header; preserved final status after informational 1xx (with 101 treated as final); and included HEAD in the standard CORS preflight methods. Added network tests for both cases, allowed and denied preflights including credentials and requested headers, and actual streaming (first chunk must arrive before the handler is released to write the second). Extracted the server lifecycle into `serve` and tested shutdown over a real TCP listener while a request remains in flight.
+
+Red/green: before the fixes, the network tests observed empty 200 without cache control, 103 followed by an incorrect 200 instead of 503, and a HEAD preflight without HEAD in allowed methods. The shutdown test initially failed to compile because the lifecycle entry point did not yet exist; all tests passed after implementation.
+
+Mutation evidence, each restored before verification: removing the initial/deferred cache header failed the empty-response test; removing just the deferred restoration failed the empty-overwrite case; treating 103 as final failed the expected 503; removing HEAD from preflight methods failed the HEAD case; replacing graceful Shutdown with Close stopped the server before the active request completed; removing the underlying Flush caused the network streaming test to time out awaiting headers. The final uncached `PGTESTDB_URL=postgres://billing:billing@127.0.0.1:57793/billing_task2_clean?sslmode=disable go test -count=1 ./...` passed all packages.

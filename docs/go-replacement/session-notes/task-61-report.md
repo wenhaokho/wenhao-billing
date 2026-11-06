@@ -1,0 +1,22 @@
+# Task 61 report
+
+Implemented POST `/api/v1/invoices/usage/{invoice_id}/lock` using a transaction, a persisted admin row lock, and the same invoice row lock used by update and finalize. The request validates amount and date, rejects non-usage and non-draft invoices, computes withholding using the existing currency rounding helper, updates the JSONB reference while preserving existing numbers exactly, serializes the response before commit, and allows repeat locks while the invoice remains DRAFT. sqlc was generated with `go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0 generate`.
+
+Test-first: `TestUsageLockPostgres` initially failed with HTTP 404 before implementation. After implementation, `go test ./internal/platform -run '^TestUsageLock' -count=1` passed with the specified Python and Postgres environment. The differential test runs real Python HTTP and Go handlers on separate migrated Postgres databases. It covers USAGE/MILESTONE/RECURRING, DRAFT/OPEN/SENT/PARTIAL/PAID/VOID, USD/IDR, gross-up on/off, NONE/PPH21/PPH23, null rates, zero and rounding boundaries, large nested JSON, JSON null reference, missing invoice, and a selection of body/date/amount validation cases. It compares HTTP responses and snapshots of invoices, lines, payments, journal entries and journal lines.
+
+The Postgres test covers repeat locks, no-store on unauthenticated requests, OpenAPI path, database error and invalid output rollback, demotion, and observed row-lock waits with real update and finalize requests. It also tests a demotion committed while the request is waiting on the admin row.
+
+Temporary mutations to type guard, status guard, persisted role check, withholding computation, rollback, and invoice row lock each produced a failing targeted test. The original implementation was restored. The invoice-lock mutation was rerun after fixing cleanup and failed with `finalize: 1 requests waiting`.
+
+Limits: differential coverage is sampled, not exhaustive across every malformed JSON, media type, date representation, and numeric boundary. OpenAPI assertions check route presence, not the complete schema. Billing references are converted with Python-compatible handling for falsy values, object values and iterable pairs. Invalid shapes and non-string keys are rejected before the update so no partial write is committed. The JSON null reference case failed against the initial implementation (Go 500 versus Python 200), then passed after the SQL query was corrected. The full-suite result is recorded below after completion.
+
+Final full-suite command (from `backend-go`): `PATH=/tmp/codex-billing-py312/bin:$PATH PYTHONPATH=/home/wenhao/.codex/worktrees/billing-go-replacement/wenhao-billing/backend PGTESTDB_URL=postgres://billing:billing@127.0.0.1:64392/billing_task2_clean?sslmode=disable go test -count=1 ./...`. Result: exit 0; all packages passed, including platform in 260.823s, recurring schedule in 9.187s, and migrations in 19.440s. `internal/dbquery` has no tests.
+
+
+## Review follow-up
+
+Added separate-database actual Python HTTP differential cases for empty arrays, strings used as pairs, objects used as pairs, arrays of pairs with duplicate keys and nested integers larger than 64-bit, false, zero, empty strings, invalid arrays and strings. Compared complete invoice and related table snapshots. Added 100% rate cases for NONE with positive base, PPH23 with zero base, PPH23 with positive base and gross-up, and PPH23 without gross-up. The initial tests failed on empty and valid pairs, falsy values and the two no-division cases; they pass after the changes. The valid object-as-pair case was separately observed failing before its implementation. Numeric JSON values are retained via `json.Number` and verified in database snapshots.
+
+Meaningful temporary mutations that rejected arrays and reinstated the unconditional 100% guard each made the Python differential test fail. Original code was restored before the full suite. The service intentionally rejects pair keys that are not strings before writing: these cannot satisfy the response schema, and rejecting them before update avoids Python's commit-before-response-validation side effect.
+
+Final review follow-up full-suite run used the same command and environment as above after restoring mutations and regenerating sqlc. It exited 0; platform passed in 302.011s, recurring schedule in 9.596s, withholding in 0.005s and migrations in 19.682s. All other packages passed; dbquery has no tests.
