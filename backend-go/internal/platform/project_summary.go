@@ -100,21 +100,7 @@ func (s sessionHandler) projectSummary(w http.ResponseWriter, r *http.Request) {
 			authError(w, 500, "internal server error")
 			return
 		}
-		byID := map[pgtype.UUID][]dbquery.InvoiceLineItem{}
-		for _, l := range lines {
-			byID[l.InvoiceID] = append(byID[l.InvoiceID], l)
-		}
-		out := make([]invoiceOutput, 0, len(rows))
-		for _, row := range rows {
-			v, e := invoiceJSON(row, byID[row.InvoiceID])
-			if e != nil {
-				authError(w, 500, "internal server error")
-				return
-			}
-			out = append(out, v)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		writeSafeJSON(w, out)
+		writeCustomerInvoices(w, rows, lines)
 		return
 	}
 	stats, err := q.ProjectInvoiceStats(ctx, id)
@@ -127,6 +113,10 @@ func (s sessionHandler) projectSummary(w http.ResponseWriter, r *http.Request) {
 		authError(w, 500, "internal server error")
 		return
 	}
+	writeProjectSummary(w, id, project.ContractValue, stats, bill)
+}
+
+func writeProjectSummary(w http.ResponseWriter, id pgtype.UUID, contractValue pgtype.Numeric, stats dbquery.ProjectInvoiceStatsRow, bill pgtype.Numeric) {
 	a, as, e := projectNumeric(stats.Invoiced)
 	if e != nil {
 		authError(w, 500, "internal server error")
@@ -147,8 +137,8 @@ func (s sessionHandler) projectSummary(w http.ResponseWriter, r *http.Request) {
 		scale = bs
 	}
 	out := projectSummaryOutput{ProjectID: id, InvoicedTotal: a.StringFixed(as), OutstandingTotal: b.StringFixed(bs), PaidTotal: a.Sub(b).StringFixed(scale), InvoiceCount: stats.InvoiceCount, BillTotal: billval.StringFixed(cs)}
-	if project.ContractValue.Valid {
-		cv, cvs, e := projectNumeric(project.ContractValue)
+	if contractValue.Valid {
+		cv, cvs, e := projectNumeric(contractValue)
 		if e != nil {
 			authError(w, 500, "internal server error")
 			return

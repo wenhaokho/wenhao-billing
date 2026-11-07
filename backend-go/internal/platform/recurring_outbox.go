@@ -36,46 +36,12 @@ func DeliverRecurringDrafts(ctx context.Context, pool *pgxpool.Pool, sender emai
 		if claim.address == "" {
 			continue
 		}
-		if baseURL == "" {
-			baseURL = "http://localhost:5173"
+		message, err := recurringDraftMessage(claim, baseURL)
+		if err != nil {
+			return err
 		}
-		var textItems, htmlItems strings.Builder
-		for _, item := range claim.items {
-			d, err := decimal.NewFromString(item.amount)
-			if err != nil {
-				return err
-			}
-			formatted := d.RoundBank(2).StringFixed(2)
-			if d.IsNegative() && d.RoundBank(2).IsZero() {
-				formatted = "-" + formatted
-			}
-			parts := strings.SplitN(formatted, ".", 2)
-			prefix := parts[0]
-			sign := ""
-			if strings.HasPrefix(prefix, "-") {
-				sign = "-"
-				prefix = prefix[1:]
-			}
-			for i := len(prefix) - 3; i > 0; i -= 3 {
-				prefix = prefix[:i] + "," + prefix[i:]
-			}
-			formatted = sign + prefix + "." + parts[1]
-			id := fmt.Sprintf("%x-%x-%x-%x-%x", item.invoice.Bytes[0:4], item.invoice.Bytes[4:6], item.invoice.Bytes[6:8], item.invoice.Bytes[8:10], item.invoice.Bytes[10:16])
-			link := strings.TrimRight(baseURL, "/") + "/invoices/" + id + "/edit"
-			fmt.Fprintf(&textItems, "- %s · %s · %s %s · cycle %s\n  %s\n", item.number, item.customer, item.currency, formatted, item.cycle, link)
-			fmt.Fprintf(&htmlItems, "<li><a href=\"%s\">%s</a> — %s — %s %s — cycle %s</li>", html.EscapeString(link), html.EscapeString(item.number), html.EscapeString(item.customer), html.EscapeString(item.currency), formatted, html.EscapeString(item.cycle))
-		}
-		n := len(claim.items)
-		noun := "invoice"
-		if n != 1 {
-			noun = "invoices"
-		}
-		intro := fmt.Sprintf("The recurring billing scan generated %d draft %s that need your review and approval:", n, noun)
-		outro := "Each invoice stays in the Awaiting Finalization queue until you approve and issue it."
-		text := fmt.Sprintf("Hi,\n\n%s\n\n%s\n%s\n", intro, textItems.String(), outro)
-		body := fmt.Sprintf("<p>Hi,</p><p>%s</p><ul>%s</ul><p>%s</p>", intro, htmlItems.String(), outro)
 		sendCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		sendErr := sender.Send(sendCtx, email.Message{To: []string{claim.address}, Subject: fmt.Sprintf("%d draft %s awaiting your approval", n, noun), Text: text, HTML: body})
+		sendErr := sender.Send(sendCtx, message)
 		cancel()
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -89,6 +55,48 @@ func DeliverRecurringDrafts(ctx context.Context, pool *pgxpool.Pool, sender emai
 			return err
 		}
 	}
+}
+
+func recurringDraftMessage(claim recurringDraftClaim, baseURL string) (email.Message, error) {
+	if baseURL == "" {
+		baseURL = "http://localhost:5173"
+	}
+	var textItems, htmlItems strings.Builder
+	for _, item := range claim.items {
+		d, err := decimal.NewFromString(item.amount)
+		if err != nil {
+			return email.Message{}, err
+		}
+		formatted := d.RoundBank(2).StringFixed(2)
+		if d.IsNegative() && d.RoundBank(2).IsZero() {
+			formatted = "-" + formatted
+		}
+		parts := strings.SplitN(formatted, ".", 2)
+		prefix := parts[0]
+		sign := ""
+		if strings.HasPrefix(prefix, "-") {
+			sign = "-"
+			prefix = prefix[1:]
+		}
+		for i := len(prefix) - 3; i > 0; i -= 3 {
+			prefix = prefix[:i] + "," + prefix[i:]
+		}
+		formatted = sign + prefix + "." + parts[1]
+		id := fmt.Sprintf("%x-%x-%x-%x-%x", item.invoice.Bytes[0:4], item.invoice.Bytes[4:6], item.invoice.Bytes[6:8], item.invoice.Bytes[8:10], item.invoice.Bytes[10:16])
+		link := strings.TrimRight(baseURL, "/") + "/invoices/" + id + "/edit"
+		fmt.Fprintf(&textItems, "- %s · %s · %s %s · cycle %s\n  %s\n", item.number, item.customer, item.currency, formatted, item.cycle, link)
+		fmt.Fprintf(&htmlItems, "<li><a href=\"%s\">%s</a> — %s — %s %s — cycle %s</li>", html.EscapeString(link), html.EscapeString(item.number), html.EscapeString(item.customer), html.EscapeString(item.currency), formatted, html.EscapeString(item.cycle))
+	}
+	n := len(claim.items)
+	noun := "invoice"
+	if n != 1 {
+		noun = "invoices"
+	}
+	intro := fmt.Sprintf("The recurring billing scan generated %d draft %s that need your review and approval:", n, noun)
+	outro := "Each invoice stays in the Awaiting Finalization queue until you approve and issue it."
+	text := fmt.Sprintf("Hi,\n\n%s\n\n%s\n%s\n", intro, textItems.String(), outro)
+	body := fmt.Sprintf("<p>Hi,</p><p>%s</p><ul>%s</ul><p>%s</p>", intro, htmlItems.String(), outro)
+	return email.Message{To: []string{claim.address}, Subject: fmt.Sprintf("%d draft %s awaiting your approval", n, noun), Text: text, HTML: body}, nil
 }
 
 type recurringDraftItem struct {

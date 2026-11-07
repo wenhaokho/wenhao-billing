@@ -9,3 +9,17 @@ Recurring templates are scanned daily at 02:00 UTC, using the process local date
 The usage cutoff scan runs daily at 03:00 UTC. No usage meter is wired into the application; the job logs that the meter is unavailable and does not invent usage amounts. Hosting enforcement runs daily at 04:00 UTC when Cloudflare is configured. FX synchronization runs Monday at 05:00 UTC. These jobs use PostgreSQL advisory locks across replicas.
 
 Hosting operations are at least once. A provider can accept a request before the process records its result. Durable leases and target fingerprints preserve uncertainty for retry or manual review; see `migrations/00006_hosting_operation_lease.sql` and `migrations/00007_hosting_claim_state.sql`. Mixed Python and Go writers do not all take the same locks. Do not run them concurrently during cutover without an effective fence.
+
+## Staged v8 recurring workers
+
+The development entry points `ScanScopedRecurring` and `DeliverScopedRecurringDrafts` require a validated business ID. A business-specific advisory lock excludes its competing scans and prevents its claims during a scan. Each committed template transaction writes its event and recipients together. The scan uses one recipient snapshot and one batch ID for all of its new drafts.
+
+The worker reserves eligible rows, then rechecks the user's current email and the invoices' ownership in a transaction before sending. An unavailable user or invoice cancels the affected rows. Renewing the valid lease records an attempt and refreshes the address. Completion and failure backoff apply only to the current, unexpired token in that business. An acceptance followed by worker cancellation can still be retried after lease expiry. The provider call follows the preflight transaction, so a revocation after commit can still race with the call.
+
+The API continues to start the v7 workers. The v8 entry points are exercised with fake senders in PostgreSQL tests.
+
+The isolated v8 hosting workers require a validated business ID and an injected fake provider. Enforcement uses a business-specific session advisory lock. Restore consumers and enforcement coordinate through the same owned item lock and durable operation lease. A restore intent needs a settled invoice still linked to the item and no open balance. Suspension requires an outstanding invoice beyond the item's grace period.
+
+Both workers recheck the owned item, lease, target, and financial eligibility before renewing the lease and calling the provider. They check again before recording the result. Cancellation leaves the lease for recovery. Uncertain responses retain a durable repair lease, and changes to the target or hosting status route the operation to manual review. Pre-v8 fingerprints lack business and provider-state data, so carried-over leases need manual review when the scoped worker sees them.
+
+The v8 workers have no startup registration or live Cloudflare adapter. Before enabling them in production, verify that the business is authorized to modify the physical zone and record, and fence other writers. A business-owned database row alone cannot establish that authorization.

@@ -211,7 +211,7 @@ func (s sessionHandler) billCreate(w http.ResponseWriter, r *http.Request) {
 			accounts[*l.ExpenseAccountID] = true
 		}
 	}
-	for _, id := range orderedBillItemIDs(ids) {
+	for _, id := range orderedItemIDs(ids) {
 		_, e = q.LockItem(ctx, id)
 		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 			internal()

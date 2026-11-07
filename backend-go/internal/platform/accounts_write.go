@@ -117,7 +117,12 @@ func parseAccountBody(body []byte, create bool) (map[string]any, []validationErr
 		}
 		if f.name == "type" {
 			s, ok := v.(string)
-			if !ok || !strings.Contains("|ASSET|LIABILITY|EQUITY|INCOME|EXPENSE|COGS|", "|"+s+"|") {
+			valid := false
+			switch s {
+			case "ASSET", "LIABILITY", "EQUITY", "INCOME", "EXPENSE", "COGS":
+				valid = true
+			}
+			if !ok || !valid {
 				errs = append(errs, validationError{"literal_error", loc, "Input should be 'ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE' or 'COGS'", v, map[string]string{"expected": "'ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE' or 'COGS'"}})
 			}
 			continue

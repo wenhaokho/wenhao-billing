@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/peterldowns/pgtestdb"
 	"github.com/peterldowns/pgtestdb/migrators/goosemigrator"
+	"github.com/shopspring/decimal"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
 
@@ -73,7 +74,7 @@ func TestUsageLockDifferential(t *testing.T) {
 		rate   any
 		gross  bool
 		amount string
-	}{{"NONE", nil, false, "0"}, {"PPH21", "2.5", false, "0.005"}, {"PPH21", "2.5", true, "1.005"}, {"PPH23", nil, true, "100"}, {"PPH23", "99.9999", true, "1"}, {"PPH23", "2", false, "999999999999.9999"}} {
+	}{{"NONE", nil, false, "0"}, {"PPH21", "2.5", false, "0.005"}, {"PPH21", "2.5", true, "1.005"}, {"PPH23", nil, true, "100"}, {"PPH23", "99.9999", true, "1"}, {"PPH23", "2", false, "999999999999.9999"}, {"PPH23", "2", false, "0.2499"}, {"PPH23", "2", false, "0.2500"}} {
 		for _, currency := range []string{"USD", "IDR"} {
 			n++
 			id := fmt.Sprintf("30000000-0000-0000-0000-%012d", n)
@@ -107,18 +108,37 @@ func TestUsageLockDifferential(t *testing.T) {
 		}
 		cases = append(cases, testCase{"/api/v1/invoices/usage/" + id + "/lock", `{"accrued_amount":1,"cutoff_date":"2026-01-01"}`})
 	}
+	snapshot := func(p *pgxpool.Pool, id string) string {
+		t.Helper()
+		var state string
+		if err := p.QueryRow(context.Background(), `SELECT to_jsonb(i)::text FROM invoices i WHERE invoice_id=$1`, id).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+	var rejectedID, rejectedBefore string
 	for _, cfg := range []struct {
-		typ, amount string
-		gross       bool
-	}{{"NONE", "1", true}, {"PPH23", "0", true}, {"PPH23", "1", true}, {"PPH23", "1", false}} {
+		typ          string
+		rate, amount int
+		gross        bool
+	}{
+		{"NONE", 100, 1, true},
+		{"PPH23", 0, 0, false}, {"PPH23", 0, 1, false},
+		{"PPH23", 0, 0, true}, {"PPH23", 0, 1, true},
+		{"PPH23", 100, 0, false}, {"PPH23", 100, 1, false},
+		{"PPH23", 100, 0, true}, {"PPH23", 100, 1, true},
+	} {
 		n++
 		id := fmt.Sprintf("30000000-0000-0000-0000-%012d", n)
 		for _, p := range pools {
-			if _, e := p.Exec(context.Background(), `INSERT INTO invoices(invoice_id,invoice_type,currency,amount,balance_due,status,wht_type,wht_rate,wht_gross_up,created_at) VALUES ($1,'USAGE','USD',1,1,'DRAFT',$2,100,$3,'2020-01-01')`, id, cfg.typ, cfg.gross); e != nil {
+			if _, e := p.Exec(context.Background(), `INSERT INTO invoices(invoice_id,invoice_type,currency,amount,balance_due,status,wht_type,wht_rate,wht_gross_up,created_at) VALUES ($1,'USAGE','USD',1,1,'DRAFT',$2,$3,$4,'2020-01-01')`, id, cfg.typ, cfg.rate, cfg.gross); e != nil {
 				t.Fatal(e)
 			}
 		}
-		cases = append(cases, testCase{"/api/v1/invoices/usage/" + id + "/lock", `{"accrued_amount":` + cfg.amount + `,"cutoff_date":"2026-01-01"}`})
+		cases = append(cases, testCase{"/api/v1/invoices/usage/" + id + "/lock", fmt.Sprintf(`{"accrued_amount":%d,"cutoff_date":"2026-01-01"}`, cfg.amount)})
+		if cfg.typ == "PPH23" && cfg.rate == 100 && cfg.amount > 0 && cfg.gross {
+			rejectedID, rejectedBefore = id, snapshot(pools[0], id)
+		}
 	}
 
 	cases = append(cases, testCase{"/api/v1/invoices/usage/30000000-0000-0000-0000-999999999999/lock", `{"accrued_amount":1,"cutoff_date":"2026-01-01"}`})
@@ -185,6 +205,11 @@ with TestClient(app,raise_server_exceptions=False) as c:
 			t.Error("missing no-store")
 		}
 	}
+	for _, p := range pools {
+		if snapshot(p, rejectedID) != rejectedBefore {
+			t.Fatal("invalid 100% gross-up changed the invoice")
+		}
+	}
 	for _, table := range []string{"invoices", "invoice_line_items", "payments", "journal_entries", "journal_lines"} {
 		var a, b string
 		q := fmt.Sprintf("SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb)::text FROM %s t", table)
@@ -196,6 +221,50 @@ with TestClient(app,raise_server_exceptions=False) as c:
 		}
 		if a != b {
 			t.Errorf("%s differs", table)
+		}
+	}
+}
+
+func TestUsageWithholdingPrecisionPythonDifferential(t *testing.T) {
+	const script = `
+from decimal import Decimal
+from app.services.withholding import compute_withholding
+for base, gross in [
+    ('0.9848999999999999999999999999999999', True),
+    ('0.9849', True),
+    ('0.9849000000000000000000000000000001', True),
+    ('0.24999999999999999999', False),
+]:
+    result = compute_withholding(Decimal(base), 'USD', 'PPH23', Decimal(2), gross)
+    print(result.total if gross else result.wht_amount)
+`
+	cmd := exec.Command("python", "-c", script)
+	cmd.Dir = "../../../backend"
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Python withholding: %s: %v", out, err)
+	}
+	python := strings.Fields(string(out))
+	cases := []struct {
+		base, goValue, pythonValue string
+		gross                      bool
+	}{
+		{"0.9848999999999999999999999999999999", "1.00", "1.01", true},
+		{"0.9849", "1.01", "1.01", true},
+		{"0.9849000000000000000000000000000001", "1.01", "1.01", true},
+		{"0.24999999999999999999", "0.00", "0.00", false},
+	}
+	if len(python) != len(cases) {
+		t.Fatalf("unexpected Python results: %s", out)
+	}
+	for i, tc := range cases {
+		total, tax := invoiceWithholdingTotals(decimal.RequireFromString(tc.base), "USD", "PPH23", decimal.NewFromInt(2), tc.gross)
+		value := tax
+		if tc.gross {
+			value = total
+		}
+		if got := value.StringFixed(2); got != tc.goValue || python[i] != tc.pythonValue {
+			t.Errorf("base %s: Go %s (want %s), Python %s (want %s)", tc.base, got, tc.goValue, python[i], tc.pythonValue)
 		}
 	}
 }

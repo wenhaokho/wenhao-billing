@@ -289,33 +289,52 @@ func (s sessionHandler) customerSummary(w http.ResponseWriter, r *http.Request) 
 		authError(w, 500, "internal server error")
 		return
 	}
-	byID := map[pgtype.UUID][]dbquery.InvoiceLineItem{}
-	for _, l := range lines {
-		byID[l.InvoiceID] = append(byID[l.InvoiceID], l)
-	}
 	if strings.HasSuffix(r.URL.Path, "/invoices") {
-		out := make([]invoiceOutput, 0, len(rows))
-		for _, row := range rows {
-			v, e := invoiceJSON(row, byID[row.InvoiceID])
-			if e != nil {
-				authError(w, 500, "internal server error")
-				return
-			}
-			out = append(out, v)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		writeSafeJSON(w, out)
+		writeCustomerInvoices(w, rows, lines)
 		return
-	}
-	summary := billingSummaryOutput{Milestone: []invoiceOutput{}, Recurring: []invoiceOutput{}, Usage: []invoiceOutput{}, UnpaidInvoices: []invoiceOutput{}, TotalUnpaid: []currencyAmount{}, PaidLast12Months: []currencyAmount{}}
-	if len(rows) > 0 {
-		summary.LastInvoiceID = rows[0].InvoiceID
-		summary.LastInvoiceIssueDate = rows[0].IssueDate
 	}
 	openRows, err := q.CustomerOpenInvoices(ctx, id)
 	if err != nil {
 		authError(w, 500, "internal server error")
 		return
+	}
+	payments, err := q.CustomerRecentPayments(ctx, dbquery.CustomerRecentPaymentsParams{CustomerID: id, PaymentDate: pgtype.Date{Time: time.Now().AddDate(0, 0, -365), Valid: true}})
+	if err != nil {
+		authError(w, 500, "internal server error")
+		return
+	}
+	writeCustomerSummary(w, rows, openRows, lines, payments)
+}
+
+func customerInvoiceLinesByID(lines []dbquery.InvoiceLineItem) map[pgtype.UUID][]dbquery.InvoiceLineItem {
+	byID := map[pgtype.UUID][]dbquery.InvoiceLineItem{}
+	for _, l := range lines {
+		byID[l.InvoiceID] = append(byID[l.InvoiceID], l)
+	}
+	return byID
+}
+
+func writeCustomerInvoices(w http.ResponseWriter, rows []dbquery.Invoice, lines []dbquery.InvoiceLineItem) {
+	byID := customerInvoiceLinesByID(lines)
+	out := make([]invoiceOutput, 0, len(rows))
+	for _, row := range rows {
+		v, e := invoiceJSON(row, byID[row.InvoiceID])
+		if e != nil {
+			authError(w, 500, "internal server error")
+			return
+		}
+		out = append(out, v)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	writeSafeJSON(w, out)
+}
+
+func writeCustomerSummary(w http.ResponseWriter, rows, openRows []dbquery.Invoice, lines []dbquery.InvoiceLineItem, payments []dbquery.CustomerRecentPaymentsRow) {
+	byID := customerInvoiceLinesByID(lines)
+	summary := billingSummaryOutput{Milestone: []invoiceOutput{}, Recurring: []invoiceOutput{}, Usage: []invoiceOutput{}, UnpaidInvoices: []invoiceOutput{}, TotalUnpaid: []currencyAmount{}, PaidLast12Months: []currencyAmount{}}
+	if len(rows) > 0 {
+		summary.LastInvoiceID = rows[0].InvoiceID
+		summary.LastInvoiceIssueDate = rows[0].IssueDate
 	}
 	open := make([]invoiceOutput, 0, len(openRows))
 	for _, row := range openRows {
@@ -347,11 +366,6 @@ func (s sessionHandler) customerSummary(w http.ResponseWriter, r *http.Request) 
 	sort.Strings(keys)
 	for _, k := range keys {
 		summary.TotalUnpaid = append(summary.TotalUnpaid, currencyAmount{k, totals[k].StringFixed(4)})
-	}
-	payments, err := q.CustomerRecentPayments(ctx, dbquery.CustomerRecentPaymentsParams{CustomerID: id, PaymentDate: pgtype.Date{Time: time.Now().AddDate(0, 0, -365), Valid: true}})
-	if err != nil {
-		authError(w, 500, "internal server error")
-		return
 	}
 	for _, p := range payments {
 		v, e := checkedNum(p.Amount, true)

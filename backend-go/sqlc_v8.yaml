@@ -1,0 +1,19 @@
+version: "2"
+sql:
+  - engine: postgresql
+    schema:
+      - migrations/00001_baseline.sql
+      - migrations/00002_recurring_outbox.sql
+      - migrations/00003_hosting_restore_outbox.sql
+      - migrations/00004_hosting_restore_lease.sql
+      - migrations/00005_recurring_batch.sql
+      - migrations/00006_hosting_operation_lease.sql
+      - migrations/00007_hosting_claim_state.sql
+      - migrations/00008_business_scope.sql
+      - sqlc_business_scope.sql
+    queries: queries_v8
+    gen:
+      go:
+        package: dbqueryv8
+        out: internal/dbqueryv8
+        sql_package: pgx/v5

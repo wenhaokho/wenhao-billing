@@ -73,7 +73,7 @@ func New(c Config) (Sender, error) {
 			return nil, ErrInvalid
 		}
 		u.Path = strings.TrimRight(u.Path, "/") + "/"
-		cl := resend.NewCustomClient(&http.Client{Timeout: c.Timeout}, c.ResendKey)
+		cl := resend.NewCustomClient(&http.Client{Timeout: c.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, c.ResendKey)
 		cl.BaseURL = u
 		return &sender{c: c, resend: cl}, nil
 	}
@@ -118,11 +118,35 @@ func (s *sender) Send(ctx context.Context, m Message) error {
 	ctx, cancel := context.WithTimeout(ctx, s.c.Timeout)
 	defer cancel()
 	if s.resend != nil {
-		p := &resend.SendEmailRequest{From: s.c.ResendFrom, To: m.To, Cc: m.CC, ReplyTo: s.c.ReplyTo, Subject: m.Subject, Text: m.Text, Html: m.HTML}
-		for _, a := range m.Attachments {
-			p.Attachments = append(p.Attachments, &resend.Attachment{Filename: a.Filename, Content: a.Content})
+		// The SDK encodes attachment bytes as an integer array; the Resend raw
+		// API documents base64 content. Use its authenticated transport with a
+		// payload whose []byte field has Go's standard base64 JSON encoding.
+		type resendAttachment struct {
+			Filename    string `json:"filename"`
+			Content     []byte `json:"content"`
+			ContentType string `json:"content_type,omitempty"`
 		}
-		_, err := s.resend.Emails.SendWithContext(ctx, p)
+		p := struct {
+			From        string             `json:"from"`
+			To          []string           `json:"to"`
+			CC          []string           `json:"cc,omitempty"`
+			ReplyTo     string             `json:"reply_to,omitempty"`
+			Subject     string             `json:"subject"`
+			Text        string             `json:"text,omitempty"`
+			HTML        string             `json:"html,omitempty"`
+			Attachments []resendAttachment `json:"attachments,omitempty"`
+		}{From: s.c.ResendFrom, To: m.To, CC: m.CC, ReplyTo: s.c.ReplyTo, Subject: m.Subject, Text: m.Text, HTML: m.HTML}
+		for _, a := range m.Attachments {
+			p.Attachments = append(p.Attachments, resendAttachment{Filename: a.Filename, Content: a.Content, ContentType: a.ContentType})
+		}
+		req, err := s.resend.NewRequest(ctx, http.MethodPost, "emails", p)
+		if err == nil {
+			result := &resend.SendEmailResponse{}
+			_, err = s.resend.Perform(req, result)
+			if err == nil && strings.TrimSpace(result.Id) == "" {
+				err = ErrDelivery
+			}
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()

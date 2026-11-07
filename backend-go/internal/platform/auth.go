@@ -24,6 +24,7 @@ type SessionConfig struct {
 	Secure            bool
 	SameSite          http.SameSite
 	Sender            email.Sender
+	PaymentIntake     PaymentIntakeConfig
 	BaseURL           string
 	BaseCurrency      string
 	FXProviderURL     string

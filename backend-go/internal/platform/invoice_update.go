@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"reflect"
-	"sort"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -109,6 +108,10 @@ func (w *recurringUpdateWriter) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
+	s.invoiceWriter().invoiceUpdate(w, r)
+}
+
+func (s invoiceWriter) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 	template := r.Method == "PUT"
 	if template {
 		w = &recurringUpdateWriter{ResponseWriter: w}
@@ -118,7 +121,7 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	current, ok := s.requireAdmin(w, r)
+	current, ok := s.admin(w, r)
 	if !ok {
 		return
 	}
@@ -133,6 +136,7 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 		validationResponse(w, []validationError{{"uuid_parsing", []any{"path", idName}, "Input should be a valid UUID, " + d, rawID, map[string]string{"error": d}}})
 		return
 	}
+	internalError := func() { authError(w, 500, "internal server error") }
 	invalid := func() {
 		vendorUpdateValidationResponse(w, []validationError{{"value_error", []any{"body"}, "Invalid input", nil, nil}})
 	}
@@ -225,15 +229,15 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ctx := r.Context()
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		authError(w, 500, "internal server error")
 		return
 	}
 	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
-	user, err := q.LockSessionUserByID(ctx, current.UserID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && user.Role != "admin" {
+	q := s.queries(tx)
+	user, err := q.lockAdminRole(ctx, current)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && user != "admin" {
 		authError(w, 403, "admin required")
 		return
 	}
@@ -242,7 +246,15 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inv, err := q.LockInvoice(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && s.scoped && template != inv.IsTemplate) {
+		if s.scoped {
+			message := "invoice not found"
+			if template {
+				message = "recurring template not found"
+			}
+			authError(w, 400, message)
+			return
+		}
 		if template {
 			authError(w, 400, fmt.Sprintf("recurring template %s not found", rawID))
 		} else {
@@ -261,25 +273,7 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		schedule, parseErr := recurringschedule.Parse(inv.BillingCycleRef)
 		if parseErr == nil {
-			anchor := schedule.StartDate.AddDate(0, 0, -1)
-			child, e := q.LatestRecurringChild(ctx, id)
-			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-				authError(w, 500, "internal server error")
-				return
-			}
-			if e == nil {
-				if child.IssueDate.Valid {
-					anchor = child.IssueDate.Time
-				}
-				var ref map[string]json.RawMessage
-				var key string
-				if json.Unmarshal(child.BillingCycleRef, &ref) == nil && json.Unmarshal(ref["cycle_key"], &key) == nil && key != "" {
-					if d, e := parseCycleDate(key); e == nil {
-						anchor = d
-					}
-				}
-			}
-			next, e := recurringschedule.NextCycleAfter(schedule, anchor)
+			next, e := nextTemplateCycle(ctx, q, id, schedule)
 			if e != nil {
 				authError(w, 500, "internal server error")
 				return
@@ -308,13 +302,13 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, name := range []string{"customer_id", "project_id"} {
-			if value := fields[name]; value != nil {
+			if value := fields[name]; !s.scoped && value != nil {
 				rid, _ := parsePathUUID(value.(string))
 				var e error
 				if name == "customer_id" {
-					_, e = q.LockCustomer(ctx, rid)
+					e = q.lockCustomer(ctx, rid)
 				} else {
-					_, e = q.LockProject(ctx, rid)
+					e = q.lockProject(ctx, rid)
 				}
 				if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 					authError(w, 500, "internal server error")
@@ -322,25 +316,7 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		itemIDs := map[string]bool{}
-		for _, line := range fields["line_items"].([]any) {
-			if value := line.(map[string]any)["item_id"]; value != nil {
-				itemIDs[value.(string)] = true
-			}
-		}
-		ordered := make([]string, 0, len(itemIDs))
-		for item := range itemIDs {
-			ordered = append(ordered, item)
-		}
-		sort.Strings(ordered)
-		for _, value := range ordered {
-			rid, _ := parsePathUUID(value)
-			_, e := q.LockItem(ctx, rid)
-			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-				authError(w, 500, "internal server error")
-				return
-			}
-		}
+
 		var old, newSchedule map[string]json.RawMessage
 		_ = json.Unmarshal(inv.BillingCycleRef, &old)
 		_ = json.Unmarshal(scheduleJSON, &newSchedule)
@@ -352,6 +328,40 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 	if !template && inv.Status != "DRAFT" {
 		authError(w, 400, fmt.Sprintf("only DRAFT invoices can be edited (got %s)", inv.Status))
 		return
+	}
+	setUUID := func(name string, dst *pgtype.UUID) {
+		if v, exists := fields[name]; exists {
+			if v == nil {
+				*dst = pgtype.UUID{}
+			} else {
+				*dst, _ = parsePathUUID(v.(string))
+			}
+		}
+	}
+	setUUID("customer_id", &inv.CustomerID)
+	setUUID("project_id", &inv.ProjectID)
+	if s.scoped {
+		if inv.CustomerID.Valid && !s.acceptReference(w, internalError, q.lockCustomer(ctx, inv.CustomerID)) {
+			return
+		}
+		if inv.ProjectID.Valid && !s.acceptReference(w, internalError, q.lockProject(ctx, inv.ProjectID)) {
+			return
+		}
+	}
+	if list, ok := fields["line_items"].([]any); ok {
+		itemIDs := map[[16]byte]pgtype.UUID{}
+		for _, line := range list {
+			if value := line.(map[string]any)["item_id"]; value != nil {
+				rid, _ := parsePathUUID(value.(string))
+				itemIDs[rid.Bytes] = rid
+			}
+		}
+		for _, rid := range orderedItemIDs(itemIDs) {
+			e := q.lockItem(ctx, rid, template)
+			if !s.acceptReference(w, internalError, e) {
+				return
+			}
+		}
 	}
 	if positionOverflow {
 		authError(w, 500, "internal server error")
@@ -377,15 +387,6 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	setUUID := func(name string, dst *pgtype.UUID) {
-		if v, exists := fields[name]; exists {
-			if v == nil {
-				*dst = pgtype.UUID{}
-			} else {
-				*dst, _ = parsePathUUID(v.(string))
-			}
-		}
-	}
 	setDate := func(name string, dst *pgtype.Date) {
 		if v, exists := fields[name]; exists {
 			if v == nil {
@@ -396,8 +397,12 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	setUUID("customer_id", &inv.CustomerID)
-	setUUID("project_id", &inv.ProjectID)
+	if _, changed := fields["invoice_number"]; changed && s.scoped {
+		if err = q.LockInvoiceNumberAllocation(ctx); err != nil {
+			authError(w, 500, "internal server error")
+			return
+		}
+	}
 	if v, exists := fields["invoice_type"]; exists {
 		inv.InvoiceType = v.(string)
 	}
@@ -560,7 +565,7 @@ func (s sessionHandler) invoiceUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	err = q.UpdateDraftInvoice(ctx, dbquery.UpdateDraftInvoiceParams{InvoiceID: id, CustomerID: inv.CustomerID, ProjectID: inv.ProjectID, InvoiceType: inv.InvoiceType, Currency: inv.Currency, InvoiceNumber: inv.InvoiceNumber, PoSoNumber: inv.PoSoNumber, IssueDate: inv.IssueDate, DueDate: inv.DueDate, PaymentTerms: inv.PaymentTerms, Notes: inv.Notes, Footer: inv.Footer, InternalNote: inv.InternalNote, DiscountType: inv.DiscountType, DiscountValue: inv.DiscountValue, WhtType: inv.WhtType, WhtRate: inv.WhtRate, WhtGrossUp: inv.WhtGrossUp, Subtotal: invoiceNumeric(subtotal), WhtBase: invoiceNumeric(base), WhtAmount: invoiceNumeric(wht), Amount: invoiceNumeric(amount)})
 	if err != nil {
-		authError(w, 500, "internal server error")
+		s.invoiceWriteError(w, err, internalError)
 		return
 	}
 	if template {

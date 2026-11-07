@@ -35,7 +35,7 @@ func TestFreshBaselineSeedsMatchAlembic(t *testing.T) {
 	}
 	password, _ := u.User.Password()
 	config := pgtestdb.Config{DriverName: "pgx", Host: u.Hostname(), Port: u.Port(), User: u.User.Username(), Password: password, Database: strings.TrimPrefix(u.Path, "/"), Options: u.RawQuery}
-	target := pgtestdb.Custom(t, config, goosemigrator.New("."))
+	target := pgtestdb.Custom(t, config, goosemigrator.New(".", goosemigrator.WithFS(Files)))
 	db, err := sql.Open("pgx", target.URL())
 	if err != nil {
 		t.Fatal(err)

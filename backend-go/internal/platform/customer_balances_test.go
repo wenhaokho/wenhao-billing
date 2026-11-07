@@ -159,6 +159,25 @@ with TestClient(app) as c:
 	if snapshot(pool) != before || snapshot(pp) != beforePy {
 		t.Fatal("database changed")
 	}
+	staged, scopedToken := customerReportStagedRouter(t, pp, pydb.URL(), cfg)
+	r := httptest.NewRequest("GET", "/api/v1/customers/balances", nil)
+	r.AddCookie(scopedToken)
+	w = httptest.NewRecorder()
+	staged.ServeHTTP(w, r)
+	var scopedRows []map[string]any
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &scopedRows) != nil {
+		t.Fatalf("staged balances: %d %s", w.Code, w.Body.String())
+	}
+	scopedGot := map[string]string{}
+	for _, row := range scopedRows {
+		if row["business_id"] != nil {
+			t.Fatal("business ID in balance response")
+		}
+		scopedGot[row["customer_id"].(string)+":"+row["currency"].(string)] = row["balance"].(string) + ":" + row["overdue"].(string)
+	}
+	if !reflect.DeepEqual(scopedGot, pyGot) {
+		t.Fatalf("staged Go %#v Python %#v", scopedGot, pyGot)
+	}
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/openapi.json", nil))
 	var spec map[string]any

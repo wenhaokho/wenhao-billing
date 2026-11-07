@@ -34,7 +34,7 @@ func registerInvoiceTransitions(api huma.API, s sessionHandler) {
 	}
 	responses := map[string]*huma.Response{"400": response("Invalid invoice", authErrorBody{}), "401": response("Not authenticated", authErrorBody{}), "403": response("Admin required", authErrorBody{}), "413": response("Body too large", authErrorBody{}), "422": response("Validation error", validationErrorBody{}), "500": response("Internal server error", authErrorBody{})}
 	for _, action := range []string{"finalize", "void", "mark-paid"} {
-		op := huma.Operation{Method: "POST", Path: "/api/v1/invoices/{invoice_id}/" + action, OperationID: "invoice-" + action, SkipValidateBody: true, Security: []map[string][]string{{"sessionCookie": {}}}, Middlewares: huma.Middlewares{sessionMiddleware(s.invoiceTransition)}, Responses: responses}
+		op := huma.Operation{Method: "POST", Path: "/api/v1/invoices/{invoice_id}/" + action, OperationID: "invoice-" + action, SkipValidateBody: true, Security: []map[string][]string{{"sessionCookie": {}}}, Middlewares: huma.Middlewares{sessionMiddleware(s.invoiceWriter().invoiceTransition)}, Responses: responses}
 		if action == "void" {
 			huma.Register(api, op, func(context.Context, *voidInvoiceInput) (*struct{ Body invoiceOutputSchema }, error) {
 				panic("middleware")
@@ -46,12 +46,12 @@ func registerInvoiceTransitions(api huma.API, s sessionHandler) {
 		}
 	}
 }
-func (s sessionHandler) invoiceTransition(w http.ResponseWriter, r *http.Request) {
+func (s invoiceWriter) invoiceTransition(w http.ResponseWriter, r *http.Request) {
 	body, ok := readItemBody(w, r)
 	if !ok {
 		return
 	}
-	current, ok := s.requireAdmin(w, r)
+	current, ok := s.admin(w, r)
 	if !ok {
 		return
 	}
@@ -104,15 +104,15 @@ func (s sessionHandler) invoiceTransition(w http.ResponseWriter, r *http.Request
 		}
 	}
 	ctx := r.Context()
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		authError(w, 500, "internal server error")
 		return
 	}
 	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
-	user, err := q.LockSessionUserByID(ctx, current.UserID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && user.Role != "admin" {
+	q := s.queries(tx)
+	role, err := q.lockAdminRole(ctx, current)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && role != "admin" {
 		authError(w, 403, "admin required")
 		return
 	}
@@ -122,7 +122,7 @@ func (s sessionHandler) invoiceTransition(w http.ResponseWriter, r *http.Request
 	}
 	row, err := q.LockInvoice(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		authError(w, 400, fmt.Sprintf("invoice %s not found", fmt.Sprintf("%x-%x-%x-%x-%x", id.Bytes[:4], id.Bytes[4:6], id.Bytes[6:8], id.Bytes[8:10], id.Bytes[10:])))
+		authError(w, 400, fmt.Sprintf("invoice %s not found", id.String()))
 		return
 	}
 	if err != nil {
@@ -178,7 +178,7 @@ func (s sessionHandler) invoiceTransition(w http.ResponseWriter, r *http.Request
 	}
 	// Coordinate changes to open-balance eligibility with restoration. Invoice
 	// comes first, then hosting items in UUID order, as in payment recording.
-	if _, err = tx.Exec(ctx, `SELECT i.item_id FROM items i WHERE i.is_hosting AND EXISTS (SELECT 1 FROM invoice_line_items l WHERE l.invoice_id=$1 AND l.item_id=i.item_id) ORDER BY i.item_id FOR UPDATE /* task68 invoice item lock */`, id); err != nil {
+	if err = q.lockInvoiceHostingItems(ctx, id); err != nil {
 		authError(w, 500, "internal server error")
 		return
 	}

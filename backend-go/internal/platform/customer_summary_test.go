@@ -3,6 +3,7 @@ package platform
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/peterldowns/pgtestdb"
 	"github.com/peterldowns/pgtestdb/migrators/goosemigrator"
+	"github.com/pressly/goose/v3"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/business"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
 
@@ -116,6 +119,7 @@ with TestClient(app) as c:
 	if e = dec.Decode(&expected); e != nil {
 		t.Fatal(e)
 	}
+	staged, scopedToken := customerReportStagedRouter(t, pp, pydb.URL(), cfg)
 	for index, suffix := range []string{"/invoices", "/billing-summary"} {
 		r := httptest.NewRequest("GET", "/api/v1/customers/10000000-0000-0000-0000-000000000001"+suffix, nil)
 		r.AddCookie(&http.Cookie{Name: "session", Value: tok})
@@ -133,6 +137,16 @@ with TestClient(app) as c:
 		if w.Code != 200 {
 			t.Fatalf("%s: %d %s", suffix, w.Code, w.Body.String())
 		}
+		r = httptest.NewRequest("GET", r.URL.Path, nil)
+		r.AddCookie(scopedToken)
+		w = httptest.NewRecorder()
+		staged.ServeHTTP(w, r)
+		dec = json.NewDecoder(bytes.NewReader(w.Body.Bytes()))
+		dec.UseNumber()
+		if w.Code != 200 || dec.Decode(&got) != nil || !reflect.DeepEqual(got, expected[index]) {
+			t.Fatalf("%s mismatch staged Go %d %s Python %s", suffix, w.Code, w.Body.String(), python)
+		}
+
 	}
 	summary := expected[1].(map[string]any)
 	for _, bucket := range []string{"milestone", "recurring", "usage"} {
@@ -216,4 +230,40 @@ with TestClient(app) as c:
 		t.Fatalf("empty list %d %s", w.Code, w.Body.String())
 	}
 
+}
+
+func customerReportStagedRouter(t *testing.T, pool *pgxpool.Pool, dsn string, cfg SessionConfig) (http.Handler, *http.Cookie) {
+	t.Helper()
+	ctx := context.Background()
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, os.DirFS("../../migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = provider.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var businessID string
+	if err = pool.QueryRow(ctx, "SELECT business_id::text FROM businesses").Scan(&businessID); err != nil {
+		t.Fatal(err)
+	}
+	scope, err := business.Parse(businessID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewScopedProfileRouter(pool, cfg, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := (auth.Tokens{Secret: cfg.Secret, AccessTTL: time.Hour}).Issue(jwt.MapClaims{
+		"sub": "00000000-0000-0000-0000-000000000001", "business_id": businessID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handler, &http.Cookie{Name: "session", Value: token}
 }

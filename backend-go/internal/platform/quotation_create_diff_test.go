@@ -65,6 +65,8 @@ func TestQuotationCreateDifferential(t *testing.T) {
 
 		`{"customer_id":"10000000-0000-0000-0000-000000000001","currency":"USD","line_items":[{"description":"x","quantity":1,"unit_price":1,"position":"bad"}]}`,
 		`{"customer_id":"10000000-0000-0000-0000-000000000001","currency":"USD","line_items":[{"description":"x","quantity":1,"unit_price":1,"position":null}]}`,
+		`{"customer_id":"10000000-0000-0000-0000-000000000001","currency":"USD","line_items":[{"description":"x","quantity":1,"unit_price":1,"position":"1e2"}]}`,
+		`{"customer_id":"10000000-0000-0000-0000-000000000001","currency":"USD","line_items":[{"description":"x","quantity":1,"unit_price":1,"position":1e2}]}`,
 
 		``,
 		`{"currency":`,

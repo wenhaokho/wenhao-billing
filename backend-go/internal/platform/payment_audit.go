@@ -112,6 +112,33 @@ func (s sessionHandler) paymentAudit(w http.ResponseWriter, r *http.Request) {
 		writeSafeJSON(w, out)
 		return
 	}
+	args, ok := parsePaymentAudit(w, r)
+	if !ok {
+		return
+	}
+	rows, e := q.PaymentAudit(r.Context(), args)
+	if e != nil {
+		authError(w, 500, "internal server error")
+		return
+	}
+	out := make([]auditOutput, 0, len(rows))
+	for _, v := range rows {
+		amount, e := billNumeric(v.Amount, true)
+		if e != nil {
+			authError(w, 500, "internal server error")
+			return
+		}
+		reasons := v.Reasons
+		if reasons == nil {
+			reasons = []string{}
+		}
+		out = append(out, auditOutput{v.LogID, v.PaymentID, v.Action, reasons, v.ActorUserID, v.ActorEmail, pythonTimestamp(v.CreatedAt), v.PayerName, amount, v.Currency, v.InvoiceID, v.IntakeSource})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	writeSafeJSON(w, out)
+}
+
+func parsePaymentAudit(w http.ResponseWriter, r *http.Request) (dbquery.PaymentAuditParams, bool) {
 	values := r.URL.Query()
 	args := dbquery.PaymentAuditParams{RowLimit: 200}
 	var errs []validationError
@@ -173,32 +200,13 @@ func (s sessionHandler) paymentAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(errs) > 0 {
 		validationResponse(w, errs)
-		return
+		return args, false
 	}
 	if args.RowLimit < 0 {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(500)
 		w.Write([]byte("Internal Server Error"))
-		return
+		return args, false
 	}
-	rows, e := q.PaymentAudit(r.Context(), args)
-	if e != nil {
-		authError(w, 500, "internal server error")
-		return
-	}
-	out := make([]auditOutput, 0, len(rows))
-	for _, v := range rows {
-		amount, e := billNumeric(v.Amount, true)
-		if e != nil {
-			authError(w, 500, "internal server error")
-			return
-		}
-		reasons := v.Reasons
-		if reasons == nil {
-			reasons = []string{}
-		}
-		out = append(out, auditOutput{v.LogID, v.PaymentID, v.Action, reasons, v.ActorUserID, v.ActorEmail, pythonTimestamp(v.CreatedAt), v.PayerName, amount, v.Currency, v.InvoiceID, v.IntakeSource})
-	}
-	w.Header().Set("Content-Type", "application/json")
-	writeSafeJSON(w, out)
+	return args, true
 }

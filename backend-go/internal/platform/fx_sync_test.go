@@ -62,18 +62,21 @@ func TestFXSyncPostgres(t *testing.T) {
 				w.Write([]byte(`not json`))
 				return
 			case 3:
-				w.Write([]byte(`{"date":"bad","rates":{"IDR":1}}`))
+				w.Write([]byte(`{"base":"SGD","date":"bad","rates":{"IDR":1}}`))
 				return
 			case 4:
-				w.Write([]byte(`{"date":"2025-01-02","rates":{"IDR":0.000000001}}`))
+				w.Write([]byte(`{"base":"SGD","date":"2025-01-02","rates":{"IDR":0.000000001}}`))
+				return
+			case 6:
+				w.Write([]byte(`{"base":"EUR","date":"2025-01-02","rates":{"IDR":5678}}`))
 				return
 			}
 		}
 		switch r.URL.Query().Get("base") {
 		case "USD":
-			w.Write([]byte(`{"date":"2025-01-02","rates":{"IDR":1234.12345678}}`))
+			w.Write([]byte(`{"base":"USD","date":"2025-01-02","rates":{"IDR":1234.12345678}}`))
 		case "SGD":
-			w.Write([]byte(`{"date":"2025-01-02","rates":{}}`))
+			w.Write([]byte(`{"base":"SGD","date":"2025-01-02","rates":{}}`))
 		default:
 			t.Errorf("unexpected base %s", r.URL.Query().Get("base"))
 		}
@@ -120,15 +123,16 @@ func TestFXSyncPostgres(t *testing.T) {
 			t.Fatal("cache")
 		}
 	}
-	for _, m := range []int32{1, 2, 3, 4} {
+	for _, m := range []int32{1, 2, 3, 4, 6} {
 		mode.Store(m)
 		w := call(true)
 		if w.Code != 502 {
 			t.Fatalf("mode %d status %d %s", m, w.Code, w.Body)
 		}
-		var n int
-		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM fx_rates WHERE from_currency='USD' AND to_currency='IDR' AND as_of_date='2025-01-02' AND rate=1234.12345678`).Scan(&n); err != nil || n != 1 {
-			t.Fatalf("partial change mode %d: %d %v", m, n, err)
+		var total, unchanged int
+		if err := pool.QueryRow(context.Background(), `SELECT count(*), count(*) FILTER (WHERE from_currency='USD' AND to_currency='IDR' AND rate=1234.12345678)
+FROM fx_rates WHERE as_of_date='2025-01-02'`).Scan(&total, &unchanged); err != nil || total != 1 || unchanged != 1 {
+			t.Fatalf("partial change mode %d: total=%d unchanged=%d err=%v", m, total, unchanged, err)
 		}
 	}
 	mode.Store(5)
@@ -231,7 +235,7 @@ with TestClient(app,raise_server_exceptions=False) as c:
 func TestFXProviderTimeoutAndConfiguration(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(80 * time.Millisecond)
-		w.Write([]byte(`{"date":"2025-01-02","rates":{"IDR":1}}`))
+		w.Write([]byte(`{"base":"USD","date":"2025-01-02","rates":{"IDR":1}}`))
 	}))
 	defer server.Close()
 	s := sessionHandler{config: SessionConfig{FXProviderURL: server.URL, FXSyncCurrencies: []string{"USD"}, FXProviderTimeout: 10 * time.Millisecond}}
@@ -294,7 +298,7 @@ func TestFXSyncCoordinatesDistinctAdminWrites(t *testing.T) {
 		t.Fatal(e)
 	}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"date":"2025-01-02","rates":{"IDR":1234}}`))
+		w.Write([]byte(`{"base":"USD","date":"2025-01-02","rates":{"IDR":1234}}`))
 	}))
 	defer provider.Close()
 	cfg := SessionConfig{Secret: []byte("0123456789abcdef0123456789abcdef"), Path: "/", SameSite: http.SameSiteLaxMode, FXProviderURL: provider.URL, FXSyncCurrencies: []string{"USD"}, FXProviderTimeout: time.Second}
@@ -472,7 +476,7 @@ func TestWeeklyFXSyncPoolOneAndCancellation(t *testing.T) {
 	var rate atomic.Int32
 	rate.Store(100)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"date": "2026-11-02", "rates": map[string]int32{"IDR": rate.Load()}})
+		json.NewEncoder(w).Encode(map[string]any{"base": "USD", "date": "2026-11-02", "rates": map[string]int32{"IDR": rate.Load()}})
 	}))
 	defer provider.Close()
 	cfg := SessionConfig{FXProviderURL: provider.URL, FXSyncCurrencies: []string{"USD"}, FXProviderTimeout: time.Second}
@@ -521,10 +525,10 @@ func TestWeeklyFXSyncPythonWorkerAndReplicaLock(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		if r.URL.Query().Get("base") == "SGD" {
-			w.Write([]byte(`{"date":"2026-11-02","rates":{}}`))
+			w.Write([]byte(`{"base":"SGD","date":"2026-11-02","rates":{}}`))
 			return
 		}
-		w.Write([]byte(`{"date":"2026-11-02","rates":{"IDR":1234}}`))
+		w.Write([]byte(`{"base":"USD","date":"2026-11-02","rates":{"IDR":1234}}`))
 	}))
 	defer provider.Close()
 	cfg := SessionConfig{FXProviderURL: provider.URL, FXSyncCurrencies: []string{"USD", "SGD", "IDR"}, FXProviderTimeout: time.Second}
@@ -596,7 +600,7 @@ func TestWeeklyFXSyncRollbackAndSharedWriterLock(t *testing.T) {
 	defer pool.Close()
 	ctx := context.Background()
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"date":"2026-11-02","rates":{"IDR":1234}}`))
+		fmt.Fprintf(w, `{"base":%q,"date":"2026-11-02","rates":{"IDR":1234}}`, r.URL.Query().Get("base"))
 	}))
 	defer provider.Close()
 	cfg := SessionConfig{FXProviderURL: provider.URL, FXSyncCurrencies: []string{"USD", "SGD"}, FXProviderTimeout: time.Second}
@@ -662,14 +666,14 @@ func TestWeeklyFXSyncProviderFailureAndCancellation(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("base") == "USD" {
-			w.Write([]byte(`{"date":"2026-11-02","rates":{"IDR":1234}}`))
+			w.Write([]byte(`{"base":"USD","date":"2026-11-02","rates":{"IDR":1234}}`))
 			return
 		}
 		switch mode.Load() {
 		case 0:
 			w.WriteHeader(503)
 		case 1:
-			w.Write([]byte(`{"date":"2026-11-02","rates":{"IDR":-1}}`))
+			w.Write([]byte(`{"base":"SGD","date":"2026-11-02","rates":{"IDR":-1}}`))
 		case 2:
 			entered <- struct{}{}
 			<-r.Context().Done()
@@ -730,7 +734,7 @@ func TestWeeklyFXBlockedWriterDeadlineReleasesPool(t *testing.T) {
 	}
 	defer pool.Close()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"date":"2026-11-02","rates":{"IDR":1234}}`))
+		w.Write([]byte(`{"base":"USD","date":"2026-11-02","rates":{"IDR":1234}}`))
 	}))
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
@@ -745,5 +749,27 @@ func TestWeeklyFXBlockedWriterDeadlineReleasesPool(t *testing.T) {
 	var n int
 	if e = pool.QueryRow(probe, `SELECT count(*) FROM fx_rates WHERE as_of_date='2026-11-02'`).Scan(&n); e != nil || n != 0 {
 		t.Fatalf("connection or atomicity: %d %v", n, e)
+	}
+}
+
+func TestFXProviderRejectsUnverifiedBase(t *testing.T) {
+	for name, field := range map[string]string{
+		"missing":        "",
+		"null":           `"base":null,`,
+		"wrong type":     `"base":123,`,
+		"bad currency":   `"base":"US D",`,
+		"wrong currency": `"base":"EUR",`,
+		"redacted":       `"base":"provider-secret",`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprintf(w, `{%s"date":"2025-01-02","rates":{"IDR":1234}}`, field)
+			}))
+			defer provider.Close()
+			rates, err := fetchFX(context.Background(), SessionConfig{FXProviderURL: provider.URL, FXSyncCurrencies: []string{"USD"}})
+			if rates != nil || err == nil || err.Error() != "fx provider returned invalid base for USD->IDR" {
+				t.Fatalf("accepted or exposed an invalid base: rates=%v, err=%v", rates, err)
+			}
+		})
 	}
 }

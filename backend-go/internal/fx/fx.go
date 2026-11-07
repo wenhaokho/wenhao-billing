@@ -64,6 +64,11 @@ func Convert(ctx context.Context, db dbquery.DBTX, amount decimal.Decimal, from,
 	if err != nil {
 		return Conversion{}, err
 	}
+	return ConvertAtRate(amount, rate)
+}
+
+// ConvertAtRate applies the ledger rounding rules to an already resolved rate.
+func ConvertAtRate(amount, rate decimal.Decimal) (Conversion, error) {
 	product := amount.Mul(rate)
 	if !product.IsZero() {
 		places := int32(28-product.NumDigits()) - product.Exponent()

@@ -37,7 +37,7 @@ func registerMilestoneCreate(api huma.API, s sessionHandler) {
 		return &huma.Response{Description: desc, Content: map[string]*huma.MediaType{"application/json": {Schema: api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(body), true, "")}}}
 	}
 	responses := map[string]*huma.Response{"401": response("Not authenticated", authErrorBody{}), "403": response("Admin required", authErrorBody{}), "413": response("Body too large", authErrorBody{}), "422": response("Validation error", vendorUpdateValidationErrorBody{}), "500": response("Internal server error", authErrorBody{})}
-	huma.Register(api, huma.Operation{Method: "POST", Path: "/api/v1/invoices/milestone", OperationID: "create-milestone-invoice", DefaultStatus: 201, SkipValidateBody: true, Responses: responses, Security: []map[string][]string{{"sessionCookie": {}}}, Middlewares: huma.Middlewares{sessionMiddleware(s.milestoneCreate)}}, func(context.Context, *struct{ Body milestoneSchema }) (*struct{ Body invoiceOutputSchema }, error) {
+	huma.Register(api, huma.Operation{Method: "POST", Path: "/api/v1/invoices/milestone", OperationID: "create-milestone-invoice", DefaultStatus: 201, SkipValidateBody: true, Responses: responses, Security: []map[string][]string{{"sessionCookie": {}}}, Middlewares: huma.Middlewares{sessionMiddleware(s.invoiceWriter().milestoneCreate)}}, func(context.Context, *struct{ Body milestoneSchema }) (*struct{ Body invoiceOutputSchema }, error) {
 		panic("middleware")
 	})
 	schema := api.OpenAPI().Components.Schemas.Map()["MilestoneSchema"]
@@ -45,12 +45,12 @@ func registerMilestoneCreate(api huma.API, s sessionHandler) {
 	zero := float64(0)
 	*schema.Properties["amount"] = huma.Schema{AnyOf: []*huma.Schema{{Type: "number", ExclusiveMinimum: &zero}, {Type: "string"}}}
 }
-func (s sessionHandler) milestoneCreate(w http.ResponseWriter, r *http.Request) {
+func (s invoiceWriter) milestoneCreate(w http.ResponseWriter, r *http.Request) {
 	body, ok := readItemBody(w, r)
 	if !ok {
 		return
 	}
-	current, ok := s.requireAdmin(w, r)
+	current, ok := s.admin(w, r)
 	if !ok {
 		return
 	}
@@ -213,15 +213,15 @@ func (s sessionHandler) milestoneCreate(w http.ResponseWriter, r *http.Request) 
 		project, _ = parsePathUUID(v)
 	}
 	ctx := r.Context()
-	tx, e := s.db.Begin(ctx)
+	tx, e := s.pool.Begin(ctx)
 	if e != nil {
 		authError(w, 500, "internal server error")
 		return
 	}
 	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
-	user, e := q.LockSessionUserByID(ctx, current.UserID)
-	if errors.Is(e, pgx.ErrNoRows) || e == nil && user.Role != "admin" {
+	q := s.queries(tx)
+	user, e := q.lockAdminRole(ctx, current)
+	if errors.Is(e, pgx.ErrNoRows) || e == nil && user != "admin" {
 		authError(w, 403, "admin required")
 		return
 	}
@@ -229,13 +229,13 @@ func (s sessionHandler) milestoneCreate(w http.ResponseWriter, r *http.Request) 
 		authError(w, 500, "internal server error")
 		return
 	}
+	internalError := func() { authError(w, 500, "internal server error") }
 	typ := "NONE"
 	gross := false
 	rate := decimal.Zero
 	hasRate := false
 	defaults, e := q.LockMilestoneCustomer(ctx, customer)
-	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-		authError(w, 500, "internal server error")
+	if !s.acceptReference(w, internalError, e) {
 		return
 	}
 	if e == nil {
@@ -257,8 +257,7 @@ func (s sessionHandler) milestoneCreate(w http.ResponseWriter, r *http.Request) 
 	}
 	if project.Valid {
 		_, e = q.LockMilestoneProject(ctx, project)
-		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-			authError(w, 500, "internal server error")
+		if !s.acceptReference(w, internalError, e) {
 			return
 		}
 	}

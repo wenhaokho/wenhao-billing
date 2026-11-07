@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -42,19 +41,19 @@ func registerQuotationCreate(api huma.API, s sessionHandler) {
 	}
 	responses := map[string]*huma.Response{"400": response("Invalid quotation", authErrorBody{}), "401": response("Not authenticated", authErrorBody{}), "403": response("Admin required", authErrorBody{}), "413": response("Body too large", authErrorBody{}), "422": response("Validation error", vendorUpdateValidationErrorBody{}), "500": response("Internal server error", authErrorBody{})}
 	responses["500"].Content["text/plain"] = &huma.MediaType{Schema: &huma.Schema{Type: "string"}}
-	huma.Register(api, huma.Operation{Method: "POST", Path: "/api/v1/quotations", OperationID: "create-quotation", DefaultStatus: 201, SkipValidateBody: true, Responses: responses, Security: []map[string][]string{{"sessionCookie": {}}}, Middlewares: huma.Middlewares{sessionMiddleware(s.quotationCreate)}}, func(context.Context, *struct{ Body quotationCreateSchema }) (*struct{ Body quotationSchema }, error) {
+	huma.Register(api, huma.Operation{Method: "POST", Path: "/api/v1/quotations", OperationID: "create-quotation", DefaultStatus: 201, SkipValidateBody: true, Responses: responses, Security: []map[string][]string{{"sessionCookie": {}}}, Middlewares: huma.Middlewares{sessionMiddleware(s.quotationWriter().create)}}, func(context.Context, *struct{ Body quotationCreateSchema }) (*struct{ Body quotationSchema }, error) {
 		panic("middleware")
 	})
 	schema := api.OpenAPI().Components.Schemas.Map()["QuotationCreateSchema"]
 	schema.AdditionalProperties = true
 	*schema.Properties["discount_value"] = huma.Schema{AnyOf: []*huma.Schema{{Type: "number"}, {Type: "string"}, {Type: "null"}}}
 }
-func (s sessionHandler) quotationCreate(w http.ResponseWriter, r *http.Request) {
+func (s quotationWriter) create(w http.ResponseWriter, r *http.Request) {
 	body, ok := readItemBody(w, r)
 	if !ok {
 		return
 	}
-	current, ok := s.requireAdmin(w, r)
+	userID, ok := s.admin(w, r)
 	if !ok {
 		return
 	}
@@ -121,25 +120,13 @@ func (s sessionHandler) quotationCreate(w http.ResponseWriter, r *http.Request) 
 			if d.Decode(&v) != nil {
 				continue
 			}
-			text := fmt.Sprint(v)
-			if text == "true" {
-				text = "1"
-			}
-			if text == "false" {
-				text = "0"
-			}
-			rat, valid := boundedItemRat(text)
-			if !valid || !rat.IsInt() {
-				typ, msg := "int_parsing", "Input should be a valid integer, unable to parse string as an integer"
-				if _, ok := v.(json.Number); ok {
+			if _, valid := quotationPosition(v); !valid {
+				typ, msg := "int_type", "Input should be a valid integer"
+				switch v.(type) {
+				case string:
+					typ, msg = "int_parsing", "Input should be a valid integer, unable to parse string as an integer"
+				case json.Number:
 					typ, msg = "int_from_float", "Input should be a valid integer, got a number with a fractional part"
-				}
-				if _, ok := v.(bool); !ok {
-					if _, ok := v.(string); !ok {
-						if _, ok := v.(json.Number); !ok {
-							typ, msg = "int_type", "Input should be a valid integer"
-						}
-					}
 				}
 				errs = append(errs, validationError{typ, []any{"body", "line_items", i, "position"}, msg, v, nil})
 			}
@@ -169,15 +156,7 @@ func (s sessionHandler) quotationCreate(w http.ResponseWriter, r *http.Request) 
 		for _, line := range lines {
 			if obj, ok := line.(map[string]any); ok {
 				if v, ok := obj["position"]; ok && v != nil {
-					text := fmt.Sprint(v)
-					if text == "true" {
-						text = "1"
-					}
-					if text == "false" {
-						text = "0"
-					}
-					if rat, ok := boundedItemRat(text); ok && rat.IsInt() {
-						n := rat.Num()
+					if n, ok := quotationPosition(v); ok {
 						if !n.IsInt64() || n.Int64() < -2147483648 || n.Int64() > 2147483647 {
 							positionOverflow = true
 							obj["position"] = 0
@@ -245,16 +224,16 @@ func (s sessionHandler) quotationCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	ctx := r.Context()
-	tx, e := s.db.Begin(ctx)
+	tx, e := s.pool.Begin(ctx)
 	fail := func() { authError(w, 500, "internal server error") }
 	if e != nil {
 		fail()
 		return
 	}
 	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
-	user, e := q.LockSessionUserByID(ctx, current.UserID)
-	if errors.Is(e, pgx.ErrNoRows) || e == nil && user.Role != "admin" {
+	q := s.queries(tx)
+	role, e := q.lockAdminRole(ctx, userID)
+	if errors.Is(e, pgx.ErrNoRows) || e == nil && role != "admin" {
 		authError(w, 403, "admin required")
 		return
 	}
@@ -263,17 +242,13 @@ func (s sessionHandler) quotationCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	customer, _ := parsePathUUID(*b.CustomerID)
-	_, e = q.LockCustomer(ctx, customer)
-	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-		fail()
+	if !s.acceptReference(w, q.lockCustomer(ctx, customer)) {
 		return
 	}
 	var project pgtype.UUID
 	if b.ProjectID != nil {
 		project, _ = parsePathUUID(*b.ProjectID)
-		_, e = q.LockProject(ctx, project)
-		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-			fail()
+		if !s.acceptReference(w, q.lockProject(ctx, project)) {
 			return
 		}
 	}
@@ -284,10 +259,8 @@ func (s sessionHandler) quotationCreate(w http.ResponseWriter, r *http.Request) 
 			ids[id.Bytes] = id
 		}
 	}
-	for _, id := range orderedBillItemIDs(ids) {
-		_, e = q.LockItem(ctx, id)
-		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-			fail()
+	for _, id := range orderedItemIDs(ids) {
+		if !s.acceptReference(w, q.lockItem(ctx, id)) {
 			return
 		}
 	}

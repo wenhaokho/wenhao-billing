@@ -147,6 +147,18 @@ func TestUsageScanLocksDueInvoiceAndRequiresMeter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, invalid := range []string{"-1", "100.00005", "1000000000000000"} {
+		invalidMeter := UsageMeterFunc(func(context.Context, pgtype.UUID) (decimal.Decimal, error) {
+			return decimal.RequireFromString(invalid), nil
+		})
+		n, err := ScanUsageCutoff(context.Background(), p, now, invalidMeter)
+		if n != 0 || !errors.As(err, &report) || len(report.Failures) != 1 || report.Failures[0].Category != UsageMeterFailed {
+			t.Fatalf("invalid meter amount %s: %d %v", invalid, n, err)
+		}
+		if err := p.QueryRow(context.Background(), `SELECT billing_cycle_ref::text,amount::text FROM invoices WHERE invoice_id='30000000-0000-0000-0000-000000000002'`).Scan(&ref, &amount); err != nil || strings.Contains(ref, `"locked"`) || amount != "10.0000" {
+			t.Fatalf("invalid meter amount changed invoice: %s %s %v", ref, amount, err)
+		}
+	}
 	active, cancelActive := context.WithCancel(context.Background())
 	entered := make(chan struct{})
 	done := make(chan error, 1)

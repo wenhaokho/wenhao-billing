@@ -56,7 +56,7 @@ func TestResendPrecedenceAndPayload(t *testing.T) {
 	if got["from"] != "Sender <sender@example.com>" || got["reply_to"] != "reply@example.com" || got["text"] != "body" || got["html"] != "<p>body</p>" || got["subject"] != "subject" {
 		t.Fatalf("payload: %#v", got)
 	}
-	if got["to"].([]any)[0] != "to@example.com" || got["cc"].([]any)[0] != "cc@example.com" || len(got["attachments"].([]any)[0].(map[string]any)["content"].([]any)) != 3 {
+	if got["to"].([]any)[0] != "to@example.com" || got["cc"].([]any)[0] != "cc@example.com" || got["attachments"].([]any)[0].(map[string]any)["content"] != base64.StdEncoding.EncodeToString([]byte("pdf")) {
 		t.Fatalf("payload: %#v", got)
 	}
 }
@@ -449,5 +449,36 @@ func TestSubjectUnicodeRoundTrip(t *testing.T) {
 	got, e := new(mime.WordDecoder).DecodeHeader(strings.ReplaceAll(encodeSubject(want), "\r\n ", " "))
 	if e != nil || got != want {
 		t.Fatalf("subject: %q %v", got, e)
+	}
+}
+
+func TestResendRejectsRedirectAndMissingID(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{{"redirect", 302, ""}, {"empty ID", 200, `{}`}, {"empty response", 204, ""}} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if tc.status == 302 {
+					w.Header().Set("Location", "/other")
+				}
+				w.WriteHeader(tc.status)
+				w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			s, e := New(Config{ResendKey: "key", ResendURL: srv.URL, ResendFrom: "sender@example.com"})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = s.Send(context.Background(), Message{To: []string{"to@example.com"}, Text: "x"}); !errors.Is(e, ErrDelivery) {
+				t.Fatalf("got %v", e)
+			}
+			if calls != 1 {
+				t.Fatalf("followed redirect: %d calls", calls)
+			}
+		})
 	}
 }

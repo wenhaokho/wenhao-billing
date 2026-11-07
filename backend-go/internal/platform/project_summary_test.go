@@ -195,4 +195,5 @@ with TestClient(app) as c:
 		}
 	}
 
+	testScopedProjectReports(t, db.URL(), pool, cfg, base, expected, snap)
 }

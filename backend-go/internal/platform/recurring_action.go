@@ -34,11 +34,15 @@ func registerRecurringAction(api huma.API, s sessionHandler) {
 	})
 }
 func (s sessionHandler) recurringAction(w http.ResponseWriter, r *http.Request) {
+	s.invoiceWriter().recurringAction(w, r)
+}
+
+func (s invoiceWriter) recurringAction(w http.ResponseWriter, r *http.Request) {
 	body, ok := readItemBody(w, r)
 	if !ok {
 		return
 	}
-	current, ok := s.requireAdmin(w, r)
+	current, ok := s.admin(w, r)
 	if !ok {
 		return
 	}
@@ -69,15 +73,15 @@ func (s sessionHandler) recurringAction(w http.ResponseWriter, r *http.Request) 
 	}
 	action = strings.ToUpper(action)
 	ctx := r.Context()
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		authError(w, 500, "internal server error")
 		return
 	}
 	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
-	user, err := q.LockSessionUserByID(ctx, current.UserID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && user.Role != "admin" {
+	q := s.queries(tx)
+	user, err := q.lockAdminRole(ctx, current)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && user != "admin" {
 		authError(w, 403, "admin required")
 		return
 	}
@@ -104,25 +108,7 @@ func (s sessionHandler) recurringAction(w http.ResponseWriter, r *http.Request) 
 	schedule, scheduleErr := recurringschedule.Parse(row.BillingCycleRef)
 	var next *time.Time
 	if scheduleErr == nil && (action == "PAUSE" || action == "RESUME" || action == "END_NOW") {
-		anchor := schedule.StartDate.AddDate(0, 0, -1)
-		child, e := q.LatestRecurringChild(ctx, id)
-		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-			authError(w, 500, "internal server error")
-			return
-		}
-		if e == nil {
-			if child.IssueDate.Valid {
-				anchor = child.IssueDate.Time
-			}
-			var ref map[string]json.RawMessage
-			var key string
-			if json.Unmarshal(child.BillingCycleRef, &ref) == nil && json.Unmarshal(ref["cycle_key"], &key) == nil && key != "" {
-				if d, e := parseCycleDate(key); e == nil {
-					anchor = d
-				}
-			}
-		}
-		next, err = recurringschedule.NextCycleAfter(schedule, anchor)
+		next, err = nextTemplateCycle(ctx, q, id, schedule)
 		if err != nil {
 			authError(w, 500, "internal server error")
 			return
@@ -187,4 +173,27 @@ func (s sessionHandler) recurringAction(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(append(encoded, '\n'))
+}
+
+// nextTemplateCycle uses the latest non-void child as the schedule anchor.
+// The caller holds the template lock while deciding whether to mutate it.
+func nextTemplateCycle(ctx context.Context, q invoiceWriteQueries, id pgtype.UUID, schedule recurringschedule.Schedule) (*time.Time, error) {
+	anchor := schedule.StartDate.AddDate(0, 0, -1)
+	child, err := q.LatestRecurringChild(ctx, id)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	if err == nil {
+		if child.IssueDate.Valid {
+			anchor = child.IssueDate.Time
+		}
+		var ref map[string]json.RawMessage
+		var key string
+		if json.Unmarshal(child.BillingCycleRef, &ref) == nil && json.Unmarshal(ref["cycle_key"], &key) == nil && key != "" {
+			if d, err := parseCycleDate(key); err == nil {
+				anchor = d
+			}
+		}
+	}
+	return recurringschedule.NextCycleAfter(schedule, anchor)
 }

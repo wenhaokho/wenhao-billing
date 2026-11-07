@@ -81,7 +81,7 @@ func ScanRecurring(ctx context.Context, pool *pgxpool.Pool, now time.Time) (int,
 		}
 		v, _ := id.Value()
 		result := &scanResponse{header: make(http.Header)}
-		recurringTriggerCore(result, ctx, conn, id, v.(string), "", nil, &now, batch, &recipients)
+		recurringTriggerCore(result, ctx, conn, id, v.(string), "", nil, &now, legacyRecurringTrigger(batch, &recipients))
 		switch result.status {
 		case 0, 200:
 			count++

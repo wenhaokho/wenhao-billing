@@ -62,6 +62,21 @@ func TestQuotationUpdateDifferential(t *testing.T) {
 	}
 	bodies := []string{`{"line_items":[{"description":"x","quantity":1,"unit_price":1,"position":2147483648}]}`, `{}`, `{"customer_id":"10000000-0000-0000-0000-000000000001","business_id":"ignored"}`, `{"notes":"updated","payment_terms":"Net 30","currency":"IDR","project_id":"30000000-0000-0000-0000-000000000001","quotation_number":"NEW","po_so_number":"PO","issue_date":"2026-01-01","valid_until":"2026-02-01","footer":"end"}`, `{"discount_type":"PERCENT","discount_value":"3.5","line_items":[{"item_id":"40000000-0000-0000-0000-000000000001","description":"A","quantity":"1.2345","unit_price":"7.6543","position":1},{"description":"B","quantity":"0.0001","unit_price":"0.5","position":2}]}`, `{"line_items":null,"notes":null,"project_id":null,"discount_type":null,"discount_value":null}`, `{"line_items":[]}`, `{"currency":"US"}`, `{"valid_until":"bad","quotation_number":123}`, `{"customer_id":"bad"}`, `{"line_items":[{"description":"x","quantity":1,"unit_price":1,"position":"bad"}]}`, `{"currency":`, `{"customer_id":null}`, `{"currency":null}`, `{"line_items":[{"description":"bad","quantity":"0.00001","unit_price":1}]}`, `{"customer_id":"99999999-9999-9999-9999-999999999999"}`, `{"project_id":"99999999-9999-9999-9999-999999999999"}`, `{"line_items":[{"item_id":"99999999-9999-9999-9999-999999999999","description":"bad","quantity":1,"unit_price":1}]}`, `{"discount_type":"AMOUNT","discount_value":10000,"line_items":[{"description":"zero","quantity":1,"unit_price":1}]}`, `{"currency":"SGD","line_items":[{"description":"a","quantity":"0.0001","unit_price":"0.5"},{"description":"b","quantity":"0.0001","unit_price":"0.5"}]}`}
 
+	bodies = append(bodies,
+		`{"line_items":[{"description":"x","quantity":1,"unit_price":1,"position":"1/1"}]}`,
+		`{"line_items":[{"description":"x","quantity":1,"unit_price":1,"position":"1e0"}]}`,
+		`{"line_items":[{"description":"x","quantity":1,"unit_price":1,"position":null}]}`,
+		`{"line_items":[{"description":"x","quantity":1,"unit_price":1,"position":"1e2"}]}`,
+		`{"line_items":[{"description":"x","quantity":1,"unit_price":1,"position":"  2  "}]}`,
+		`{"line_items":[{"description":"x","quantity":1,"unit_price":1,"position":1e0}]}`,
+		`{"line_items":[{"description":"x","quantity":1,"unit_price":1,"position":true}]}`,
+		`{"line_items":[{"description":"x","quantity":1,"unit_price":1,"position":1.5}]}`,
+		`{"notes":"changed"} {}`,
+		`{"notes":"INVALID_UTF8"}`,
+		`{"currency":"US","line_items":[{"description":"x","quantity":1,"unit_price":1,"position":"bad"}]}`,
+		`{"currency":"US","line_items":[{"description":4,"quantity":1,"unit_price":1,"position":"bad"},{"description":"x","quantity":"bad","unit_price":1,"position":"bad"},{"description":"x","quantity":1,"unit_price":1,"position":"bad"}]}`,
+	)
+
 	cmd := exec.Command("python", "-c", `import json,os
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -75,11 +90,11 @@ def session():
  with Session(engine) as db: yield db
 app.dependency_overrides[get_db]=session
 def counts():
- with engine.connect() as conn: return list(conn.execute(text("SELECT (SELECT count(*) FROM quotations), (SELECT count(*) FROM quotation_line_items)")).one())
+ with engine.connect() as conn: return conn.execute(text("SELECT json_build_object('quotation', (SELECT row_to_json(q) FROM quotations q), 'lines', (SELECT json_agg(row_to_json(l) ORDER BY line_item_id) FROM quotation_line_items l))::text")).scalar_one()
 results=[]
 with TestClient(app,raise_server_exceptions=False) as c:
  for b in json.loads(os.environ['BODIES']):
-  before=counts(); r=c.patch('/api/v1/quotations/20000000-0000-0000-0000-000000000001',content=b,headers={'content-type':'application/json'}); after=counts()
+  before=counts(); b=b.replace('INVALID_UTF8', chr(255)).encode('latin1'); r=c.patch('/api/v1/quotations/20000000-0000-0000-0000-000000000001',content=b,headers={'content-type':'application/json'}); after=counts()
   results.append([r.status_code,r.json() if r.status_code != 500 else r.text,before,after])
  for status in ['DRAFT','SENT','ACCEPTED','DECLINED','EXPIRED','INVOICED','VOID']:
   with engine.begin() as conn: conn.execute(text("UPDATE quotations SET status=:status WHERE quotation_id='20000000-0000-0000-0000-000000000001'"), {'status':status})
@@ -98,21 +113,21 @@ print(json.dumps(results))`)
 		t.Fatalf("python output: %v %s", e, out)
 	}
 	for i, body := range bodies {
-		var beforeInvoices, beforeLines int
-		if e = p.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM quotations),(SELECT count(*) FROM quotation_line_items)`).Scan(&beforeInvoices, &beforeLines); e != nil {
+		var before string
+		if e = p.QueryRow(context.Background(), `SELECT json_build_object('quotation', (SELECT row_to_json(q) FROM quotations q), 'lines', (SELECT json_agg(row_to_json(l) ORDER BY line_item_id) FROM quotation_line_items l))::text`).Scan(&before); e != nil {
 			t.Fatal(e)
 		}
-		req := httptest.NewRequest("PATCH", "/api/v1/quotations/20000000-0000-0000-0000-000000000001", strings.NewReader(body))
+		req := httptest.NewRequest("PATCH", "/api/v1/quotations/20000000-0000-0000-0000-000000000001", strings.NewReader(strings.ReplaceAll(body, "INVALID_UTF8", "\xff")))
 		req.Header.Set("Content-Type", "application/json")
 		req.AddCookie(&http.Cookie{Name: "session", Value: token})
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		if w.Code >= 400 {
-			var afterInvoices, afterLines int
-			if e = p.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM quotations),(SELECT count(*) FROM quotation_line_items)`).Scan(&afterInvoices, &afterLines); e != nil {
+			var after string
+			if e = p.QueryRow(context.Background(), `SELECT json_build_object('quotation', (SELECT row_to_json(q) FROM quotations q), 'lines', (SELECT json_agg(row_to_json(l) ORDER BY line_item_id) FROM quotation_line_items l))::text`).Scan(&after); e != nil {
 				t.Fatal(e)
 			}
-			if beforeInvoices != afterInvoices || beforeLines != afterLines || !reflect.DeepEqual(expected[i][2], expected[i][3]) {
+			if before != after || !reflect.DeepEqual(expected[i][2], expected[i][3]) {
 				t.Errorf("case %d invalid input wrote data", i)
 			}
 		}

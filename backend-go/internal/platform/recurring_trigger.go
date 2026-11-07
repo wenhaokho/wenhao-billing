@@ -8,7 +8,6 @@ import (
 	"math/big"
 	"net/http"
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -100,12 +99,36 @@ func scheduleErrorText(data []byte, reason error) string {
 	}
 	return reason.Error()
 }
+
+type recurringTriggerQueries interface {
+	lockAdminRole(context.Context, pgtype.UUID) (string, error)
+	LockInvoice(context.Context, pgtype.UUID) (dbquery.Invoice, error)
+	FindRecurringCycle(context.Context, dbquery.FindRecurringCycleParams) (dbquery.Invoice, error)
+	ListRecurringCycleCandidates(context.Context, pgtype.UUID) ([]dbquery.Invoice, error)
+	LockInvoiceLines(context.Context, pgtype.UUID) ([]dbquery.InvoiceLineItem, error)
+	ItemIsHosting(context.Context, pgtype.UUID) (bool, error)
+	LockInvoiceNumberAllocation(context.Context) error
+	InvoiceNumbersForPrefix(context.Context, pgtype.Text) ([]pgtype.Text, error)
+	InsertDraftInvoice(context.Context, dbquery.InsertDraftInvoiceParams) error
+	SetRecurringChildFields(context.Context, dbquery.SetRecurringChildFieldsParams) error
+	InsertDraftInvoiceLine(context.Context, dbquery.InsertDraftInvoiceLineParams) error
+	GetInvoice(context.Context, pgtype.UUID) (dbquery.Invoice, error)
+	InvoiceLinesByIDs(context.Context, []pgtype.UUID) ([]dbquery.InvoiceLineItem, error)
+	validateTemplateReferences(context.Context, dbquery.Invoice) error
+	enqueueRecurringDraft(context.Context, pgtype.UUID, string) error
+}
+
 func (s sessionHandler) recurringTrigger(w http.ResponseWriter, r *http.Request) {
+	writer := s.invoiceWriter()
+	serveRecurringTrigger(w, r, writer, legacyRecurringTrigger(pgtype.UUID{}, nil))
+}
+
+func serveRecurringTrigger(w http.ResponseWriter, r *http.Request, writer invoiceWriter, queries func(pgx.Tx) recurringTriggerQueries) {
 	body, ok := readBodyWithSyntax(w, r)
 	if !ok {
 		return
 	}
-	current, ok := s.requireAdmin(w, r)
+	current, ok := writer.admin(w, r)
 	if !ok {
 		return
 	}
@@ -136,25 +159,25 @@ func (s sessionHandler) recurringTrigger(w http.ResponseWriter, r *http.Request)
 		validationResponse(w, []validationError{{"string_type", []any{"body", "cycle_key"}, "Input should be a valid string", nil, nil}})
 		return
 	}
-	recurringTriggerCore(w, r.Context(), s.db, id, raw, key, &current.UserID, nil, pgtype.UUID{}, nil)
+	recurringTriggerCore(w, r.Context(), writer.pool, id, raw, key, &current, nil, queries)
 }
 
 // recurringTriggerCore serializes template actions and generation on the template row.
 // scanTime selects the current cycle after the row lock, preventing stale pause/end decisions.
 func recurringTriggerCore(w http.ResponseWriter, ctx context.Context, db interface {
 	Begin(context.Context) (pgx.Tx, error)
-}, id pgtype.UUID, raw, key string, userID *pgtype.UUID, scanTime *time.Time, batch pgtype.UUID, recipients *recurringRecipients) {
+}, id pgtype.UUID, raw, key string, userID *pgtype.UUID, scanTime *time.Time, queries func(pgx.Tx) recurringTriggerQueries) {
 	tx, e := db.Begin(ctx)
 	if e != nil {
 		authError(w, 500, "internal server error")
 		return
 	}
 	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
+	q := queries(tx)
 	fail := func() { authError(w, 500, "internal server error") }
 	if userID != nil {
-		user, err := q.LockSessionUserByID(ctx, *userID)
-		if errors.Is(err, pgx.ErrNoRows) || err == nil && user.Role != "admin" {
+		role, err := q.lockAdminRole(ctx, *userID)
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && role != "admin" {
 			authError(w, 403, "admin required")
 			return
 		}
@@ -258,6 +281,14 @@ func recurringTriggerCore(w http.ResponseWriter, ctx context.Context, db interfa
 	}
 	if errors.Is(e, pgx.ErrNoRows) {
 		created = true
+		if err := q.validateTemplateReferences(ctx, template); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				authError(w, 400, "referenced record not found")
+			} else {
+				fail()
+			}
+			return
+		}
 		lines, err := q.LockInvoiceLines(ctx, id)
 		if err != nil {
 			fail()
@@ -265,26 +296,20 @@ func recurringTriggerCore(w http.ResponseWriter, ctx context.Context, db interfa
 		}
 		subtotal := decimal.Zero
 		hosting := false
-		itemIDs := map[string]pgtype.UUID{}
+		itemIDs := map[[16]byte]pgtype.UUID{}
 		for _, ln := range lines {
 			if ln.ItemID.Valid {
-				value, err := ln.ItemID.Value()
-				if err != nil {
-					fail()
-					return
-				}
-				itemIDs[value.(string)] = ln.ItemID
+				itemIDs[ln.ItemID.Bytes] = ln.ItemID
 			}
 		}
-		ordered := make([]string, 0, len(itemIDs))
-		for key := range itemIDs {
-			ordered = append(ordered, key)
-		}
-		sort.Strings(ordered)
-		for _, key := range ordered {
-			h, err := q.ItemIsHosting(ctx, itemIDs[key])
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				fail()
+		for _, itemID := range orderedItemIDs(itemIDs) {
+			h, err := q.ItemIsHosting(ctx, itemID)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					authError(w, 400, "referenced record not found")
+				} else {
+					fail()
+				}
 				return
 			}
 			hosting = hosting || h
@@ -424,16 +449,7 @@ func recurringTriggerCore(w http.ResponseWriter, ctx context.Context, db interfa
 		return
 	}
 	if created {
-		if _, err := tx.Exec(ctx, `INSERT INTO recurring_draft_events(invoice_id, cycle_key, invoice_number, customer_name, amount, currency, scan_batch_id) SELECT i.invoice_id, $2, coalesce(i.invoice_number,''), coalesce(c.name,'(unknown customer)'), i.amount, i.currency, $3 FROM invoices i LEFT JOIN customers c ON c.customer_id=i.customer_id WHERE i.invoice_id=$1`, row.InvoiceID, key, batch); err != nil {
-			fail()
-			return
-		}
-		if recipients == nil {
-			_, e = tx.Exec(ctx, `INSERT INTO recurring_draft_deliveries(invoice_id, user_id, email) SELECT $1, user_id, email FROM users`, row.InvoiceID)
-		} else {
-			_, e = tx.Exec(ctx, `INSERT INTO recurring_draft_deliveries(invoice_id, user_id, email) SELECT $1, id, email FROM unnest($2::uuid[], $3::text[]) AS r(id,email)`, row.InvoiceID, recipients.ids, recipients.emails)
-		}
-		if e != nil {
+		if err := q.enqueueRecurringDraft(ctx, row.InvoiceID, key); err != nil {
 			fail()
 			return
 		}
@@ -444,4 +460,43 @@ func recurringTriggerCore(w http.ResponseWriter, ctx context.Context, db interfa
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(append(encoded, '\n'))
+}
+
+type legacyRecurringTriggerQueries struct {
+	legacyInvoiceWriteQueries
+	batch      pgtype.UUID
+	recipients *recurringRecipients
+}
+
+func legacyRecurringTrigger(batch pgtype.UUID, recipients *recurringRecipients) func(pgx.Tx) recurringTriggerQueries {
+	return func(tx pgx.Tx) recurringTriggerQueries {
+		return legacyRecurringTriggerQueries{
+			legacyInvoiceWriteQueries: legacyInvoiceWriteQueries{Queries: dbquery.New(tx), tx: tx},
+			batch:                     batch, recipients: recipients,
+		}
+	}
+}
+
+func (q legacyRecurringTriggerQueries) validateTemplateReferences(context.Context, dbquery.Invoice) error {
+	return nil
+}
+
+func (q legacyRecurringTriggerQueries) ItemIsHosting(ctx context.Context, id pgtype.UUID) (bool, error) {
+	hosting, err := q.Queries.ItemIsHosting(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return hosting, err
+}
+
+func (q legacyRecurringTriggerQueries) enqueueRecurringDraft(ctx context.Context, invoice pgtype.UUID, key string) error {
+	if _, err := q.tx.Exec(ctx, `INSERT INTO recurring_draft_events(invoice_id, cycle_key, invoice_number, customer_name, amount, currency, scan_batch_id) SELECT i.invoice_id, $2, coalesce(i.invoice_number,''), coalesce(c.name,'(unknown customer)'), i.amount, i.currency, $3 FROM invoices i LEFT JOIN customers c ON c.customer_id=i.customer_id WHERE i.invoice_id=$1`, invoice, key, q.batch); err != nil {
+		return err
+	}
+	if q.recipients == nil {
+		_, err := q.tx.Exec(ctx, `INSERT INTO recurring_draft_deliveries(invoice_id, user_id, email) SELECT $1, user_id, email FROM users`, invoice)
+		return err
+	}
+	_, err := q.tx.Exec(ctx, `INSERT INTO recurring_draft_deliveries(invoice_id, user_id, email) SELECT $1, id, email FROM unnest($2::uuid[], $3::text[]) AS r(id,email)`, invoice, q.recipients.ids, q.recipients.emails)
+	return err
 }

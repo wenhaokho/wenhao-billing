@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/peterldowns/pgtestdb"
 	"github.com/peterldowns/pgtestdb/migrators/goosemigrator"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/business"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 	"net/http"
 	"net/http/httptest"
@@ -209,6 +210,32 @@ with TestClient(app,raise_server_exceptions=False) as c:
 	if before != snap(p) || beforepy != snap(pp) {
 		t.Fatal("reads changed database")
 	}
+	t.Run("ScopedRecurringRows", func(t *testing.T) {
+		const path = "/api/v1/invoices/recurring-templates/rows"
+		owner := migrateRecurringRowsFixture(t, pp)
+		scope, err := business.Parse(owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		router, err := NewScopedProfileRouter(pp, cfg, scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scopedToken, err := (auth.Tokens{Secret: cfg.Secret, AccessTTL: time.Hour}).Issue(jwt.MapClaims{
+			"sub": "00000000-0000-0000-0000-000000000001", "business_id": owner,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest("GET", path, nil)
+		r.AddCookie(&http.Cookie{Name: "session", Value: scopedToken})
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		legacy := call(path, admin)
+		if w.Code != legacy.Code || w.Body.String() != legacy.Body.String() {
+			t.Fatalf("v8 differs from v7 (already compared with Python): v8=%d %s v7=%d %s", w.Code, w.Body, legacy.Code, legacy.Body)
+		}
+	})
 	if _, e = p.Exec(context.Background(), `UPDATE invoices SET issue_date='infinity' WHERE invoice_id='20000000-0000-0000-0000-000000000021'`); e != nil {
 		t.Fatal(e)
 	}

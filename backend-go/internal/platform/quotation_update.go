@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"unicode/utf8"
 )
 
 type quotationUpdateSchema struct {
@@ -43,7 +44,7 @@ func registerQuotationUpdate(api huma.API, s sessionHandler) {
 	}
 	responses := map[string]*huma.Response{"400": response("Invalid quotation", authErrorBody{}), "401": response("Not authenticated", authErrorBody{}), "403": response("Admin required", authErrorBody{}), "413": response("Body too large", authErrorBody{}), "422": response("Validation error", vendorUpdateValidationErrorBody{}), "500": response("Internal server error", authErrorBody{})}
 	responses["500"].Content["text/plain"] = &huma.MediaType{Schema: &huma.Schema{Type: "string"}}
-	huma.Register(api, huma.Operation{Method: "PATCH", Path: "/api/v1/quotations/{quotation_id}", OperationID: "update-quotation", SkipValidateBody: true, Responses: responses, Security: []map[string][]string{{"sessionCookie": {}}}, Middlewares: huma.Middlewares{sessionMiddleware(s.quotationUpdate)}}, func(context.Context, *quotationUpdateRequest) (*struct{ Body quotationSchema }, error) {
+	huma.Register(api, huma.Operation{Method: "PATCH", Path: "/api/v1/quotations/{quotation_id}", OperationID: "update-quotation", SkipValidateBody: true, Responses: responses, Security: []map[string][]string{{"sessionCookie": {}}}, Middlewares: huma.Middlewares{sessionMiddleware(s.quotationWriter().update)}}, func(context.Context, *quotationUpdateRequest) (*struct{ Body quotationSchema }, error) {
 		panic("middleware")
 	})
 	schema := api.OpenAPI().Components.Schemas.Map()["QuotationUpdateSchema"]
@@ -52,13 +53,13 @@ func registerQuotationUpdate(api huma.API, s sessionHandler) {
 	lines := schema.Properties["line_items"]
 	schema.Properties["line_items"] = &huma.Schema{AnyOf: []*huma.Schema{lines, {Type: "null"}}}
 }
-func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) {
+func (s quotationWriter) update(w http.ResponseWriter, r *http.Request) {
 
 	body, ok := readItemBody(w, r)
 	if !ok {
 		return
 	}
-	current, ok := s.requireAdmin(w, r)
+	userID, ok := s.admin(w, r)
 	if !ok {
 		return
 	}
@@ -82,6 +83,10 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if !utf8.Valid(body) {
+		authError(w, http.StatusBadRequest, "There was an error parsing the body")
+		return
+	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 	var fields map[string]any
@@ -94,8 +99,8 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var extra any
-	if dec.Decode(&extra) != io.EOF {
-		invalid()
+	if err := dec.Decode(&extra); err != io.EOF {
+		vendorUpdateValidationResponse(w, itemUpdateJSONError(body, err, true))
 		return
 	}
 	// The create validator shares the same constraints on individual values. Update makes every field optional.
@@ -121,7 +126,8 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 		delete(check, "line_items")
 	}
 	validationBody, _ := json.Marshal(check)
-	if errs := validateInvoiceCreate(validationBody); len(errs) > 0 {
+	errs := validateInvoiceCreate(validationBody)
+	if len(errs) > 0 {
 		for i := range errs {
 			if len(errs[i].Loc) > 1 {
 				if errs[i].Loc[1] == "invoice_number" {
@@ -132,10 +138,9 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 		}
-		vendorUpdateValidationResponse(w, errs)
-		return
 	}
 	positionOverflow := false
+	var positionErrs []validationError
 	if list, ok := fields["line_items"].([]any); ok {
 		for i, value := range list {
 			line, ok := value.(map[string]any)
@@ -146,11 +151,8 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 			if !exists || value == nil {
 				continue
 			}
-			if _, ok := value.(bool); ok {
-				continue
-			}
-			rat, valid := boundedItemRat(fmt.Sprint(value))
-			if !valid || !rat.IsInt() {
+			position, valid := quotationPosition(value)
+			if !valid {
 				typ, msg := "int_type", "Input should be a valid integer"
 				switch value.(type) {
 				case string:
@@ -158,24 +160,46 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 				case json.Number:
 					typ, msg = "int_from_float", "Input should be a valid integer, got a number with a fractional part"
 				}
-				vendorUpdateValidationResponse(w, []validationError{{typ, []any{"body", "line_items", i, "position"}, msg, nil, nil}})
-				return
+				positionErrs = append(positionErrs, validationError{typ, []any{"body", "line_items", i, "position"}, msg, nil, nil})
+				continue
 			}
-			if !rat.Num().IsInt64() || rat.Num().Int64() < -2147483648 || rat.Num().Int64() > 2147483647 {
+			if !position.IsInt64() || position.Int64() < -2147483648 || position.Int64() > 2147483647 {
 				positionOverflow = true
 			}
 		}
 	}
+	// Both lists are in line order. Position is the final field on each line,
+	// so merge it before the next line's first error without shifting slices.
+	if len(positionErrs) > 0 {
+		merged := make([]validationError, 0, len(errs)+len(positionErrs))
+		next := 0
+		for _, existing := range errs {
+			if len(existing.Loc) > 2 && existing.Loc[1] == "line_items" {
+				if index, ok := existing.Loc[2].(int); ok {
+					for next < len(positionErrs) && positionErrs[next].Loc[2].(int) < index {
+						merged = append(merged, positionErrs[next])
+						next++
+					}
+				}
+			}
+			merged = append(merged, existing)
+		}
+		errs = append(merged, positionErrs[next:]...)
+	}
+	if len(errs) > 0 {
+		vendorUpdateValidationResponse(w, errs)
+		return
+	}
 	ctx := r.Context()
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		authError(w, 500, "internal server error")
 		return
 	}
 	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
-	user, err := q.LockSessionUserByID(ctx, current.UserID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && user.Role != "admin" {
+	q := s.queries(tx)
+	role, err := q.lockAdminRole(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && role != "admin" {
 		authError(w, 403, "admin required")
 		return
 	}
@@ -185,6 +209,10 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 	}
 	inv, err := q.LockQuotation(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if s.scoped {
+			authError(w, 400, "quotation not found")
+			return
+		}
 		authError(w, 400, fmt.Sprintf("quotation %x-%x-%x-%x-%x not found", id.Bytes[:4], id.Bytes[4:6], id.Bytes[6:8], id.Bytes[8:10], id.Bytes[10:]))
 		return
 	}
@@ -208,12 +236,11 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 			rid, _ := parsePathUUID(v.(string))
 			var e error
 			if name == "customer_id" {
-				_, e = q.LockCustomer(ctx, rid)
+				e = q.lockCustomer(ctx, rid)
 			} else {
-				_, e = q.LockProject(ctx, rid)
+				e = q.lockProject(ctx, rid)
 			}
-			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-				authError(w, 500, "internal server error")
+			if !s.acceptReference(w, e) {
 				return
 			}
 		}
@@ -228,10 +255,8 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 	}
-	for _, rid := range orderedBillItemIDs(ids) {
-		_, e := q.LockItem(ctx, rid)
-		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-			authError(w, 500, "internal server error")
+	for _, rid := range orderedItemIDs(ids) {
+		if !s.acceptReference(w, q.lockItem(ctx, rid)) {
 			return
 		}
 	}
@@ -279,7 +304,14 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 	if v, exists := fields["currency"]; exists {
 		inv.Currency = v.(string)
 	}
+	previousNumber := inv.QuotationNumber
 	setText("quotation_number", &inv.QuotationNumber)
+	if s.scoped && inv.QuotationNumber != previousNumber {
+		if err := q.LockQuotationNumberAllocation(ctx); err != nil {
+			authError(w, 500, "internal server error")
+			return
+		}
+	}
 	setText("po_so_number", &inv.PoSoNumber)
 	setText("payment_terms", &inv.PaymentTerms)
 	setText("notes", &inv.Notes)
@@ -318,17 +350,8 @@ func (s sessionHandler) quotationUpdate(w http.ResponseWriter, r *http.Request) 
 				item, _ = parsePathUUID(m["item_id"].(string))
 			}
 			pos := int32(0)
-			if m["position"] != nil {
-				switch x := m["position"].(type) {
-				case bool:
-					if x {
-						pos = 1
-					}
-				default:
-					if rat, ok := boundedItemRat(fmt.Sprint(x)); ok && rat.IsInt() && rat.Num().IsInt64() {
-						pos = int32(rat.Num().Int64())
-					}
-				}
+			if n, ok := quotationPosition(m["position"]); ok {
+				pos = int32(n.Int64())
 			}
 			e = q.InsertQuotationLine(ctx, dbquery.InsertQuotationLineParams{LineItemID: lid, QuotationID: id, ItemID: item, Position: pos, Description: m["description"].(string), Quantity: invoiceNumeric(qty), UnitPrice: invoiceNumeric(price), Amount: invoiceNumeric(qty.Mul(price).Round(4))})
 			if e != nil {

@@ -92,11 +92,17 @@ func fetchFX(ctx context.Context, config SessionConfig) ([]providerRate, error) 
 			return nil, errors.New("fx provider response too large")
 		}
 		var body struct {
+			Base  json.RawMessage            `json:"base"`
 			Date  string                     `json:"date"`
 			Rates map[string]json.RawMessage `json:"rates"`
 		}
 		if json.Unmarshal(b, &body) != nil {
 			return nil, fmt.Errorf("fx provider returned invalid JSON for %s->%s", src, target)
+		}
+		var responseBase string
+		if json.Unmarshal(body.Base, &responseBase) != nil || responseBase != src ||
+			len(responseBase) != 3 || strings.Trim(responseBase, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") != "" {
+			return nil, fmt.Errorf("fx provider returned invalid base for %s->%s", src, target)
 		}
 		rawRate, ok := body.Rates[target]
 		if !ok || string(rawRate) == "null" {

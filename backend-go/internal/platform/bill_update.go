@@ -212,7 +212,7 @@ func (s sessionHandler) billUpdate(w http.ResponseWriter, r *http.Request) {
 				accounts[n] = true
 			}
 		}
-		for _, id := range orderedBillItemIDs(items) {
+		for _, id := range orderedItemIDs(items) {
 			_, e = q.LockItem(ctx, id)
 			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 				internal()

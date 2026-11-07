@@ -45,12 +45,28 @@ func registerUsageLock(api huma.API, s sessionHandler) {
 	schema.AdditionalProperties = true
 	*schema.Properties["accrued_amount"] = huma.Schema{AnyOf: []*huma.Schema{{Type: "number", Minimum: &zero}, {Type: "string"}}}
 }
+
+type usageLockQueries interface {
+	invoiceWriteQueries
+	usageLockUpdater
+}
+
+type usageLockUpdater interface {
+	LockUsageInvoice(context.Context, dbquery.LockUsageInvoiceParams) error
+}
+
 func (s sessionHandler) usageLock(w http.ResponseWriter, r *http.Request) {
+	serveUsageLock(w, r, s.invoiceWriter(), func(tx pgx.Tx) usageLockQueries {
+		return legacyInvoiceWriteQueries{Queries: dbquery.New(tx), tx: tx}
+	})
+}
+
+func serveUsageLock(w http.ResponseWriter, r *http.Request, s invoiceWriter, queries func(pgx.Tx) usageLockQueries) {
 	body, ok := readBodyWithSyntax(w, r)
 	if !ok {
 		return
 	}
-	current, ok := s.requireAdmin(w, r)
+	current, ok := s.admin(w, r)
 	if !ok {
 		return
 	}
@@ -131,15 +147,15 @@ func (s sessionHandler) usageLock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		authError(w, 500, "internal server error")
 		return
 	}
-	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
-	user, err := q.LockSessionUserByID(ctx, current.UserID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && user.Role != "admin" {
+	defer tx.Rollback(context.Background())
+	q := queries(tx)
+	role, err := q.lockAdminRole(ctx, current)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && role != "admin" {
 		authError(w, 403, "admin required")
 		return
 	}
@@ -162,6 +178,11 @@ func (s sessionHandler) usageLock(w http.ResponseWriter, r *http.Request) {
 	}
 	if row.Status != "DRAFT" {
 		authError(w, 400, fmt.Sprintf("usage invoice already locked (status=%s)", row.Status))
+		return
+	}
+	// The scoped path validates saved references before changing money. The
+	// invoice lock also serializes draft edits and competing usage locks.
+	if s.scoped && !s.acceptReference(w, func() { authError(w, 500, "internal server error") }, lockUsageReferences(ctx, q, row)) {
 		return
 	}
 	if err = applyUsageLock(ctx, q, row, amount, cutoff); err != nil {
@@ -196,10 +217,44 @@ func (s sessionHandler) usageLock(w http.ResponseWriter, r *http.Request) {
 	w.Write(append(encoded, '\n'))
 }
 
+// lockUsageReferences checks owned references before changing invoice amounts.
+func lockUsageReferences(ctx context.Context, q usageLockQueries, row dbquery.Invoice) error {
+	if row.CustomerID.Valid {
+		if err := q.lockCustomer(ctx, row.CustomerID); err != nil {
+			return err
+		}
+	}
+	if row.ProjectID.Valid {
+		if err := q.lockProject(ctx, row.ProjectID); err != nil {
+			return err
+		}
+	}
+	lines, err := q.LockInvoiceLines(ctx, row.InvoiceID)
+	if err != nil {
+		return fmt.Errorf("lock usage invoice lines: %w", err)
+	}
+	itemIDs := map[[16]byte]pgtype.UUID{}
+	for _, line := range lines {
+		if line.ItemID.Valid {
+			itemIDs[line.ItemID.Bytes] = line.ItemID
+		}
+	}
+	for _, id := range orderedItemIDs(itemIDs) {
+		if err := q.lockItem(ctx, id, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // applyUsageLock requires the invoice row to be locked by the caller's transaction.
-func applyUsageLock(ctx context.Context, q *dbquery.Queries, row dbquery.Invoice, amount decimal.Decimal, cutoff string) error {
+func applyUsageLock(ctx context.Context, q usageLockUpdater, row dbquery.Invoice, amount decimal.Decimal, cutoff string) error {
+	// A meter can supply a zero with an arbitrarily large scale.
+	if amount.IsZero() {
+		amount = decimal.Zero
+	}
 	total, tax := amount, decimal.Zero
-	if row.WhtRate.Valid {
+	if row.WhtType != "NONE" && row.WhtRate.Valid {
 		val, err := row.WhtRate.Value()
 		if err != nil {
 			return err
@@ -208,7 +263,8 @@ func applyUsageLock(ctx context.Context, q *dbquery.Queries, row dbquery.Invoice
 		if err != nil {
 			return err
 		}
-		if row.WhtType != "NONE" && !amount.IsZero() && row.WhtGrossUp && rate.Equal(decimal.NewFromInt(100)) {
+		hundred := decimal.NewFromInt(100)
+		if rate.IsNegative() || rate.GreaterThan(hundred) || row.WhtGrossUp && !amount.IsZero() && rate.Equal(hundred) {
 			return errors.New("invalid withholding rate")
 		}
 		total, tax = invoiceWithholdingTotals(amount, row.Currency, row.WhtType, rate, row.WhtGrossUp)

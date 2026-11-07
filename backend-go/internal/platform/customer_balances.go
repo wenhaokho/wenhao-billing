@@ -35,6 +35,10 @@ func (s sessionHandler) customerBalances(w http.ResponseWriter, r *http.Request)
 		authError(w, 500, "internal server error")
 		return
 	}
+	writeCustomerBalances(w, rows)
+}
+
+func writeCustomerBalances(w http.ResponseWriter, rows []dbquery.CustomerBalancesRow) {
 	out := make([]customerBalanceOutput, 0, len(rows))
 	for _, row := range rows {
 		if !row.CustomerID.Valid || !row.Balance.Valid || !row.Overdue.Valid || row.Balance.NaN || row.Overdue.NaN || row.Balance.InfinityModifier != pgtype.Finite || row.Overdue.InfinityModifier != pgtype.Finite {

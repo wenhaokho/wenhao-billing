@@ -73,6 +73,13 @@ func ScanUsageCutoff(ctx context.Context, pool *pgxpool.Pool, now time.Time, met
 	if err != nil {
 		return 0, err
 	}
+	return scanUsageCandidates(ctx, rows, now, func(ctx context.Context, id pgtype.UUID, cutoff time.Time) (bool, UsageFailureCategory, error) {
+		return scanUsageInvoice(ctx, conn, id, cutoff, meter)
+	})
+}
+
+func scanUsageCandidates(ctx context.Context, rows pgx.Rows, now time.Time, scan func(context.Context, pgtype.UUID, time.Time) (bool, UsageFailureCategory, error)) (int, error) {
+	var err error
 	var ids []pgtype.UUID
 	for rows.Next() {
 		var id pgtype.UUID
@@ -94,7 +101,7 @@ func ScanUsageCutoff(ctx context.Context, pool *pgxpool.Pool, now time.Time, met
 		if err = ctx.Err(); err != nil {
 			return count, err
 		}
-		ok, category, e := scanUsageInvoice(ctx, conn, id, cutoff, meter)
+		ok, category, e := scan(ctx, id, cutoff)
 		if e != nil {
 			if ctx.Err() != nil {
 				return count, ctx.Err()
@@ -140,8 +147,8 @@ func scanUsageInvoice(ctx context.Context, conn *pgxpool.Conn, id pgtype.UUID, c
 	if err != nil {
 		return false, UsageMeterFailed, err
 	}
-	if amount.IsNegative() {
-		return false, UsageMeterFailed, errors.New("negative accrued usage")
+	if !validMeterAmount(amount) {
+		return false, UsageMeterFailed, errors.New("accrued usage must fit DECIMAL(19,4)")
 	}
 	if err = applyUsageLock(ctx, q, row, amount, cutoff.Format("2006-01-02")); err != nil {
 		return false, UsageInvoiceUpdateFailed, err
@@ -150,6 +157,16 @@ func scanUsageInvoice(ctx context.Context, conn *pgxpool.Conn, id pgtype.UUID, c
 		return false, UsageInvoiceUpdateFailed, err
 	}
 	return true, "", nil
+}
+
+func validMeterAmount(amount decimal.Decimal) bool {
+	if amount.IsZero() {
+		return true
+	}
+	// Reject magnitudes outside the storage range before rescaling.
+	digitsBeforeDecimal := int64(amount.NumDigits()) + int64(amount.Exponent())
+	return !amount.IsNegative() && digitsBeforeDecimal > -4 && digitsBeforeDecimal <= 15 &&
+		amount.Equal(amount.Truncate(4))
 }
 
 func usageDue(raw []byte, day int) (bool, error) {

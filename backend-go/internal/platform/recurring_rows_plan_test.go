@@ -9,8 +9,10 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/peterldowns/pgtestdb"
 	"github.com/peterldowns/pgtestdb/migrators/goosemigrator"
+	"github.com/pressly/goose/v3"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/dbquery"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
@@ -47,23 +49,68 @@ func TestRecurringRowsSingleChildScan(t *testing.T) {
 			t.Fatalf("incorrect child aggregate: row=%+v count=%d latest=%s error=%v", row, count, latest, e)
 		}
 	}
-	data, e := os.ReadFile("../../queries/invoices.sql")
+	checkRecurringRowsPlan(t, p, "../../queries/invoices.sql")
+	owner := migrateRecurringRowsFixture(t, p)
+	_, e = p.Exec(ctx, `WITH other AS (INSERT INTO businesses VALUES (gen_random_uuid()) RETURNING business_id)
+INSERT INTO invoices(business_id,invoice_id,invoice_type,currency,amount,balance_due,status,is_template,created_at,billing_cycle_ref,issue_date)
+SELECT other.business_id, md5('foreign-child'||n)::uuid,'RECURRING','USD',1,1,'OPEN',false,now(),
+       jsonb_build_object('template_invoice_id',md5('template'||(1+(n%100)))::uuid::text),date '2025-01-01'+(n%20)
+FROM other CROSS JOIN generate_series(1,20000) n`)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = p.Exec(ctx, "ANALYZE invoices"); e != nil {
+		t.Fatal(e)
+	}
+	checkRecurringRowsPlan(t, p, "../../queries_v8/invoices.sql", owner)
+}
+
+func migrateRecurringRowsFixture(t *testing.T, p *pgxpool.Pool) string {
+	t.Helper()
+	ctx := context.Background()
+	db := stdlib.OpenDBFromPool(p)
+	defer db.Close()
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, os.DirFS("../../migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = provider.UpTo(ctx, 8); err != nil {
+		t.Fatal(err)
+	}
+	var owner string
+	if err = p.QueryRow(ctx, "SELECT business_id::text FROM businesses").Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	return owner
+}
+
+func checkRecurringRowsPlan(t *testing.T, p *pgxpool.Pool, path string, args ...any) {
+	t.Helper()
+	data, e := os.ReadFile(path)
 	if e != nil {
 		t.Fatal(e)
 	}
 	query := strings.Split(strings.Split(string(data), "-- name: RecurringTemplateRows :many\n")[1], ";\n")[0]
+	query = strings.ReplaceAll(query, "sqlc.arg(business_id)", "$1")
 	var plan []byte
-	if e = p.QueryRow(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+query).Scan(&plan); e != nil {
+	if e = p.QueryRow(context.Background(), "EXPLAIN (ANALYZE, FORMAT JSON) "+query, args...).Scan(&plan); e != nil {
 		t.Fatal(e)
 	}
 	var decoded []map[string]any
 	if e = json.Unmarshal(plan, &decoded); e != nil {
 		t.Fatal(e)
 	}
+	var childScanSeen bool
 	var visit func(map[string]any)
 	visit = func(n map[string]any) {
 		if n["Relation Name"] == "invoices" {
 			t.Logf("invoice scan: node=%v loops=%v rows=%v", n["Node Type"], n["Actual Loops"], n["Actual Rows"])
+			rowCount := n["Actual Rows"].(float64)
+			const expectedChildren = 20000 - 20000/11
+			childScanSeen = childScanSeen || rowCount == expectedChildren
+			if len(args) != 0 && rowCount > expectedChildren {
+				t.Errorf("foreign children reached ranked scan: %v", n["Actual Rows"])
+			}
 		}
 		if n["Relation Name"] == "invoices" && n["Actual Loops"].(float64) > 1 {
 			t.Errorf("invoice scan repeated %.0f times", n["Actual Loops"])
@@ -75,4 +122,7 @@ func TestRecurringRowsSingleChildScan(t *testing.T) {
 		}
 	}
 	visit(decoded[0]["Plan"].(map[string]any))
+	if !childScanSeen {
+		t.Error("ranked child scan did not return the expected number of owned non-void rows")
+	}
 }

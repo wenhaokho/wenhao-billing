@@ -10,11 +10,10 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
-	"github.com/wenhaokho/wenhao-billing/backend/internal/dbquery"
 )
 
-func (s sessionHandler) invoiceDelete(w http.ResponseWriter, r *http.Request) {
-	current, ok := s.requireAdmin(w, r)
+func (s invoiceWriter) invoiceDelete(w http.ResponseWriter, r *http.Request) {
+	current, ok := s.admin(w, r)
 	if !ok {
 		return
 	}
@@ -26,15 +25,15 @@ func (s sessionHandler) invoiceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		authError(w, 500, "internal server error")
 		return
 	}
 	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
-	user, err := q.LockSessionUserByID(ctx, current.UserID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && user.Role != "admin" {
+	q := s.queries(tx)
+	role, err := q.lockAdminRole(ctx, current)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && role != "admin" {
 		authError(w, 403, "admin required")
 		return
 	}
@@ -55,6 +54,7 @@ func (s sessionHandler) invoiceDelete(w http.ResponseWriter, r *http.Request) {
 		authError(w, 400, fmt.Sprintf("only DRAFT invoices can be deleted (got %s)", invoice.Status))
 		return
 	}
+	// Composite foreign keys keep cascades and delete guards within the invoice business.
 	if err = q.DeleteInvoice(ctx, id); err != nil {
 		authError(w, 500, "internal server error")
 		return
@@ -71,7 +71,7 @@ func registerInvoiceDelete(api huma.API, s sessionHandler) {
 		return &huma.Response{Description: desc, Content: map[string]*huma.MediaType{"application/json": {Schema: api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(body), true, "")}}}
 	}
 	responses := map[string]*huma.Response{"204": {Description: "Invoice deleted"}, "400": response("Invoice cannot be deleted", authErrorBody{}), "401": response("Not authenticated", authErrorBody{}), "403": response("Admin required", authErrorBody{}), "404": response("Invoice not found", authErrorBody{}), "422": response("Validation error", validationErrorBody{}), "500": response("Internal server error", authErrorBody{})}
-	huma.Register(api, huma.Operation{Method: "DELETE", Path: "/api/v1/invoices/{invoice_id}", OperationID: "delete-invoice", Security: []map[string][]string{{"sessionCookie": {}}}, Middlewares: huma.Middlewares{sessionMiddleware(s.invoiceDelete)}, Responses: responses}, func(context.Context, *struct {
+	huma.Register(api, huma.Operation{Method: "DELETE", Path: "/api/v1/invoices/{invoice_id}", OperationID: "delete-invoice", Security: []map[string][]string{{"sessionCookie": {}}}, Middlewares: huma.Middlewares{sessionMiddleware(s.invoiceWriter().invoiceDelete)}, Responses: responses}, func(context.Context, *struct {
 		ID string `path:"invoice_id" format:"uuid"`
 	}) (*struct{}, error) {
 		panic("middleware")

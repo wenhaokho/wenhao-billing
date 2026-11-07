@@ -150,6 +150,10 @@ func invoiceDays(terms *string) int {
 	return 14
 }
 func (s sessionHandler) invoiceCreate(w http.ResponseWriter, r *http.Request) {
+	s.invoiceWriter().invoiceCreate(w, r)
+}
+
+func (s invoiceWriter) invoiceCreate(w http.ResponseWriter, r *http.Request) {
 	template := strings.HasSuffix(r.URL.Path, "/recurring-template")
 	internalError := func() {
 		if template {
@@ -164,7 +168,7 @@ func (s sessionHandler) invoiceCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	current, ok := s.requireAdmin(w, r)
+	current, ok := s.admin(w, r)
 	if !ok {
 		return
 	}
@@ -368,15 +372,15 @@ func (s sessionHandler) invoiceCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	ctx := r.Context()
-	tx, e := s.db.Begin(ctx)
+	tx, e := s.pool.Begin(ctx)
 	if e != nil {
 		internalError()
 		return
 	}
 	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
-	user, e := q.LockSessionUserByID(ctx, current.UserID)
-	if errors.Is(e, pgx.ErrNoRows) || e == nil && user.Role != "admin" {
+	q := s.queries(tx)
+	user, e := q.lockAdminRole(ctx, current)
+	if errors.Is(e, pgx.ErrNoRows) || e == nil && user != "admin" {
 		authError(w, 403, "admin required")
 		return
 	}
@@ -384,41 +388,33 @@ func (s sessionHandler) invoiceCreate(w http.ResponseWriter, r *http.Request) {
 		internalError()
 		return
 	}
-	if template {
+	if template || s.scoped {
 		if b.CustomerID != nil {
 			id, _ := parsePathUUID(*b.CustomerID)
-			_, e = q.LockCustomer(ctx, id)
-			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-				internalError()
+			e = q.lockCustomer(ctx, id)
+			if !s.acceptReference(w, internalError, e) {
 				return
 			}
 		}
 		if b.ProjectID != nil {
 			id, _ := parsePathUUID(*b.ProjectID)
-			_, e = q.LockProject(ctx, id)
-			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-				internalError()
+			e = q.lockProject(ctx, id)
+			if !s.acceptReference(w, internalError, e) {
 				return
 			}
 		}
-		ids := map[string]bool{}
-		for _, line := range b.LineItems {
-			if line.ItemID != nil {
-				ids[*line.ItemID] = true
-			}
+	}
+	ids := map[[16]byte]pgtype.UUID{}
+	for _, line := range b.LineItems {
+		if line.ItemID != nil {
+			id, _ := parsePathUUID(*line.ItemID)
+			ids[id.Bytes] = id
 		}
-		ordered := make([]string, 0, len(ids))
-		for id := range ids {
-			ordered = append(ordered, id)
-		}
-		sort.Strings(ordered)
-		for _, value := range ordered {
-			id, _ := parsePathUUID(value)
-			_, e = q.LockItem(ctx, id)
-			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
-				internalError()
-				return
-			}
+	}
+	for _, id := range orderedItemIDs(ids) {
+		e = q.lockItem(ctx, id, template)
+		if !s.acceptReference(w, internalError, e) {
+			return
 		}
 	}
 	typ := "NONE"
@@ -539,7 +535,7 @@ func (s sessionHandler) invoiceCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	e = q.InsertDraftInvoice(ctx, dbquery.InsertDraftInvoiceParams{InvoiceID: id, CustomerID: customerID, ProjectID: projectID, InvoiceType: invType, InvoiceNumber: pgtype.Text{String: number, Valid: !template}, PoSoNumber: textValue(b.PoSoNumber), Currency: *b.Currency, Subtotal: invoiceNumeric(subtotal), DiscountType: textValue(b.DiscountType), DiscountValue: discountArg, WhtType: typ, WhtRate: rateArg, WhtGrossUp: gross, WhtBase: invoiceNumeric(base), WhtAmount: invoiceNumeric(wht), Amount: invoiceNumeric(amount), IssueDate: pgtype.Date{Time: issue, Valid: !template}, DueDate: pgtype.Date{Time: due, Valid: !template}, PaymentTerms: textValue(b.PaymentTerms), Notes: textValue(b.Notes), Footer: textValue(b.Footer), InternalNote: textValue(b.InternalNote)})
 	if e != nil {
-		internalError()
+		s.invoiceWriteError(w, e, internalError)
 		return
 	}
 	if template {
@@ -634,10 +630,10 @@ func invoiceWithholdingTotals(base decimal.Decimal, currency, typ string, rate d
 			scale = 0
 		}
 		if gross {
-			amount = base.DivRound(decimal.NewFromInt(1).Sub(rate.Div(decimal.NewFromInt(100))), 28).Round(scale)
+			amount = base.DivRound(decimal.NewFromInt(1).Sub(rate.Shift(-2)), scale)
 			wht = amount.Sub(base)
 		} else {
-			wht = base.Mul(rate).Div(decimal.NewFromInt(100)).Round(scale)
+			wht = base.Mul(rate).Shift(-2).Round(scale)
 		}
 	}
 	return amount, wht

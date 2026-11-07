@@ -8,7 +8,7 @@ import (
 )
 
 // Lock each referenced item once, in the same order for every UUID spelling.
-func orderedBillItemIDs(ids map[[16]byte]pgtype.UUID) []pgtype.UUID {
+func orderedItemIDs(ids map[[16]byte]pgtype.UUID) []pgtype.UUID {
 	ordered := make([]pgtype.UUID, 0, len(ids))
 	for _, id := range ids {
 		ordered = append(ordered, id)

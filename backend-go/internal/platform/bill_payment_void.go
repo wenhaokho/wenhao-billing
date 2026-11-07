@@ -77,116 +77,15 @@ func (s sessionHandler) billPaymentVoid(void bool) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		if len(body) == 0 {
-			validationResponse(w, []validationError{{"missing", []any{"body"}, "Field required", nil, nil}})
-			return
-		}
-		if !requestJSONMediaType(r) {
-			typ, msg := "model_attributes_type", "Input should be a valid dictionary or object to extract fields from"
-			if void {
-				typ, msg = "dict_type", "Input should be a valid dictionary"
-			}
-			vendorUpdateValidationResponse(w, []validationError{{typ, []any{"body"}, msg, nil, nil}})
-			return
-		}
-		dec := json.NewDecoder(bytes.NewReader(body))
-		dec.UseNumber()
-		var raw any
-		if e := dec.Decode(&raw); e != nil {
-			validationResponse(w, itemUpdateJSONError(body, e, false))
-			return
-		}
-		var extra any
-		if e := dec.Decode(&extra); e != io.EOF {
-			validationResponse(w, itemUpdateJSONError(body, e, true))
-			return
-		}
-		obj, ok := raw.(map[string]any)
+		in, ok := parseBillLifecycleInput(w, r, body, void)
 		if !ok {
-			typ, msg := "model_attributes_type", "Input should be a valid dictionary or object to extract fields from"
-			if void {
-				typ, msg = "dict_type", "Input should be a valid dictionary"
-			}
-			validationResponse(w, []validationError{{typ, []any{"body"}, msg, raw, nil}})
 			return
 		}
-		var amount decimal.Decimal
-		if !void {
-			var errs []validationError
-			for _, field := range []string{"amount", "payment_date"} {
-				if _, exists := obj[field]; !exists {
-					errs = append(errs, validationError{"missing", []any{"body", field}, "Field required", obj, nil})
-				}
-			}
-			if v, exists := obj["amount"]; exists {
-				b, _ := json.Marshal(v)
-				var valid bool
-				amount, valid, _ = invoiceDecimal(b, true)
-				if !valid {
-					er := itemMoneyError("amount", v)
-					if er.Type == "greater_than_equal" {
-						if text, ok := v.(string); ok {
-							positive := strings.TrimPrefix(strings.TrimSpace(text), "-")
-							pe := itemMoneyError("amount", positive)
-							if pe.Type == "decimal_max_digits" || pe.Type == "decimal_max_places" || pe.Type == "decimal_whole_digits" {
-								er = pe
-								er.Input = v
-							}
-						}
-					}
-					if er.Type == "greater_than_equal" {
-						er.Type = "greater_than"
-						er.Msg = "Input should be greater than 0"
-						er.Ctx = map[string]int{"gt": 0}
-					}
-					errs = append(errs, er)
-				} else if amount.Sign() <= 0 {
-					errs = append(errs, validationError{"greater_than", []any{"body", "amount"}, "Input should be greater than 0", v, map[string]int{"gt": 0}})
-				}
-			}
-			if v, exists := obj["payment_date"]; exists {
-				switch v.(type) {
-				case string, json.Number:
-					_, e := invoiceDate(v)
-					if e != nil {
-						e.Loc = []any{"body", "payment_date"}
-						e.Input = v
-						errs = append(errs, *e)
-					}
-				default:
-					errs = append(errs, validationError{"date_type", []any{"body", "payment_date"}, "Input should be a valid date", v, nil})
-				}
-			}
-			for _, name := range []string{"payer_name", "payer_reference", "notes"} {
-				if v, exists := obj[name]; exists && v != nil {
-					if _, ok := v.(string); !ok {
-						errs = append(errs, validationError{"string_type", []any{"body", name}, "Input should be a valid string", v, nil})
-					}
-				}
-			}
-			if len(errs) > 0 {
-				order := map[string]int{"amount": 0, "payment_date": 1, "payer_name": 2, "payer_reference": 3, "notes": 4}
-				sort.SliceStable(errs, func(i, j int) bool { return order[errs[i].Loc[1].(string)] < order[errs[j].Loc[1].(string)] })
-				validationResponse(w, errs)
-				return
-			}
-		}
-		id, ok := parsePathUUID(chi.URLParam(r, "bill_id"))
-		if !ok {
-			raw := chi.URLParam(r, "bill_id")
-			d := uuidErrorDetail(raw)
-			validationResponse(w, []validationError{{"uuid_parsing", []any{"path", "bill_id"}, "Input should be a valid UUID, " + d, raw, map[string]string{"error": d}}})
-			return
-		}
-		internal := func() {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.WriteHeader(500)
-			_, _ = w.Write([]byte("Internal Server Error"))
-		}
+		id := in.id
 		ctx := r.Context()
 		tx, e := s.db.Begin(ctx)
 		if e != nil {
-			internal()
+			billLifecycleInternalError(w)
 			return
 		}
 		defer tx.Rollback(ctx)
@@ -197,7 +96,7 @@ func (s sessionHandler) billPaymentVoid(void bool) http.HandlerFunc {
 			return
 		}
 		if e != nil {
-			internal()
+			billLifecycleInternalError(w)
 			return
 		}
 		b, e := q.LockBill(ctx, id)
@@ -206,73 +105,198 @@ func (s sessionHandler) billPaymentVoid(void bool) http.HandlerFunc {
 			return
 		}
 		if e != nil {
-			internal()
+			billLifecycleInternalError(w)
 			return
 		}
-		if void {
-			if b.Status == "PAID" || b.Status == "VOID" {
-				authError(w, 400, "bill is "+b.Status+" and cannot be voided")
-				return
-			}
-			reason := "no reason given"
-			ordered, _ := billOrderedJSON(body)
-			if root, ok := ordered.(billObject); ok {
-				if v, exists := root.get("reason"); exists && billReasonTruthy(v) {
-					reason = billPythonString(v, false)
-				}
-			}
-			b.Status = "VOID"
-			b.BalanceDue = invoiceNumeric(decimal.Zero)
-			b.Notes = pgtype.Text{String: b.Notes.String + "\n[voided] " + reason, Valid: true}
-		} else {
-			if b.Status == "DRAFT" || b.Status == "VOID" || b.Status == "PAID" {
-				authError(w, 400, "cannot record payment on "+b.Status+" bill")
-				return
-			}
-			balance, e := updateNumeric(b.BalanceDue)
-			if e != nil {
-				internal()
-				return
-			}
-			if amount.GreaterThan(balance) {
-				authError(w, 400, "amount "+billPaymentAmountString(obj["amount"], amount)+" exceeds balance due "+balance.StringFixed(4))
-				return
-			}
-			balance = balance.Sub(amount)
-			b.BalanceDue = invoiceNumeric(balance)
-			if balance.Sign() <= 0 {
-				b.Status = "PAID"
-			} else {
-				b.Status = "PARTIAL"
-			}
+		if !applyBillLifecycle(w, &b, in, void) {
+			return
 		}
 		b, e = q.UpdateBill(ctx, dbquery.UpdateBillParams{BillID: id, VendorID: b.VendorID, ProjectID: b.ProjectID, BillNumber: b.BillNumber, PoNumber: b.PoNumber, Currency: b.Currency, Subtotal: b.Subtotal, DiscountType: b.DiscountType, DiscountValue: b.DiscountValue, Amount: b.Amount, BalanceDue: b.BalanceDue, Status: b.Status, IssueDate: b.IssueDate, DueDate: b.DueDate, PaymentTerms: b.PaymentTerms, Notes: b.Notes})
 		if e != nil {
-			internal()
+			billLifecycleInternalError(w)
 			return
 		}
 		lines, e := q.BillLines(ctx, []pgtype.UUID{id})
 		if e != nil {
-			internal()
+			billLifecycleInternalError(w)
 			return
 		}
 		out, e := billJSON(b, lines)
 		if e != nil {
-			internal()
+			billLifecycleInternalError(w)
 			return
 		}
 		encoded, e := json.Marshal(out)
 		if e != nil {
-			internal()
+			billLifecycleInternalError(w)
 			return
 		}
 		if tx.Commit(ctx) != nil {
-			internal()
+			billLifecycleInternalError(w)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(append(encoded, '\n'))
 	}
+}
+
+type billLifecycleInput struct {
+	id        pgtype.UUID
+	amount    decimal.Decimal
+	rawAmount any
+	body      []byte
+}
+
+func parseBillLifecycleInput(w http.ResponseWriter, r *http.Request, body []byte, void bool) (billLifecycleInput, bool) {
+	if len(body) == 0 {
+		validationResponse(w, []validationError{{"missing", []any{"body"}, "Field required", nil, nil}})
+		return billLifecycleInput{}, false
+	}
+	if !requestJSONMediaType(r) {
+		typ, msg := "model_attributes_type", "Input should be a valid dictionary or object to extract fields from"
+		if void {
+			typ, msg = "dict_type", "Input should be a valid dictionary"
+		}
+		vendorUpdateValidationResponse(w, []validationError{{typ, []any{"body"}, msg, nil, nil}})
+		return billLifecycleInput{}, false
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var raw any
+	if e := dec.Decode(&raw); e != nil {
+		validationResponse(w, itemUpdateJSONError(body, e, false))
+		return billLifecycleInput{}, false
+	}
+	var extra any
+	if e := dec.Decode(&extra); e != io.EOF {
+		validationResponse(w, itemUpdateJSONError(body, e, true))
+		return billLifecycleInput{}, false
+	}
+	obj, ok := raw.(map[string]any)
+	if !ok {
+		typ, msg := "model_attributes_type", "Input should be a valid dictionary or object to extract fields from"
+		if void {
+			typ, msg = "dict_type", "Input should be a valid dictionary"
+		}
+		validationResponse(w, []validationError{{typ, []any{"body"}, msg, raw, nil}})
+		return billLifecycleInput{}, false
+	}
+	var amount decimal.Decimal
+	if !void {
+		var errs []validationError
+		for _, field := range []string{"amount", "payment_date"} {
+			if _, exists := obj[field]; !exists {
+				errs = append(errs, validationError{"missing", []any{"body", field}, "Field required", obj, nil})
+			}
+		}
+		if v, exists := obj["amount"]; exists {
+			b, _ := json.Marshal(v)
+			var valid bool
+			amount, valid, _ = invoiceDecimal(b, true)
+			if !valid {
+				er := itemMoneyError("amount", v)
+				if er.Type == "greater_than_equal" {
+					if text, ok := v.(string); ok {
+						positive := strings.TrimPrefix(strings.TrimSpace(text), "-")
+						pe := itemMoneyError("amount", positive)
+						if pe.Type == "decimal_max_digits" || pe.Type == "decimal_max_places" || pe.Type == "decimal_whole_digits" {
+							er = pe
+							er.Input = v
+						}
+					}
+				}
+				if er.Type == "greater_than_equal" {
+					er.Type = "greater_than"
+					er.Msg = "Input should be greater than 0"
+					er.Ctx = map[string]int{"gt": 0}
+				}
+				errs = append(errs, er)
+			} else if amount.Sign() <= 0 {
+				errs = append(errs, validationError{"greater_than", []any{"body", "amount"}, "Input should be greater than 0", v, map[string]int{"gt": 0}})
+			}
+		}
+		if v, exists := obj["payment_date"]; exists {
+			switch v.(type) {
+			case string, json.Number:
+				_, e := invoiceDate(v)
+				if e != nil {
+					e.Loc = []any{"body", "payment_date"}
+					e.Input = v
+					errs = append(errs, *e)
+				}
+			default:
+				errs = append(errs, validationError{"date_type", []any{"body", "payment_date"}, "Input should be a valid date", v, nil})
+			}
+		}
+		for _, name := range []string{"payer_name", "payer_reference", "notes"} {
+			if v, exists := obj[name]; exists && v != nil {
+				if _, ok := v.(string); !ok {
+					errs = append(errs, validationError{"string_type", []any{"body", name}, "Input should be a valid string", v, nil})
+				}
+			}
+		}
+		if len(errs) > 0 {
+			order := map[string]int{"amount": 0, "payment_date": 1, "payer_name": 2, "payer_reference": 3, "notes": 4}
+			sort.SliceStable(errs, func(i, j int) bool { return order[errs[i].Loc[1].(string)] < order[errs[j].Loc[1].(string)] })
+			validationResponse(w, errs)
+			return billLifecycleInput{}, false
+		}
+	}
+	id, ok := parsePathUUID(chi.URLParam(r, "bill_id"))
+	if !ok {
+		raw := chi.URLParam(r, "bill_id")
+		d := uuidErrorDetail(raw)
+		validationResponse(w, []validationError{{"uuid_parsing", []any{"path", "bill_id"}, "Input should be a valid UUID, " + d, raw, map[string]string{"error": d}}})
+		return billLifecycleInput{}, false
+	}
+	return billLifecycleInput{id: id, amount: amount, rawAmount: obj["amount"], body: body}, true
+}
+
+func billLifecycleInternalError(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusInternalServerError)
+	_, _ = w.Write([]byte("Internal Server Error"))
+}
+
+func applyBillLifecycle(w http.ResponseWriter, b *dbquery.Bill, in billLifecycleInput, void bool) bool {
+	if void {
+		if b.Status == "PAID" || b.Status == "VOID" {
+			authError(w, 400, "bill is "+b.Status+" and cannot be voided")
+			return false
+		}
+		reason := "no reason given"
+		ordered, _ := billOrderedJSON(in.body)
+		if root, ok := ordered.(billObject); ok {
+			if v, exists := root.get("reason"); exists && billReasonTruthy(v) {
+				reason = billPythonString(v, false)
+			}
+		}
+		b.Status = "VOID"
+		b.BalanceDue = invoiceNumeric(decimal.Zero)
+		b.Notes = pgtype.Text{String: b.Notes.String + "\n[voided] " + reason, Valid: true}
+	} else {
+		if b.Status == "DRAFT" || b.Status == "VOID" || b.Status == "PAID" {
+			authError(w, 400, "cannot record payment on "+b.Status+" bill")
+			return false
+		}
+		balance, e := updateNumeric(b.BalanceDue)
+		if e != nil {
+			billLifecycleInternalError(w)
+			return false
+		}
+		if in.amount.GreaterThan(balance) {
+			authError(w, 400, "amount "+billPaymentAmountString(in.rawAmount, in.amount)+" exceeds balance due "+balance.StringFixed(4))
+			return false
+		}
+		balance = balance.Sub(in.amount)
+		b.BalanceDue = invoiceNumeric(balance)
+		if balance.Sign() <= 0 {
+			b.Status = "PAID"
+		} else {
+			b.Status = "PARTIAL"
+		}
+	}
+	return true
 }
 
 type billMember struct {

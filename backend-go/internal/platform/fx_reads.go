@@ -177,9 +177,10 @@ func fxDate(raw string) (time.Time, *validationError) {
 		if n > 20000000000 || n < -20000000000 {
 			n /= 1000
 		}
-		secs := int64(n)
-		nano := int64((n - float64(secs)) * 1e9)
-		dt := time.Unix(secs, nano).UTC()
+		// Pydantic rounds numeric Unix timestamps to microsecond precision.
+		secs := math.Floor(n)
+		micros := int64(math.Round((n - secs) * 1e6))
+		dt := time.Unix(int64(secs), micros*int64(time.Microsecond)).UTC()
 		if dt.Year() > 9999 {
 			return fail("dates after 9999 are not supported as unix timestamps")
 		}
@@ -295,7 +296,8 @@ func fxDate(raw string) (time.Time, *validationError) {
 	if e != nil {
 		return fail("input is too short")
 	}
-	if dt.Hour() != 0 || dt.Minute() != 0 || dt.Second() != 0 || dt.Nanosecond() != 0 {
+	// Pydantic truncates datetime string fractions beyond six digits.
+	if dt.Hour() != 0 || dt.Minute() != 0 || dt.Second() != 0 || dt.Nanosecond() >= int(time.Microsecond) {
 		return time.Time{}, &validationError{"date_from_datetime_inexact", []any{"query", "on_date"}, "Datetimes provided to dates should have zero time - e.g. be exact dates", raw, nil}
 	}
 	return d, nil

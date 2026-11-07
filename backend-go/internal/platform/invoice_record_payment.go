@@ -49,7 +49,34 @@ func registerInvoiceRecordPayment(api huma.API, s sessionHandler) {
 		*schema.Properties[f] = huma.Schema{AnyOf: []*huma.Schema{{Type: "number"}, {Type: "string"}}}
 	}
 }
+
+type invoicePaymentWriter struct {
+	pool    transactionBeginner
+	admin   func(http.ResponseWriter, *http.Request) (pgtype.UUID, bool)
+	queries func(pgx.Tx) invoicePaymentQueries
+}
+
+type invoicePaymentQueries interface {
+	lockAdminRole(context.Context, pgtype.UUID) (string, error)
+	LockInvoice(context.Context, pgtype.UUID) (dbquery.Invoice, error)
+	queueHostingRestore(context.Context, pgtype.UUID) error
+	InsertInvoicePayment(context.Context, dbquery.InsertInvoicePaymentParams) (dbquery.Payment, error)
+	ApplyInvoicePayment(context.Context, dbquery.ApplyInvoicePaymentParams) error
+	InsertInvoicePaymentLog(context.Context, dbquery.InsertInvoicePaymentLogParams) error
+}
+
 func (s sessionHandler) invoiceRecordPayment(w http.ResponseWriter, r *http.Request) {
+	writer := invoicePaymentWriter{
+		pool:  s.db,
+		admin: s.invoiceWriter().admin,
+		queries: func(tx pgx.Tx) invoicePaymentQueries {
+			return legacyInvoiceWriteQueries{Queries: dbquery.New(tx), tx: tx}
+		},
+	}
+	writer.record(w, r)
+}
+
+func (s invoicePaymentWriter) record(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Type") == "" {
 		r = r.Clone(r.Context())
 		r.Header.Set("Content-Type", "application/json")
@@ -58,7 +85,7 @@ func (s sessionHandler) invoiceRecordPayment(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
-	current, ok := s.requireAdmin(w, r)
+	current, ok := s.admin(w, r)
 	if !ok {
 		return
 	}
@@ -155,15 +182,15 @@ func (s sessionHandler) invoiceRecordPayment(w http.ResponseWriter, r *http.Requ
 	}
 	fail := func() { authError(w, 500, "internal server error") }
 	ctx := r.Context()
-	tx, e := s.db.Begin(ctx)
+	tx, e := s.pool.Begin(ctx)
 	if e != nil {
 		fail()
 		return
 	}
 	defer tx.Rollback(ctx)
-	q := dbquery.New(tx)
-	user, e := q.LockSessionUserByID(ctx, current.UserID)
-	if errors.Is(e, pgx.ErrNoRows) || e == nil && user.Role != "admin" {
+	q := s.queries(tx)
+	role, e := q.lockAdminRole(ctx, current)
+	if errors.Is(e, pgx.ErrNoRows) || e == nil && role != "admin" {
 		authError(w, 403, "admin required")
 		return
 	}
@@ -222,40 +249,9 @@ func (s sessionHandler) invoiceRecordPayment(w http.ResponseWriter, r *http.Requ
 	// Record restoration intent with the payment. A future provider adapter must
 	// recheck eligibility before acting; no provider calls occur in this request.
 	if status == "PAID" {
-		rows, err := tx.Query(ctx, `SELECT i.item_id FROM items i WHERE i.is_hosting AND EXISTS (SELECT 1 FROM invoice_line_items l WHERE l.invoice_id=$1 AND l.item_id=i.item_id) ORDER BY i.item_id FOR UPDATE`, id)
-		if err != nil {
+		if err := q.queueHostingRestore(ctx, id); err != nil {
 			fail()
 			return
-		}
-		var itemIDs []pgtype.UUID
-		for rows.Next() {
-			var itemID pgtype.UUID
-			if err = rows.Scan(&itemID); err != nil {
-				break
-			}
-			itemIDs = append(itemIDs, itemID)
-		}
-		if err == nil {
-			err = rows.Err()
-		}
-		rows.Close()
-		if err != nil {
-			fail()
-			return
-		}
-		for _, itemID := range itemIDs {
-			if _, err = tx.Exec(ctx, `SELECT target_id FROM cloudflare_targets WHERE item_id=$1 FOR UPDATE`, itemID); err != nil {
-				fail()
-				return
-			}
-			if _, err = tx.Exec(ctx, `UPDATE items SET hosting_last_paid_at=date_trunc('second', timezone('UTC', now())) WHERE item_id=$1`, itemID); err != nil {
-				fail()
-				return
-			}
-			if _, err = tx.Exec(ctx, `INSERT INTO hosting_restore_intents(invoice_id,item_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, id, itemID); err != nil {
-				fail()
-				return
-			}
 		}
 	}
 	paymentID, e := itemUUID()
@@ -295,7 +291,7 @@ func (s sessionHandler) invoiceRecordPayment(w http.ResponseWriter, r *http.Requ
 		}
 		reasons = append(reasons, string(runes))
 	}
-	if e = q.InsertInvoicePaymentLog(ctx, dbquery.InsertInvoicePaymentLogParams{LogID: logID, PaymentID: paymentID, Reasons: reasons, ActorUserID: user.UserID}); e != nil {
+	if e = q.InsertInvoicePaymentLog(ctx, dbquery.InsertInvoicePaymentLogParams{LogID: logID, PaymentID: paymentID, Reasons: reasons, ActorUserID: current}); e != nil {
 		fail()
 		return
 	}
@@ -324,4 +320,38 @@ func paymentValidationResponse(w http.ResponseWriter, errs []validationError) {
 		errs[i].Input = nil
 	}
 	validationResponse(w, errs)
+}
+
+func (q legacyInvoiceWriteQueries) queueHostingRestore(ctx context.Context, id pgtype.UUID) error {
+	rows, err := q.tx.Query(ctx, `SELECT i.item_id FROM items i WHERE i.is_hosting AND EXISTS (SELECT 1 FROM invoice_line_items l WHERE l.invoice_id=$1 AND l.item_id=i.item_id) ORDER BY i.item_id FOR UPDATE`, id)
+	if err != nil {
+		return err
+	}
+	var itemIDs []pgtype.UUID
+	for rows.Next() {
+		var itemID pgtype.UUID
+		if err = rows.Scan(&itemID); err != nil {
+			break
+		}
+		itemIDs = append(itemIDs, itemID)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, itemID := range itemIDs {
+		if _, err = q.tx.Exec(ctx, `SELECT target_id FROM cloudflare_targets WHERE item_id=$1 FOR UPDATE`, itemID); err != nil {
+			return err
+		}
+		if _, err = q.tx.Exec(ctx, `UPDATE items SET hosting_last_paid_at=date_trunc('second', timezone('UTC', now())) WHERE item_id=$1`, itemID); err != nil {
+			return err
+		}
+		if _, err = q.tx.Exec(ctx, `INSERT INTO hosting_restore_intents(invoice_id,item_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, id, itemID); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -61,6 +61,10 @@ func (s sessionHandler) recurringRows(w http.ResponseWriter, r *http.Request) {
 		authError(w, 500, "internal server error")
 		return
 	}
+	writeRecurringRows(w, rows)
+}
+
+func writeRecurringRows(w http.ResponseWriter, rows []dbquery.RecurringTemplateRowsRow) {
 	out := make([]recurringRow, 0, len(rows))
 	for _, v := range rows {
 		amount, e := checkedNum(v.Amount, true)

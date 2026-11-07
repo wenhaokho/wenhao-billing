@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/peterldowns/pgtestdb"
 	"github.com/peterldowns/pgtestdb/migrators/goosemigrator"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/business"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,7 @@ func TestPaymentReadsPostgres(t *testing.T) {
 	pw, _ := u.User.Password()
 	cfgdb := pgtestdb.Config{DriverName: "pgx", Host: u.Hostname(), Port: u.Port(), User: u.User.Username(), Password: pw, Database: strings.TrimPrefix(u.Path, "/"), Options: u.RawQuery}
 	db := pgtestdb.Custom(t, cfgdb, goosemigrator.New(".", goosemigrator.WithFS(migrations.Files)))
+	stagedDB := pgtestdb.Custom(t, cfgdb, goosemigrator.New(".", goosemigrator.WithFS(migrations.Files)))
 	pydb := pgtestdb.Custom(t, cfgdb, goosemigrator.New(".", goosemigrator.WithFS(migrations.Files)))
 	p, e := pgxpool.New(context.Background(), db.URL())
 	if e != nil {
@@ -39,8 +41,13 @@ func TestPaymentReadsPostgres(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer pp.Close()
+	stagedPool, e := pgxpool.New(context.Background(), stagedDB.URL())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer stagedPool.Close()
 	seed := `INSERT INTO users(user_id,email,password_hash,role) VALUES ('00000000-0000-0000-0000-000000000001','a@example.com','x','admin'),('00000000-0000-0000-0000-000000000002','u@example.com','x','user'); INSERT INTO customers(customer_id,name) VALUES ('40000000-0000-0000-0000-000000000001','Customer'); INSERT INTO payments(payment_id,customer_id,amount,wht_amount,currency,payer_name,payer_reference,payment_date,intake_source,external_ref,status,adjustment_type,confidence_score,created_at) VALUES ('20000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000001',123.45,3,'USD','payer','ref','2024-01-01','MANUAL','r1','PENDING_MANUAL_REVIEW','NONE',95.25,'2022-01-01'),('20000000-0000-0000-0000-000000000002',NULL,100,0,'IDR','other',NULL,'2024-01-02','WEBHOOK',NULL,'CLEARED','NONE',NULL,'2023-01-01'),('20000000-0000-0000-0000-000000000003',NULL,20,0,'USD','third',NULL,'2024-01-03','EMAIL',NULL,'PENDING_MANUAL_REVIEW','NONE',1,'2021-01-01'),('20000000-0000-0000-0000-000000000004',NULL,9,0,'SGD','flagged',NULL,'2024-01-04','WEBHOOK',NULL,'FLAGGED','BANK_FEE',NULL,'2024-01-01'); INSERT INTO invoices(invoice_id,customer_id,invoice_type,currency,amount,balance_due,status) VALUES ('30000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000001','MILESTONE','USD',123,0,'PAID'); UPDATE payments SET invoice_id='30000000-0000-0000-0000-000000000001' WHERE payment_id='20000000-0000-0000-0000-000000000001'`
-	for _, pool := range []*pgxpool.Pool{p, pp} {
+	for _, pool := range []*pgxpool.Pool{p, pp, stagedPool} {
 		if _, e = pool.Exec(context.Background(), seed); e != nil {
 			t.Fatal(e)
 		}
@@ -52,8 +59,8 @@ func TestPaymentReadsPostgres(t *testing.T) {
 		}
 		return s
 	}
-	for _, pool := range []*pgxpool.Pool{p, pp} {
-		_, e = pool.Exec(context.Background(), `INSERT INTO reconciliation_log(log_id,payment_id,action,reasons,actor_user_id,created_at) VALUES ('50000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','MATCH',ARRAY['one','two'],'00000000-0000-0000-0000-000000000001','2024-01-01 12:00:00'),('50000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000002','REVIEW',ARRAY[]::text[],NULL,'2024-01-02'),('50000000-0000-0000-0000-000000000003','20000000-0000-0000-0000-000000000001','FINAL',ARRAY['later'],NULL,'2024-01-03')`)
+	for _, pool := range []*pgxpool.Pool{p, pp, stagedPool} {
+		_, e = pool.Exec(context.Background(), `INSERT INTO reconciliation_log(log_id,payment_id,action,reasons,actor_user_id,created_at) VALUES ('50000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','MATCH',ARRAY['one','two'],'00000000-0000-0000-0000-000000000001','2024-01-01 23:59:59.999999'),('50000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000002','REVIEW',ARRAY[]::text[],NULL,'2024-01-02'),('50000000-0000-0000-0000-000000000003','20000000-0000-0000-0000-000000000001','FINAL',ARRAY['later'],NULL,'2024-01-03')`)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -122,6 +129,43 @@ with TestClient(app) as c:
 	if e = json.Unmarshal(out, &expected); e != nil {
 		t.Fatal(e)
 	}
+	migration, e := os.ReadFile("../../migrations/00008_business_scope.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	up, _, ok := strings.Cut(string(migration), "-- +goose Down")
+	if !ok {
+		t.Fatal("missing staged migration boundary")
+	}
+	if _, e = stagedPool.Exec(context.Background(), up); e != nil {
+		t.Fatal(e)
+	}
+	var businessID string
+	if e = stagedPool.QueryRow(context.Background(), "SELECT business_id::text FROM businesses").Scan(&businessID); e != nil {
+		t.Fatal(e)
+	}
+	scope, e := business.Parse(businessID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	staged, e := NewScopedProfileRouter(stagedPool, cfg, scope)
+	if e != nil {
+		t.Fatal(e)
+	}
+	stagedSession, e := (auth.Tokens{Secret: cfg.Secret, AccessTTL: time.Hour}).Issue(jwt.MapClaims{
+		"sub": "00000000-0000-0000-0000-000000000001", "business_id": businessID,
+	})
+	if e != nil {
+		t.Fatal(e)
+	}
+	stagedCall := func(path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", path, nil)
+		r.AddCookie(&http.Cookie{Name: "session", Value: stagedSession})
+		w := httptest.NewRecorder()
+		staged.ServeHTTP(w, r)
+		return w
+	}
+	beforeStaged := snap(stagedPool)
 	for i, path := range paths {
 		w := call(path, admin)
 		var body any
@@ -130,6 +174,13 @@ with TestClient(app) as c:
 		}
 		if float64(w.Code) != expected[i][0] || !reflect.DeepEqual(body, expected[i][1]) {
 			t.Errorf("%s go=%d %#v python=%#v", path, w.Code, body, expected[i])
+		}
+		if strings.HasPrefix(path, "/api/v1/payments/audit-log") || strings.HasSuffix(path, "/log") {
+			got := stagedCall(path)
+			var stagedBody any
+			if err := json.Unmarshal(got.Body.Bytes(), &stagedBody); err != nil || got.Code != w.Code || !reflect.DeepEqual(stagedBody, body) {
+				t.Errorf("%s staged=%d %s v7=%d %s / %v", path, got.Code, got.Body, w.Code, w.Body, err)
+			}
 		}
 	}
 	negativePaths := []string{"/api/v1/payments/audit-log?limit=-1", "/api/v1/payments/audit-log?limit=-9223372036854775809"}
@@ -163,6 +214,9 @@ with TestClient(app,raise_server_exceptions=False) as c:
 		if float64(w.Code) != negativeExpected[i][0] || w.Body.String() != negativeExpected[i][1] || w.Header().Get("Content-Type") != negativeExpected[i][2] {
 			t.Errorf("negative %s got %d %q %q expected %#v", path, w.Code, w.Body.String(), w.Header().Get("Content-Type"), negativeExpected[i])
 		}
+		if got := stagedCall(path); got.Code != w.Code || got.Body.String() != w.Body.String() || got.Header().Get("Content-Type") != w.Header().Get("Content-Type") {
+			t.Errorf("negative %s staged=%d %q v7=%d %q", path, got.Code, got.Body.String(), w.Code, w.Body.String())
+		}
 	}
 	spec := httptest.NewRecorder()
 	h.ServeHTTP(spec, httptest.NewRequest("GET", "/openapi.json", nil))
@@ -187,7 +241,7 @@ with TestClient(app,raise_server_exceptions=False) as c:
 	if list["type"] != "array" {
 		t.Errorf("list schema %#v", list)
 	}
-	if before != snap(p) || beforepy != snap(pp) {
+	if before != snap(p) || beforepy != snap(pp) || beforeStaged != snap(stagedPool) {
 		t.Fatal("reads changed database")
 	}
 	for _, stamp := range []string{"infinity", "-infinity", "10000-01-01", "0001-01-01 BC"} {

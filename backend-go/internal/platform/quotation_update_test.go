@@ -83,6 +83,22 @@ func TestQuotationUpdatePostgres(t *testing.T) {
 		t.Errorf("overflow: %d %q %q", ow.Code, ow.Body.String(), ow.Header().Get("Content-Type"))
 	}
 
+	// Exercise a near-limit body with many errors to keep validation practical.
+	const lineCount = 14000
+	line := `{"description":1,"quantity":1,"unit_price":1,"position":"bad"}`
+	largeBody := `{"line_items":[` + strings.Repeat(line+",", lineCount-1) + line + `]}`
+	largeReq := httptest.NewRequest("PATCH", "/api/v1/quotations/20000000-0000-0000-0000-000000000001", strings.NewReader(largeBody))
+	largeReq.Header.Set("Content-Type", "application/json")
+	largeReq.AddCookie(&http.Cookie{Name: "session", Value: token})
+	largeResult := httptest.NewRecorder()
+	h.ServeHTTP(largeResult, largeReq)
+	var largeErrors struct {
+		Detail []json.RawMessage `json:"detail"`
+	}
+	if largeResult.Code != 422 || json.Unmarshal(largeResult.Body.Bytes(), &largeErrors) != nil || len(largeErrors.Detail) != 2*lineCount {
+		t.Fatalf("large invalid body: status %d, errors %d", largeResult.Code, len(largeErrors.Detail))
+	}
+
 	// Distinct administrators editing distinct quotations acquire item locks in UUID-byte order.
 	_, err = p.Exec(context.Background(), `INSERT INTO users(user_id,email,password_hash,role) VALUES ('00000000-0000-0000-0000-000000000002','b@example.com','x','admin'),('00000000-0000-0000-0000-000000000003','c@example.com','x','admin'); INSERT INTO quotations(quotation_id,customer_id,currency,amount,status) VALUES ('20000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000001','USD',0,'DRAFT'),('20000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000001','USD',0,'DRAFT'); INSERT INTO items(item_id,name,item_type) VALUES ('aaaaaaaa-0000-0000-0000-000000000001','first','SERVICE'),('bbbbbbbb-0000-0000-0000-000000000002','second','SERVICE')`)
 	if err != nil {
