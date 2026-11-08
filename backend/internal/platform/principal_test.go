@@ -308,3 +308,51 @@ func TestAPanicIsAProblem500(t *testing.T) {
 		t.Errorf("after a panic: %d", rec.Code)
 	}
 }
+
+// Every time decision of a session reads the Clock (the server's, when the
+// Sessions has none): a token issued on a clock years from the real time
+// opens the API on that clock and expires exactly at its lifetime there. The
+// principal says whether the session was remembered.
+func TestSessionsFollowTheirClock(t *testing.T) {
+	pool := newSessionApp(t).pool
+	clock := testkit.NewClock(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	s := testSessions("test")
+	h, api := NewServer(Config{Environment: "test"}, Deps{Pool: pool, Sessions: s, Clock: clock})
+	type remembered struct {
+		Body struct {
+			Remember bool `json:"remember"`
+		}
+	}
+	huma.Register(api, Admin(huma.Operation{OperationID: "remembered", Method: http.MethodGet, Path: "/remembered"}), func(ctx context.Context, _ *struct{}) (*remembered, error) {
+		out := &remembered{}
+		out.Body.Remember = PrincipalFrom(ctx).Remember
+		return out, nil
+	})
+	id := uuid.New()
+	if _, err := pool.Exec(context.Background(), `INSERT INTO users (user_id, email, password_hash, role) VALUES ($1, 'c@example.com', 'x', 'admin')`, id); err != nil {
+		t.Fatal(err)
+	}
+	s.Clock = clock
+	short, _, err := s.Issue(id, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	long, _, err := s.Issue(id, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for tok, want := range map[string]string{short: `{"remember":false}`, long: `{"remember":true}`} {
+		if rec := get(t, h, "/remembered", "Cookie", SessionCookie+"="+tok); rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != want {
+			t.Errorf("%d %s, want %s", rec.Code, rec.Body, want)
+		}
+	}
+	clock.Advance(8*time.Hour - time.Minute)
+	if rec := get(t, h, "/remembered", "Cookie", SessionCookie+"="+short); rec.Code != 200 {
+		t.Errorf("a minute before expiry: %d %s", rec.Code, rec.Body)
+	}
+	clock.Advance(2 * time.Minute)
+	wantRefusal(t, get(t, h, "/remembered", "Cookie", SessionCookie+"="+short), 401, "session expired")
+	if rec := get(t, h, "/remembered", "Cookie", SessionCookie+"="+long); rec.Code != 200 {
+		t.Errorf("remembered after 8 h: %d %s", rec.Code, rec.Body)
+	}
+}

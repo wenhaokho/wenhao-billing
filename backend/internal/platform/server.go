@@ -43,6 +43,9 @@ func NewServer(cfg Config, deps Deps) (http.Handler, huma.API) {
 	if deps.Clock == nil {
 		deps.Clock = SystemClock{}
 	}
+	if deps.Sessions.Clock == nil {
+		deps.Sessions.Clock = deps.Clock
+	}
 	logger := deps.Logger
 	if logger == nil {
 		logger = slog.Default()

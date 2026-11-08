@@ -41,7 +41,7 @@ func operations(api huma.API) map[string]*huma.Operation {
 // registered.
 func TestEveryOperationIsAuthenticated(t *testing.T) {
 	handler, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{Sessions: testSessions()})
-	register(api, nil, testSessions())
+	register(api, features{Sessions: testSessions()})
 	checked := 0
 	for key, op := range operations(api) {
 		if platform.IsPublic(op) {
@@ -74,7 +74,7 @@ func TestEveryOperationIsAuthenticated(t *testing.T) {
 // refuses it to everyone).
 func TestEveryOperationIsAdminOrPublic(t *testing.T) {
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, nil, testSessions())
+	register(api, features{Sessions: testSessions()})
 	for key, op := range operations(api) {
 		if !platform.IsPublic(op) && !platform.IsAdmin(op) {
 			t.Errorf("%s is neither public nor admin-only (use platform.Admin)", key)
@@ -88,7 +88,7 @@ func TestEveryOperationIsAdminOrPublic(t *testing.T) {
 // whenever registration order changes. Bodies must be named types.
 func TestSchemaNamesAreStable(t *testing.T) {
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, nil, testSessions())
+	register(api, features{Sessions: testSessions()})
 	endsInDigit := regexp.MustCompile(`[0-9]$`)
 	for name := range api.OpenAPI().Components.Schemas.Map() {
 		if strings.Contains(name, "InBody") || endsInDigit.MatchString(name) {

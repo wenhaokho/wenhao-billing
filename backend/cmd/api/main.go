@@ -6,17 +6,27 @@
 //	                    running the baseline (once, before the first serve)
 //	api healthcheck  exit 0 when the local server answers /health (for the image)
 //	api openapi      print the OpenAPI document (for the frontend's types)
+//	api set-password <email>
+//	                 read a password from stdin (one line) and give it to the
+//	                 user, signing out every session of theirs; the way a
+//	                 Python-era (bcrypt) account gets back in
+//	api issue-session <email>
+//	                 print a session token for the admin (8 hours; writes
+//	                 nothing), for scripts against a running API
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,13 +36,24 @@ import (
 	"github.com/LOQATO/gokit/db"
 	"github.com/LOQATO/gokit/observe"
 
+	"github.com/wenhaokho/wenhao-billing/backend/internal/auth"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
 
+// features are what the features' Register functions take.
+type features struct {
+	Pool     *pgxpool.Pool
+	Sessions platform.Sessions
+	Mail     email.Sender
+	Config   platform.Config
+	Clock    platform.Clock
+}
+
 // register adds every feature's operations. A new feature adds its line here.
-func register(_ huma.API, _ *pgxpool.Pool, _ platform.Sessions) {
-	// Each feature adds its Register call here.
+func register(api huma.API, f features) {
+	auth.Register(api, f.Pool, f.Sessions, f.Mail, f.Config, f.Clock)
 }
 
 func main() {
@@ -48,6 +69,16 @@ func main() {
 				os.Exit(1)
 			}
 			slog.Info("adopt-baseline: goose now owns the database at the baseline; the next serve applies the later migrations")
+			os.Exit(0)
+		case "set-password", "issue-session":
+			if len(os.Args) != 3 {
+				slog.Error("usage: api set-password|issue-session <email>")
+				os.Exit(2)
+			}
+			if err := runCommand(os.Args[1], os.Args[2]); err != nil {
+				slog.Error("command failed", "command", os.Args[1], "err", err)
+				os.Exit(1)
+			}
 			os.Exit(0)
 		}
 	}
@@ -81,9 +112,10 @@ func serve() error {
 	}
 	defer pool.Close()
 
+	clock := platform.SystemClock{}
 	sessions := platform.NewSessions(cfg)
-	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger})
-	register(api, pool, sessions)
+	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock})
+	register(api, features{Pool: pool, Sessions: sessions, Mail: email.LogSender{Logger: logger}, Config: cfg, Clock: clock})
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -160,11 +192,54 @@ func healthcheck() int {
 // printOpenAPI builds the API with no database: routes are only described.
 func printOpenAPI() int {
 	_, api := platform.NewServer(platform.Config{Environment: "openapi"}, platform.Deps{})
-	register(api, nil, platform.Sessions{})
+	register(api, features{})
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(api.OpenAPI()); err != nil {
 		return 1
 	}
 	return 0
+}
+
+// runCommand runs set-password or issue-session against DATABASE_URL.
+func runCommand(name, addr string) error {
+	cfg, err := platform.LoadConfig()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	pool, err := db.Open(ctx, db.PoolConfig{URL: cfg.DatabaseURL})
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if name == "set-password" {
+		if err := setPasswordCmd(ctx, pool, addr, os.Stdin); err != nil {
+			return err
+		}
+		slog.Info("set-password: password set; every session of the user is signed out", "email", addr)
+		return nil
+	}
+	return issueSessionCmd(ctx, pool, platform.NewSessions(cfg), addr, os.Stdout)
+}
+
+// setPasswordCmd reads one line from stdin (a trailing newline, CRLF too, is
+// not part of the password) and sets it as addr's password.
+func setPasswordCmd(ctx context.Context, pool *pgxpool.Pool, addr string, stdin io.Reader) error {
+	line, err := bufio.NewReader(stdin).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return auth.SetPassword(ctx, pool, addr, strings.TrimRight(line, "\r\n"))
+}
+
+// issueSessionCmd prints a session token for the admin addr.
+func issueSessionCmd(ctx context.Context, pool *pgxpool.Pool, s platform.Sessions, addr string, stdout io.Writer) error {
+	token, err := auth.IssueSession(ctx, pool, s, addr)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(stdout, token)
+	return err
 }

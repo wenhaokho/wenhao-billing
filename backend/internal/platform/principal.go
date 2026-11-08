@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"time"
@@ -33,6 +34,9 @@ type Principal struct {
 	UserID uuid.UUID
 	Email  string
 	Role   string
+	// Remember is whether the session was signed in with "keep me logged
+	// in"; a re-issued cookie (after a password change) keeps it.
+	Remember bool
 }
 
 type principalKey struct{}
@@ -68,9 +72,19 @@ func IsPublic(op *huma.Operation) bool { return slices.Contains(op.Tags, PublicT
 
 // Sessions signs session tokens and sets the cookie that carries them.
 type Sessions struct {
-	Tokens                 auth.Tokens // HS256 with SESSION_SECRET
+	Tokens                 auth.Tokens // HS256 with SESSION_SECRET; its Secret and Leeway are used
 	Cookie                 auth.CookieSpec
 	MaxAge, RememberMaxAge time.Duration
+	// Clock times a token's iat and exp and its expiry check. Nil is the
+	// system clock; NewServer gives it the server's Clock.
+	Clock Clock
+}
+
+func (s Sessions) now() time.Time {
+	if s.Clock == nil {
+		return SystemClock{}.Now()
+	}
+	return s.Clock.Now()
 }
 
 // NewSessions is the session setup cfg describes. The cookie is Secure unless
@@ -91,10 +105,34 @@ func (s Sessions) Issue(userID uuid.UUID, epoch int, remember bool) (token strin
 	if remember {
 		maxAge = s.RememberMaxAge
 	}
-	tokens := s.Tokens
-	tokens.AccessTTL = maxAge
-	token, err = tokens.Issue(jwt.MapClaims{"sub": userID.String(), "typ": sessionType, "epoch": epoch})
-	return token, maxAge, err
+	// Signed here rather than by auth.Tokens.Issue, which reads time.Now:
+	// iat and exp come from the Clock, so tests can move time.
+	now := s.now()
+	claims := jwt.MapClaims{
+		"sub": userID.String(), "typ": sessionType, "epoch": epoch, "remember": remember,
+		"iat": now.Unix(), "exp": now.Add(maxAge).Unix(),
+	}
+	token, err = jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.Tokens.Secret)
+	if err != nil {
+		return "", 0, fmt.Errorf("session: sign: %w", err)
+	}
+	return token, maxAge, nil
+}
+
+// parse verifies token as auth.Tokens.Parse does, on the Clock's time.
+func (s Sessions) parse(token string) (jwt.MapClaims, error) {
+	claims := jwt.MapClaims{}
+	_, err := jwt.ParseWithClaims(token, claims, func(*jwt.Token) (any, error) { return s.Tokens.Secret, nil },
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithLeeway(s.Tokens.Leeway),
+		jwt.WithIssuedAt(),
+		jwt.WithExpirationRequired(),
+		jwt.WithTimeFunc(s.now),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return claims, nil
 }
 
 // SetCookie sends token in the session cookie, kept for maxAge.
@@ -138,7 +176,7 @@ func authenticate(api huma.API, pool *pgxpool.Pool, s Sessions) func(huma.Contex
 			refuse(ctx, http.StatusForbidden, adminRequired)
 			return
 		}
-		userID, epoch, err := s.read(ctx)
+		userID, epoch, remember, err := s.read(ctx)
 		if errors.Is(err, errSessionExpired) {
 			s.expire(ctx)
 			refuse(ctx, http.StatusUnauthorized, sessionExpired)
@@ -148,7 +186,7 @@ func authenticate(api huma.API, pool *pgxpool.Pool, s Sessions) func(huma.Contex
 			refuse(ctx, http.StatusUnauthorized, notAuthenticated)
 			return
 		}
-		p := Principal{UserID: userID}
+		p := Principal{UserID: userID, Remember: remember}
 		var current int
 		err = pool.QueryRow(ctx.Context(), `SELECT email, role, session_epoch FROM users WHERE user_id = $1`, userID).
 			Scan(&p.Email, &p.Role, &current)
@@ -181,27 +219,29 @@ var (
 	errSessionExpired = errors.New("session expired")
 )
 
-// read is the user and epoch the request's session cookie names.
-func (s Sessions) read(ctx huma.Context) (uuid.UUID, int, error) {
+// read is the user, epoch and remember flag the request's session cookie
+// names.
+func (s Sessions) read(ctx huma.Context) (userID uuid.UUID, epoch int, remember bool, err error) {
 	c, err := huma.ReadCookie(ctx, SessionCookie)
 	if err != nil {
-		return uuid.Nil, 0, errNoSession
+		return uuid.Nil, 0, false, errNoSession
 	}
-	claims, err := s.Tokens.Parse(c.Value)
+	claims, err := s.parse(c.Value)
 	if errors.Is(err, jwt.ErrTokenExpired) {
-		return uuid.Nil, 0, errSessionExpired
+		return uuid.Nil, 0, false, errSessionExpired
 	}
 	if err != nil || claims["typ"] != sessionType {
-		return uuid.Nil, 0, errNoSession
+		return uuid.Nil, 0, false, errNoSession
 	}
 	sub, _ := claims["sub"].(string)
-	userID, err := uuid.Parse(sub)
+	userID, err = uuid.Parse(sub)
 	// JSON numbers arrive as float64; the epoch is a counter, not money.
-	epoch, ok := claims["epoch"].(float64)                              //nolint:forbidigo // a JSON number, not money
-	if err != nil || !ok || epoch < 0 || epoch != float64(int(epoch)) { //nolint:forbidigo // a JSON number, not money
-		return uuid.Nil, 0, errNoSession
+	n, ok := claims["epoch"].(float64)                      //nolint:forbidigo // a JSON number, not money
+	if err != nil || !ok || n < 0 || n != float64(int(n)) { //nolint:forbidigo // a JSON number, not money
+		return uuid.Nil, 0, false, errNoSession
 	}
-	return userID, int(epoch), nil
+	remember, _ = claims["remember"].(bool)
+	return userID, int(n), remember, nil
 }
 
 // expire clears the session cookie on the answer, as Python cleared the
