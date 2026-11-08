@@ -55,7 +55,7 @@ func serve() error {
 	}
 	logger := observe.Logger(cfg.Environment)
 	slog.SetDefault(logger)
-	if _, err := observe.InitSentry(observe.SentryConfig{DSN: cfg.SentryDSN, Environment: cfg.Environment, Release: cfg.SentryRelease}); err != nil {
+	if _, err := observe.InitSentry(observe.SentryConfig{DSN: cfg.SentryDSN, Environment: cfg.SentryEnvironment, TracesSampleRate: cfg.SentryTracesSampleRate}); err != nil {
 		return fmt.Errorf("sentry: %w", err)
 	}
 	defer observe.Flush(2 * time.Second)
@@ -72,7 +72,7 @@ func serve() error {
 	}
 	defer pool.Close()
 
-	tokens := auth.Tokens{Secret: []byte(cfg.JWTSecret), AccessTTL: 15 * time.Minute, Leeway: 10 * time.Second}
+	tokens := auth.Tokens{Secret: []byte(cfg.SessionSecret), AccessTTL: 15 * time.Minute, Leeway: 10 * time.Second}
 	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Tokens: tokens, Logger: logger})
 	register(api, pool, tokens)
 

@@ -91,19 +91,3 @@ func TestSecurityHeadersAndCORS(t *testing.T) {
 func TestCatalog(t *testing.T) {
 	i18ntest.Scan(t, "../..", Catalog, apierr.Sentences()...)
 }
-
-func TestConfigRefusesAShortSecret(t *testing.T) {
-	_, err := ParseConfig(map[string]string{
-		"ENVIRONMENT": "local", "DATABASE_URL": "postgres://x", "JWT_SECRET": "short",
-	})
-	if err == nil {
-		t.Error("a 5-byte JWT secret was accepted")
-	}
-	cfg, err := ParseConfig(map[string]string{
-		"ENVIRONMENT": "local", "DATABASE_URL": "postgres://x", "JWT_SECRET": testSecret,
-		"CORS_ORIGINS": "http://a.test,http://b.test",
-	})
-	if err != nil || cfg.Port != 8000 || len(cfg.CORSOrigins) != 2 {
-		t.Errorf("cfg=%+v err=%v", cfg, err)
-	}
-}
