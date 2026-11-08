@@ -52,9 +52,10 @@ bash backend/dev lint
 bash backend/dev generated
 gotest=$(mktemp)
 status=0
-bash backend/dev test -json ./... >"$gotest" 2>&1 || status=$?
+bash backend/dev test -count=1 -json ./... >"$gotest" 2>&1 || status=$?
 if [[ $status -ne 0 ]]; then
-  grep -E '"Action":"fail"|^FAIL|panic' "$gotest" | head -n 20 >&2 || true
+  grep -E '"Action":"(fail|output)"' "$gotest" | grep -E '"Output":"(--- FAIL|FAIL|panic)|"Action":"fail"' | head -n 30 >&2 || true
+  tail -n 5 "$gotest" >&2
   rm -f "$gotest"; exit "$status"
 fi
 # Test-level skips only: a package without tests also reports a package-level skip.
@@ -64,7 +65,12 @@ if [[ -n "$skipped" ]]; then
   echo "$skipped" | grep -o '"Package":"[^"]*","Test":"[^"]*"' | head -n 20 >&2
   rm -f "$gotest"; exit 1
 fi
-echo "go tests: $(grep -c '"Action":"pass","Package":"[^"]*","Test"' "$gotest") passed, none skipped"
+passed=$(grep -c '"Action":"pass","Package":"[^"]*","Test"' "$gotest" || true)
+if [[ "${passed:-0}" -le 0 ]]; then
+  echo "go tests: no test passed (empty or unparsable output)" >&2
+  rm -f "$gotest"; exit 1
+fi
+echo "go tests: $passed passed, none skipped"
 rm -f "$gotest"
 
 echo "all checks passed"

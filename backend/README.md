@@ -55,11 +55,21 @@ code current, and `go test -race`. It **fails if any test is skipped**, Go or Py
   comparison against the Python API.
 - `api healthcheck` and `api openapi` are for the container healthcheck and `./dev openapi`.
 
-For local comparison with the Python backend, `docker compose --profile tools up api-go`
-serves the Go API on :8001. It migrates whatever database it points at, so point it at a
-scratch copy (`GO_DATABASE_URL=postgresql://billing:billing@db:5432/<scratch>`), never at
-the dev `billing` database. Build the scratch copy by running `alembic upgrade head`
-against an empty database, then `docker compose --profile tools run --rm api-go adopt-baseline`.
+For local comparison with the Python backend, the `api-go` service serves the Go API on
+:8001. It migrates whatever database it points at, so give it a scratch database, never
+the dev `billing` one. Every command below sets `GO_DATABASE_URL`; unset, it points at a
+nonexistent database and fails to connect.
+
+```
+export GO_DATABASE_URL=postgresql://billing:billing@db:5432/billing_go_check
+docker compose exec -T db createdb -U billing billing_go_check
+docker compose exec -T -e DATABASE_URL=postgresql+psycopg://billing:billing@db:5432/billing_go_check backend alembic upgrade head
+GO_DATABASE_URL=$GO_DATABASE_URL docker compose --profile tools run --rm api-go adopt-baseline
+GO_DATABASE_URL=$GO_DATABASE_URL docker compose --profile tools up -d api-go
+# ... try http://localhost:8001/api/v1/auth/me, then:
+docker compose --profile tools rm -sf api-go
+docker compose exec -T db dropdb -U billing billing_go_check
+```
 
 ## The baseline
 
