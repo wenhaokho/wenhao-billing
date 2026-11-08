@@ -6,6 +6,10 @@
 -- by port/make-baseline.sh against the Alembic one (psql -At -f), so both
 -- sides use the same query. Left out: alembic_version and goose_db_version,
 -- the two bookkeeping tables, which differ by design.
+-- Not compared (Adopt's schema check is blind to these): domain constraints
+-- (domains are listed, their CHECKs are not), index validity (indisvalid),
+-- row-level security policies, grants and ownership, column collations, and
+-- any object outside the public schema.
 WITH t AS (
     SELECT c.oid, c.relname, c.relkind
     FROM pg_class c

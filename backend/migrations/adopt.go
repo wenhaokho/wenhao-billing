@@ -34,13 +34,17 @@ const gooseTable = `CREATE TABLE goose_db_version (
 		tstamp timestamp NOT NULL DEFAULT now()
 	)`
 
-// CheckAdopted is serve's guard before db.Migrate. It returns nil when goose
-// owns the database (goose_db_version exists) or the database is empty (goose
-// builds it from the baseline), ErrNotAdopted when it still has only Alembic's
-// history, and an error for anything else it cannot account for.
+// CheckAdopted is serve's guard before db.Migrate. Goose owns the database
+// only once goose_db_version records the baseline (version 1) as applied;
+// then, or when the database has no tables at all (goose builds it from the
+// baseline), it returns nil. Otherwise goose would run the baseline over an
+// existing schema, so it refuses: ErrNotAdopted when alembic_version is there
+// (with or without a goose table that lacks the baseline), and an error naming
+// the case for tables with goose history lacking the baseline or with no
+// history at all.
 func CheckAdopted(ctx context.Context, pool *pgxpool.Pool) error {
 	var goose, alembic bool
-	var gooseApplied, tables int64
+	var tables int64
 	err := pool.QueryRow(ctx, `SELECT
 			to_regclass('goose_db_version') IS NOT NULL,
 			to_regclass('alembic_version') IS NOT NULL,
@@ -50,25 +54,22 @@ func CheckAdopted(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("check adopted: %w", err)
 	}
+	baseline := false
 	if goose {
-		if !alembic {
-			return nil
-		}
-		// Both histories: adopted only once goose records the baseline. A
-		// goose table with only version 0 next to Alembic's would make goose
-		// run the baseline over the existing schema.
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM goose_db_version WHERE version_id >= 1 AND is_applied`).Scan(&gooseApplied); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM goose_db_version WHERE version_id >= 1 AND is_applied)`).Scan(&baseline); err != nil {
 			return fmt.Errorf("check adopted: %w", err)
 		}
-		if gooseApplied == 0 {
-			return ErrNotAdopted
-		}
+	}
+	if baseline {
 		return nil
 	}
 	if alembic {
 		return ErrNotAdopted
 	}
 	if tables > 0 {
+		if goose {
+			return fmt.Errorf("check adopted: goose_db_version records no baseline but the database already has %d tables: refusing to run the baseline over them", tables)
+		}
 		return fmt.Errorf("check adopted: database has %d tables but neither goose nor Alembic history: refusing to migrate it", tables)
 	}
 	return nil
