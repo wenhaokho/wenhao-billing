@@ -43,9 +43,15 @@ func TestEveryOperationIsAuthenticated(t *testing.T) {
 		}
 	}
 	if checked == 0 {
-		// TEMPORARY (plan 2, Task 1): no feature is registered yet. Change this
-		// back to t.Error when the first protected operation lands.
-		t.Skip("no protected operation was registered, so nothing was checked")
+		// Until the first protected operation exists, the only registered
+		// operation is the public /health. Any other shape with nothing
+		// protected is a real failure, so the guard re-arms by itself the
+		// moment a feature registers an operation.
+		paths := api.OpenAPI().Paths
+		if _, onlyHealth := paths["/health"]; onlyHealth && len(paths) == 1 {
+			t.Skip("only the public /health is registered; no protected operation to check yet")
+		}
+		t.Error("no protected operation was registered, so nothing was checked")
 	}
 }
 
