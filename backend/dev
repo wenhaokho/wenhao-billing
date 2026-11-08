@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Development commands; only Docker is needed. The same script runs in CI.
+#   ./dev test [packages]   go test -race (default ./...)
+#   ./dev lint | fmt        golangci-lint run | fmt
+#   ./dev sqlc              regenerate the sqlc code from internal/*/queries.sql
+#   ./dev openapi           write openapi.json for the frontend's generated types
+#   ./dev generated         fail if the sqlc code or openapi.json is stale (CI)
+#   ./dev vendor            update vendor/ (needs `gh auth login`; gokit is private)
+#   ./dev go <args>         any go command
+set -euo pipefail
+cd "$(dirname "$0")"
+
+LINT_IMAGE=golangci/golangci-lint:v2.15.0
+SQLC_IMAGE=sqlc/sqlc:1.31.1
+
+if [[ -n "${MSYSTEM:-}" ]]; then export MSYS_NO_PATHCONV=1; here=$(pwd -W); else here=$(pwd); fi
+
+# Go runs in the root docker-compose.yml (service `go`, profile tools) so it
+# shares the dev stack's network and Postgres.
+run_go() { docker compose -f ../docker-compose.yml --profile tools run --rm -T go "$@"; }
+
+case "${1:-}" in
+  test) shift; run_go go test -race -timeout 120s "${@:-./...}" ;;
+  lint) docker run --rm -v "$here:/src" -w /src -e GOFLAGS=-mod=vendor "$LINT_IMAGE" golangci-lint run ./... ;;
+  fmt) docker run --rm -v "$here:/src" -w /src -e GOFLAGS=-mod=vendor "$LINT_IMAGE" golangci-lint fmt ./... ;;
+  sqlc) docker run --rm -v "$here:/src" -w /src "$SQLC_IMAGE" generate ;;
+  openapi) run_go go run ./cmd/api openapi > openapi.json && echo "wrote openapi.json" ;;
+  vendor)
+    shift
+    # ./dev vendor github.com/LOQATO/gokit@v0.2.0 upgrades, then vendors.
+    cmd="go mod tidy && go mod vendor"
+    if [[ $# -gt 0 ]]; then cmd="go get $* && $cmd"; fi
+    token=$(gh auth token)
+    # The token reaches git through environment variables for this one
+    # command; nothing is written to a file.
+    docker compose -f ../docker-compose.yml --profile tools run --rm -T \
+      -e GOFLAGS=-mod=mod -e GOPRIVATE='github.com/LOQATO/*' -e GONOSUMDB='github.com/LOQATO/*' \
+      -e GIT_CONFIG_COUNT=1 \
+      -e GIT_CONFIG_KEY_0="url.https://x-access-token:${token}@github.com/.insteadOf" \
+      -e GIT_CONFIG_VALUE_0="https://github.com/" \
+      go sh -c "$cmd" ;;
+  generated)
+    # The committed sqlc code and openapi.json must match the sources: the
+    # frontend's types are generated from openapi.json.
+    "$0" sqlc >/dev/null && "$0" openapi >/dev/null
+    git diff --exit-code -- internal openapi.json || { echo "generated files are stale: run ./dev sqlc and ./dev openapi"; exit 1; } ;;
+  go) shift; run_go go "$@" ;;
+  *) sed -n '2,9p' "$0"; exit 2 ;;
+esac

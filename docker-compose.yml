@@ -87,6 +87,26 @@ services:
       # and avoids the host overlay clobbering it.
       - frontend_node_modules:/app/node_modules
 
+  # Go toolchain for backend/ (run via backend/dev). Uses this file's network
+  # and Postgres, so no extra Compose project or network is created.
+  go:
+    profiles: ["tools"]
+    image: golang:1.27-bookworm
+    working_dir: /src
+    volumes:
+      - ./backend:/src
+      - gomod:/go/pkg/mod
+      - gobuild:/root/.cache/go-build
+    environment:
+      CGO_ENABLED: "1"
+      GOFLAGS: -mod=vendor
+      PGTESTDB_URL: postgres://billing:billing@db:5432/postgres?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   db_data:
+  gomod:
+  gobuild:
   frontend_node_modules:

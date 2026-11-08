@@ -11,9 +11,9 @@ cd "$(dirname "$0")/.."
 status=0
 for file in docker-compose.yml docker-compose.coolify.yml; do
   # Unset ${VAR} references only produce warnings; a broken file still fails here.
-  if ! json=$(docker compose -f "$file" config --format json 2>/dev/null); then
+  if ! json=$(docker compose -f "$file" --profile '*' config --format json 2>/dev/null); then
     echo "$file: docker compose config failed" >&2
-    docker compose -f "$file" config >/dev/null
+    docker compose -f "$file" --profile '*' config >/dev/null
     exit 1
   fi
   printf '%s' "$json" | python -c '
