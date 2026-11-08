@@ -8,6 +8,7 @@
 #   ./dev vendor            update vendor/ (needs `gh auth login`; gokit is private)
 #   ./dev go <args>         any go command
 set -euo pipefail
+self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")"
 
 LINT_IMAGE=golangci/golangci-lint:v2.15.0
@@ -17,7 +18,9 @@ if [[ -n "${MSYSTEM:-}" ]]; then export MSYS_NO_PATHCONV=1; here=$(pwd -W); else
 
 # Go runs in the root docker-compose.yml (service `go`, profile tools) so it
 # shares the dev stack's network and Postgres.
-run_go() { docker compose -f ../docker-compose.yml --profile tools run --rm -T go "$@"; }
+# A PGTESTDB_URL set in the calling environment (even blank) overrides the
+# service's default; check.sh's skip guard is tested by blanking it.
+run_go() { docker compose -f ../docker-compose.yml --profile tools run --rm -T ${PGTESTDB_URL+-e PGTESTDB_URL} go "$@"; }
 
 case "${1:-}" in
   test) shift; run_go go test -race -timeout 120s "${@:-./...}" ;;
@@ -42,7 +45,8 @@ case "${1:-}" in
   generated)
     # The committed sqlc code and openapi.json must match the sources: the
     # frontend's types are generated from openapi.json.
-    "$0" sqlc >/dev/null && "$0" openapi >/dev/null
+    "$self" sqlc >/dev/null
+    "$self" openapi >/dev/null
     git diff --exit-code -- internal openapi.json || { echo "generated files are stale: run ./dev sqlc and ./dev openapi"; exit 1; } ;;
   go) shift; run_go go "$@" ;;
   *) sed -n '2,9p' "$0"; exit 2 ;;
