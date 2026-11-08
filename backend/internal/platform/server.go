@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LOQATO/gokit/apierr"
-	"github.com/LOQATO/gokit/auth"
 	"github.com/LOQATO/gokit/i18n"
 	"github.com/LOQATO/gokit/observe"
 )
@@ -34,9 +33,8 @@ type Deps struct {
 	Pool   *pgxpool.Pool
 	Logger *slog.Logger
 	Clock  Clock
-	// Tokens is the template's access-token verifier, kept until the session
-	// middleware replaces it (Task 6).
-	Tokens auth.Tokens
+	// Sessions reads the billing_session cookie on every admin operation.
+	Sessions Sessions
 }
 
 // NewServer builds the HTTP handler and the Huma API the features register
@@ -86,7 +84,7 @@ func NewServer(cfg Config, deps Deps) (http.Handler, huma.API) {
 
 	config.OnAddOperation = append(config.OnAddOperation, relaxOptionalRequestFields)
 	api := humachi.New(r, config)
-	api.UseMiddleware(authenticate(api, deps.Tokens))
+	api.UseMiddleware(authenticate(api, deps.Pool, deps.Sessions))
 
 	huma.Register(api, huma.Operation{
 		OperationID: "health", Method: http.MethodGet, Path: "/health", Tags: []string{PublicTag},

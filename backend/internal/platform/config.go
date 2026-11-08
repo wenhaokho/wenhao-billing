@@ -65,6 +65,11 @@ func ParseConfig(vars map[string]string) (Config, error) {
 // Production reports whether the API runs in production.
 func (c Config) Production() bool { return c.Environment == "production" }
 
+// LocalHTTP reports whether the API runs on local plain HTTP, the only case
+// in which the session cookie is not Secure. Anything but exactly
+// "development" or "test" (a typo such as "prod" included) keeps it Secure.
+func (c Config) LocalHTTP() bool { return c.Environment == "development" || c.Environment == "test" }
+
 // build checks and converts r; corsSet is whether CORS_ORIGINS was set at all,
 // because blank means "no origins" while unset means the local default.
 func (r rawConfig) build(corsSet bool) (Config, error) {

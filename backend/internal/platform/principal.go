@@ -2,33 +2,37 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
-	"strings"
-	"testing"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LOQATO/gokit/apierr"
 	"github.com/LOQATO/gokit/auth"
-	"github.com/LOQATO/gokit/i18n"
 )
 
-// AccessCookie is the cookie a browser carries its access token in.
-const AccessCookie = "access_token"
+// SessionCookie is the cookie the browser carries its session in, under the
+// name the Python backend used.
+const SessionCookie = "billing_session"
 
 // PublicTag marks an operation that needs no signed-in principal.
 const PublicTag = "public"
 
-// Principal is who is calling: a user of one organization and the
-// permissions they hold there.
+// sessionType is the typ claim of a session token. Other tokens signed with
+// the same secret (a reset link, say) never open the API.
+const sessionType = "session"
+
+// Principal is the signed-in admin.
 type Principal struct {
-	UserID      uuid.UUID
-	OrgID       uuid.UUID
-	Permissions map[string]bool
+	UserID uuid.UUID
+	Email  string
+	Role   string
 }
 
 type principalKey struct{}
@@ -40,110 +44,171 @@ func PrincipalFrom(ctx context.Context) Principal {
 	return p
 }
 
-const permissionKey = "permission"
+const adminKey = "admin"
 
-// Needs declares the permission an operation requires; the authentication
-// middleware refuses a caller without it before the handler runs. Every
-// operation that is not public must declare one: an operation without one is
-// refused to everyone, and TestEveryOperationDeclaresAPermission fails.
-func Needs(permission string, op huma.Operation) huma.Operation {
+// Admin marks an operation admin-only, as Python's current_admin dependency
+// did. Every operation that is not public must use it: one that is neither is
+// refused to everyone, and TestEveryOperationIsAdminOrPublic fails.
+func Admin(op huma.Operation) huma.Operation {
 	if op.Metadata == nil {
 		op.Metadata = map[string]any{}
 	}
-	op.Metadata[permissionKey] = permission
+	op.Metadata[adminKey] = true
 	return op
 }
 
-// PermissionOf is the permission an operation declared with Needs, or "".
-func PermissionOf(op *huma.Operation) string {
-	p, _ := op.Metadata[permissionKey].(string)
-	return p
+// IsAdmin reports whether op was marked with Admin.
+func IsAdmin(op *huma.Operation) bool {
+	v, _ := op.Metadata[adminKey].(bool)
+	return v
 }
 
-// Require refuses with 403 when the caller lacks permission. Needs covers an
-// operation's own permission; Require is for a second, finer check inside a
-// handler.
-func Require(ctx context.Context, permission string) error {
-	if PrincipalFrom(ctx).Permissions[permission] {
-		return nil
+// IsPublic reports whether op is tagged PublicTag.
+func IsPublic(op *huma.Operation) bool { return slices.Contains(op.Tags, PublicTag) }
+
+// Sessions signs session tokens and sets the cookie that carries them.
+type Sessions struct {
+	Tokens                 auth.Tokens // HS256 with SESSION_SECRET
+	Cookie                 auth.CookieSpec
+	MaxAge, RememberMaxAge time.Duration
+}
+
+// NewSessions is the session setup cfg describes. The cookie is Secure unless
+// the API runs on local plain HTTP.
+func NewSessions(cfg Config) Sessions {
+	return Sessions{
+		Tokens:         auth.Tokens{Secret: []byte(cfg.SessionSecret), Leeway: 10 * time.Second},
+		Cookie:         auth.CookieSpec{Name: SessionCookie, Path: "/", Secure: !cfg.LocalHTTP()},
+		MaxAge:         cfg.SessionMaxAge,
+		RememberMaxAge: cfg.SessionRememberMaxAge,
 	}
-	return apierr.New(http.StatusForbidden, "permission_denied", i18n.T("You do not have permission to do this"))
 }
 
-// authenticate is a Huma middleware: every operation not tagged PublicTag
-// needs a valid access token, from the Authorization header or the access
-// cookie, naming a user and an organization.
-func authenticate(api huma.API, tokens auth.Tokens) func(huma.Context, func(huma.Context)) {
+// Issue signs a session for the user at its current session epoch; it lasts
+// RememberMaxAge when remember is set, otherwise MaxAge.
+func (s Sessions) Issue(userID uuid.UUID, epoch int, remember bool) (token string, maxAge time.Duration, err error) {
+	maxAge = s.MaxAge
+	if remember {
+		maxAge = s.RememberMaxAge
+	}
+	tokens := s.Tokens
+	tokens.AccessTTL = maxAge
+	token, err = tokens.Issue(jwt.MapClaims{"sub": userID.String(), "typ": sessionType, "epoch": epoch})
+	return token, maxAge, err
+}
+
+// SetCookie sends token in the session cookie, kept for maxAge.
+func (s Sessions) SetCookie(w http.ResponseWriter, token string, maxAge time.Duration) {
+	c := s.Cookie
+	c.MaxAge = maxAge
+	auth.SetCookie(w, c, token)
+}
+
+// ClearCookie tells the browser to drop the session cookie.
+func (s Sessions) ClearCookie(w http.ResponseWriter) { auth.ClearCookie(w, s.Cookie) }
+
+// headerWriter collects the headers a cookie helper sets, for a Huma context.
+type headerWriter struct{ h http.Header }
+
+func (w headerWriter) Header() http.Header       { return w.h }
+func (headerWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (headerWriter) WriteHeader(int)             {}
+
+// Python's sentences for a refused request.
+const (
+	notAuthenticated = "not authenticated"
+	sessionExpired   = "session expired"
+	adminRequired    = "admin required"
+)
+
+// authenticate is a Huma middleware: an operation tagged PublicTag is open;
+// an Admin operation needs a live session of an admin; any other operation is
+// refused to everyone (fail closed).
+func authenticate(api huma.API, pool *pgxpool.Pool, s Sessions) func(huma.Context, func(huma.Context)) {
+	refuse := func(ctx huma.Context, status int, sentence string) {
+		_ = huma.WriteErr(api, ctx, status, "", Err(status, apierr.Codes[status], sentence))
+	}
 	return func(ctx huma.Context, next func(huma.Context)) {
-		if slices.Contains(ctx.Operation().Tags, PublicTag) {
+		op := ctx.Operation()
+		if IsPublic(op) {
 			next(ctx)
 			return
 		}
-		p, ok := principal(ctx, tokens)
-		if !ok {
-			_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "")
+		if !IsAdmin(op) {
+			refuse(ctx, http.StatusForbidden, adminRequired)
 			return
 		}
-		// Fail closed: an operation that declared no permission is refused.
-		if perm := PermissionOf(ctx.Operation()); perm == "" || !p.Permissions[perm] {
-			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "")
+		userID, epoch, err := s.read(ctx)
+		if errors.Is(err, errSessionExpired) {
+			s.expire(ctx)
+			refuse(ctx, http.StatusUnauthorized, sessionExpired)
+			return
+		}
+		if err != nil {
+			refuse(ctx, http.StatusUnauthorized, notAuthenticated)
+			return
+		}
+		p := Principal{UserID: userID}
+		var current int
+		err = pool.QueryRow(ctx.Context(), `SELECT email, role, session_epoch FROM users WHERE user_id = $1`, userID).
+			Scan(&p.Email, &p.Role, &current)
+		if errors.Is(err, pgx.ErrNoRows) {
+			refuse(ctx, http.StatusForbidden, adminRequired)
+			return
+		}
+		if err != nil {
+			_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "", err)
+			return
+		}
+		// A session older than the user's epoch was signed out (password
+		// change, sign out everywhere).
+		if epoch < current {
+			s.expire(ctx)
+			refuse(ctx, http.StatusUnauthorized, sessionExpired)
+			return
+		}
+		if p.Role != "admin" {
+			refuse(ctx, http.StatusForbidden, adminRequired)
 			return
 		}
 		next(huma.WithValue(ctx, principalKey{}, p))
 	}
 }
 
-func principal(ctx huma.Context, tokens auth.Tokens) (Principal, bool) {
-	raw, ok := strings.CutPrefix(ctx.Header("Authorization"), "Bearer ")
-	if !ok {
-		c, err := huma.ReadCookie(ctx, AccessCookie)
-		if err != nil {
-			return Principal{}, false
-		}
-		raw = c.Value
+var (
+	errNoSession      = errors.New("no session")
+	errSessionExpired = errors.New("session expired")
+)
+
+// read is the user and epoch the request's session cookie names.
+func (s Sessions) read(ctx huma.Context) (uuid.UUID, int, error) {
+	c, err := huma.ReadCookie(ctx, SessionCookie)
+	if err != nil {
+		return uuid.Nil, 0, errNoSession
 	}
-	claims, err := tokens.Parse(raw)
-	// A refresh token is signed with the same secret; only an access token
-	// opens the API.
-	if err != nil || claims["type"] != "access" {
-		return Principal{}, false
+	claims, err := s.Tokens.Parse(c.Value)
+	if errors.Is(err, jwt.ErrTokenExpired) {
+		return uuid.Nil, 0, errSessionExpired
+	}
+	if err != nil || claims["typ"] != sessionType {
+		return uuid.Nil, 0, errNoSession
 	}
 	sub, _ := claims["sub"].(string)
-	org, _ := claims["org"].(string)
-	userID, err1 := uuid.Parse(sub)
-	orgID, err2 := uuid.Parse(org)
-	if err1 != nil || err2 != nil {
-		return Principal{}, false
+	userID, err := uuid.Parse(sub)
+	// JSON numbers arrive as float64; the epoch is a counter, not money.
+	epoch, ok := claims["epoch"].(float64)                              //nolint:forbidigo // a JSON number, not money
+	if err != nil || !ok || epoch < 0 || epoch != float64(int(epoch)) { //nolint:forbidigo // a JSON number, not money
+		return uuid.Nil, 0, errNoSession
 	}
-	perms := map[string]bool{}
-	if list, ok := claims["perms"].([]any); ok {
-		for _, p := range list {
-			if s, ok := p.(string); ok {
-				perms[s] = true
-			}
-		}
-	}
-	return Principal{UserID: userID, OrgID: orgID, Permissions: perms}, true
+	return userID, int(epoch), nil
 }
 
-// AccessClaims are the claims an access token for p carries.
-func AccessClaims(p Principal) jwt.MapClaims {
-	perms := make([]string, 0, len(p.Permissions))
-	for k, v := range p.Permissions {
-		if v {
-			perms = append(perms, k)
-		}
+// expire clears the session cookie on the answer, as Python cleared the
+// session it found expired.
+func (s Sessions) expire(ctx huma.Context) {
+	h := http.Header{}
+	s.ClearCookie(headerWriter{h})
+	for _, v := range h.Values("Set-Cookie") {
+		ctx.AppendHeader("Set-Cookie", v)
 	}
-	slices.Sort(perms)
-	return jwt.MapClaims{"sub": p.UserID.String(), "org": p.OrgID.String(), "perms": perms, "type": "access"}
-}
-
-// TestToken signs an access token for p, for tests.
-func TestToken(t testing.TB, secret string, p Principal) string {
-	t.Helper()
-	tok, err := auth.Tokens{Secret: []byte(secret), AccessTTL: time.Hour}.Issue(AccessClaims(p))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return tok
 }

@@ -7,11 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/LOQATO/gokit/auth"
 	"github.com/LOQATO/gokit/db"
 	"github.com/LOQATO/gokit/testkit"
 
@@ -31,8 +29,8 @@ func testServer(t *testing.T) http.Handler {
 	}
 	t.Cleanup(pool.Close)
 	h, _ := NewServer(Config{Environment: "test", CORSOrigins: []string{testOrigin}}, Deps{
-		Pool:   pool,
-		Tokens: auth.Tokens{Secret: []byte(testSecret), AccessTTL: time.Minute, Leeway: 10 * time.Second},
+		Pool:     pool,
+		Sessions: testSessions("test"),
 	})
 	return h
 }

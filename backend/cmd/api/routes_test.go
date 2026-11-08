@@ -4,43 +4,57 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-
-	"github.com/LOQATO/gokit/auth"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
 var pathParam = regexp.MustCompile(`\{[^}]+\}`)
 
-// Every operation a feature registers, except those tagged public, refuses a
-// caller with no token. A new feature is covered the moment it is registered.
-func TestEveryOperationIsAuthenticated(t *testing.T) {
-	tokens := auth.Tokens{Secret: []byte("test-secret-at-least-32-bytes-long!!"), AccessTTL: time.Minute}
-	handler, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{Tokens: tokens})
-	register(api, nil, tokens)
-	checked := 0
+const testSecret = "test-secret-at-least-32-bytes-long!!"
+
+func testSessions() platform.Sessions {
+	return platform.NewSessions(platform.Config{Environment: "test", SessionSecret: testSecret})
+}
+
+// operations are the registered operations of the real server.
+func operations(api huma.API) map[string]*huma.Operation {
+	out := map[string]*huma.Operation{}
 	for path, item := range api.OpenAPI().Paths {
 		for method, op := range map[string]*huma.Operation{
 			http.MethodGet: item.Get, http.MethodPost: item.Post, http.MethodPut: item.Put,
 			http.MethodPatch: item.Patch, http.MethodDelete: item.Delete,
 		} {
-			if op == nil || slices.Contains(op.Tags, platform.PublicTag) {
-				continue
+			if op != nil {
+				out[method+" "+path] = op
 			}
-			url := pathParam.ReplaceAllString(path, "00000000-0000-7000-8000-000000000000")
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, httptest.NewRequest(method, url, strings.NewReader("{}")))
-			if rec.Code != http.StatusUnauthorized {
-				t.Errorf("%s %s without a token: %d, want 401", method, path, rec.Code)
-			}
-			checked++
 		}
+	}
+	return out
+}
+
+// Every operation a feature registers, except those tagged public, refuses a
+// caller with no session cookie. A new feature is covered the moment it is
+// registered.
+func TestEveryOperationIsAuthenticated(t *testing.T) {
+	handler, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{Sessions: testSessions()})
+	register(api, nil, testSessions())
+	checked := 0
+	for key, op := range operations(api) {
+		if platform.IsPublic(op) {
+			continue
+		}
+		method, path, _ := strings.Cut(key, " ")
+		url := pathParam.ReplaceAllString(path, "00000000-0000-7000-8000-000000000000")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(method, url, strings.NewReader("{}")))
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s without a session: %d, want 401", key, rec.Code)
+		}
+		checked++
 	}
 	if checked == 0 {
 		// Until the first protected operation exists, the only registered
@@ -55,22 +69,15 @@ func TestEveryOperationIsAuthenticated(t *testing.T) {
 	}
 }
 
-// Every operation is either public or declares the permission it needs: a
-// feature copied without one fails here, not in production.
-func TestEveryOperationDeclaresAPermission(t *testing.T) {
+// Every operation is either public or admin-only: a feature registered
+// without platform.Admin fails here, not in production (where the middleware
+// refuses it to everyone).
+func TestEveryOperationIsAdminOrPublic(t *testing.T) {
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, nil, auth.Tokens{})
-	for path, item := range api.OpenAPI().Paths {
-		for method, op := range map[string]*huma.Operation{
-			http.MethodGet: item.Get, http.MethodPost: item.Post, http.MethodPut: item.Put,
-			http.MethodPatch: item.Patch, http.MethodDelete: item.Delete,
-		} {
-			if op == nil || slices.Contains(op.Tags, platform.PublicTag) {
-				continue
-			}
-			if platform.PermissionOf(op) == "" {
-				t.Errorf("%s %s declares no permission (use platform.Needs)", method, path)
-			}
+	register(api, nil, testSessions())
+	for key, op := range operations(api) {
+		if !platform.IsPublic(op) && !platform.IsAdmin(op) {
+			t.Errorf("%s is neither public nor admin-only (use platform.Admin)", key)
 		}
 	}
 }
@@ -81,7 +88,7 @@ func TestEveryOperationDeclaresAPermission(t *testing.T) {
 // whenever registration order changes. Bodies must be named types.
 func TestSchemaNamesAreStable(t *testing.T) {
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, nil, auth.Tokens{})
+	register(api, nil, testSessions())
 	endsInDigit := regexp.MustCompile(`[0-9]$`)
 	for name := range api.OpenAPI().Components.Schemas.Map() {
 		if strings.Contains(name, "InBody") || endsInDigit.MatchString(name) {

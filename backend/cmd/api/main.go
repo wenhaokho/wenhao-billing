@@ -23,7 +23,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/LOQATO/gokit/auth"
 	"github.com/LOQATO/gokit/db"
 	"github.com/LOQATO/gokit/observe"
 
@@ -32,7 +31,7 @@ import (
 )
 
 // register adds every feature's operations. A new feature adds its line here.
-func register(_ huma.API, _ *pgxpool.Pool, _ auth.Tokens) {
+func register(_ huma.API, _ *pgxpool.Pool, _ platform.Sessions) {
 	// Each feature adds its Register call here.
 }
 
@@ -82,9 +81,9 @@ func serve() error {
 	}
 	defer pool.Close()
 
-	tokens := auth.Tokens{Secret: []byte(cfg.SessionSecret), AccessTTL: 15 * time.Minute, Leeway: 10 * time.Second}
-	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Tokens: tokens, Logger: logger})
-	register(api, pool, tokens)
+	sessions := platform.NewSessions(cfg)
+	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger})
+	register(api, pool, sessions)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -161,7 +160,7 @@ func healthcheck() int {
 // printOpenAPI builds the API with no database: routes are only described.
 func printOpenAPI() int {
 	_, api := platform.NewServer(platform.Config{Environment: "openapi"}, platform.Deps{})
-	register(api, nil, auth.Tokens{})
+	register(api, nil, platform.Sessions{})
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(api.OpenAPI()); err != nil {
