@@ -86,10 +86,66 @@ func probeServer(t *testing.T, origins ...string) http.Handler {
 		out.Body.Name = in.Body.Name
 		return out, nil
 	})
+	huma.Register(api, pub("amounts", http.MethodPost, "/amounts"), func(_ context.Context, in *amountsIn) (*amountsOut, error) {
+		out := &amountsOut{}
+		out.Body.Amount, out.Body.Rate, out.Body.Maybe = in.Body.Amount, in.Body.Rate, in.Body.Maybe
+		return out, nil
+	})
+	huma.Register(api, pub("patch", http.MethodPatch, "/patch"), func(_ context.Context, in *patchIn) (*patchOut, error) {
+		out := &patchOut{}
+		out.Body.Note = "omitted"
+		if in.Body.Note.Set {
+			out.Body.Note = "value:" + in.Body.Note.Value
+			if in.Body.Note.Null {
+				out.Body.Note = "null"
+			}
+		}
+		out.Body.Count, out.Body.Label = in.Body.Count, in.Body.Label
+		out.Body.Lines = len(in.Body.Lines)
+		return out, nil
+	})
 	huma.Register(api, pub("apix", http.MethodGet, "/api/v1/x"), func(context.Context, *struct{}) (*okOut, error) {
 		return &okOut{}, nil
 	})
 	return h
+}
+
+type amountsIn struct {
+	Body struct {
+		Amount Dec4  `json:"amount"`
+		Rate   *Dec8 `json:"rate"`
+		Maybe  *Dec4 `json:"maybe"`
+	}
+}
+
+type amountsOut struct {
+	Body struct {
+		Amount Dec4  `json:"amount"`
+		Rate   *Dec8 `json:"rate"`
+		Maybe  *Dec4 `json:"maybe"`
+	}
+}
+
+type patchLine struct {
+	Memo Optional[string] `json:"memo"`
+}
+
+type patchIn struct {
+	Body struct {
+		Note  Optional[string] `json:"note"`
+		Count *int             `json:"count"`
+		Label *string          `json:"label"`
+		Lines []patchLine      `json:"lines,omitempty"`
+	}
+}
+
+type patchOut struct {
+	Body struct {
+		Note  string  `json:"note"`
+		Count *int    `json:"count"`
+		Label *string `json:"label"`
+		Lines int     `json:"lines"`
+	}
 }
 
 func TestHealth(t *testing.T) {
@@ -228,5 +284,50 @@ func TestCorsAllowsSentryHeaders(t *testing.T) {
 	allow := strings.ToLower(rec.Header().Get("Access-Control-Allow-Headers"))
 	if rec.Code != 204 && rec.Code != 200 || !strings.Contains(allow, "sentry-trace") || !strings.Contains(allow, "baggage") {
 		t.Errorf("%d %v", rec.Code, rec.Header())
+	}
+}
+
+func TestDecimalRequestAcceptsNumberThroughHuma(t *testing.T) {
+	h := probeServer(t)
+	rec := do(t, h, http.MethodPost, "/amounts", `{"amount":12.5,"rate":1.5,"maybe":null}`)
+	want := `{"amount":"12.5000","rate":"1.50000000","maybe":null}`
+	if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != want {
+		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestDecimalRequestAcceptsStringThroughHuma(t *testing.T) {
+	h := probeServer(t)
+	rec := do(t, h, http.MethodPost, "/amounts", `{"amount":"12.5","rate":"1.5","maybe":"3"}`)
+	want := `{"amount":"12.5000","rate":"1.50000000","maybe":"3.0000"}`
+	if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != want {
+		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+	// Pointer fields may be omitted; a plain one may not, nor be null or text.
+	if rec := do(t, h, http.MethodPost, "/amounts", `{"amount":1}`); rec.Code != 200 {
+		t.Errorf("omitted pointers: %d %s", rec.Code, rec.Body)
+	}
+	for _, body := range []string{`{}`, `{"amount":null}`, `{"amount":"abc"}`} {
+		if rec := do(t, h, http.MethodPost, "/amounts", body); rec.Code != 422 {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+}
+
+func TestOptionalPatchThroughHuma(t *testing.T) {
+	h := probeServer(t)
+	null := `"count":null,"label":null,"lines":`
+	for body, want := range map[string]string{
+		`{}`:                          `{"note":"omitted",` + null + `0}`,
+		`{"note":null}`:               `{"note":"null",` + null + `0}`,
+		`{"note":"x","count":2}`:      `{"note":"value:x","count":2,"label":null,"lines":0}`,
+		`{"lines":[{}]}`:              `{"note":"omitted",` + null + `1}`,
+		`{"lines":[{"memo":null}]}`:   `{"note":"omitted",` + null + `1}`,
+		`{"label":null,"count":null}`: `{"note":"omitted",` + null + `0}`,
+	} {
+		rec := do(t, h, http.MethodPatch, "/patch", body)
+		if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != want {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
 	}
 }

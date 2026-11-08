@@ -94,6 +94,15 @@ func TestTimeIsUTCWithZ(t *testing.T) {
 	if got := mustJSON(t, tm); got != `"2026-01-01T03:00:00.123456Z"` {
 		t.Error(got)
 	}
+	for in, want := range map[time.Time]string{
+		time.Date(2026, 1, 1, 10, 0, 0, 123000000, loc): `"2026-01-01T03:00:00.123000Z"`,
+		time.Date(2026, 1, 1, 10, 0, 0, 0, loc):         `"2026-01-01T03:00:00Z"`,
+		time.Date(2026, 1, 1, 10, 0, 0, 1000, loc):      `"2026-01-01T03:00:00.000001Z"`,
+	} {
+		if got := mustJSON(t, Time{in}); got != want {
+			t.Errorf("%v: %s, want %s", in, got, want)
+		}
+	}
 	var back Time
 	if err := json.Unmarshal([]byte(`"2026-01-01T10:00:00.123456+07:00"`), &back); err != nil || !back.Equal(tm.Time) || back.Location() != time.UTC {
 		t.Errorf("%v %v", back, err)

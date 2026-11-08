@@ -20,7 +20,18 @@ func decimalString(b []byte) (decimal.Decimal, error) {
 	return d, nil
 }
 
-var decimalSchema = &huma.Schema{Type: huma.TypeString, Pattern: `^-?\d{1,15}(\.\d+)?$`, Examples: []any{"1500000.0000"}}
+// decimalSchema accepts what UnmarshalJSON accepts, a string or a number (the
+// Vue app sends numbers); responses always write the string. A fresh value
+// per call: Huma keeps the schema it is given.
+func decimalSchema() *huma.Schema {
+	str := &huma.Schema{Type: huma.TypeString, Pattern: `^-?\d{1,15}(\.\d+)?$`, Examples: []any{"1500000.0000"}}
+	str.PrecomputeMessages()
+	num := &huma.Schema{Type: huma.TypeNumber}
+	num.PrecomputeMessages()
+	s := &huma.Schema{OneOf: []*huma.Schema{str, num}}
+	s.PrecomputeMessages()
+	return s
+}
 
 // Dec4 is numeric(19,4) and computed money in JSON: a string with exactly
 // four decimals ("1500.0000"), so no client parses it as a float.
@@ -33,7 +44,7 @@ func (d Dec4) MarshalJSON() ([]byte, error) { return json.Marshal(d.StringFixed(
 func (d *Dec4) UnmarshalJSON(b []byte) (err error) { d.Decimal, err = decimalString(b); return }
 
 // Schema describes Dec4 to OpenAPI as a decimal string.
-func (Dec4) Schema(huma.Registry) *huma.Schema { return decimalSchema }
+func (Dec4) Schema(huma.Registry) *huma.Schema { return decimalSchema() }
 
 // Dec8 is numeric(19,8), the FX rates: eight decimals.
 type Dec8 struct{ decimal.Decimal }
@@ -45,7 +56,7 @@ func (d Dec8) MarshalJSON() ([]byte, error) { return json.Marshal(d.StringFixed(
 func (d *Dec8) UnmarshalJSON(b []byte) (err error) { d.Decimal, err = decimalString(b); return }
 
 // Schema describes Dec8 to OpenAPI as a decimal string.
-func (Dec8) Schema(huma.Registry) *huma.Schema { return decimalSchema }
+func (Dec8) Schema(huma.Registry) *huma.Schema { return decimalSchema() }
 
 // Dec2 is numeric(5,2), the match confidence: two decimals.
 type Dec2 struct{ decimal.Decimal }
@@ -57,7 +68,7 @@ func (d Dec2) MarshalJSON() ([]byte, error) { return json.Marshal(d.StringFixed(
 func (d *Dec2) UnmarshalJSON(b []byte) (err error) { d.Decimal, err = decimalString(b); return }
 
 // Schema describes Dec2 to OpenAPI as a decimal string.
-func (Dec2) Schema(huma.Registry) *huma.Schema { return decimalSchema }
+func (Dec2) Schema(huma.Registry) *huma.Schema { return decimalSchema() }
 
 // Date is a calendar date in JSON: "YYYY-MM-DD".
 type Date struct{ time.Time }
@@ -89,10 +100,22 @@ func (Date) Schema(huma.Registry) *huma.Schema {
 // Time is an instant in JSON: UTC with a Z, microsecond precision.
 type Time struct{ time.Time }
 
-const timeLayout = "2006-01-02T15:04:05.999999Z"
+// Python's isoformat: six digits when the microseconds are not zero, none
+// when they are.
+const (
+	timeLayout      = "2006-01-02T15:04:05.000000Z"
+	timeLayoutWhole = "2006-01-02T15:04:05Z"
+)
 
-// MarshalJSON writes "2026-01-01T03:00:00.123456Z".
-func (t Time) MarshalJSON() ([]byte, error) { return json.Marshal(t.UTC().Format(timeLayout)) }
+// MarshalJSON writes "2026-01-01T03:00:00.123456Z", or "...:00Z" on the second.
+func (t Time) MarshalJSON() ([]byte, error) {
+	u := t.UTC()
+	layout := timeLayoutWhole
+	if u.Nanosecond()/1000 != 0 {
+		layout = timeLayout
+	}
+	return json.Marshal(u.Format(layout))
+}
 
 // UnmarshalJSON reads any RFC 3339 instant and keeps it in UTC.
 func (t *Time) UnmarshalJSON(b []byte) error {
@@ -119,6 +142,8 @@ type Optional[T any] struct {
 	Set, Null bool
 	Value     T
 }
+
+func (Optional[T]) optionalField() {}
 
 // UnmarshalJSON runs only when the member is present.
 func (o *Optional[T]) UnmarshalJSON(b []byte) error {

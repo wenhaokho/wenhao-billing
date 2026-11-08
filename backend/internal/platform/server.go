@@ -42,6 +42,9 @@ type Deps struct {
 // NewServer builds the HTTP handler and the Huma API the features register
 // their operations on.
 func NewServer(cfg Config, deps Deps) (http.Handler, huma.API) {
+	if deps.Clock == nil {
+		deps.Clock = SystemClock{}
+	}
 	logger := deps.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -80,6 +83,8 @@ func NewServer(cfg Config, deps Deps) (http.Handler, huma.API) {
 	// some); Huma rejects them unless a schema allows additional properties.
 	// Set here, every body struct allows them.
 	config.AllowAdditionalPropertiesByDefault = true
+
+	config.OnAddOperation = append(config.OnAddOperation, relaxOptionalRequestFields)
 	api := humachi.New(r, config)
 	api.UseMiddleware(authenticate(api, deps.Tokens))
 
