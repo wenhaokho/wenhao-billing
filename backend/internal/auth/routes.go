@@ -44,6 +44,10 @@ type routes struct {
 	cfg      platform.Config
 	clock    platform.Clock
 	throttle throttle
+	// dummy is verified against when there is no argon2id hash to check (an
+	// unknown email, a Python-era bcrypt hash), so every refused login costs
+	// one argon2id verification, as a wrong password does.
+	dummy string
 }
 
 // Register adds the /api/v1/auth operations. Every time decision (session
@@ -56,8 +60,12 @@ func Register(api huma.API, pool *pgxpool.Pool, s platform.Sessions, mail email.
 	if s.Clock == nil {
 		s.Clock = clock
 	}
+	dummy, err := hashPassword("not-a-password")
+	if err != nil {
+		panic("auth: cannot build the dummy password hash: " + err.Error())
+	}
 	q := authdb.New(pool)
-	r := routes{pool: pool, q: q, sessions: s, mail: mail, cfg: cfg, clock: clock, throttle: throttle{q: q}}
+	r := routes{pool: pool, q: q, sessions: s, mail: mail, cfg: cfg, clock: clock, throttle: throttle{q: q}, dummy: dummy}
 	public := []string{platform.PublicTag, "auth"}
 	const prefix = "/api/v1/auth"
 
@@ -131,16 +139,16 @@ func (r routes) issue(u authdb.User, remember bool) (*sessionOut, error) {
 func (r routes) login(ctx context.Context, in *loginIn) (*sessionOut, error) {
 	account := normalizeEmail(in.Body.Email)
 	now := r.clock.Now()
-	if err := r.throttle.check(ctx, account, in.addr, now); err != nil {
+	if err := r.throttle.attempt(ctx, account, in.addr, now); err != nil {
 		return nil, err
 	}
 	u, err := r.q.UserByEmail(ctx, account)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		burnVerify(ctx, in.Body.Password)
+		_, _ = verifyHash(in.Body.Password, r.dummy)
 	case err != nil:
 		return nil, err
-	case verifyPassword(ctx, in.Body.Password, u.PasswordHash):
+	case r.verify(ctx, in.Body.Password, u.PasswordHash):
 		if err := r.throttle.succeed(ctx, account, in.addr); err != nil {
 			return nil, err
 		}
@@ -148,10 +156,22 @@ func (r routes) login(ctx context.Context, in *loginIn) (*sessionOut, error) {
 		// refused by every admin route.
 		return r.issue(u, in.Body.Remember)
 	}
-	if err := r.throttle.fail(ctx, account, in.addr, now); err != nil {
-		return nil, err
-	}
+	// The attempt's row stays: it counts as a failure.
 	return nil, errStatus(http.StatusUnauthorized, invalidCredentials)
+}
+
+// verify reports whether password matches encoded. A hash that is not
+// argon2id (Python's bcrypt, say) never matches and is never an error: the
+// user is refused like a wrong password until set-password replaces it, and
+// the dummy is verified instead so the refusal takes as long.
+func (r routes) verify(ctx context.Context, password, encoded string) bool {
+	ok, err := verifyHash(password, encoded)
+	if err != nil {
+		observe.LoggerFrom(ctx).Warn("password hash is not argon2id; run set-password for this user", "err", err)
+		_, _ = verifyHash(password, r.dummy)
+		return false
+	}
+	return ok
 }
 
 type logoutOut struct {
@@ -183,7 +203,7 @@ func (r routes) changePassword(ctx context.Context, in *changePasswordIn) (*sess
 	if err != nil {
 		return nil, err
 	}
-	if !verifyPassword(ctx, in.Body.CurrentPassword, u.PasswordHash) {
+	if !r.verify(ctx, in.Body.CurrentPassword, u.PasswordHash) {
 		return nil, errStatus(http.StatusBadRequest, wrongCurrent)
 	}
 	if in.Body.CurrentPassword == in.Body.NewPassword {
@@ -253,6 +273,10 @@ func resetEmail(to, link string) email.Message {
 
 type resetPasswordIn struct{ Body ResetPasswordRequest }
 
+// testHookResetLocked, when a test sets it, runs once the reset token's row
+// is read (and locked) inside the transaction. Always nil in production.
+var testHookResetLocked func()
+
 // resetPassword consumes a reset token: unknown, used and expired tokens are
 // all one 400, and an expired one is cleared. The row is locked, so a token
 // is spent once even by two requests at the same moment.
@@ -270,6 +294,9 @@ func (r routes) resetPassword(ctx context.Context, in *resetPasswordIn) (*userBo
 		}
 		if err != nil {
 			return err
+		}
+		if testHookResetLocked != nil {
+			testHookResetLocked()
 		}
 		if row.PasswordResetExpires == nil || row.PasswordResetExpires.Before(r.clock.Now().UTC()) {
 			invalid = true

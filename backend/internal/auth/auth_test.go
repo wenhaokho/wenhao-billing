@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -515,5 +516,86 @@ func TestPasswordLengthIs422(t *testing.T) {
 	// The bounds themselves are accepted.
 	if rec := a.changePassword(t, c, password, "123456"); rec.Code != http.StatusOK {
 		t.Errorf("6 characters: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// countArgon2 counts the argon2id verifications requests run (a non-argon2id
+// hash's error is not one) until the test ends.
+func countArgon2(t *testing.T) *atomic.Int64 {
+	t.Helper()
+	n := &atomic.Int64{}
+	orig := verifyHash
+	verifyHash = func(pw, encoded string) (bool, error) {
+		ok, err := orig(pw, encoded)
+		if err == nil {
+			n.Add(1)
+		}
+		return ok, err
+	}
+	t.Cleanup(func() { verifyHash = orig })
+	return n
+}
+
+// Every refused login costs one argon2id verification, so its timing does
+// not tell an unknown email (or a bcrypt-era account) from a wrong password.
+func TestUnknownEmailStillVerifies(t *testing.T) {
+	a := newApp(t)
+	a.user(t, adminEmail, "admin")
+	a.user(t, "bcrypt@example.com", "admin")
+	if _, err := a.pool.Exec(context.Background(), `UPDATE users SET password_hash = $1 WHERE email = 'bcrypt@example.com'`,
+		"$2b$12$KIXQJxQ0r6aQyJ8ZtV1c7eWlqfN7mJr0pQh7f4o0v2h5i6s9Yb5yW"); err != nil {
+		t.Fatal(err)
+	}
+	n := countArgon2(t)
+	for _, c := range []struct{ email, pw string }{
+		{"nobody@example.com", password},
+		{adminEmail, "wrong-password"},
+		{"bcrypt@example.com", password},
+	} {
+		n.Store(0)
+		wantError(t, a.login(t, c.email, c.pw, false), http.StatusUnauthorized, "invalid credentials")
+		if got := n.Load(); got != 1 {
+			t.Errorf("%s: %d argon2id verifications, want 1", c.email, got)
+		}
+	}
+}
+
+// Two simultaneous resets with one token: exactly one succeeds. The hook
+// holds each request just after it has read the token's row until the other
+// has read it too (or 500 ms pass): with the row locked FOR UPDATE the second
+// cannot read it until the first commits, so the hold times out and the
+// second then finds the token spent. Without the lock both read it, both
+// pass the hold together and both would succeed.
+func TestResetTokenSingleUseUnderConcurrency(t *testing.T) {
+	a := newApp(t)
+	a.user(t, adminEmail, "admin")
+	token := a.forgotToken(t)
+
+	var arrived atomic.Int32
+	both := make(chan struct{})
+	testHookResetLocked = func() {
+		if arrived.Add(1) == 2 {
+			close(both)
+		}
+		select {
+		case <-both:
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	t.Cleanup(func() { testHookResetLocked = nil })
+
+	codes := make(chan int, 2)
+	var wg sync.WaitGroup
+	for _, pw := range []string{"brand-new-pw-1", "brand-new-pw-2"} {
+		wg.Go(func() { codes <- a.reset(t, token, pw).Code })
+	}
+	wg.Wait()
+	close(codes)
+	count := map[int]int{}
+	for c := range codes {
+		count[c]++
+	}
+	if count[http.StatusOK] != 1 || count[http.StatusBadRequest] != 1 {
+		t.Errorf("answers %v, want one 200 and one 400", count)
 	}
 }

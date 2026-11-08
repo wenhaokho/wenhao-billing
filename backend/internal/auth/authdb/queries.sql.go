@@ -70,9 +70,21 @@ func (q *Queries) CountPairFailures(ctx context.Context, arg CountPairFailuresPa
 	return count, err
 }
 
-const insertFailure = `-- name: InsertFailure :exec
+const deleteFailure = `-- name: DeleteFailure :exec
+DELETE FROM login_attempts WHERE id = $1
+`
+
+// A refused (429) attempt is not counted: the lock lifts when the oldest
+// counted failure leaves the window.
+func (q *Queries) DeleteFailure(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, deleteFailure, id)
+	return err
+}
+
+const insertFailure = `-- name: InsertFailure :one
 INSERT INTO login_attempts (email, client_addr, failed_at)
 VALUES ($1, $2, $3)
+RETURNING id
 `
 
 type InsertFailureParams struct {
@@ -81,9 +93,13 @@ type InsertFailureParams struct {
 	FailedAt   time.Time
 }
 
-func (q *Queries) InsertFailure(ctx context.Context, arg InsertFailureParams) error {
-	_, err := q.db.Exec(ctx, insertFailure, arg.Email, arg.ClientAddr, arg.FailedAt)
-	return err
+// Every login attempt is recorded as a failure before the password is
+// checked; a success deletes the pair's rows, this one included.
+func (q *Queries) InsertFailure(ctx context.Context, arg InsertFailureParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertFailure, arg.Email, arg.ClientAddr, arg.FailedAt)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const oldestAddressFailure = `-- name: OldestAddressFailure :one

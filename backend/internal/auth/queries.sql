@@ -42,9 +42,17 @@ WHERE email = sqlc.arg(email) AND client_addr = sqlc.arg(client_addr) AND failed
 SELECT min(failed_at)::timestamptz FROM login_attempts
 WHERE client_addr = sqlc.arg(client_addr) AND failed_at > sqlc.arg(since);
 
--- name: InsertFailure :exec
+-- name: InsertFailure :one
+-- Every login attempt is recorded as a failure before the password is
+-- checked; a success deletes the pair's rows, this one included.
 INSERT INTO login_attempts (email, client_addr, failed_at)
-VALUES (sqlc.arg(email), sqlc.arg(client_addr), sqlc.arg(failed_at));
+VALUES (sqlc.arg(email), sqlc.arg(client_addr), sqlc.arg(failed_at))
+RETURNING id;
+
+-- name: DeleteFailure :exec
+-- A refused (429) attempt is not counted: the lock lifts when the oldest
+-- counted failure leaves the window.
+DELETE FROM login_attempts WHERE id = $1;
 
 -- name: PruneFailures :exec
 DELETE FROM login_attempts WHERE failed_at < sqlc.arg(before);

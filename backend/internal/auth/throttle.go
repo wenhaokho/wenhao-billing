@@ -42,10 +42,21 @@ func clientAddress(cfConnectingIP, forwardedFor, remoteAddr string) string {
 
 type throttle struct{ q *authdb.Queries }
 
-// check refuses a login (429) when the pair or the address is at its limit.
-// It runs before the password is verified: the right password from a locked
-// pair is refused too.
-func (t throttle) check(ctx context.Context, email, addr string, now time.Time) error {
+// attempt records this login attempt as a failure, then counts the window
+// with it included, before the password is verified: parallel attempts each
+// see the ones already in flight, so at most pairLimit of them for one pair
+// (addressLimit for one address) ever reach the password check. Over a
+// limit the attempt is refused (429), the right password included, and its
+// row deleted again, so refused attempts do not extend the lock. A success
+// clears the pair (succeed); a failure leaves the row counted.
+func (t throttle) attempt(ctx context.Context, email, addr string, now time.Time) error {
+	id, err := t.q.InsertFailure(ctx, authdb.InsertFailureParams{Email: email, ClientAddr: addr, FailedAt: now})
+	if err != nil {
+		return err
+	}
+	if err := t.q.PruneFailures(ctx, now.Add(-keepFailures)); err != nil {
+		return err
+	}
 	since := now.Add(-throttleWindow)
 	var wait time.Duration
 	locked := false
@@ -53,7 +64,7 @@ func (t throttle) check(ctx context.Context, email, addr string, now time.Time) 
 	if err != nil {
 		return err
 	}
-	if pair >= pairLimit {
+	if pair > pairLimit {
 		oldest, err := t.q.OldestPairFailure(ctx, authdb.OldestPairFailureParams{Email: email, ClientAddr: addr, Since: since})
 		if err != nil {
 			return err
@@ -64,7 +75,7 @@ func (t throttle) check(ctx context.Context, email, addr string, now time.Time) 
 	if err != nil {
 		return err
 	}
-	if address >= addressLimit {
+	if address > addressLimit {
 		oldest, err := t.q.OldestAddressFailure(ctx, authdb.OldestAddressFailureParams{ClientAddr: addr, Since: since})
 		if err != nil {
 			return err
@@ -74,6 +85,9 @@ func (t throttle) check(ctx context.Context, email, addr string, now time.Time) 
 	if !locked {
 		return nil
 	}
+	if err := t.q.DeleteFailure(ctx, id); err != nil {
+		return err
+	}
 	// Whole seconds, rounded up, at least one.
 	seconds := max(1, int((wait+time.Second-1)/time.Second))
 	return huma.ErrorWithHeaders(
@@ -82,15 +96,7 @@ func (t throttle) check(ctx context.Context, email, addr string, now time.Time) 
 	)
 }
 
-// fail records a failed login and drops failures older than a day.
-func (t throttle) fail(ctx context.Context, email, addr string, now time.Time) error {
-	if err := t.q.InsertFailure(ctx, authdb.InsertFailureParams{Email: email, ClientAddr: addr, FailedAt: now}); err != nil {
-		return err
-	}
-	return t.q.PruneFailures(ctx, now.Add(-keepFailures))
-}
-
-// succeed forgets the pair's failures.
+// succeed forgets the pair's failures, this attempt's included.
 func (t throttle) succeed(ctx context.Context, email, addr string) error {
 	return t.q.ClearPairFailures(ctx, authdb.ClearPairFailuresParams{Email: email, ClientAddr: addr})
 }

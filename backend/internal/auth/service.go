@@ -9,14 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	gauth "github.com/LOQATO/gokit/auth"
-	"github.com/LOQATO/gokit/observe"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/auth/authdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
@@ -30,27 +28,9 @@ const (
 
 func hashPassword(password string) (string, error) { return gauth.Hash(password, HashParams) }
 
-// verifyPassword reports whether password matches encoded. A hash that is not
-// argon2id (Python's bcrypt, say) never matches and is never an error: the
-// user is refused like a wrong password until set-password replaces it.
-func verifyPassword(ctx context.Context, password, encoded string) bool {
-	ok, err := gauth.Verify(password, encoded)
-	if err != nil {
-		observe.LoggerFrom(ctx).Warn("password hash is not argon2id; run set-password for this user", "err", err)
-		return false
-	}
-	return ok
-}
-
-// dummyHash is verified against when no user has the email, so an unknown
-// address takes as long as a wrong password.
-var dummyHash = sync.OnceValues(func() (string, error) { return hashPassword("not-a-password") })
-
-func burnVerify(ctx context.Context, password string) {
-	if h, err := dummyHash(); err == nil {
-		_ = verifyPassword(ctx, password, h)
-	}
-}
+// verifyHash checks a password against an encoded hash. A variable so a
+// test can count the argon2id verifications a request runs.
+var verifyHash = gauth.Verify
 
 // normalizeEmail lowercases the domain, as Python's EmailStr did; the local
 // part is kept as typed.

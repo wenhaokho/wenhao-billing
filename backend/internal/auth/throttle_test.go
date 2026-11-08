@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -133,5 +134,29 @@ func TestClientAddress(t *testing.T) {
 		if got := clientAddress(c.cf, c.xff, c.remote); got != c.want {
 			t.Errorf("clientAddress(%q, %q, %q) = %q, want %q", c.cf, c.xff, c.remote, got, c.want)
 		}
+	}
+}
+
+// Parallel attempts each count the ones in flight: of 20 simultaneous wrong
+// passwords for one pair, at most 10 reach the password check (401), the
+// rest are refused (429).
+func TestThrottleHoldsUnderConcurrency(t *testing.T) {
+	a := newApp(t)
+	a.user(t, adminEmail, "admin")
+	const n = 20
+	codes := make(chan int, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() { codes <- a.login(t, adminEmail, "wrong-password", false).Code })
+	}
+	wg.Wait()
+	close(codes)
+	count := map[int]int{}
+	for c := range codes {
+		count[c]++
+	}
+	if count[http.StatusUnauthorized] > pairLimit || count[http.StatusUnauthorized] == 0 ||
+		count[http.StatusUnauthorized]+count[http.StatusTooManyRequests] != n {
+		t.Errorf("answers %v: want at most %d 401s and the rest 429", count, pairLimit)
 	}
 }
