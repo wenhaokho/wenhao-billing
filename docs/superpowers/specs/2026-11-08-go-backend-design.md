@@ -13,7 +13,7 @@ so and why.
 
 Replace wenhao-billing's Python backend (FastAPI, SQLAlchemy, Alembic,
 APScheduler, WeasyPrint, fastmcp; ~17,600 lines of app code, ~9,300 lines of
-tests, 525 tests) with a Go backend on the default stack, then delete the
+tests, 527 tests at the freeze) with a Go backend on the default stack, then delete the
 Python backend.
 
 Why: memory on the shared VPS. The Python API idles at ~390 MB (measured
@@ -412,7 +412,7 @@ The scheduler is off in the Go process until the switch-over
 ### Tests
 
 - Every Python test is listed in `TESTS.md` with its Go test, or a reason it
-  is merged or not ported. All 525 are accounted for before the switch.
+  is merged or not ported. All 527 (the count in `backend-python/FROZEN.md`) are accounted for before the switch.
 - Go tests run on pgtestdb (a cloned, goose-migrated database per test,
   `t.Parallel()`), API tests through Huma with a signed-in principal, a fixed
   clock, and the same seed data Python's fixtures use (FX USD→IDR 16000 and
