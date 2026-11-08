@@ -7,3 +7,9 @@ import "embed"
 //
 //go:embed *.sql
 var FS embed.FS
+
+// Testdata is the reference descriptions of the Alembic database at the frozen
+// head (written by port/make-baseline.sh) and the queries that produce them.
+//
+//go:embed testdata/*
+var Testdata embed.FS
