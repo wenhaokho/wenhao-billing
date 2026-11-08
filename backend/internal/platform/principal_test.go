@@ -135,6 +135,23 @@ func TestTamperedCookieIs401(t *testing.T) {
 		"iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
 	})
 	wantRefusal(t, get(t, a.h, "/whoami", "Cookie", SessionCookie+"="+notSession), 401, "not authenticated")
+
+	// Signed with the session secret, typ session, for an admin at epoch 0,
+	// but with a malformed epoch or sub: never read as epoch 0.
+	for name, claims := range map[string]jwt.MapClaims{
+		"no epoch":       {"sub": id.String()},
+		"string epoch":   {"sub": id.String(), "epoch": "0"},
+		"fraction epoch": {"sub": id.String(), "epoch": 0.5},
+		"negative epoch": {"sub": id.String(), "epoch": -1},
+		"non-uuid sub":   {"sub": "not-a-uuid", "epoch": 0},
+	} {
+		claims["typ"] = "session"
+		claims["iat"] = time.Now().Unix()
+		claims["exp"] = time.Now().Add(time.Hour).Unix()
+		t.Run(name, func(t *testing.T) {
+			wantRefusal(t, get(t, a.h, "/whoami", "Cookie", SessionCookie+"="+sign(t, claims)), 401, "not authenticated")
+		})
+	}
 }
 
 func TestExpiredCookieIs401SessionExpired(t *testing.T) {
@@ -159,6 +176,14 @@ func TestOlderEpochIs401SessionExpired(t *testing.T) {
 	if rec := get(t, a.h, "/whoami", "Cookie", a.cookie(t, id, 3)); rec.Code != 200 {
 		t.Errorf("current epoch: %d %s", rec.Code, rec.Body)
 	}
+}
+
+// A token never legitimately carries a higher epoch than its user's (a
+// deleted-then-recreated user, say): refused too.
+func TestNewerEpochIs401SessionExpired(t *testing.T) {
+	a := newSessionApp(t)
+	id := a.user(t, "a@example.com", "admin", 0)
+	wantRefusal(t, get(t, a.h, "/whoami", "Cookie", a.cookie(t, id, 1)), 401, "session expired")
 }
 
 func TestNonAdminIs403AdminRequired(t *testing.T) {
@@ -212,9 +237,7 @@ func TestIssueLifetimes(t *testing.T) {
 func TestUndeclaredOperationIsRefused(t *testing.T) {
 	a := newSessionApp(t)
 	id := a.user(t, "a@example.com", "admin", 0)
-	if rec := get(t, a.h, "/undeclared", "Cookie", a.cookie(t, id, 0)); rec.Code != 403 {
-		t.Errorf("%d %s", rec.Code, rec.Body)
-	}
+	wantRefusal(t, get(t, a.h, "/undeclared", "Cookie", a.cookie(t, id, 0)), 403, "admin required")
 }
 
 // The server's own operations are each admin-only or public; the features'

@@ -161,8 +161,9 @@ func authenticate(api huma.API, pool *pgxpool.Pool, s Sessions) func(huma.Contex
 			return
 		}
 		// A session older than the user's epoch was signed out (password
-		// change, sign out everywhere).
-		if epoch < current {
+		// change, sign out everywhere). A newer one is never issued
+		// legitimately (a deleted-then-recreated user): epochs must match.
+		if epoch != current {
 			s.expire(ctx)
 			refuse(ctx, http.StatusUnauthorized, sessionExpired)
 			return
