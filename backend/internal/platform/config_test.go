@@ -75,7 +75,7 @@ func TestConfigDefaults(t *testing.T) {
 	if cfg.SessionMaxAge != 8*time.Hour || cfg.SessionRememberMaxAge != 30*24*time.Hour || cfg.Port != 8000 {
 		t.Errorf("cfg = %+v", cfg)
 	}
-	if cfg.Environment != "development" || cfg.Production() {
+	if cfg.Environment != "production" {
 		t.Errorf("Environment = %q", cfg.Environment)
 	}
 	if want := []string{"http://localhost:5173"}; !reflect.DeepEqual(cfg.CORSOrigins, want) {
@@ -83,5 +83,32 @@ func TestConfigDefaults(t *testing.T) {
 	}
 	if cfg.AppBaseURL != "http://localhost:5173" || cfg.SentryEnvironment != "development" || cfg.SentryTracesSampleRate != 0 {
 		t.Errorf("cfg = %+v", cfg)
+	}
+}
+
+func TestConfigDefaultsToProduction(t *testing.T) {
+	cfg, err := ParseConfig(baseVars(nil))
+	if err != nil || !cfg.Production() {
+		t.Errorf("Production() = false without ENVIRONMENT (err %v)", err)
+	}
+	cfg, err = ParseConfig(baseVars(map[string]string{"ENVIRONMENT": "development"}))
+	if err != nil || cfg.Production() {
+		t.Errorf("ENVIRONMENT=development counted as production (err %v)", err)
+	}
+}
+
+func TestConfigEmptyCorsOriginsAllowsNone(t *testing.T) {
+	for _, v := range []string{"", "  ", "[]", `["", " "]`} {
+		cfg, err := ParseConfig(baseVars(map[string]string{"CORS_ORIGINS": v}))
+		if err != nil || len(cfg.CORSOrigins) != 0 {
+			t.Errorf("CORS_ORIGINS=%q -> %v, %v; want none", v, cfg.CORSOrigins, err)
+		}
+	}
+}
+
+func TestConfigMalformedJSONCorsOriginsErrors(t *testing.T) {
+	_, err := ParseConfig(baseVars(map[string]string{"CORS_ORIGINS": `["https://a"`}))
+	if err == nil || !strings.Contains(err.Error(), "CORS_ORIGINS") {
+		t.Errorf("err = %v, want one naming CORS_ORIGINS", err)
 	}
 }

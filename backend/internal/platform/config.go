@@ -3,6 +3,7 @@ package platform
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -28,12 +29,12 @@ type Config struct {
 
 // rawConfig is the environment as written; Config holds it parsed.
 type rawConfig struct {
-	Environment            string  `env:"ENVIRONMENT" envDefault:"development"`
+	Environment            string  `env:"ENVIRONMENT" envDefault:"production"`
 	DatabaseURL            string  `env:"DATABASE_URL,required"`
 	SessionSecret          string  `env:"SESSION_SECRET,required"`
 	SessionMaxAgeSeconds   int     `env:"SESSION_MAX_AGE_SECONDS" envDefault:"28800"`
 	SessionRememberSeconds int     `env:"SESSION_REMEMBER_MAX_AGE_SECONDS" envDefault:"2592000"`
-	CORSOrigins            string  `env:"CORS_ORIGINS" envDefault:"[\"http://localhost:5173\"]"`
+	CORSOrigins            string  `env:"CORS_ORIGINS"`
 	AppBaseURL             string  `env:"APP_BASE_URL" envDefault:"http://localhost:5173"`
 	SentryDSN              string  `env:"SENTRY_DSN"`
 	SentryEnvironment      string  `env:"SENTRY_ENVIRONMENT" envDefault:"development"`
@@ -47,7 +48,8 @@ func LoadConfig() (Config, error) {
 	if err := env.Parse(&r); err != nil {
 		return Config{}, err
 	}
-	return r.build()
+	_, set := os.LookupEnv("CORS_ORIGINS")
+	return r.build(set)
 }
 
 // ParseConfig reads vars instead of the process environment (for tests).
@@ -56,20 +58,26 @@ func ParseConfig(vars map[string]string) (Config, error) {
 	if err := env.ParseWithOptions(&r, env.Options{Environment: vars}); err != nil {
 		return Config{}, err
 	}
-	return r.build()
+	_, set := vars["CORS_ORIGINS"]
+	return r.build(set)
 }
 
 // Production reports whether the API runs in production.
 func (c Config) Production() bool { return c.Environment == "production" }
 
-func (r rawConfig) build() (Config, error) {
+// build checks and converts r; corsSet is whether CORS_ORIGINS was set at all,
+// because blank means "no origins" while unset means the local default.
+func (r rawConfig) build(corsSet bool) (Config, error) {
 	// A short secret signs sessions anyone can forge.
 	if len(r.SessionSecret) < 32 {
 		return Config{}, fmt.Errorf("SESSION_SECRET must be at least 32 bytes")
 	}
-	origins, err := parseOrigins(r.CORSOrigins)
-	if err != nil {
-		return Config{}, err
+	origins := []string{"http://localhost:5173"}
+	if corsSet {
+		var err error
+		if origins, err = parseOrigins(r.CORSOrigins); err != nil {
+			return Config{}, err
+		}
 	}
 	return Config{
 		Environment:            r.Environment,
@@ -104,7 +112,13 @@ func parseOrigins(s string) ([]string, error) {
 		if err := json.Unmarshal([]byte(s), &out); err != nil {
 			return nil, fmt.Errorf("CORS_ORIGINS is not a JSON list: %w", err)
 		}
-		return out, nil
+		var kept []string
+		for _, o := range out {
+			if o = strings.TrimSpace(o); o != "" {
+				kept = append(kept, o)
+			}
+		}
+		return kept, nil
 	}
 	var out []string
 	for _, o := range strings.Split(s, ",") {
