@@ -1,5 +1,5 @@
 -- +goose Up
--- Bumped to end every session of a user at once (password change, deactivation).
+-- Bumped to end every session of a user at once (change-password, reset-password, set-password).
 ALTER TABLE users ADD COLUMN session_epoch integer NOT NULL DEFAULT 0;
 
 -- +goose Down

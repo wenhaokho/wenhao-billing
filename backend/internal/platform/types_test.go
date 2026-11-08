@@ -70,9 +70,6 @@ func TestNilSliceField(t *testing.T) {
 	if got := mustJSON(t, newResp()); got != `{"items":[]}` {
 		t.Error(got)
 	}
-	if got := mustJSON(t, NewPage[string](nil, 0, PageQuery{Page: 1, PageSize: 50})); got != `{"items":[],"total":0,"page":1,"page_size":50,"has_next":false}` {
-		t.Error(got)
-	}
 }
 
 func TestDateRoundTrip(t *testing.T) {

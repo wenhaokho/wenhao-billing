@@ -60,7 +60,7 @@ func Register(api huma.API, pool *pgxpool.Pool, s platform.Sessions, mail email.
 	if s.Clock == nil {
 		s.Clock = clock
 	}
-	dummy, err := hashPassword("not-a-password")
+	dummy, err := hashPassword(context.Background(), "not-a-password")
 	if err != nil {
 		panic("auth: cannot build the dummy password hash: " + err.Error())
 	}
@@ -145,16 +145,24 @@ func (r routes) login(ctx context.Context, in *loginIn) (*sessionOut, error) {
 	u, err := r.q.UserByEmail(ctx, account)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		_, _ = verifyHash(in.Body.Password, r.dummy)
-	case err != nil:
-		return nil, err
-	case r.verify(ctx, in.Body.Password, u.PasswordHash):
-		if err := r.throttle.succeed(ctx, account, in.addr); err != nil {
+		if err := withArgonSlot(ctx, func() { _, _ = verifyHash(in.Body.Password, r.dummy) }); err != nil {
 			return nil, err
 		}
-		// No role check here, as in Python: a non-admin signs in and is
-		// refused by every admin route.
-		return r.issue(u, in.Body.Remember)
+	case err != nil:
+		return nil, err
+	default:
+		ok, err := r.verify(ctx, in.Body.Password, u.PasswordHash)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			if err := r.throttle.succeed(ctx, account, in.addr); err != nil {
+				return nil, err
+			}
+			// No role check here, as in Python: a non-admin signs in and is
+			// refused by every admin route.
+			return r.issue(u, in.Body.Remember)
+		}
 	}
 	// The attempt's row stays: it counts as a failure.
 	return nil, errStatus(http.StatusUnauthorized, invalidCredentials)
@@ -163,15 +171,19 @@ func (r routes) login(ctx context.Context, in *loginIn) (*sessionOut, error) {
 // verify reports whether password matches encoded. A hash that is not
 // argon2id (Python's bcrypt, say) never matches and is never an error: the
 // user is refused like a wrong password until set-password replaces it, and
-// the dummy is verified instead so the refusal takes as long.
-func (r routes) verify(ctx context.Context, password, encoded string) bool {
-	ok, err := verifyHash(password, encoded)
-	if err != nil {
-		observe.LoggerFrom(ctx).Warn("password hash is not argon2id; run set-password for this user", "err", err)
-		_, _ = verifyHash(password, r.dummy)
-		return false
-	}
-	return ok
+// the dummy is verified instead so the refusal takes as long. Both run in
+// one argon2id slot; the error is only ever ctx's, from waiting for it.
+func (r routes) verify(ctx context.Context, password, encoded string) (bool, error) {
+	var ok bool
+	err := withArgonSlot(ctx, func() {
+		var err error
+		if ok, err = verifyHash(password, encoded); err != nil {
+			observe.LoggerFrom(ctx).Warn("password hash is not argon2id; run set-password for this user", "err", err)
+			_, _ = verifyHash(password, r.dummy)
+			ok = false
+		}
+	})
+	return ok, err
 }
 
 type logoutOut struct {
@@ -203,13 +215,17 @@ func (r routes) changePassword(ctx context.Context, in *changePasswordIn) (*sess
 	if err != nil {
 		return nil, err
 	}
-	if !r.verify(ctx, in.Body.CurrentPassword, u.PasswordHash) {
+	ok, err := r.verify(ctx, in.Body.CurrentPassword, u.PasswordHash)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
 		return nil, errStatus(http.StatusBadRequest, wrongCurrent)
 	}
 	if in.Body.CurrentPassword == in.Body.NewPassword {
 		return nil, errStatus(http.StatusBadRequest, samePassword)
 	}
-	hash, err := hashPassword(in.Body.NewPassword)
+	hash, err := hashPassword(ctx, in.Body.NewPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +318,7 @@ func (r routes) resetPassword(ctx context.Context, in *resetPasswordIn) (*userBo
 			invalid = true
 			return q.ClearResetToken(ctx, row.UserID)
 		}
-		hash, err := hashPassword(in.Body.NewPassword)
+		hash, err := hashPassword(ctx, in.Body.NewPassword)
 		if err != nil {
 			return err
 		}

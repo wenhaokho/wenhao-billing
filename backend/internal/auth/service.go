@@ -26,10 +26,38 @@ const (
 	maxPassword = 128
 )
 
-func hashPassword(password string) (string, error) { return gauth.Hash(password, HashParams) }
+// argonSlots bounds the argon2id runs (hashes and verifications) in flight:
+// each takes HashParams.Memory (19 MiB), so thirty simultaneous logins would
+// otherwise take some 570 MiB.
+var argonSlots = make(chan struct{}, 2)
+
+// withArgonSlot runs f once a slot is free, or returns ctx's error if ctx
+// ends first.
+func withArgonSlot(ctx context.Context, f func()) error {
+	select {
+	case argonSlots <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-argonSlots }()
+	f()
+	return nil
+}
+
+func hashPassword(ctx context.Context, password string) (string, error) {
+	var (
+		hash string
+		err  error
+	)
+	if slotErr := withArgonSlot(ctx, func() { hash, err = gauth.Hash(password, HashParams) }); slotErr != nil {
+		return "", slotErr
+	}
+	return hash, err
+}
 
 // verifyHash checks a password against an encoded hash. A variable so a
-// test can count the argon2id verifications a request runs.
+// test can count the argon2id verifications a request runs. Call it only
+// inside withArgonSlot.
 var verifyHash = gauth.Verify
 
 // normalizeEmail lowercases the domain, as Python's EmailStr did; the local
@@ -74,7 +102,7 @@ func SetPassword(ctx context.Context, pool *pgxpool.Pool, email, password string
 	if err != nil {
 		return err
 	}
-	hash, err := hashPassword(password)
+	hash, err := hashPassword(ctx, password)
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -87,7 +89,7 @@ func newApp(t *testing.T) app {
 // user inserts a user whose password is password.
 func (a app) user(t *testing.T, addr, role string) uuid.UUID {
 	t.Helper()
-	hash, err := hashPassword(password)
+	hash, err := hashPassword(context.Background(), password)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,6 +559,70 @@ func TestUnknownEmailStillVerifies(t *testing.T) {
 		if got := n.Load(); got != 1 {
 			t.Errorf("%s: %d argon2id verifications, want 1", c.email, got)
 		}
+	}
+}
+
+// argon2id costs 19 MiB a run, so at most two run at once however many
+// logins arrive together. The instrumented verifier holds each run for a
+// moment and records how many overlap.
+func TestArgonConcurrencyIsBounded(t *testing.T) {
+	const capacity = 2
+	a := newApp(t)
+	a.user(t, adminEmail, "admin")
+	var inFlight, peak atomic.Int32
+	orig := verifyHash
+	verifyHash = func(pw, encoded string) (bool, error) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			p := peak.Load()
+			if n <= p || peak.CompareAndSwap(p, n) {
+				break
+			}
+		}
+		time.Sleep(30 * time.Millisecond)
+		return orig(pw, encoded)
+	}
+	t.Cleanup(func() { verifyHash = orig })
+
+	const n = 10
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			addr, pw := fmt.Sprintf("nobody-%d@example.com", i), password
+			switch i % 3 {
+			case 1:
+				addr, pw = adminEmail, "wrong-password"
+			case 2:
+				addr = adminEmail
+			}
+			// Distinct client addresses keep the throttle out of the way.
+			a.login(t, addr, pw, false, "CF-Connecting-IP", fmt.Sprintf("10.0.0.%d", i))
+		})
+	}
+	wg.Wait()
+	if got := peak.Load(); got > capacity || got < 2 {
+		t.Errorf("%d argon2id runs overlapped, want 2..%d", got, capacity)
+	}
+}
+
+// A request waiting for an argon2id slot gives up when its context ends.
+func TestArgonSlotWaitEndsWithContext(t *testing.T) {
+	for range cap(argonSlots) {
+		argonSlots <- struct{}{}
+	}
+	t.Cleanup(func() {
+		for range cap(argonSlots) {
+			<-argonSlots
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := hashPassword(ctx, password); !errors.Is(err, context.Canceled) {
+		t.Errorf("hashPassword: %v, want context.Canceled", err)
+	}
+	if err := withArgonSlot(ctx, func() { t.Error("ran without a slot") }); !errors.Is(err, context.Canceled) {
+		t.Errorf("withArgonSlot: %v, want context.Canceled", err)
 	}
 }
 

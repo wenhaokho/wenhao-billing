@@ -138,3 +138,13 @@ func TestIssueSessionRefusesNonAdmin(t *testing.T) {
 		t.Errorf("printed %q", out.String())
 	}
 }
+
+// serve shows email bodies (live reset links) in the log only for a local
+// environment.
+func TestMailSenderShowsBodiesOnlyLocally(t *testing.T) {
+	for env, want := range map[string]bool{"development": true, "test": true, "production": false, "staging": false, "prod": false} {
+		if got := mailSender(platform.Config{Environment: env}, nil).ShowBodies; got != want {
+			t.Errorf("%s: ShowBodies %v, want %v", env, got, want)
+		}
+	}
+}

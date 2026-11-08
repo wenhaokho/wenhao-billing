@@ -1,5 +1,6 @@
-// Package email sends the API's mail. Until SMTP is wired up, LogSender logs
-// each message instead, as the Python backend did with no SMTP host.
+// Package email sends the API's mail. Until Resend is wired up (plan 7),
+// LogSender logs each message instead, as the Python backend did with no
+// SMTP host.
 package email
 
 import (
@@ -18,9 +19,14 @@ type Sender interface {
 	Send(ctx context.Context, m Message) error
 }
 
-// LogSender logs every message instead of sending it. The text body is
-// logged too: with email disabled, a reset link is read from the log.
-type LogSender struct{ Logger *slog.Logger }
+// LogSender logs every message instead of sending it: who it is for and its
+// subject, never its body, which can hold a live reset link. ShowBodies logs
+// the text body too, so local development can read a reset link from the
+// log; serve sets it only for a local environment.
+type LogSender struct {
+	Logger     *slog.Logger
+	ShowBodies bool
+}
 
 // Send logs m and never fails.
 func (s LogSender) Send(ctx context.Context, m Message) error {
@@ -28,6 +34,11 @@ func (s LogSender) Send(ctx context.Context, m Message) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	logger.InfoContext(ctx, fmt.Sprintf("[email disabled] would send to=%s subject=%q", m.To, m.Subject), "body", m.Text)
+	msg := fmt.Sprintf("[email disabled] would send to=%s subject=%q", m.To, m.Subject)
+	if s.ShowBodies {
+		logger.InfoContext(ctx, msg, "body", m.Text)
+		return nil
+	}
+	logger.InfoContext(ctx, msg)
 	return nil
 }

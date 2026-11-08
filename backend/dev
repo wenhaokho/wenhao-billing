@@ -47,7 +47,15 @@ case "${1:-}" in
     # frontend's types are generated from openapi.json.
     "$self" sqlc >/dev/null
     "$self" openapi >/dev/null
-    git diff --exit-code -- internal openapi.json || { echo "generated files are stale: run ./dev sqlc and ./dev openapi"; exit 1; } ;;
+    # git status, unlike git diff, also sees new untracked files and changes
+    # already staged: everything under internal/ must be committed as is.
+    git diff --exit-code -- internal openapi.json || { echo "generated files are stale: run ./dev sqlc and ./dev openapi"; exit 1; }
+    dirty=$(git status --porcelain -- internal openapi.json)
+    if [[ -n "$dirty" ]]; then
+      echo "$dirty"
+      echo "generated files are stale or uncommitted: run ./dev sqlc and ./dev openapi, then commit"
+      exit 1
+    fi ;;
   go) shift; run_go go "$@" ;;
   *) sed -n '2,9p' "$0"; exit 2 ;;
 esac

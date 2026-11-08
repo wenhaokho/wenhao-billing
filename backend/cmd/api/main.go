@@ -88,6 +88,12 @@ func main() {
 	}
 }
 
+// mailSender is the API's mail: logged, with bodies (live reset links)
+// shown only in a local environment.
+func mailSender(cfg platform.Config, logger *slog.Logger) email.LogSender {
+	return email.LogSender{Logger: logger, ShowBodies: cfg.LocalHTTP()}
+}
+
 func serve() error {
 	cfg, err := platform.LoadConfig()
 	if err != nil {
@@ -115,7 +121,7 @@ func serve() error {
 	clock := platform.SystemClock{}
 	sessions := platform.NewSessions(cfg)
 	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock})
-	register(api, features{Pool: pool, Sessions: sessions, Mail: email.LogSender{Logger: logger}, Config: cfg, Clock: clock})
+	register(api, features{Pool: pool, Sessions: sessions, Mail: mailSender(cfg, logger), Config: cfg, Clock: clock})
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
