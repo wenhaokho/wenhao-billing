@@ -119,11 +119,14 @@ sessions across two backends.
   template, depending on `github.com/LOQATO/gokit v0.2.0`, vendored.
 - `GOPRIVATE=github.com/LOQATO/*` in `backend/dev` and the README. Only
   `./dev vendor` (upgrading the kit) needs GitHub access, through the
-  owner's `gh` login. CI and the Coolify build read `vendor/` and need no
-  token.
-- wenhao-billing has no CI today. `.github/workflows/ci.yml` is added:
-  golangci-lint, `sqlc vet`/`diff`, `./dev generated`, `go test -race`
-  against a Postgres service, and `npm run build` for the frontend.
+  owner's `gh` login. Local checks and the Coolify build read `vendor/` and
+  need no token.
+- **GitHub Actions is off** on `gokit`, `go-api-template` and wenhao-billing,
+  and the owner keeps it off (decided 2026-11-09). The checks run locally
+  through Docker instead: `scripts/check.sh` at the repository root (compose
+  paths, frozen Python tests, frontend build), which plan 2 extends with
+  golangci-lint, `sqlc vet`/`diff`, `./dev generated` and `go test -race`
+  against Postgres. No workflow file is added.
 
 ## How it is built
 
@@ -139,7 +142,7 @@ sessions across two backends.
    and the template is bumped to it. Modules come from the `v0.2.0` tag on
    GitHub, never from a local checkout of `gokit`.
 2. **Template check.** The template pins `gokit v0.1.0`; bump it to v0.2.0
-   in the template repository (CI green) so it matches what this project and
+   in the template repository (its checks green locally) so it matches what this project and
    Pintas use. Nothing else changes in the template.
 3. **Freeze and rename**: `backend/` → `backend-python/` with every path that
    names it (`docker-compose.yml`, `docker-compose.coolify.yml`, CLAUDE.md,
@@ -147,7 +150,7 @@ sessions across two backends.
    production keeps running Python from the new path before any Go exists.
 4. **Go foundation** in `backend/`: config, baseline migration, platform
    (principal, permissions, errors, JSON types), auth, `ROUTES.md`,
-   `TESTS.md`, `PORT-NOTES.md`, CI.
+   `TESTS.md`, `PORT-NOTES.md`, the Go checks in `scripts/check.sh`.
 5. **Features**, each with its ported tests: master data (customers,
    vendors, items, chart of accounts, business profile, users); FX rates and
    the ledger; invoices, recurring templates, quotations, projects, bills;
@@ -505,8 +508,9 @@ without committing; `as_of` defaults use server-local today.
 
 ## Done
 
-- CI green on `gokit`, `go-api-template` (after the v0.2.0 bump) and
-  wenhao-billing.
+- The checks green, run locally (Actions is off): `gokit`'s and
+  `go-api-template`'s `./dev lint`, `./dev generated` and `./dev test`
+  (template after the v0.2.0 bump), and wenhao-billing's `scripts/check.sh`.
 - Every route in `ROUTES.md` ported; every Python test accounted for in
   `TESTS.md`; every guard's mutation recorded.
 - The local comparison (reads and writes) and the production read
