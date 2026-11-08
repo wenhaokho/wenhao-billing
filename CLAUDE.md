@@ -6,10 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Single-tenant agency accounting system.
 
-- **Backend:** FastAPI + SQLAlchemy 2.0 + Alembic, APScheduler (in-process), Postgres 16. Package layout under `backend/app/` (`api/v1/routers`, `models`, `schemas`, `services`, `workers`, `db`).
+- **Backend:** FastAPI + SQLAlchemy 2.0 + Alembic, APScheduler (in-process), Postgres 16. Package layout under `backend-python/app/` (`api/v1/routers`, `models`, `schemas`, `services`, `workers`, `db`).
+- **Frozen:** the Python backend in `backend-python/` is being replaced by a Go backend in `backend/` (see `docs/superpowers/specs/2026-11-08-go-backend-design.md`). Do not change `backend-python/` except its path. The Compose service is still named `backend`.
 - **Frontend:** Vue 3 + TypeScript + Vite, Pinia, vue-router, PrimeVue, @tanstack/vue-query, axios. Source under `frontend/src/` (`views`, `components`, `stores`, `composables`, `api`, `router`).
 - **Infra:** `docker-compose.yml` at repo root runs db, backend (`alembic upgrade head` then uvicorn reload; also runs the periodic jobs), and frontend (vite dev server). There is no separate worker or Redis.
-- **Production (Coolify):** `docker-compose.coolify.yml` runs two containers from `backend/Dockerfile.prod` (API only) and `frontend/Dockerfile.prod` (nginx serving the SPA). Only the web container is public; its `frontend/nginx.conf.template` proxies `/api`, `/mcp`, `/oauth`, `/.well-known` and `/docs` to the API, so the browser sees one origin. Add new top-level backend paths there too.
+- **Production (Coolify):** `docker-compose.coolify.yml` runs two containers from `backend-python/Dockerfile.prod` (API only) and `frontend/Dockerfile.prod` (nginx serving the SPA). Only the web container is public; its `frontend/nginx.conf.template` proxies `/api`, `/mcp`, `/oauth`, `/.well-known` and `/docs` to the API, so the browser sees one origin. Add new top-level backend paths there too.
 
 ## Common commands
 
@@ -19,7 +20,7 @@ docker compose up --build
 ```
 Frontend: http://localhost:5173 · Backend: http://localhost:8000 · API prefix: `/api/v1`.
 
-Backend (inside `backend/`, or via `docker compose exec backend ...`):
+Backend (inside `backend-python/`, or via `docker compose exec backend ...`):
 - Install dev deps: `pip install -e .[dev]`
 - Create migration: `alembic revision --autogenerate -m "<msg>"` — **revision id must be <32 chars** (Alembic `version_num` column limit).
 - Apply migrations: `alembic upgrade head`
@@ -34,7 +35,7 @@ Frontend (inside `frontend/`):
 - Typecheck + build: `npm run build` (runs `vue-tsc -b && vite build`)
 - Preview production build: `npm run preview`
 
-Seed scripts (in `backend/scripts/`, run via `docker compose exec backend python -m scripts.<name>`): `seed_admin`, `seed_dummy`, `seed_master_data`.
+Seed scripts (in `backend-python/scripts/`, run via `docker compose exec backend python -m scripts.<name>`): `seed_admin`, `seed_dummy`, `seed_master_data`.
 
 ## Architecture
 

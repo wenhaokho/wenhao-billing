@@ -20,7 +20,7 @@
 services:
   wenhao-billing-api:
     build:
-      context: ./backend
+      context: ./backend-python
       dockerfile: Dockerfile.prod
     image: wenhao-billing-api:coolify
     environment:

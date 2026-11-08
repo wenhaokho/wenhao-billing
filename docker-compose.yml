@@ -18,7 +18,7 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: ./backend-python
     environment:
       DATABASE_URL: postgresql+psycopg://billing:billing@db:5432/billing
       SESSION_SECRET: dev-session-secret-change-me
@@ -51,10 +51,10 @@ services:
       retries: 20
       start_period: 10s
     volumes:
-      - ./backend/app:/app/app
-      - ./backend/alembic:/app/alembic
-      - ./backend/scripts:/app/scripts
-      - ./backend/tests:/app/tests
+      - ./backend-python/app:/app/app
+      - ./backend-python/alembic:/app/alembic
+      - ./backend-python/scripts:/app/scripts
+      - ./backend-python/tests:/app/tests
     command:
       [
         "sh",
