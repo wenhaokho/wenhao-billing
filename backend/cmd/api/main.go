@@ -1,6 +1,9 @@
 // Command api serves the HTTP API.
 //
-//	api              serve (migrations run first, under a lock)
+//	api                 serve (migrations run first, under a lock; refuses a
+//	                    database that still has only Alembic's history)
+//	api adopt-baseline  hand the Alembic-built database to goose without
+//	                    running the baseline (once, before the first serve)
 //	api healthcheck  exit 0 when the local server answers /health (for the image)
 //	api openapi      print the OpenAPI document (for the frontend's types)
 package main
@@ -40,6 +43,13 @@ func main() {
 			os.Exit(healthcheck())
 		case "openapi":
 			os.Exit(printOpenAPI())
+		case "adopt-baseline":
+			if err := adoptBaseline(); err != nil {
+				slog.Error("adopt-baseline failed", "err", err)
+				os.Exit(1)
+			}
+			slog.Info("adopt-baseline: goose now owns the database at the baseline; the next serve applies the later migrations")
+			os.Exit(0)
 		}
 	}
 	if err := serve(); err != nil {
@@ -63,7 +73,7 @@ func serve() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := db.Migrate(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
+	if err := prepareDatabase(ctx, cfg.DatabaseURL); err != nil {
 		return err
 	}
 	pool, err := db.Open(ctx, db.PoolConfig{URL: cfg.DatabaseURL, StatementTimeout: 30 * time.Second})
@@ -95,6 +105,40 @@ func serve() error {
 		return err
 	}
 	return nil
+}
+
+// prepareDatabase is serve's database step: refuse a database goose does not
+// own yet (migrations.CheckAdopted), then migrate. The check uses its own
+// short-lived pool, closed before goose runs, so the server's pool is opened
+// on the migrated schema and the check never shares a connection with goose.
+func prepareDatabase(ctx context.Context, url string) error {
+	pool, err := db.Open(ctx, db.PoolConfig{URL: url})
+	if err != nil {
+		return err
+	}
+	err = migrations.CheckAdopted(ctx, pool)
+	pool.Close()
+	if err != nil {
+		return err
+	}
+	return db.Migrate(ctx, url, migrations.FS)
+}
+
+// adoptBaseline runs migrations.Adopt against DATABASE_URL. It never migrates:
+// the next serve does that, once its own check passes.
+func adoptBaseline() error {
+	cfg, err := platform.LoadConfig()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	pool, err := db.Open(ctx, db.PoolConfig{URL: cfg.DatabaseURL})
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	return migrations.Adopt(ctx, pool)
 }
 
 func healthcheck() int {
