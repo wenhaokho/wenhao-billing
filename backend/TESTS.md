@@ -8,10 +8,10 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | --- | --- | --- | --- | --- | --- |
 | tests/integration/test_api_no_store.py | test_api_responses_are_no_store | platform.TestNoStoreOnApiPaths | ported |  | Removed `r.Use(noStore)`: TestNoStoreOnApiPaths red (task 5) |
 | tests/integration/test_api_no_store.py | test_api_404_is_no_store | platform.TestNoStoreOnApiPaths | ported |  | Removed `r.Use(noStore)`: TestNoStoreOnApiPaths red (task 5) |
-| tests/integration/test_auth_session.py | test_login_defaults_to_no_remember | auth.TestLoginDefaultsToEightHours | ported |  | — |
-| tests/integration/test_auth_session.py | test_short_session_expires_after_default_ttl | auth.TestShortSessionExpiresAfterDefaultTTL | ported |  | — |
-| tests/integration/test_auth_session.py | test_remember_session_survives_short_ttl | auth.TestRememberSessionSurvivesShortTTL | ported |  | — |
-| tests/integration/test_auth_session.py | test_remember_session_expires_after_remember_ttl | auth.TestRememberSessionExpiresAfterRememberTTL | ported |  | — |
+| tests/integration/test_auth_session.py | test_login_defaults_to_no_remember | auth.TestLoginDefaultsToEightHours | ported |  | Sessions.Issue always used RememberMaxAge: red (Max-Age 2592000, want 8 hours) (internal/platform/principal.go, task 8 fix round) |
+| tests/integration/test_auth_session.py | test_short_session_expires_after_default_ttl | auth.TestShortSessionExpiresAfterDefaultTTL | ported |  | Sessions.Issue always used RememberMaxAge: red (got 200, want 401 session expired) (internal/platform/principal.go, task 8 fix round) |
+| tests/integration/test_auth_session.py | test_remember_session_survives_short_ttl | auth.TestRememberSessionSurvivesShortTTL | ported |  | Remember branch used MaxAge (8 h): red (internal/platform/principal.go, task 8 fix round) |
+| tests/integration/test_auth_session.py | test_remember_session_expires_after_remember_ttl | auth.TestRememberSessionExpiresAfterRememberTTL | ported |  | Remember branch used 2 x RememberMaxAge: red (want 401 session expired) (internal/platform/principal.go, task 8 fix round) |
 | tests/integration/test_customer_balances.py | test_empty_db_returns_empty_list |  | todo |  |  |
 | tests/integration/test_customer_balances.py | test_customer_with_no_open_invoices_excluded |  | todo |  |  |
 | tests/integration/test_customer_balances.py | test_sent_invoice_not_yet_due_contributes_to_balance_only |  | todo |  |  |
