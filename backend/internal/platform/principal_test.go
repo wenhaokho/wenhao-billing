@@ -58,11 +58,9 @@ func serverWithWhoami(t *testing.T) http.Handler {
 
 func code(t *testing.T, body []byte) string {
 	t.Helper()
-	var b struct {
-		Error struct{ Code string } `json:"error"`
-	}
+	var b struct{ Code string }
 	_ = json.Unmarshal(body, &b)
-	return b.Error.Code
+	return b.Code
 }
 
 var alice = Principal{UserID: uuid.New(), OrgID: uuid.New(), Permissions: map[string]bool{"things.read": true}}
@@ -144,12 +142,12 @@ func TestAnOperationWithoutADeclaredPermissionIsRefused(t *testing.T) {
 	}
 }
 
-// A panic is a 500 in the error envelope (the frontend can read it), never a
-// bare body, and the server keeps serving.
-func TestAPanicIsAnEnvelope500(t *testing.T) {
+// A panic is a 500 problem body (the frontend can read it), never a bare
+// body, and the server keeps serving.
+func TestAPanicIsAProblem500(t *testing.T) {
 	h := serverWithWhoami(t)
 	rec := get(t, h, "/panics", "Authorization", "Bearer "+TestToken(t, testSecret, alice), "Accept-Language", "id")
-	if rec.Code != 500 || code(t, rec.Body.Bytes()) != "internal_error" || !strings.Contains(rec.Body.String(), "Terjadi kesalahan tak terduga") {
+	if rec.Code != 500 || code(t, rec.Body.Bytes()) != "internal_error" || !strings.Contains(rec.Body.String(), "An unexpected error occurred") {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
 	if rec := get(t, h, "/health"); rec.Code != 200 {
