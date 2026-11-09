@@ -409,3 +409,9 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Python: nothing compares the project's customer or currency with the document's (`app/services/quoting.py:122-138`, `app/services/billing_ap.py:46-61`); only the frontend filters the project picker by customer. The summary of note 63 then adds the mismatch up.
     Go: kept; no test pins the absence of the check.
     After the switch: refuse a project of another customer, and warn on a currency mismatch.
+
+80. **Two open invoices that clear equally go to manual review; a null date scores zero.**
+    Python: the engine sorts by score and takes the first row of an unordered query, with no runner-up check (`app/services/matching_engine.py:181-186`), so two invoices of one customer with the same amount auto-cleared against whichever the database returned first; an open invoice with a null `issue_date` or `due_date` raised `TypeError` (500).
+    Go: when more than one candidate is an exact match with score 95 or more, the payment is `PENDING_MANUAL_REVIEW`, the best candidate stays attached and the reasons end with `ambiguous match: <n> open invoices clear equally`. Candidates order by score, then `due_date` (none last), then `invoice_id`. A null date scores date proximity 0 (`matching.TestTwoExactCandidatesHold`, `TestTieOrderDeterministic`, `TestNullDatesScoreZeroProximity`).
+    Payer names lower-case with full Unicode mapping (`x/text`) and strip Python's whitespace. The date division keeps Python's 28 significant digits. One gap: Python 3.x `lower()` and x/text can differ on a few rare special casings; difflib's rune ratio itself is pinned by goldens.
+    After the switch: none; an ambiguous pair is for a human.
