@@ -309,14 +309,8 @@
             "type": "boolean"
           },
           "cloudflare_target": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CloudflareTargetIn"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/CloudflareTargetIn",
+            "description": "May be null: no target."
           },
           "default_currency": {
             "description": "Defaults to IDR.",
@@ -643,14 +637,8 @@
             "type": "boolean"
           },
           "cloudflare_target": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CloudflareTargetIn"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/CloudflareTargetIn",
+            "description": "May be null: leaves the target as it is."
           },
           "default_currency": {
             "maxLength": 3,

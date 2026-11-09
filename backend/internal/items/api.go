@@ -141,7 +141,7 @@ type ItemCreate struct {
 	HostingDomain            platform.Optional[string]        `json:"hosting_domain" maxLength:"255" doc:"Trimmed and lower-cased."`
 	HostingGraceDays         platform.Optional[int32]         `json:"hosting_grace_days" minimum:"0" maximum:"365"`
 	HostingSuspensionEnabled platform.Optional[bool]          `json:"hosting_suspension_enabled"`
-	CloudflareTarget         *CloudflareTargetIn              `json:"cloudflare_target"`
+	CloudflareTarget         *CloudflareTargetIn              `json:"cloudflare_target" doc:"May be null: no target."`
 }
 
 // ItemUpdate changes the fields sent and leaves the rest. A null clears a
@@ -165,7 +165,7 @@ type ItemUpdate struct {
 	HostingGraceDays         platform.Optional[int32]         `json:"hosting_grace_days" minimum:"0" maximum:"365"`
 	HostingSuspensionEnabled platform.Optional[bool]          `json:"hosting_suspension_enabled"`
 	HostingStatus            platform.Optional[string]        `json:"hosting_status" enum:"ACTIVE,SUSPEND_PENDING,SUSPENDED,CANCELLED" doc:"A hosting item left with none becomes ACTIVE."`
-	CloudflareTarget         *CloudflareTargetIn              `json:"cloudflare_target"`
+	CloudflareTarget         *CloudflareTargetIn              `json:"cloudflare_target" doc:"May be null: leaves the target as it is."`
 }
 
 // nullDec is Optional.Merge for a price, whose column type is NullDecimal.

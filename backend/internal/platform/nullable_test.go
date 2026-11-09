@@ -16,28 +16,38 @@ type nullTarget struct {
 }
 
 type nullBody struct {
-	Note      *string                `json:"note"`
-	Price     *Dec4                  `json:"price"`
-	Target    *nullTarget            `json:"target"`
-	MaybeDec  Optional[Dec4]         `json:"maybe_dec"`
-	MaybeObj  Optional[nullTarget]   `json:"maybe_obj"`
-	MaybeText Optional[string]       `json:"maybe_text" maxLength:"3"`
-	Count     NotNull[int32]         `json:"count"`
-	Lines     []nullTarget           `json:"lines,omitempty"`
-	Skipped   *string                `json:"skipped,omitempty"`
-	Plain     Dec4                   `json:"plain"`
-	ByKey     map[string]*nullTarget `json:"by_key,omitempty"`
+	Note      *string              `json:"note"`
+	Price     *Dec4                `json:"price"`
+	Target    *nullTarget          `json:"target"`
+	MaybeDec  Optional[Dec4]       `json:"maybe_dec"`
+	MaybeObj  Optional[nullTarget] `json:"maybe_obj"`
+	MaybeText Optional[string]     `json:"maybe_text" maxLength:"3"`
+	Count     NotNull[int32]       `json:"count"`
+	Lines     []nullTarget         `json:"lines,omitempty"`
+	Skipped   *string              `json:"skipped,omitempty"`
+	Plain     Dec4                 `json:"plain"`
+}
+
+type nullOutBody struct {
+	Note    *string                `json:"note"`
+	Price   *Dec4                  `json:"price"`
+	Target  *nullTarget            `json:"target"`
+	Targets []*nullTarget          `json:"targets"`
+	ByKey   map[string]*nullTarget `json:"by_key"`
+	Plain   Dec4                   `json:"plain"`
 }
 
 type nullIn struct{ Body nullBody }
 
-type nullOut struct{ Body nullBody }
+type nullOut struct{ Body nullOutBody }
 
 func nullServer(t *testing.T) (http.Handler, huma.API) {
 	t.Helper()
 	h, api := NewServer(Config{Environment: "test"}, Deps{})
 	huma.Register(api, huma.Operation{OperationID: "nullable", Method: http.MethodPost, Path: "/nullable", Tags: []string{PublicTag}},
-		func(_ context.Context, in *nullIn) (*nullOut, error) { return &nullOut{Body: in.Body}, nil })
+		func(_ context.Context, in *nullIn) (*nullOut, error) {
+			return &nullOut{Body: nullOutBody{Note: in.Body.Note, Price: in.Body.Price, Target: in.Body.Target, Plain: in.Body.Plain}}, nil
+		})
 	return h, api
 }
 
@@ -79,23 +89,38 @@ func jsonAcceptsNull(m map[string]any) bool {
 	return false
 }
 
-// Every pointer and Optional field's schema accepts null, whatever its
-// schema's shape; NotNull, plain values and omitempty pointers do not; and
-// no schema has an empty type.
+// In a response, every pointer field's schema accepts null, whatever its
+// shape (a scalar, a decimal's oneOf, a $ref), as do pointer slice items and
+// map values. In a request, scalars and decimals do; an object keeps its
+// plain $ref, so its field errors survive (Huma lets the null through for a
+// property that is not required). NotNull, plain values and omitempty
+// pointers never do; and no schema has an empty type.
 func TestPointerAndOptionalSchemasAcceptNull(t *testing.T) {
 	_, api := nullServer(t)
 	reg := api.OpenAPI().Components.Schemas
-	s := reg.SchemaFromRef(reg.Schema(reflect.TypeFor[nullBody](), true, "").Ref)
-	for name, want := range map[string]bool{
-		"note": true, "price": true, "target": true, "maybe_dec": true, "maybe_obj": true, "maybe_text": true,
-		"count": false, "plain": false, "skipped": false,
-	} {
-		if got := schemaAcceptsNull(t, s.Properties[name]); got != want {
-			b, _ := json.Marshal(s.Properties[name])
-			t.Errorf("%s accepts null %v, want %v: %s", name, got, want, b)
+	check := func(s *huma.Schema, want map[string]bool) {
+		t.Helper()
+		for name, w := range want {
+			if got := schemaAcceptsNull(t, s.Properties[name]); got != w {
+				b, _ := json.Marshal(s.Properties[name])
+				t.Errorf("%s accepts null %v, want %v: %s", name, got, w, b)
+			}
 		}
 	}
-	if !schemaAcceptsNull(t, s.Properties["by_key"].AdditionalProperties.(*huma.Schema)) {
+	req := reg.SchemaFromRef(reg.Schema(reflect.TypeFor[nullBody](), true, "").Ref)
+	check(req, map[string]bool{
+		"note": true, "price": true, "maybe_dec": true, "maybe_text": true,
+		"target": false, "maybe_obj": false, "count": false, "plain": false, "skipped": false,
+	})
+	if req.Properties["target"].Ref == "" || req.Properties["maybe_obj"].Ref == "" {
+		t.Errorf("request objects are not plain $refs: %+v %+v", req.Properties["target"], req.Properties["maybe_obj"])
+	}
+	resp := reg.SchemaFromRef(reg.Schema(reflect.TypeFor[nullOutBody](), true, "").Ref)
+	check(resp, map[string]bool{"note": true, "price": true, "target": true, "plain": false})
+	if !schemaAcceptsNull(t, resp.Properties["targets"].Items) {
+		t.Error("slice item pointer does not accept null")
+	}
+	if !schemaAcceptsNull(t, resp.Properties["by_key"].AdditionalProperties.(*huma.Schema)) {
 		t.Error("map value pointer does not accept null")
 	}
 	doc, err := json.Marshal(api.OpenAPI())
@@ -107,22 +132,31 @@ func TestPointerAndOptionalSchemasAcceptNull(t *testing.T) {
 	}
 }
 
-// Marking a field nullable keeps its validation: nested and tagged errors
-// are still reported, and null still passes.
+// Nullable request fields keep their validation: null passes, and tagged,
+// decimal and nested errors are reported at their own fields.
 func TestNullableFieldsStillValidate(t *testing.T) {
 	h, _ := nullServer(t)
-	for body, want := range map[string]int{
-		`{"note":null,"price":null,"target":null,"maybe_dec":null,"maybe_obj":null,"maybe_text":null,"plain":1}`:    200,
-		`{"price":"1.5","target":{"zone":"z"},"maybe_dec":2,"maybe_obj":{"zone":"z"},"maybe_text":"abc","plain":1}`: 200,
-		`{"maybe_text":"abcd","plain":1}`:  422,
-		`{"price":"x","plain":1}`:          422,
-		`{"target":{"zone":""},"plain":1}`: 422,
-		`{"target":{},"plain":1}`:          422,
-		`{"maybe_obj":{},"plain":1}`:       422,
-		`{"count":null,"plain":1}`:         422,
+	for _, body := range []string{
+		`{"note":null,"price":null,"target":null,"maybe_dec":null,"maybe_obj":null,"maybe_text":null,"plain":1}`,
+		`{"price":"1.5","target":{"zone":"z"},"maybe_dec":2,"maybe_obj":{"zone":"z"},"maybe_text":"abc","plain":1}`,
 	} {
-		if rec := do(t, h, http.MethodPost, "/nullable", body); rec.Code != want {
-			t.Errorf("%s: %d, want %d: %s", body, rec.Code, want, rec.Body)
+		if rec := do(t, h, http.MethodPost, "/nullable", body); rec.Code != 200 {
+			t.Errorf("%s: %d: %s", body, rec.Code, rec.Body)
+		}
+	}
+	for body, location := range map[string]string{
+		`{"maybe_text":"abcd","plain":1}`:   "maybe_text",
+		`{"price":"x","plain":1}`:           "price",
+		`{"maybe_dec":"1.23456","plain":1}`: "maybe_dec",
+		`{"target":{"zone":""},"plain":1}`:  "target.zone",
+		`{"target":{},"plain":1}`:           "target.zone",
+		`{"maybe_obj":{},"plain":1}`:        "maybe_obj.zone",
+		`{"count":null,"plain":1}`:          "count",
+	} {
+		rec := do(t, h, http.MethodPost, "/nullable", body)
+		p := decodeProblem(t, rec.Body.Bytes())
+		if rec.Code != 422 || len(p.Errors) == 0 || p.Errors[0].Location != location {
+			t.Errorf("%s: %d, want 422 at %s: %s", body, rec.Code, location, rec.Body)
 		}
 	}
 }

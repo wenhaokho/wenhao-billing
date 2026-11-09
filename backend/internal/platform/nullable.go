@@ -31,11 +31,16 @@ func acceptsNull(s *huma.Schema) bool {
 // nullable is s, or a new schema that also accepts null:
 //   - a scalar type gets Huma's own `"type": [T, "null"]`;
 //   - a typeless oneOf (the decimals) gets a null branch;
-//   - anything else (a $ref, an object) becomes anyOf [s, null].
+//   - anything else (a $ref, an object) becomes anyOf [s, null] when
+//     objects is set, and is left as it is otherwise.
 //
-// An object is never marked Nullable itself: Huma's validator would then let
-// a null through for its required properties.
-func nullable(s *huma.Schema) *huma.Schema {
+// Request bodies pass objects false. Huma's anyOf validation reports only
+// "matched none" at the field, so a wrapped request object would lose its
+// field errors ("cloudflare_target.record_id"); and Huma already lets a null
+// through for a property that is not required. An object is never marked
+// Nullable itself: Huma's validator would then let a null through for its
+// required properties.
+func nullable(s *huma.Schema, objects bool) *huma.Schema {
 	if s == nil || acceptsNull(s) {
 		return s
 	}
@@ -51,38 +56,44 @@ func nullable(s *huma.Schema) *huma.Schema {
 		c := *s
 		c.OneOf = append(append([]*huma.Schema{}, s.OneOf...), null)
 		out = &c
-	default:
+	case objects:
 		out = &huma.Schema{AnyOf: []*huma.Schema{s, null}}
+	default:
+		return s
 	}
 	out.PrecomputeMessages()
 	return out
 }
 
 // markNullablePointers is a huma OnAddOperation hook: in every request and
-// response body, each pointer field's schema accepts null. Optional[T] does
-// the same in its own Schema.
+// response body, each pointer field's schema accepts null, except a request
+// object's (see nullable). Optional[T] does the same in its own Schema; it
+// is a request type.
 func markNullablePointers(oapi *huma.OpenAPI, op *huma.Operation) {
 	reg := oapi.Components.Schemas
-	seen := map[*huma.Schema]bool{}
+	// One seen set per side: a component met in the request is still
+	// walked, with objects wrapped, when the response meets it.
 	if op.RequestBody != nil {
+		seen := map[*huma.Schema]bool{}
 		for _, mt := range op.RequestBody.Content {
-			markNullable(reg, mt.Schema, nil, seen)
+			markNullable(reg, mt.Schema, nil, false, seen)
 		}
 	}
+	seen := map[*huma.Schema]bool{}
 	for _, resp := range op.Responses {
 		for _, mt := range resp.Content {
-			markNullable(reg, mt.Schema, nil, seen)
+			markNullable(reg, mt.Schema, nil, true, seen)
 		}
 	}
 }
 
-func markNullable(reg huma.Registry, s *huma.Schema, t reflect.Type, seen map[*huma.Schema]bool) {
+func markNullable(reg huma.Registry, s *huma.Schema, t reflect.Type, objects bool, seen map[*huma.Schema]bool) {
 	if s == nil {
 		return
 	}
 	if s.Ref == "" && s.Type == "" && s.AnyOf != nil {
 		for _, b := range s.AnyOf {
-			markNullable(reg, b, t, seen)
+			markNullable(reg, b, t, objects, seen)
 		}
 		return
 	}
@@ -109,22 +120,22 @@ func markNullable(reg huma.Registry, s *huma.Schema, t reflect.Type, seen map[*h
 	if k := t.Kind(); k == reflect.Slice || k == reflect.Array {
 		items := s.Items
 		if t.Elem().Kind() == reflect.Pointer {
-			s.Items = nullable(items)
+			s.Items = nullable(items, objects)
 		}
-		markNullable(reg, items, t.Elem(), seen)
+		markNullable(reg, items, t.Elem(), objects, seen)
 	} else if k == reflect.Map {
 		if values, ok := s.AdditionalProperties.(*huma.Schema); ok {
 			if t.Elem().Kind() == reflect.Pointer {
-				s.AdditionalProperties = nullable(values)
+				s.AdditionalProperties = nullable(values, objects)
 			}
-			markNullable(reg, values, t.Elem(), seen)
+			markNullable(reg, values, t.Elem(), objects, seen)
 		}
 	} else if k == reflect.Struct {
-		markNullableStruct(reg, s, t, seen)
+		markNullableStruct(reg, s, t, objects, seen)
 	}
 }
 
-func markNullableStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, seen map[*huma.Schema]bool) {
+func markNullableStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, objects bool, seen map[*huma.Schema]bool) {
 	if s.Properties == nil {
 		return
 	}
@@ -135,7 +146,7 @@ func markNullableStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, seen 
 				et = et.Elem()
 			}
 			if et.Kind() == reflect.Struct {
-				markNullableStruct(reg, s, et, seen)
+				markNullableStruct(reg, s, et, objects, seen)
 				continue
 			}
 		}
@@ -154,8 +165,8 @@ func markNullableStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, seen 
 		}
 		// As Huma does, a pointer with omitempty is left out, never null.
 		if f.Type.Kind() == reflect.Pointer && !strings.Contains(f.Tag.Get("json"), "omitempty") {
-			s.Properties[name] = nullable(p)
+			s.Properties[name] = nullable(p, objects)
 		}
-		markNullable(reg, p, f.Type, seen)
+		markNullable(reg, p, f.Type, objects, seen)
 	}
 }

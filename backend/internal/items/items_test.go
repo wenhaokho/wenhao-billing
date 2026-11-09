@@ -496,10 +496,17 @@ func TestItemNullOnNotNullIs422(t *testing.T) {
 	tg["proxied"] = nil
 	wantProblem(t, a.Do(t, http.MethodPatch, itemPath(it.ItemID), map[string]any{"cloudflare_target": tg}),
 		http.StatusUnprocessableEntity, "", "Request validation failed", "cloudflare_target.proxied", "value cannot be null")
-	// A nullable object is anyOf [target, null] in the schema, so an
-	// incomplete target is reported at the target, not at its fields.
-	wantProblem(t, a.Do(t, http.MethodPost, path, hosting(map[string]any{"cloudflare_target": map[string]any{"zone_id": "z"}})),
-		http.StatusUnprocessableEntity, "", "Request validation failed", "cloudflare_target", "expected value to match at least one schema but matched none")
+	// An incomplete target is reported at its fields, on create and PATCH.
+	incomplete := map[string]any{"cloudflare_target": map[string]any{
+		"zone_id": "z", "record_name": "www", "record_type": "A",
+		"live_content": "1", "maintenance_content": "2",
+	}}
+	wantProblem(t, a.Do(t, http.MethodPost, path, hosting(incomplete)),
+		http.StatusUnprocessableEntity, "", "Request validation failed", "cloudflare_target.record_id", "expected required property record_id to be present")
+	tooShort := cfTarget()
+	tooShort["record_name"] = ""
+	wantProblem(t, a.Do(t, http.MethodPatch, itemPath(it.ItemID), map[string]any{"cloudflare_target": tooShort}),
+		http.StatusUnprocessableEntity, "", "Request validation failed", "cloudflare_target.record_name", "expected length >= 1")
 	for _, body := range []map[string]any{
 		{"name": "x", "item_type": "GOODS"},
 		{"name": "", "item_type": "SERVICE"},

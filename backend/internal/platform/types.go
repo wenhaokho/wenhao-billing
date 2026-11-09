@@ -275,10 +275,12 @@ func (o *Optional[T]) Resolve(_ huma.Context, path *huma.PathBuffer) []error {
 	return nil
 }
 
-// Schema describes Optional[T] as a T that may be null.
+// Schema describes Optional[T] as a T that may be null. Optional is a
+// request type: an object T keeps its plain schema (see nullable), and Huma
+// lets the null through as it does for any property that is not required.
 func (Optional[T]) Schema(r huma.Registry) *huma.Schema {
 	s := *r.Schema(reflect.TypeFor[T](), true, "")
-	return nullable(&s)
+	return nullable(&s, false)
 }
 
 // Merge is the column value of a nullable field: cur when the field was
