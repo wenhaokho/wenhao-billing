@@ -226,15 +226,15 @@ func (q *Queries) GetLatestInvoiceOfCustomer(ctx context.Context, customerID pgt
 
 const insertInvoice = `-- name: InsertInvoice :exec
 INSERT INTO invoices (
-    invoice_id, customer_id, project_id, invoice_type, invoice_number, po_so_number, currency,
+    invoice_id, customer_id, project_id, source_quote_id, invoice_type, invoice_number, po_so_number, currency,
     subtotal, discount_type, discount_value, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount,
     amount, balance_due, status, billing_cycle_ref, issue_date, due_date, payment_terms, notes, footer,
     internal_note, is_template
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7,
-    $8, $9, $10, $11, $12, $13, $14, $15,
-    $16, $17, $18, $19, $20, $21, $22, $23, $24,
-    $25, $26
+    $1, $2, $3, $4, $5, $6, $7, $8,
+    $9, $10, $11, $12, $13, $14, $15, $16,
+    $17, $18, $19, $20, $21, $22, $23, $24, $25,
+    $26, $27
 )
 `
 
@@ -242,6 +242,7 @@ type InsertInvoiceParams struct {
 	InvoiceID       uuid.UUID
 	CustomerID      pgtype.UUID
 	ProjectID       pgtype.UUID
+	SourceQuoteID   pgtype.UUID
 	InvoiceType     string
 	InvoiceNumber   *string
 	PoSoNumber      *string
@@ -267,11 +268,14 @@ type InsertInvoiceParams struct {
 	IsTemplate      bool
 }
 
+// Every new invoice row, this package's and a quotation conversion's
+// (source_quote_id is NULL unless converted).
 func (q *Queries) InsertInvoice(ctx context.Context, arg InsertInvoiceParams) error {
 	_, err := q.db.Exec(ctx, insertInvoice,
 		arg.InvoiceID,
 		arg.CustomerID,
 		arg.ProjectID,
+		arg.SourceQuoteID,
 		arg.InvoiceType,
 		arg.InvoiceNumber,
 		arg.PoSoNumber,

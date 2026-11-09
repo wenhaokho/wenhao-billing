@@ -373,6 +373,22 @@ func (q *Queries) LockQuotationNumbers(ctx context.Context, year string) error {
 	return err
 }
 
+const markQuotationInvoiced = `-- name: MarkQuotationInvoiced :exec
+UPDATE quotations SET status = 'INVOICED', converted_invoice_id = $1
+WHERE quotation_id = $2
+`
+
+type MarkQuotationInvoicedParams struct {
+	ConvertedInvoiceID pgtype.UUID
+	QuotationID        uuid.UUID
+}
+
+// A conversion: the quotation points at the invoice it became.
+func (q *Queries) MarkQuotationInvoiced(ctx context.Context, arg MarkQuotationInvoicedParams) error {
+	_, err := q.db.Exec(ctx, markQuotationInvoiced, arg.ConvertedInvoiceID, arg.QuotationID)
+	return err
+}
+
 const markQuotationSent = `-- name: MarkQuotationSent :exec
 UPDATE quotations SET status = 'SENT', last_sent_at = $1 WHERE quotation_id = $2
 `

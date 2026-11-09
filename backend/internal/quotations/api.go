@@ -1,8 +1,9 @@
 // Package quotations ports the Python backend's quoting service
 // (app/services/quoting.py) and its routes at /api/v1/quotations: create,
-// list, read, partial update and delete, with Q<year><NNNN> numbering. The
-// totals are invoicing's (invoices.ComputeTotals without withholding), as
-// quoting.py's own copy computes them.
+// list, read, partial update and delete, with Q<year><NNNN> numbering, the
+// status transitions, and conversion into a DRAFT invoice. The totals are
+// invoicing's (invoices.ComputeTotals without withholding), as quoting.py's
+// own copy computes them.
 package quotations
 
 import (
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 
+	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/quotations/quotationsdb"
 )
@@ -37,11 +39,16 @@ func refuse(code, format string, args ...any) error {
 }
 
 // clientError is err as the client reads it: an ErrQuoting refusal is a 400
-// with Python's sentence; anything else is unchanged.
+// with Python's sentence, and so is an invoicing refusal a conversion meets
+// (Python re-raised InvoicingError as QuotingError, quoting.py:289-294);
+// anything else is unchanged.
 func clientError(err error) error {
 	var e quotingError
 	if errors.As(err, &e) {
 		return platform.Err(http.StatusBadRequest, e.code, e.msg)
+	}
+	if errors.Is(err, invoices.ErrInvoicing) {
+		return platform.Err(http.StatusBadRequest, invoices.RefusalCode(err), err.Error())
 	}
 	return err
 }

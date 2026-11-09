@@ -347,6 +347,28 @@
         ],
         "type": "object"
       },
+      "ConvertToInvoiceRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "due_in_days": {
+            "description": "Days from the issue date to the due date, used only when the quotation has no payment terms; may be negative. Defaults to 14.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "issue_date": {
+            "description": "The invoice's issue date; null is today.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "CurrencyAmount": {
         "additionalProperties": true,
         "properties": {
@@ -8225,6 +8247,78 @@
           }
         },
         "summary": "Accept a DRAFT or SENT quotation",
+        "tags": [
+          "quotations"
+        ]
+      }
+    },
+    "/api/v1/quotations/{quotation_id}/convert-to-invoice": {
+      "post": {
+        "description": "Any status but INVOICED, VOID and DECLINED converts. Non-empty payment terms set the due date, even ones that do not parse (14 days); due_in_days counts only without them. The withholding is the customer's default.",
+        "operationId": "quotations-convert-to-invoice",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConvertToInvoiceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Copy a quotation into a new DRAFT invoice and mark the quotation INVOICED",
         "tags": [
           "quotations"
         ]

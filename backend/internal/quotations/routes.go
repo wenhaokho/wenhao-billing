@@ -53,6 +53,7 @@ func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock) {
 		Errors: []int{http.StatusBadRequest},
 	}), r.delete)
 	r.registerLifecycle(api, prefix, tags)
+	r.registerConvert(api, prefix, tags)
 }
 
 // inTx runs write in one transaction and answers its quotation.

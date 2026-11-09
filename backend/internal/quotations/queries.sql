@@ -75,6 +75,11 @@ UPDATE quotations SET status = 'SENT', last_sent_at = @last_sent_at WHERE quotat
 UPDATE quotations SET status = 'ACCEPTED', accepted_at = @accepted_at, accepted_by = @accepted_by
 WHERE quotation_id = @quotation_id;
 
+-- name: MarkQuotationInvoiced :exec
+-- A conversion: the quotation points at the invoice it became.
+UPDATE quotations SET status = 'INVOICED', converted_invoice_id = @converted_invoice_id
+WHERE quotation_id = @quotation_id;
+
 -- name: SetQuotationStatus :exec
 -- Decline and void: the status alone.
 UPDATE quotations SET status = @status WHERE quotation_id = @quotation_id;

@@ -21,13 +21,15 @@ WHERE invoice_number LIKE @prefix::text || '%';
 SELECT * FROM invoices WHERE invoice_id = $1 FOR UPDATE;
 
 -- name: InsertInvoice :exec
+-- Every new invoice row, this package's and a quotation conversion's
+-- (source_quote_id is NULL unless converted).
 INSERT INTO invoices (
-    invoice_id, customer_id, project_id, invoice_type, invoice_number, po_so_number, currency,
+    invoice_id, customer_id, project_id, source_quote_id, invoice_type, invoice_number, po_so_number, currency,
     subtotal, discount_type, discount_value, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount,
     amount, balance_due, status, billing_cycle_ref, issue_date, due_date, payment_terms, notes, footer,
     internal_note, is_template
 ) VALUES (
-    @invoice_id, @customer_id, @project_id, @invoice_type, @invoice_number, @po_so_number, @currency,
+    @invoice_id, @customer_id, @project_id, @source_quote_id, @invoice_type, @invoice_number, @po_so_number, @currency,
     @subtotal, @discount_type, @discount_value, @wht_type, @wht_rate, @wht_gross_up, @wht_base, @wht_amount,
     @amount, @balance_due, @status, @billing_cycle_ref, @issue_date, @due_date, @payment_terms, @notes, @footer,
     @internal_note, @is_template
