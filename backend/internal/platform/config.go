@@ -25,6 +25,10 @@ type Config struct {
 	// A sampling ratio, not money.
 	SentryTracesSampleRate float64 //nolint:forbidigo // not money: Sentry's sample rate
 	Port                   int
+	BaseCurrency           string        // BASE_CURRENCY: the ledger's functional currency, 3 upper-case letters
+	FXProviderBaseURL      string        // FX_PROVIDER_BASE_URL
+	FXProviderTimeout      time.Duration // FX_PROVIDER_TIMEOUT_SECONDS
+	FXSyncCurrencies       []string      // FX_SYNC_CURRENCIES: foreign currencies each sync pulls a base rate for
 }
 
 // rawConfig is the environment as written; Config holds it parsed.
@@ -40,6 +44,10 @@ type rawConfig struct {
 	SentryEnvironment      string  `env:"SENTRY_ENVIRONMENT" envDefault:"development"`
 	SentryTracesSampleRate float64 `env:"SENTRY_TRACES_SAMPLE_RATE"` //nolint:forbidigo // not money: Sentry's sample rate
 	Port                   int     `env:"PORT" envDefault:"8000"`
+	BaseCurrency           string  `env:"BASE_CURRENCY" envDefault:"IDR"`
+	FXProviderBaseURL      string  `env:"FX_PROVIDER_BASE_URL" envDefault:"https://api.frankfurter.dev/v1"`
+	FXProviderSeconds      float64 `env:"FX_PROVIDER_TIMEOUT_SECONDS" envDefault:"15"` //nolint:forbidigo // not money: a timeout in seconds
+	FXSyncCurrencies       string  `env:"FX_SYNC_CURRENCIES" envDefault:"USD,SGD"`
 }
 
 // LoadConfig reads the process environment.
@@ -80,9 +88,23 @@ func (r rawConfig) build(corsSet bool) (Config, error) {
 	origins := []string{"http://localhost:5173"}
 	if corsSet {
 		var err error
-		if origins, err = parseOrigins(r.CORSOrigins); err != nil {
+		if origins, err = parseList("CORS_ORIGINS", r.CORSOrigins); err != nil {
 			return Config{}, err
 		}
+	}
+	base := strings.ToUpper(strings.TrimSpace(r.BaseCurrency))
+	if !isCurrencyCode(base) {
+		return Config{}, fmt.Errorf("BASE_CURRENCY must be 3 letters, got %q", r.BaseCurrency)
+	}
+	syncCurrencies, err := parseList("FX_SYNC_CURRENCIES", r.FXSyncCurrencies)
+	if err != nil {
+		return Config{}, err
+	}
+	for i, c := range syncCurrencies {
+		syncCurrencies[i] = strings.ToUpper(c)
+	}
+	if r.FXProviderSeconds < 0 {
+		return Config{}, fmt.Errorf("FX_PROVIDER_TIMEOUT_SECONDS must not be negative")
 	}
 	return Config{
 		Environment:            r.Environment,
@@ -96,6 +118,10 @@ func (r rawConfig) build(corsSet bool) (Config, error) {
 		SentryEnvironment:      r.SentryEnvironment,
 		SentryTracesSampleRate: r.SentryTracesSampleRate,
 		Port:                   r.Port,
+		BaseCurrency:           base,
+		FXProviderBaseURL:      r.FXProviderBaseURL,
+		FXProviderTimeout:      time.Duration(r.FXProviderSeconds * float64(time.Second)), //nolint:forbidigo // not money: a timeout
+		FXSyncCurrencies:       syncCurrencies,
 	}, nil
 }
 
@@ -109,13 +135,27 @@ func pgxURL(u string) string {
 	return u
 }
 
-// parseOrigins accepts Python's JSON list or a comma-separated list.
-func parseOrigins(s string) ([]string, error) {
+// isCurrencyCode reports whether s is three upper-case ASCII letters.
+func isCurrencyCode(s string) bool {
+	if len(s) != 3 {
+		return false
+	}
+	for _, c := range s {
+		if c < 'A' || c > 'Z' {
+			return false
+		}
+	}
+	return true
+}
+
+// parseList accepts Python's JSON list or a comma-separated list; name is the
+// variable, for the error.
+func parseList(name, s string) ([]string, error) {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "[") {
 		var out []string
 		if err := json.Unmarshal([]byte(s), &out); err != nil {
-			return nil, fmt.Errorf("CORS_ORIGINS is not a JSON list: %w", err)
+			return nil, fmt.Errorf("%s is not a JSON list: %w", name, err)
 		}
 		var kept []string
 		for _, o := range out {

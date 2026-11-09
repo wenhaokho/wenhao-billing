@@ -76,6 +76,13 @@ func New(t *testing.T, register func(api huma.API, d Deps)) *App {
 	d := Deps{Pool: pool, Sessions: sessions, Mail: &Mail{}, Config: cfg, Clock: clock}
 	register(api, d)
 
+	// Python's test rates (tests/conftest.py _seed_test_fx_rates), so a
+	// foreign-currency ledger test converts without building rates itself.
+	if _, err := pool.Exec(ctx, `INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source)
+VALUES ('USD', 'IDR', 16000, '2026-01-01', 'TEST'), ('SGD', 'IDR', 12000, '2026-01-01', 'TEST')`); err != nil {
+		t.Fatal(err)
+	}
+
 	adminID := uuid.New()
 	if _, err := pool.Exec(ctx, `INSERT INTO users (user_id, email, password_hash, role) VALUES ($1, $2, 'placeholder: never signs in', 'admin')`,
 		adminID, AdminEmail); err != nil {
