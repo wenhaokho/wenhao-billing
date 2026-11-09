@@ -80,7 +80,7 @@ func mapWrite(err error, createdCode string) error {
 	case "projects_code_key", "ix_projects_code":
 		sentence := "project code already exists"
 		if createdCode != "" {
-			sentence = fmt.Sprintf("project code %s already exists", pyRepr(createdCode))
+			sentence = fmt.Sprintf("project code %s already exists", platform.PyRepr(createdCode))
 		}
 		return platform.Err(http.StatusBadRequest, "project_code_exists", sentence)
 	case "projects_customer_id_fkey":

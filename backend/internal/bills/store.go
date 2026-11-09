@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -93,7 +92,12 @@ func insertLines(ctx context.Context, q *billsdb.Queries, id uuid.UUID, lines []
 func createBill(ctx context.Context, tx pgx.Tx, b BillCreate) (BillOut, error) {
 	q := billsdb.New(tx)
 	f := b.BillFields
-	currency := strings.ToUpper(b.Currency)
+	// Python's str.upper (billing_ap.py:51, :91) can lengthen the value ("ß"
+	// is "SS"), which no longer fits the column: a 422 here (Go change 4).
+	currency, err := platform.PyUpperAtMost("currency", b.Currency, 3)
+	if err != nil {
+		return BillOut{}, err
+	}
 	discountType, discountValue := f.DiscountType.Merge(nil), decOf(f.DiscountValue.Merge(nil))
 
 	amounts := lineAmounts(b.LineItems)
@@ -102,7 +106,7 @@ func createBill(ctx context.Context, tx pgx.Tx, b BillCreate) (BillOut, error) {
 	id := uuid.New()
 	// The row first, as Python: its own foreign keys are refused before the
 	// lines'.
-	err := q.InsertBill(ctx, billsdb.InsertBillParams{
+	err = q.InsertBill(ctx, billsdb.InsertBillParams{
 		BillID: id, VendorID: b.VendorID, ProjectID: pgUUID(f.ProjectID.Merge(nil)), BillNumber: f.BillNumber.Merge(nil),
 		PoNumber: f.PoNumber.Merge(nil), Currency: currency, Subtotal: nullDec(&subtotal), DiscountType: discountType,
 		DiscountValue: nullDec(discountValue), Amount: amount, BalanceDue: amount, Status: "DRAFT",
@@ -138,7 +142,9 @@ func updateBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, b BillUpdate) (Bil
 	f := b.BillFields
 	currency := cur.Currency
 	if b.Currency.Set {
-		currency = strings.ToUpper(b.Currency.Value)
+		if currency, err = platform.PyUpperAtMost("currency", b.Currency.Value, 3); err != nil {
+			return BillOut{}, err
+		}
 	}
 	status := b.Status.Or(cur.Status)
 	discountType := f.DiscountType.Merge(cur.DiscountType)

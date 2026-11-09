@@ -155,6 +155,10 @@ func TestCreateProjectDuplicateCodeRaisesAndLeavesOneRow(t *testing.T) {
 	create(t, a, body(c, "o'x", nil))
 	wantProblem(t, a.Do(t, http.MethodPost, path, body(c, "O'X", nil)), http.StatusBadRequest,
 		"project_code_exists", `project code "O'X" already exists`, "", "")
+	// A control character is escaped as Python's repr escapes it.
+	create(t, a, body(c, "A\x01B", nil))
+	wantProblem(t, a.Do(t, http.MethodPost, path, body(c, "a\x01b", nil)), http.StatusBadRequest,
+		"project_code_exists", `project code 'A\x01B' already exists`, "", "")
 }
 
 func TestUpdateProjectEditsAndNormalizes(t *testing.T) {

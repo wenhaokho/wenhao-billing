@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -329,10 +330,23 @@ func TestConvertConcurrentMakesOneInvoice(t *testing.T) {
 	if _, err := hold.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('invoice-number:2026', 0))`); err != nil {
 		t.Fatal(err)
 	}
+	// The goroutines serve the requests without t (a.Do may t.Fatal, which
+	// only the test goroutine may call). Should the test goroutine fail
+	// first, the deferred rollback releases the lock and this cleanup, which
+	// runs after it, waits for both.
 	recs := make([]*httptest.ResponseRecorder, 2)
 	var wg sync.WaitGroup
+	t.Cleanup(wg.Wait)
 	for i := range recs {
-		wg.Go(func() { recs[i] = a.Do(t, http.MethodPost, convertPath(q.QuotationID), map[string]any{}) })
+		wg.Go(func() {
+			req := httptest.NewRequestWithContext(context.WithoutCancel(ctx), http.MethodPost, convertPath(q.QuotationID),
+				strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Cookie", a.Cookie)
+			rec := httptest.NewRecorder()
+			a.Handler.ServeHTTP(rec, req)
+			recs[i] = rec
+		})
 	}
 	waited := waitForLockWaits(t, a.Pool, 2)
 	if err := hold.Commit(ctx); err != nil {

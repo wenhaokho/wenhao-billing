@@ -22,8 +22,9 @@ import (
 	"errors"
 	"math"
 	"strconv"
-	"strings"
 	"time"
+
+	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
 // ErrSchedule is matched (errors.Is) by every error Parse returns; the error
@@ -177,7 +178,7 @@ func repr(v any) string {
 		}
 		return "False"
 	case string:
-		return ReprString(x)
+		return platform.PyRepr(x)
 	case int:
 		return strconv.Itoa(x)
 	case int32:
@@ -185,71 +186,18 @@ func repr(v any) string {
 	case int64:
 		return strconv.FormatInt(x, 10)
 	case float64: //nolint:forbidigo // not money: Python repr of a JSON number
-		return reprFloat(x)
+		return platform.PyFloatRepr(x)
 	case json.Number: // an int when it has no fraction or exponent, else a float
 		s := x.String()
 		if _, err := strconv.ParseInt(s, 10, 64); err == nil {
 			return s
 		}
 		if f, err := x.Float64(); err == nil {
-			return reprFloat(f)
+			return platform.PyFloatRepr(f)
 		}
 		return s
 	}
 	return "<unsupported>"
-}
-
-func reprFloat(f float64) string { //nolint:forbidigo // not money: Python repr of a JSON number
-	switch {
-	case math.IsNaN(f):
-		return "nan"
-	case math.IsInf(f, 1):
-		return "inf"
-	case math.IsInf(f, -1):
-		return "-inf"
-	}
-	a := math.Abs(f)
-	var s string
-	if a == 0 || (a >= 1e-4 && a < 1e16) {
-		s = strconv.FormatFloat(f, 'f', -1, 64)
-		if !strings.Contains(s, ".") {
-			s += ".0"
-		}
-		return s
-	}
-	return strconv.FormatFloat(f, 'e', -1, 64)
-}
-
-// ReprString is repr(str): single quotes unless the text has a single quote and
-// no double quote.
-func ReprString(s string) string {
-	q := byte('\'')
-	if strings.Contains(s, "'") && !strings.Contains(s, `"`) {
-		q = '"'
-	}
-	var b strings.Builder
-	b.WriteByte(q)
-	for _, r := range s {
-		switch {
-		case r == '\\':
-			b.WriteString(`\\`)
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r == rune(q):
-			b.WriteByte('\\')
-			b.WriteRune(r)
-		case r < 0x20 || r == 0x7f:
-			b.WriteString(`\x` + string("0123456789abcdef"[r>>4]) + string("0123456789abcdef"[r&15]))
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte(q)
-	return b.String()
 }
 
 // ---------------------------------------------------------------------------

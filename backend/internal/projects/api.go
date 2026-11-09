@@ -129,32 +129,3 @@ func mergeDate(f platform.Optional[platform.Date], cur pgtype.Date) pgtype.Date 
 	}
 	return pgtype.Date{Time: f.Value.Time, Valid: true}
 }
-
-// pyRepr is Python's repr of a string, as the duplicate-code sentence shows
-// the code: single quotes, unless the code holds a single quote and no double
-// quote.
-func pyRepr(s string) string {
-	quote := byte('\'')
-	if strings.Contains(s, "'") && !strings.Contains(s, `"`) {
-		quote = '"'
-	}
-	var b strings.Builder
-	b.WriteByte(quote)
-	for _, r := range s {
-		switch {
-		case r == rune(quote) || r == '\\':
-			b.WriteByte('\\')
-			b.WriteRune(r)
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte(quote)
-	return b.String()
-}

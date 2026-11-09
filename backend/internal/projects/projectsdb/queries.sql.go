@@ -190,7 +190,7 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]P
 }
 
 const projectBillTotal = `-- name: ProjectBillTotal :one
-SELECT COALESCE(SUM(amount), 0)::numeric(19,4) AS bill_total
+SELECT COALESCE(SUM(amount), 0)::numeric AS bill_total
 FROM bills
 WHERE project_id = $1::uuid AND status IN ('OPEN', 'PARTIAL', 'PAID')
 `
@@ -204,8 +204,8 @@ func (q *Queries) ProjectBillTotal(ctx context.Context, projectID uuid.UUID) (de
 }
 
 const projectInvoiceTotals = `-- name: ProjectInvoiceTotals :one
-SELECT COALESCE(SUM(amount), 0)::numeric(19,4) AS invoiced,
-       COALESCE(SUM(balance_due), 0)::numeric(19,4) AS outstanding,
+SELECT COALESCE(SUM(amount), 0)::numeric AS invoiced,
+       COALESCE(SUM(balance_due), 0)::numeric AS outstanding,
        count(invoice_id)::bigint AS invoice_count
 FROM invoices
 WHERE project_id = $1::uuid AND status IN ('OPEN', 'SENT', 'PARTIAL', 'PAID')

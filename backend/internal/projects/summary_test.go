@@ -92,6 +92,25 @@ func TestSummaryTotals(t *testing.T) {
 	}
 }
 
+// A sum may exceed what one numeric(19,4) column holds (< 10^15): it is
+// summed as plain numeric, not cast back to the column's type.
+func TestSummarySumsBeyondColumnPrecision(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := insertCustomer(t, a)
+	v := insertVendor(t, a)
+	p := create(t, a, body(c, "BIG", nil))
+	for range 2 {
+		seedInvoice(t, a, c, p.ProjectID, "OPEN", "IDR", "900000000000000", "900000000000000")
+		seedBill(t, a, v, p.ProjectID, "OPEN", "IDR", "900000000000000")
+	}
+	got := getSummary(t, a, p.ProjectID)
+	if got.InvoicedTotal != "1800000000000000.0000" || got.OutstandingTotal != "1800000000000000.0000" ||
+		got.PaidTotal != "0.0000" || got.BillTotal != "1800000000000000.0000" {
+		t.Errorf("got %+v", got)
+	}
+}
+
 func TestSummaryContractRemainingCanBeNegative(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)

@@ -235,9 +235,19 @@ func TestCreateBillWithoutLines(t *testing.T) {
 func TestCreateUppercasesCurrency(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
-	out := post(t, a, body(insertVendor(t, a), map[string]any{"currency": "sgd"}))
-	if out.Currency != "SGD" {
+	vendor := insertVendor(t, a)
+	out := post(t, a, body(vendor, map[string]any{"currency": "usd"}))
+	if out.Currency != "USD" {
 		t.Errorf("currency %q", out.Currency)
+	}
+	// Python's str.upper lengthens "ß" to "SS": the stored currency would no
+	// longer fit (Python's 500), so it is a 422 at currency (Go change 4).
+	wantFieldError(t, a.Do(t, http.MethodPost, path, body(vendor, map[string]any{"currency": "ßab"})),
+		"currency", "String should have at most 3 characters")
+	wantFieldError(t, a.Do(t, http.MethodPatch, billPath(out.BillID), map[string]any{"currency": "ßab"}),
+		"currency", "String should have at most 3 characters")
+	if got := patch(t, a, out.BillID, map[string]any{"currency": "sgd"}); got.Currency != "SGD" {
+		t.Errorf("patched currency %q", got.Currency)
 	}
 }
 

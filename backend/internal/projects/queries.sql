@@ -45,14 +45,14 @@ DELETE FROM projects WHERE project_id = $1;
 -- name: ProjectInvoiceTotals :one
 -- GET /projects/{id}/summary (projects.py:127-136): the issued invoices only.
 -- No currency filter and no template filter (templates are DRAFT).
-SELECT COALESCE(SUM(amount), 0)::numeric(19,4) AS invoiced,
-       COALESCE(SUM(balance_due), 0)::numeric(19,4) AS outstanding,
+SELECT COALESCE(SUM(amount), 0)::numeric AS invoiced,
+       COALESCE(SUM(balance_due), 0)::numeric AS outstanding,
        count(invoice_id)::bigint AS invoice_count
 FROM invoices
 WHERE project_id = sqlc.arg(project_id)::uuid AND status IN ('OPEN', 'SENT', 'PARTIAL', 'PAID');
 
 -- name: ProjectBillTotal :one
 -- projects.py:142-147.
-SELECT COALESCE(SUM(amount), 0)::numeric(19,4) AS bill_total
+SELECT COALESCE(SUM(amount), 0)::numeric AS bill_total
 FROM bills
 WHERE project_id = sqlc.arg(project_id)::uuid AND status IN ('OPEN', 'PARTIAL', 'PAID');
