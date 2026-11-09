@@ -37,6 +37,9 @@ type Config struct {
 	ResendBaseURL          string        // RESEND_BASE_URL
 	ResendTimeout          time.Duration // RESEND_TIMEOUT_SECONDS
 	SMTPReplyTo            string        // SMTP_REPLY_TO: the Reply-To of every mail; empty sends none
+	CloudflareAPIToken     string        // CLOUDFLARE_API_TOKEN: empty makes every Cloudflare call fail
+	CloudflareAPIBaseURL   string        // CLOUDFLARE_API_BASE_URL
+	CloudflareTimeout      time.Duration // CLOUDFLARE_TIMEOUT_SECONDS
 }
 
 // The development values of the two intake secrets, Python's defaults. They
@@ -71,6 +74,9 @@ type rawConfig struct {
 	ResendBaseURL          string  `env:"RESEND_BASE_URL" envDefault:"https://api.resend.com"`
 	ResendSeconds          float64 `env:"RESEND_TIMEOUT_SECONDS" envDefault:"15"` //nolint:forbidigo // not money: a timeout in seconds
 	SMTPReplyTo            string  `env:"SMTP_REPLY_TO"`
+	CloudflareAPIToken     string  `env:"CLOUDFLARE_API_TOKEN"`
+	CloudflareAPIBaseURL   string  `env:"CLOUDFLARE_API_BASE_URL" envDefault:"https://api.cloudflare.com/client/v4"`
+	CloudflareSeconds      float64 `env:"CLOUDFLARE_TIMEOUT_SECONDS" envDefault:"15"` //nolint:forbidigo // not money: a timeout in seconds
 }
 
 // LoadConfig reads the process environment.
@@ -142,6 +148,9 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 	if r.ResendSeconds <= 0 { // 0 would mean no timeout at all
 		return Config{}, fmt.Errorf("RESEND_TIMEOUT_SECONDS must be greater than 0")
 	}
+	if r.CloudflareSeconds <= 0 { // 0 would mean no timeout at all
+		return Config{}, fmt.Errorf("CLOUDFLARE_TIMEOUT_SECONDS must be greater than 0")
+	}
 	// The defaults are published in the source: anyone could sign a payment, so
 	// only a local environment (as Config.LocalHTTP) may keep them.
 	if r.Environment != "development" && r.Environment != "test" {
@@ -176,6 +185,9 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 		ResendBaseURL:          r.ResendBaseURL,
 		ResendTimeout:          time.Duration(r.ResendSeconds * float64(time.Second)), //nolint:forbidigo // not money: a timeout
 		SMTPReplyTo:            replyTo,
+		CloudflareAPIToken:     strings.TrimSpace(r.CloudflareAPIToken),
+		CloudflareAPIBaseURL:   r.CloudflareAPIBaseURL,
+		CloudflareTimeout:      time.Duration(r.CloudflareSeconds * float64(time.Second)), //nolint:forbidigo // not money: a timeout
 	}, nil
 }
 

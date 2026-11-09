@@ -937,23 +937,36 @@ func TestApproveMissingRateIs400Sentence(t *testing.T) {
 	}
 }
 
-// recorder is a HostingRestorer that records the invoices it is told of.
+// recorder is a HostingRestorer that records the invoices stamped PAID in
+// a transaction (ids) and those it is told of after a commit (after).
 type recorder struct {
-	mu  sync.Mutex
-	ids []uuid.UUID
+	mu         sync.Mutex
+	ids, after []uuid.UUID
 }
 
-func (r *recorder) RestoreIfPaid(_ context.Context, _ pgx.Tx, invoiceID uuid.UUID) error {
+func (r *recorder) StampPaid(_ context.Context, _ pgx.Tx, invoiceID uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ids = append(r.ids, invoiceID)
 	return nil
 }
 
+func (r *recorder) RestoreAfterCommit(_ context.Context, invoiceID uuid.UUID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.after = append(r.after, invoiceID)
+}
+
 func (r *recorder) got() []uuid.UUID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return slices.Clone(r.ids)
+}
+
+func (r *recorder) gotAfter() []uuid.UUID {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.after)
 }
 
 func TestHostingRestorerCalledOnPaid(t *testing.T) {

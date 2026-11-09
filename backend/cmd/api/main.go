@@ -43,6 +43,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/customers"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/hosting"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
@@ -86,7 +87,9 @@ func register(api huma.API, f features) {
 	quotations.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
 	invoices.RegisterDocuments(api, f.Pool, f.Mail)
 	bills.Register(api, f.Pool, f.Clock)
-	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: payments.NoHosting{}}, f.Config, f.Clock,
+	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: hosting.Restorer{
+		Pool: f.Pool, Client: hosting.NewClient(f.Config), Logger: f.Logger,
+	}}, f.Config, f.Clock,
 		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.PDFReceiptRenderer{DB: f.Pool}})
 	reports.Register(api, f.Pool, f.Config, f.Clock)
 	stats.Register(api, f.Pool, f.Config, f.Clock)

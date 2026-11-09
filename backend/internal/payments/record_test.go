@@ -441,6 +441,10 @@ func TestRecordPaymentPaidTellsHosting(t *testing.T) {
 	if got := rec.got(); !slices.Equal(got, []uuid.UUID{id}) {
 		t.Errorf("restored %v, want [%s]", got, id)
 	}
+	// Both payments committed CLEARED; the restorer acts only on the paid one.
+	if got := rec.gotAfter(); !slices.Equal(got, []uuid.UUID{id, id}) {
+		t.Errorf("after commit %v, want [%s %s]", got, id, id)
+	}
 	checkInvoice(t, a.env, id, "0", "0", "PAID")
 }
 

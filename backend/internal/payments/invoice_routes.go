@@ -119,19 +119,17 @@ func (r routes) recordPayment(ctx context.Context, in *recordIn) (*paymentBody, 
 		payerName: stringOrEmpty(in.Body.PayerName), payerRef: in.Body.PayerReference.Merge(nil),
 		notes: stringOrEmpty(in.Body.Notes), actor: platform.PrincipalFrom(ctx).UserID,
 	}
-	var out PaymentOut
+	var p paymentsdb.Payment
 	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
-		p, err := r.svc.recordManual(ctx, tx, req)
-		if err != nil {
-			return err
-		}
-		out = PaymentOutFrom(p)
-		return nil
+		var err error
+		p, err = r.svc.recordManual(ctx, tx, req)
+		return err
 	})
 	if err != nil {
 		return nil, clientError(err)
 	}
-	return &paymentBody{Body: out}, nil
+	r.svc.AfterCommit(ctx, p)
+	return &paymentBody{Body: PaymentOutFrom(p)}, nil
 }
 
 func stringOrEmpty(o platform.Optional[string]) string {
@@ -157,9 +155,9 @@ type manualPayment struct {
 // balance, more withholding than is outstanding. A PAID invoice has balance 0
 // and so falls to the balance sentence. Nothing is posted to the ledger. The
 // payment is CLEARED, MANUAL and in the invoice's currency; a PAID result
-// tells Hosting. A CLEARED log row names the actor and holds the reasons
-// "manual-entry" and the notes' first 200 characters. The caller rolls back on
-// any error.
+// stamps Hosting (the route calls AfterCommit once committed). A CLEARED log
+// row names the actor and holds the reasons "manual-entry" and the notes'
+// first 200 characters. The caller rolls back on any error.
 func (s Service) recordManual(ctx context.Context, tx pgx.Tx, m manualPayment) (paymentsdb.Payment, error) {
 	q := paymentsdb.New(tx)
 	inv, found, err := lockInvoice(ctx, q, m.invoiceID)
@@ -221,7 +219,7 @@ func (s Service) recordManual(ctx context.Context, tx pgx.Tx, m manualPayment) (
 		return paymentsdb.Payment{}, err
 	}
 	if paid {
-		if err := s.restore(ctx, tx, inv.InvoiceID); err != nil {
+		if err := s.stampPaid(ctx, tx, inv.InvoiceID); err != nil {
 			return paymentsdb.Payment{}, err
 		}
 	}

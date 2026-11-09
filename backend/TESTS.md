@@ -50,10 +50,10 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_exposes_new_fields | stats.TestDashboardEndpointExposesNewFields | ported |  | — |
 | tests/integration/test_hosting.py | test_hosting_item_creates_with_cloudflare_target | items.TestHostingItemCreatesWithCloudflareTarget | ported |  | — |
 | tests/integration/test_hosting.py | test_trigger_recurring_cycle_stamps_coverage_on_hosting_invoice | invoices.TestTriggerRecurringCycleStampsCoverageOnHostingInvoice | ported |  | — |
-| tests/integration/test_hosting.py | test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates |  | todo | hosting plan (plan 9: enforcement and reconciliation restore) |  |
-| tests/integration/test_hosting.py | test_enforcement_suspend_failure_marks_provider_error |  | todo | hosting plan (enforcement) |  |
-| tests/integration/test_hosting.py | test_enforcement_is_idempotent_for_already_suspended_hosting_item |  | todo | hosting plan (enforcement) |  |
-| tests/integration/test_hosting.py | test_enforcement_ignores_non_overdue_invoice |  | todo | hosting plan (enforcement) |  |
+| tests/integration/test_hosting.py | test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates | hosting.TestHostingEnforcementSuspendsAndReconciliationRestoreReactivates | ported |  | Cloudflare called inside the payment transaction: this test and TestPaymentSucceedsWhenCloudflareDown red (task 5) |
+| tests/integration/test_hosting.py | test_enforcement_suspend_failure_marks_provider_error | hosting.TestEnforcementSuspendFailureMarksProviderError | ported |  | — |
+| tests/integration/test_hosting.py | test_enforcement_is_idempotent_for_already_suspended_hosting_item | hosting.TestEnforcementIsIdempotentForAlreadySuspendedHostingItem | ported |  | — |
+| tests/integration/test_hosting.py | test_enforcement_ignores_non_overdue_invoice | hosting.TestEnforcementIgnoresNonOverdueInvoice | ported |  | Inclusive grace comparison: the "grace ends today" subtest red (task 5) |
 | tests/integration/test_invoice_internal_note.py | test_internal_note_round_trips_through_api | invoices.TestInternalNoteRoundTripsThroughApi | ported |  | — |
 | tests/integration/test_invoice_internal_note.py | test_internal_note_can_be_cleared | invoices.TestInternalNoteCanBeCleared | ported |  | — |
 | tests/integration/test_invoice_internal_note.py | test_internal_note_never_reaches_the_pdf |  | todo | documents plan (PDF) |  |

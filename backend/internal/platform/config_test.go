@@ -273,3 +273,34 @@ func TestConfigTrimsResendKey(t *testing.T) {
 		t.Errorf("key = %q, err %v", cfg.ResendAPIKey, err)
 	}
 }
+
+// Python's cloudflare settings (app/config.py:65-67).
+func TestConfigCloudflareDefaults(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloudflareAPIToken != "" || cfg.CloudflareAPIBaseURL != "https://api.cloudflare.com/client/v4" || cfg.CloudflareTimeout != 15*time.Second {
+		t.Errorf("defaults = %q %q %v", cfg.CloudflareAPIToken, cfg.CloudflareAPIBaseURL, cfg.CloudflareTimeout)
+	}
+	cfg, err = ParseConfig(baseVars(map[string]string{
+		"CLOUDFLARE_API_TOKEN": " cf-token\n", "CLOUDFLARE_API_BASE_URL": "http://cf.test/v4", "CLOUDFLARE_TIMEOUT_SECONDS": "2.5",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloudflareAPIToken != "cf-token" || cfg.CloudflareAPIBaseURL != "http://cf.test/v4" || cfg.CloudflareTimeout != 2500*time.Millisecond {
+		t.Errorf("set = %q %q %v", cfg.CloudflareAPIToken, cfg.CloudflareAPIBaseURL, cfg.CloudflareTimeout)
+	}
+}
+
+func TestConfigRefusesNonPositiveCloudflareTimeout(t *testing.T) {
+	t.Parallel()
+	for _, bad := range []string{"0", "-1"} {
+		_, err := ParseConfig(baseVars(map[string]string{"CLOUDFLARE_TIMEOUT_SECONDS": bad}))
+		if err == nil || !strings.Contains(err.Error(), "CLOUDFLARE_TIMEOUT_SECONDS") {
+			t.Errorf("%q: err = %v", bad, err)
+		}
+	}
+}
