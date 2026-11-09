@@ -46,6 +46,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/projects"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/quotations"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/vendors"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
@@ -75,6 +76,7 @@ func register(api huma.API, f features) {
 	fx.Register(api, f.Pool, f.Config, f.FXClient)
 	// Drafts are logged until the email plan brings the real sender.
 	invoices.Register(api, f.Pool, f.Clock, invoices.LogNotifier{Logger: f.Logger})
+	quotations.Register(api, f.Pool, f.Clock)
 }
 
 func main() {
