@@ -14,13 +14,23 @@ import (
 	"github.com/LOQATO/gokit/db"
 	"github.com/LOQATO/gokit/testkit"
 
+	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
 
 // newPool opens a pool on a fresh migrated database.
 func newPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool, err := db.Open(context.Background(), db.PoolConfig{URL: testkit.PostgresURL(t, migrations.FS)})
+	return newPoolWithMaxConns(t, 0)
+}
+
+// newPoolWithMaxConns opens a pool on a fresh migrated database, with at
+// most maxConns connections (zero: the pool's own default).
+func newPoolWithMaxConns(t *testing.T, maxConns int32) *pgxpool.Pool {
+	t.Helper()
+	pool, err := db.Open(context.Background(), db.PoolConfig{
+		URL: testkit.PostgresURL(t, migrations.FS), MaxConns: maxConns,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +149,40 @@ func TestCatchUpOneSlotOnce(t *testing.T) {
 	}
 }
 
+// TestATickHoldsOneConnectionForTheBookkeeping: the slot bookkeeping runs
+// on the lock's own connection, so a tick does not take a second pool
+// connection for it. The pool is small (max(4, NumCPU)) and every job
+// ticks in the same minute, so a tick that held two connections could
+// starve the API's requests.
+//
+// The test's pool has a single connection: a tick that took a second one
+// for the bookkeeping would wait for the lock's connection, which is held
+// for the whole tick, and would never get it. The job's own work may use
+// the pool (it runs after the bookkeeping); the test's job does not.
+func TestATickHoldsOneConnectionForTheBookkeeping(t *testing.T) {
+	t.Parallel()
+	pool := newPoolWithMaxConns(t, 1)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	job := Job{
+		ID:  "recurring-scan-and-generate",
+		Due: DailySlot(2),
+		Run: func(context.Context, time.Time) error { return nil },
+	}
+	r := newRunner(pool, c, func(error) {})
+	// The tick must finish: with a single connection, a second one for
+	// the bookkeeping would block forever.
+	done := make(chan error, 1)
+	go func() { done <- r.tick(context.Background(), job) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("tick: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the tick waited for a second connection: the bookkeeping must use the lock's connection")
+	}
+}
+
 // TestCatchUpAfterARestart: a slot that passed while the process was down
 // is run once when it starts (a change from Python, whose job store was in
 // memory).
@@ -193,22 +237,31 @@ func TestSlotOlderThan24hSkippedAndLogged(t *testing.T) {
 }
 
 // TestJobErrorRecordedAndReported: a job that fails is recorded with its
-// error and the error is reported.
+// error, and the error is reported once: the runner returns it, and sched
+// (which calls the runner) reports it. The runner does not report it
+// itself, or the error would be reported twice.
 func TestJobErrorRecordedAndReported(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
 	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
 	failure := errors.New("the provider is down")
 	j := &recordingJob{id: "usage-lock-cutoff-scan", err: failure}
+	var mu sync.Mutex
 	var reported []error
-	r := newRunner(pool, c, func(err error) { reported = append(reported, err) })
+	r := newRunner(pool, c, func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, err)
+	})
 
 	err := r.tick(context.Background(), j.job(DailySlot(3)))
 	if !errors.Is(err, failure) {
 		t.Fatalf("tick error = %v, want %v", err, failure)
 	}
-	if len(reported) != 1 || !errors.Is(reported[0], failure) {
-		t.Errorf("reported = %v, want the job's error", reported)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reported) != 0 {
+		t.Errorf("reported = %v, want nothing: the returned error is the report", reported)
 	}
 	got := slots(t, pool, j.id)
 	if len(got) != 1 {
@@ -301,6 +354,261 @@ func TestAJobWithoutWorkIsRecordedAndDoesNothing(t *testing.T) {
 	}
 }
 
+// TestAnAbandonedSlotRunsAgain: a slot row with neither an end nor an
+// error is a run that died (a killed process, a panic, a cancelled
+// context). The advisory lock is held, so no live runner owns the slot: it
+// runs again, and the row records the new attempt. Without this the slot
+// would be lost for good and the catch-up after a deploy would never
+// happen.
+func TestAnAbandonedSlotRunsAgain(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	j := &recordingJob{id: "recurring-scan-and-generate"}
+	slot := time.Date(2026, 11, 10, 2, 0, 0, 0, time.UTC)
+	// The abandoned row: started, but neither finished nor failed.
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO scheduled_job_runs (job_id, slot, started_at) VALUES ($1, $2, $3)`,
+		j.id, slot, slot); err != nil {
+		t.Fatalf("insert the abandoned row: %v", err)
+	}
+
+	r := newRunner(pool, c, func(error) {})
+	if err := r.tick(context.Background(), j.job(DailySlot(2))); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	if got := j.runCount(); got != 1 {
+		t.Fatalf("runs = %d, want 1: an abandoned slot must run again", got)
+	}
+	got := slots(t, pool, j.id)
+	if len(got) != 1 {
+		t.Fatalf("recorded runs = %d, want 1", len(got))
+	}
+	if got[0].FinishedAt == nil {
+		t.Error("finished_at is not set: the slot is still abandoned")
+	}
+	if got[0].Error != nil {
+		t.Errorf("error = %v, want none", *got[0].Error)
+	}
+	if !got[0].StartedAt.Equal(c.now) {
+		t.Errorf("started_at = %s, want the new attempt's %s", got[0].StartedAt, c.now)
+	}
+}
+
+// TestTheSlotBookkeepingSurvivesAShutdown: the slot bookkeeping runs on a
+// context the shutdown does not cancel. A query that fails because its
+// context was cancelled closes the pgx connection (the protocol's state is
+// then unknown), and the slot row would be left half-written: the tick
+// would report a spurious unlock failure and the slot would be abandoned.
+//
+// The job cancels the context (a shutdown) and the tick must still finish
+// the slot and release the lock without an error.
+func TestTheSlotBookkeepingSurvivesAShutdown(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	const jobID = "recurring-scan-and-generate"
+	ctx, cancel := context.WithCancel(context.Background())
+	var mu sync.Mutex
+	var reported []error
+	job := Job{
+		ID:  jobID,
+		Due: DailySlot(2),
+		Run: func(context.Context, time.Time) error {
+			cancel()
+			return nil
+		},
+	}
+	r := newRunner(pool, c, func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, err)
+	})
+	if err := r.tick(ctx, job); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reported) != 0 {
+		t.Errorf("reported %v, want nothing", reported)
+	}
+	got := slots(t, pool, jobID)
+	if len(got) != 1 {
+		t.Fatalf("recorded runs = %d, want 1", len(got))
+	}
+	if got[0].FinishedAt == nil {
+		t.Error("finished_at is not set: the slot is still abandoned")
+	}
+}
+
+// TestATickWithoutAConnectionIsSkipped: the pool is exhausted (every
+// connection is taken), so the tick cannot get the connection the advisory
+// lock lives on. The wait is bounded: the tick is skipped and logged, and
+// the next tick tries again. It must never wait forever: the pool is
+// small and the API's requests need it too.
+func TestATickWithoutAConnectionIsSkipped(t *testing.T) {
+	t.Parallel()
+	pool := newPoolWithMaxConns(t, 1)
+	// The only connection is taken by somebody else.
+	held, err := pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Release()
+
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	logs := &logCapture{}
+	r := newRunner(pool, c, func(error) {}, logs.logger())
+	r.lockTimeout = 100 * time.Millisecond
+	job := Job{
+		ID:  "recurring-scan-and-generate",
+		Due: DailySlot(2),
+		Run: func(context.Context, time.Time) error {
+			t.Error("the job ran without a connection")
+			return nil
+		},
+	}
+	done := make(chan error, 1)
+	go func() { done <- r.tick(context.Background(), job) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("tick: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the tick waited forever for a connection")
+	}
+	if !logs.contains("no database connection") {
+		t.Errorf("the skipped tick is not logged: %v", logs.lines)
+	}
+}
+
+// TestTheJobsDoNotStarveEachOther: the jobs gokit/sched runs must not share
+// a lock key. sched takes its lock for the whole tick, so a shared key
+// would make the second job wait for the first one to finish: a slow job
+// would starve the rest.
+func TestTheJobsDoNotStarveEachOther(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	r := newRunner(pool, c, func(error) {})
+	built := r.schedJobs(time.Minute,
+		Job{ID: "recurring-scan-and-generate", Due: DailySlot(2)},
+		Job{ID: "usage-lock-cutoff-scan", Due: DailySlot(3)},
+		Job{ID: "hosting-overdue-enforcement", Due: DailySlot(4)},
+		Job{ID: "fx-rates-weekly-sync", Due: WeeklySlot(time.Monday, 5)},
+	)
+	seen := map[int64]string{}
+	for _, sj := range built {
+		if other, ok := seen[sj.LockKey]; ok {
+			t.Errorf("the jobs %q and %q share the sched lock key %d", other, sj.Name, sj.LockKey)
+		}
+		seen[sj.LockKey] = sj.Name
+		if sj.LockKey == LockKey(sj.Name) {
+			t.Errorf("the job %q takes its own Python key as the sched key", sj.Name)
+		}
+	}
+}
+
+// TestAFailedUnlockDoesNotReturnTheConnectionToThePool: a connection that
+// may still hold the advisory lock must not go back to the pool, or the
+// next user of it would inherit the lock. It is taken out of the pool and
+// closed instead.
+func TestAFailedUnlockDoesNotReturnTheConnectionToThePool(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	r := newRunner(pool, c, func(error) {})
+	// The unlock fails.
+	r.unlock = func(context.Context, *pgxpool.Conn, int64) error {
+		return errors.New("the connection is gone")
+	}
+	job := Job{
+		ID:  "recurring-scan-and-generate",
+		Due: DailySlot(2),
+		Run: func(context.Context, time.Time) error { return nil },
+	}
+	if err := r.tick(context.Background(), job); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	// The connection is gone from the pool: the pool has none left.
+	if got := pool.Stat().TotalConns(); got != 0 {
+		t.Errorf("the pool holds %d connections, want 0: the locked one must be closed", got)
+	}
+}
+
+// TestAShutdownStillFinishesTheSlot: the end of a run is written without
+// the caller's cancellation. A shutdown cancels the context while the job
+// runs; without this the slot row keeps neither an end nor an error, and
+// the slot is abandoned (the next start would have to run it again).
+func TestAShutdownStillFinishesTheSlot(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	const jobID = "recurring-scan-and-generate"
+	ctx, cancel := context.WithCancel(context.Background())
+	job := Job{
+		ID:  jobID,
+		Due: DailySlot(2),
+		Run: func(context.Context, time.Time) error {
+			// The shutdown: the context ends while the job runs.
+			cancel()
+			return nil
+		},
+	}
+	r := newRunner(pool, c, func(error) {})
+	if err := r.tick(ctx, job); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	got := slots(t, pool, jobID)
+	if len(got) != 1 {
+		t.Fatalf("recorded runs = %d, want 1", len(got))
+	}
+	if got[0].FinishedAt == nil {
+		t.Error("finished_at is not set: the slot is still abandoned")
+	}
+}
+
+// TestAPanickingJobRecordsItsSlot: a job that panics must still record
+// its slot, with the panic as the error. Otherwise the panic leaves the
+// slot abandoned and it is lost for good.
+func TestAPanickingJobRecordsItsSlot(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	const jobID = "usage-lock-cutoff-scan"
+	job := Job{
+		ID:  jobID,
+		Due: DailySlot(3),
+		Run: func(context.Context, time.Time) error {
+			panic("the job exploded")
+		},
+	}
+	var reported []error
+	r := newRunner(pool, c, func(err error) { reported = append(reported, err) })
+
+	err := r.tick(context.Background(), job)
+	if err == nil {
+		t.Fatal("tick error = nil, want the panic")
+	}
+	if !strings.Contains(err.Error(), "the job exploded") {
+		t.Errorf("tick error = %v, want the panic", err)
+	}
+	got := slots(t, pool, jobID)
+	if len(got) != 1 {
+		t.Fatalf("recorded runs = %d, want 1", len(got))
+	}
+	if got[0].FinishedAt == nil {
+		t.Error("finished_at is not set: the slot is still abandoned")
+	}
+	if got[0].Error == nil {
+		t.Fatal("the panic is not recorded as the slot's error")
+	}
+	if !strings.Contains(*got[0].Error, "the job exploded") {
+		t.Errorf("recorded error = %q, want the panic", *got[0].Error)
+	}
+}
+
 // logCapture collects the log lines the runner writes.
 type logCapture struct {
 	mu    sync.Mutex
@@ -333,39 +641,88 @@ func (l *logCapture) contains(text string) bool {
 }
 
 // TestReportIsCalledForAFailedJob: the report function hears about a failed
-// job, so the API can log it (and Sentry sees the error).
+// job, so the API can log it (and Sentry sees the error). The scheduler
+// reports it once, through sched, which is what returns the job's error.
 func TestReportIsCalledForAFailedJob(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
 	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
-	j := &recordingJob{id: "usage-lock-cutoff-scan", err: errors.New("boom")}
+	failure := errors.New("boom")
+	j := &recordingJob{id: "usage-lock-cutoff-scan", err: failure}
+	var mu sync.Mutex
 	var reported []error
-	r := newRunner(pool, c, func(err error) { reported = append(reported, err) })
-	if err := r.tick(context.Background(), j.job(DailySlot(3))); err == nil {
-		t.Fatal("tick error = nil, want the job's error")
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	wait := start(ctx, pool, c, func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, err)
+	}, 10*time.Millisecond, j.job(DailySlot(3)))
+	waitFor(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(reported) > 0
+	})
+	cancel()
+	wait()
+	mu.Lock()
+	defer mu.Unlock()
 	if len(reported) != 1 {
-		t.Errorf("reported %d errors, want 1", len(reported))
+		t.Fatalf("reported %d errors, want 1: %v", len(reported), reported)
+	}
+	if !errors.Is(reported[0], failure) {
+		t.Errorf("reported = %v, want the job's error", reported[0])
 	}
 }
 
 // TestSchedulerOffByDefault: the scheduler is off unless SCHEDULER_ENABLED
-// says otherwise (Go change 8; Python's default was true).
+// says otherwise (Go change 8; Python's default was true). The variable is
+// read by the platform's config, the one the API uses.
 func TestSchedulerOffByDefault(t *testing.T) {
 	t.Parallel()
-	if got := SchedulerEnabled(map[string]string{}); got {
+	cfg, err := platform.ParseConfig(schedulerVars(nil))
+	if err != nil {
+		t.Fatalf("parse the config: %v", err)
+	}
+	if cfg.SchedulerEnabled {
 		t.Error("the scheduler is on with SCHEDULER_ENABLED unset, want off")
 	}
-	if got := SchedulerEnabled(map[string]string{"SCHEDULER_ENABLED": "false"}); got {
+	cfg, err = platform.ParseConfig(schedulerVars(map[string]string{"SCHEDULER_ENABLED": "false"}))
+	if err != nil {
+		t.Fatalf("parse the config: %v", err)
+	}
+	if cfg.SchedulerEnabled {
 		t.Error("the scheduler is on with SCHEDULER_ENABLED=false, want off")
 	}
-	if got := SchedulerEnabled(map[string]string{"SCHEDULER_ENABLED": "true"}); !got {
+	cfg, err = platform.ParseConfig(schedulerVars(map[string]string{"SCHEDULER_ENABLED": "true"}))
+	if err != nil {
+		t.Fatalf("parse the config: %v", err)
+	}
+	if !cfg.SchedulerEnabled {
 		t.Error("the scheduler is off with SCHEDULER_ENABLED=true, want on")
 	}
 }
 
+// schedulerVars is the environment the config test reads: the required
+// variables, plus the extra ones.
+func schedulerVars(extra map[string]string) map[string]string {
+	vars := map[string]string{
+		"DATABASE_URL":        "postgresql://u:p@h:5432/d",
+		"SESSION_SECRET":      "0123456789abcdef0123456789abcdef",
+		"WEBHOOK_HMAC_SECRET": "a-real-webhook-secret",
+		"EMAIL_WEBHOOK_TOKEN": "a-real-email-token",
+	}
+	for k, v := range extra {
+		vars[k] = v
+	}
+	return vars
+}
+
 // TestStartRunsTheJobs: Start runs the jobs on a tick; the jobs that are
 // due run, and the ones that are not do not.
+//
+// The scheduler is stopped and waited for, so the assertions below see a
+// settled state and no goroutine is left behind.
 func TestStartRunsTheJobs(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
@@ -373,13 +730,40 @@ func TestStartRunsTheJobs(t *testing.T) {
 	due := &recordingJob{id: "recurring-scan-and-generate"}
 	notDue := &recordingJob{id: "fx-rates-weekly-sync"}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	start(ctx, pool, c, func(error) {}, 10*time.Millisecond,
+	t.Cleanup(cancel)
+	wait := start(ctx, pool, c, func(error) {}, 10*time.Millisecond,
 		due.job(DailySlot(2)), notDue.job(WeeklySlot(time.Monday, 5)))
-	// Wait for the first tick.
-	waitFor(t, func() bool { return due.runCount() > 0 })
-	if notDue.runCount() != 0 {
-		t.Errorf("the weekly job ran %d times before its slot", notDue.runCount())
+	// Wait for the first tick of both jobs: the due job runs, the weekly
+	// job's slot is too old and is recorded as skipped.
+	waitFor(t, func() bool { return due.runCount() > 0 && len(slots(t, pool, notDue.id)) == 1 })
+	// Stop the scheduler and wait for its ticks: a tick that ran after
+	// this would race with the assertions below.
+	cancel()
+	wait()
+	// The due job ran exactly once: its slot is recorded, so every later
+	// tick finds it and does nothing.
+	if got := due.runCount(); got != 1 {
+		t.Errorf("the due job ran %d times, want 1", got)
+	}
+	// The weekly job's slot is a week old, so it is skipped and recorded,
+	// never run.
+	if got := notDue.runCount(); got != 0 {
+		t.Errorf("the weekly job ran %d times, want 0", got)
+	}
+	got := slots(t, pool, due.id)
+	if len(got) != 1 {
+		t.Fatalf("recorded runs = %d, want 1", len(got))
+	}
+	if got[0].FinishedAt == nil {
+		t.Error("finished_at is not set after a run")
+	}
+	// The weekly job's slot is recorded as skipped, with its reason.
+	weekly := slots(t, pool, notDue.id)
+	if len(weekly) != 1 {
+		t.Fatalf("the weekly job's recorded runs = %d, want 1", len(weekly))
+	}
+	if weekly[0].Error == nil {
+		t.Error("the skipped weekly slot is not recorded with a reason")
 	}
 }
 

@@ -78,6 +78,27 @@ func (q *Queries) InsertSlot(ctx context.Context, arg InsertSlotParams) error {
 	return err
 }
 
+const restartSlot = `-- name: RestartSlot :exec
+UPDATE scheduled_job_runs
+   SET started_at = $1, finished_at = NULL, error = NULL
+ WHERE job_id = $2 AND slot = $3
+`
+
+type RestartSlotParams struct {
+	StartedAt time.Time
+	JobID     string
+	Slot      time.Time
+}
+
+// An abandoned slot: the row exists but neither finished_at nor error is
+// set, so the run that wrote it died (a killed process, a panic, a
+// cancelled context). The advisory lock is held, so no live runner owns
+// it: the slot runs again and the row records the new attempt.
+func (q *Queries) RestartSlot(ctx context.Context, arg RestartSlotParams) error {
+	_, err := q.db.Exec(ctx, restartSlot, arg.StartedAt, arg.JobID, arg.Slot)
+	return err
+}
+
 const skipSlot = `-- name: SkipSlot :exec
 INSERT INTO scheduled_job_runs (job_id, slot, started_at, finished_at, error)
 VALUES ($1, $2, $3, $3, $4)

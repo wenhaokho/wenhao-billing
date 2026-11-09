@@ -15,6 +15,15 @@ UPDATE scheduled_job_runs
    SET finished_at = sqlc.arg(finished_at), error = sqlc.narg(error)
  WHERE job_id = sqlc.arg(job_id) AND slot = sqlc.arg(slot);
 
+-- name: RestartSlot :exec
+-- An abandoned slot: the row exists but neither finished_at nor error is
+-- set, so the run that wrote it died (a killed process, a panic, a
+-- cancelled context). The advisory lock is held, so no live runner owns
+-- it: the slot runs again and the row records the new attempt.
+UPDATE scheduled_job_runs
+   SET started_at = sqlc.arg(started_at), finished_at = NULL, error = NULL
+ WHERE job_id = sqlc.arg(job_id) AND slot = sqlc.arg(slot);
+
 -- name: SkipSlot :exec
 -- A slot that is too old to run: recorded so it is never considered again,
 -- with the reason it was skipped.

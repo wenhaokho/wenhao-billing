@@ -30,6 +30,21 @@ func LockKey(jobID string) int64 {
 	return int64(crc32.ChecksumIEEE([]byte(jobID)))
 }
 
+// schedLockKey is the advisory lock key gokit/sched takes for itself, on
+// its own connection, for the whole tick.
+//
+// It must not be the job's LockKey: sched's lock and the runner's lock are
+// taken on two different connections, and a session-level advisory lock
+// cannot be taken twice, so the runner's lock would always fail. It is a
+// negative key, outside the range of Python's unsigned crc32 keys, so it
+// cannot collide with a Python lock either.
+//
+// It is per job: a key of zero would make every job contend with every
+// other one, and a slow job would starve the rest.
+func schedLockKey(jobID string) int64 {
+	return -1 - int64(crc32.ChecksumIEEE([]byte(jobID)))
+}
+
 // DailySlot is the slot function of a job that runs every day at the given
 // UTC hour: the latest time of that hour that has passed. Before the hour of
 // the day has come, the slot is the previous day's.

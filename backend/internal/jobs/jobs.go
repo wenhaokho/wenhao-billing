@@ -98,19 +98,3 @@ func HostingEnforcement(run func(ctx context.Context, slot time.Time) error) Job
 		Run: run,
 	}
 }
-
-// SchedulerEnabled reports whether the scheduler runs. The variable is
-// SCHEDULER_ENABLED, Python's name (Python's default was true; Go's is
-// false, Go change 8: the scheduler is off until the switch-over).
-func SchedulerEnabled(vars map[string]string) bool {
-	raw, ok := vars["SCHEDULER_ENABLED"]
-	if !ok {
-		return false
-	}
-	switch raw {
-	case "true", "TRUE", "True", "1", "yes", "YES", "on", "ON":
-		return true
-	default:
-		return false
-	}
-}
