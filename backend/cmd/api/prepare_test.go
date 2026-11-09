@@ -58,7 +58,7 @@ func TestServeMigratesFreshDatabase(t *testing.T) {
 	if err := conn.QueryRow(ctx, `SELECT max(version_id) FROM goose_db_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Errorf("goose version %d, want 3", version)
+	if version != 7 {
+		t.Errorf("goose version %d, want 7", version)
 	}
 }

@@ -232,6 +232,11 @@ type LoginAttempt struct {
 	FailedAt   time.Time
 }
 
+type McpSpentConfirmToken struct {
+	TokenHash string
+	ExpiresAt time.Time
+}
+
 type OauthClient struct {
 	ClientID     string
 	ClientName   *string
@@ -244,6 +249,11 @@ type OauthRefreshToken struct {
 	UserID    string
 	Revoked   bool
 	CreatedAt pgtype.Timestamptz
+}
+
+type OauthSpentCode struct {
+	CodeHash  string
+	ExpiresAt time.Time
 }
 
 type Payment struct {

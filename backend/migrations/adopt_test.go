@@ -95,8 +95,8 @@ func TestAdoptThenMigrateAppliesOnlyNewMigrations(t *testing.T) {
 		t.Fatalf("Migrate after Adopt: %v", err)
 	}
 
-	if got := scalar[int64](t, pool, `SELECT max(version_id) FROM goose_db_version WHERE is_applied`); got != 3 {
-		t.Errorf("goose version %d, want 3", got)
+	if got := scalar[int64](t, pool, `SELECT max(version_id) FROM goose_db_version WHERE is_applied`); got != 7 {
+		t.Errorf("goose version %d, want 7", got)
 	}
 	if got := scalar[int64](t, pool, `SELECT count(*) FROM goose_db_version WHERE version_id = 1`); got != 1 {
 		t.Errorf("version 1 recorded %d times, want once (the baseline must not run)", got)
@@ -232,5 +232,40 @@ func TestCheckAdoptedAcceptsGooseDatabase(t *testing.T) {
 	t.Parallel()
 	if err := migrations.CheckAdopted(context.Background(), openPool(t, testkit.PostgresURL(t, migrations.FS))); err != nil {
 		t.Fatalf("CheckAdopted on a goose-migrated database: %v", err)
+	}
+}
+
+// TestMigrationsAdditive: the three MCP migrations only add tables and an
+// index, so Python's code, which knows none of them, keeps working: its
+// inserts into the OAuth tables succeed and the new tables start empty.
+func TestMigrationsAdditive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	url := testkit.PostgresURL(t, migrations.FS)
+	pool := openPool(t, url)
+
+	for _, table := range []string{"oauth_spent_codes", "mcp_spent_confirm_tokens"} {
+		if !scalar[bool](t, pool, `SELECT to_regclass('public.`+table+`') IS NOT NULL`) {
+			t.Errorf("%s is missing", table)
+		}
+	}
+	if !scalar[bool](t, pool, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'oauth_refresh_tokens'
+		AND indexdef LIKE '%(user_id)%')`) {
+		t.Error("no index on oauth_refresh_tokens(user_id)")
+	}
+	// Python's insert paths, written against the Alembic schema, still work.
+	for _, q := range []string{
+		`INSERT INTO oauth_clients (client_id, client_name, redirect_uris) VALUES ('c1', 'n', '["https://a.example/cb"]')`,
+		`INSERT INTO oauth_refresh_tokens (jti, user_id, revoked) VALUES ('j1', 'u1', false)`,
+		`UPDATE oauth_refresh_tokens SET revoked = true WHERE user_id = 'u1'`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Errorf("%s: %v", q, err)
+		}
+	}
+	for _, table := range []string{"oauth_spent_codes", "mcp_spent_confirm_tokens"} {
+		if got := scalar[int64](t, pool, `SELECT count(*) FROM `+table); got != 0 {
+			t.Errorf("%s has %d rows, want none", table, got)
+		}
 	}
 }
