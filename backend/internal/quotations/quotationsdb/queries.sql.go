@@ -404,6 +404,23 @@ func (q *Queries) MarkQuotationSent(ctx context.Context, arg MarkQuotationSentPa
 	return err
 }
 
+const markQuotationSentOnSend = `-- name: MarkQuotationSentOnSend :exec
+UPDATE quotations SET status = CASE WHEN status = 'DRAFT' THEN 'SENT' ELSE status END, last_sent_at = $1
+WHERE quotation_id = $2
+`
+
+type MarkQuotationSentOnSendParams struct {
+	LastSentAt  *time.Time
+	QuotationID uuid.UUID
+}
+
+// Sending: a DRAFT quotation becomes SENT, any other status stays; last_sent_at
+// is stamped whatever the status.
+func (q *Queries) MarkQuotationSentOnSend(ctx context.Context, arg MarkQuotationSentOnSendParams) error {
+	_, err := q.db.Exec(ctx, markQuotationSentOnSend, arg.LastSentAt, arg.QuotationID)
+	return err
+}
+
 const setQuotationStatus = `-- name: SetQuotationStatus :exec
 UPDATE quotations SET status = $1 WHERE quotation_id = $2
 `

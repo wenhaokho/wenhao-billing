@@ -1066,6 +1066,32 @@ func (q *Queries) ListUsageDrafts(ctx context.Context) ([]ListUsageDraftsRow, er
 	return items, nil
 }
 
+const listUserEmails = `-- name: ListUserEmails :many
+SELECT email FROM users ORDER BY created_at, email
+`
+
+// The digest's recipients: every user, no role or active filter
+// (draft_notifications.py user_emails).
+func (q *Queries) ListUserEmails(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listUserEmails)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		items = append(items, email)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockInvoiceNumbers = `-- name: LockInvoiceNumbers :exec
 SELECT pg_advisory_xact_lock(hashtextextended('invoice-number:' || $1::text, 0))
 `
@@ -1112,6 +1138,17 @@ func (q *Queries) LockUsageInvoice(ctx context.Context, arg LockUsageInvoicePara
 		arg.BillingCycleRef,
 		arg.InvoiceID,
 	)
+	return err
+}
+
+const markInvoiceSent = `-- name: MarkInvoiceSent :exec
+UPDATE invoices SET status = 'SENT' WHERE invoice_id = $1 AND status IN ('DRAFT', 'OPEN')
+`
+
+// Sending: a DRAFT or OPEN invoice becomes SENT (no finalize); any other
+// status stays as it is.
+func (q *Queries) MarkInvoiceSent(ctx context.Context, invoiceID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markInvoiceSent, invoiceID)
 	return err
 }
 

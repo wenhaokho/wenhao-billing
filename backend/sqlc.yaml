@@ -226,6 +226,17 @@ sql:
         overrides: *go_overrides
   - engine: postgresql
     schema: migrations
+    queries: internal/hosting/queries.sql
+    gen:
+      go:
+        package: hostingdb
+        out: internal/hosting/hostingdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
     queries: internal/stats/queries.sql
     gen:
       go:
@@ -255,6 +266,17 @@ sql:
               pointer: true
           - column: invoices.billing_cycle_ref
             go_type: encoding/json.RawMessage
+  - engine: postgresql
+    schema: migrations
+    queries: internal/jobs/queries.sql
+    gen:
+      go:
+        package: jobsdb
+        out: internal/jobs/jobsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
   - engine: postgresql
     schema: migrations
     queries: internal/oauth/queries.sql

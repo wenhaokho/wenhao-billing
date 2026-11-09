@@ -1,8 +1,8 @@
-# Go backend, plan 9: documents and integrations (DRAFT)
+# Go backend, plan 9: documents and integrations
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Draft, written 2026-11-10 before plans 7–8 merged.** Before execution, a refresh pass checks the names below against `main`. It depends on plan 7's `payments.FormatAmount`, `ReceiptRenderer`/`StubRenderer`, `HostingRestorer`/`NoHosting`, `email.Message{Cc, Attachments}` and `platform.ParseCcEmails`.
+> **Refreshed 2026-11-10 against `main` at 6bf89c5 (plan 7 merged).** Checked present: `payments.FormatAmount` (receipt.go:75), `ReceiptRenderer`/`StubRenderer` (receipt.go:28-34), `HostingRestorer{RestoreIfPaid}`/`NoHosting` (hosting.go:13-22, called from `Service.restore`, service.go:68), `email.Message{Cc, Attachments}` and `email.Attachment` (email.go:14-22), `platform.ParseCcEmails` (email.go:97). Runs in parallel with plan 8 in the worktree `D:/Development/wenhao-billing-plan9` (run `./dev` with `COMPOSE_PROJECT_NAME=wenhao-billing`); plan 8 touches no file this plan creates, but both append to `PORT-NOTES.md`, `TESTS.md` and `ROUTES.md`, so this branch rebases on `main` after plan 8 merges. The owner has not answered the three questions below; their defaults stand.
 
 **Goal:** Go renders invoice, quotation and receipt PDFs with Maroto, and sends mail through Resend. It suspends and restores hosting through Cloudflare, and runs the four scheduled jobs with Python's lock keys and a catch-up of one missed slot. It answers the 4 PDF and send routes with Python's contract.
 

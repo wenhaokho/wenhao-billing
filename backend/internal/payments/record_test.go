@@ -12,6 +12,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
@@ -440,6 +441,30 @@ func TestRecordPaymentPaidTellsHosting(t *testing.T) {
 	a.mustRecord(t, id, map[string]any{"amount": "600"})
 	if got := rec.got(); !slices.Equal(got, []uuid.UUID{id}) {
 		t.Errorf("restored %v, want [%s]", got, id)
+	}
+	// Both payments committed CLEARED; the restorer acts only on the paid one.
+	if got := rec.gotAfter(); !slices.Equal(got, []uuid.UUID{id, id}) {
+		t.Errorf("after commit %v, want [%s %s]", got, id, id)
+	}
+	checkInvoice(t, a.env, id, "0", "0", "PAID")
+}
+
+// panicker is a HostingRestorer whose RestoreAfterCommit panics: a committed
+// payment must still answer 201.
+type panicker struct{}
+
+func (panicker) StampPaid(context.Context, pgx.Tx, uuid.UUID) error { return nil }
+
+func (panicker) RestoreAfterCommit(context.Context, uuid.UUID) { panic("hosting restore boom") }
+
+func TestRecordPaymentSurvivesPanickingHosting(t *testing.T) {
+	t.Parallel()
+	a := newAPI(t, panicker{})
+	c := a.customer(t, "Acme Corp")
+	id := a.invoice(t, inv{customer: c, currency: "IDR", status: "OPEN", balance: "1000"})
+	got := a.mustRecord(t, id, map[string]any{"amount": "1000"})
+	if got.Status != "CLEARED" {
+		t.Errorf("payment %s, want CLEARED", got.Status)
 	}
 	checkInvoice(t, a.env, id, "0", "0", "PAID")
 }

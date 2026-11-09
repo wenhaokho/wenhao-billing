@@ -15,7 +15,7 @@ Only Docker is needed. `./dev` runs Go in the root `docker-compose.yml` (service
 profile `tools`), so it shares the dev stack's network.
 
 ```
-./dev test [packages]   go test -race -parallel 8 (default ./...)
+./dev test [packages]   go test -parallel 8, -race if GO_TEST_RACE=1 (default ./...)
 ./dev lint | fmt        golangci-lint run | fmt
 ./dev sqlc              regenerate the sqlc code from internal/*/queries.sql
 ./dev openapi           write openapi.json (the frontend's generated types come from it)
@@ -30,7 +30,7 @@ its own database from a template. Without it every database test skips.
 
 Tests run in parallel: every test calls `t.Parallel()` unless it changes package state
 that other tests read (a swapped function, a filled semaphore, a test hook); those say
-why next to the test. `./dev test` runs `-race -parallel 8 -timeout 60s` and leaves `-p`
+why next to the test. `./dev test` runs `-parallel 8 -timeout 60s` (plus `-race` with `GO_TEST_RACE=1`) and leaves `-p`
 at its default, the number of CPUs, since `-p` also limits how many test binaries build
 and link at once.
 
@@ -42,7 +42,7 @@ bash scripts/check.sh
 
 From the repo root; GitHub Actions is off, so this is the gate. It runs the compose path
 guard, the frozen Python tests, the frontend build, then the Go checks: lint, generated
-code current, and `go test -race`. It **fails if any test is skipped**, Go or Python.
+code current, and `go test` (`GO_TEST_RACE=1` adds `-race`). It **fails if any test is skipped**, Go or Python.
 
 ## The API binary
 

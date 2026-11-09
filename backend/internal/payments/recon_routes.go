@@ -235,21 +235,21 @@ func (r routes) reverse(ctx context.Context, in *reverseIn) (*paymentBody, error
 }
 
 // settle runs a clearing or reversal in one transaction; a refusal rolls it
-// back and is answered 400 with its sentence.
+// back and is answered 400 with its sentence. Once committed, a CLEARED
+// payment's hosting is restored (AfterCommit; a reversal is FLAGGED, so
+// nothing).
 func (r routes) settle(ctx context.Context, fn func(tx pgx.Tx) (paymentsdb.Payment, error)) (*paymentBody, error) {
-	var out PaymentOut
+	var p paymentsdb.Payment
 	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
-		p, err := fn(tx)
-		if err != nil {
-			return err
-		}
-		out = PaymentOutFrom(p)
-		return nil
+		var err error
+		p, err = fn(tx)
+		return err
 	})
 	if err != nil {
 		return nil, refusalError(err)
 	}
-	return &paymentBody{Body: out}, nil
+	r.svc.AfterCommit(ctx, p)
+	return &paymentBody{Body: PaymentOutFrom(p)}, nil
 }
 
 // refusalError is err as a 400 when it is a service, ledger or FX refusal;

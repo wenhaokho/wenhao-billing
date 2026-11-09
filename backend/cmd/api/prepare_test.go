@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -58,7 +59,36 @@ func TestServeMigratesFreshDatabase(t *testing.T) {
 	if err := conn.QueryRow(ctx, `SELECT max(version_id) FROM goose_db_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 7 {
-		t.Errorf("goose version %d, want 7", version)
+	if version != lastMigrationVersion(t) {
+		t.Errorf("goose version %d, want %d", version, lastMigrationVersion(t))
 	}
+	// The scheduler's table is there: the migration ran.
+	var hasTable bool
+	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.scheduled_job_runs') IS NOT NULL`).Scan(&hasTable); err != nil {
+		t.Fatal(err)
+	}
+	if !hasTable {
+		t.Error("scheduled_job_runs is missing after the migration")
+	}
+}
+
+// lastMigrationVersion is the number of the last migration, so a new
+// migration does not break the version check.
+func lastMigrationVersion(t *testing.T) int64 {
+	t.Helper()
+	entries, err := migrations.FS.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last int64
+	for _, e := range entries {
+		var n int64
+		if _, err := fmt.Sscanf(e.Name(), "%d_", &n); err != nil {
+			continue
+		}
+		if n > last {
+			last = n
+		}
+	}
+	return last
 }

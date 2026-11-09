@@ -37,6 +37,10 @@ linters:
       - path: _test\.go
         linters: [forbidigo]
         text: float64
+      # The PDF layout measures the page in millimetres and points.
+      - path: internal/pdf/layout\.go
+        linters: [forbidigo]
+        text: float64
 
 formatters:
   enable:

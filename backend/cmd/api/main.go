@@ -44,8 +44,11 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/customers"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/hosting"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/jobs"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/mcp"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/oauth"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
@@ -81,12 +84,17 @@ func register(api huma.API, f features) {
 	customers.Register(api, f.Pool)
 	business.Register(api, f.Pool, f.Clock)
 	fx.Register(api, f.Pool, f.Config, f.FXClient)
-	// Drafts are logged until the email plan brings the real sender.
-	invoices.Register(api, f.Pool, f.Clock, invoices.LogNotifier{Logger: f.Logger})
+	invoices.Register(api, f.Pool, f.Clock, invoices.EmailNotifier{
+		Q: invoicesdb.New(f.Pool), Sender: f.Mail, AppBaseURL: f.Config.AppBaseURL, Logger: f.Logger,
+	})
 	quotations.Register(api, f.Pool, f.Clock)
+	quotations.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
+	invoices.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
 	bills.Register(api, f.Pool, f.Clock)
-	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: payments.NoHosting{}}, f.Config, f.Clock,
-		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.StubRenderer{}})
+	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: hosting.Restorer{
+		Pool: f.Pool, Client: hosting.NewClient(f.Config), Logger: f.Logger,
+	}}, f.Config, f.Clock,
+		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.PDFReceiptRenderer{DB: f.Pool}})
 	reports.Register(api, f.Pool, f.Config, f.Clock)
 	stats.Register(api, f.Pool, f.Config, f.Clock)
 }
@@ -155,6 +163,21 @@ func mailSender(cfg platform.Config, logger *slog.Logger) email.LogSender {
 	return email.LogSender{Logger: logger, ShowBodies: cfg.LocalHTTP()}
 }
 
+// pickSender is Resend when RESEND_API_KEY is set, else the logging sender
+// (Python's send_email with no key and no SMTP host).
+func pickSender(cfg platform.Config, logger *slog.Logger) email.Sender {
+	if cfg.ResendAPIKey == "" {
+		if !cfg.LocalHTTP() && logger != nil {
+			logger.Warn("RESEND_API_KEY is empty: mail is logged, not sent", "environment", cfg.Environment)
+		}
+		return mailSender(cfg, logger)
+	}
+	return email.NewResendSender(email.ResendConfig{
+		APIKey: cfg.ResendAPIKey, FromEmail: cfg.ResendFromEmail, FromName: cfg.ResendFromName,
+		BaseURL: cfg.ResendBaseURL, ReplyTo: cfg.SMTPReplyTo, Timeout: cfg.ResendTimeout, Logger: logger,
+	}, &http.Client{Timeout: cfg.ResendTimeout + time.Second})
+}
+
 func serve() error {
 	cfg, err := platform.LoadConfig()
 	if err != nil {
@@ -183,13 +206,14 @@ func serve() error {
 	sessions := platform.NewSessions(cfg)
 	// One sender for the whole process: the API's routes and the MCP
 	// connector's gated email tools share it.
-	mail := mailSender(cfg, logger)
+	mail := pickSender(cfg, logger)
 	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock, Root: oauthRoot(cfg, pool, sessions, clock, mail, invoices.LogNotifier{Logger: logger})})
 	register(api, features{
 		Pool: pool, Sessions: sessions, Mail: mail, Config: cfg, Clock: clock,
 		Logger:   logger,
 		FXClient: fx.NewClient(cfg),
 	})
+	_, waitScheduler := startScheduler(ctx, pool, cfg, clock, logger, mail)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -201,15 +225,64 @@ func serve() error {
 	logger.Info("listening", "port", cfg.Port)
 	select {
 	case err := <-errs:
+		stop()
+		if waitScheduler != nil {
+			waitScheduler()
+		}
 		return err
 	case <-ctx.Done():
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdown); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if waitScheduler != nil {
+			waitScheduler()
+		}
 		return err
 	}
+	if waitScheduler != nil {
+		waitScheduler()
+	}
 	return nil
+}
+
+// startScheduler starts the scheduled jobs, if they are on. The scheduler is
+// off unless SCHEDULER_ENABLED says otherwise (Go change 8): the Python
+// backend runs the jobs until the switch-over.
+//
+// It returns the jobs it started and a wait function that blocks until the
+// scheduler's goroutine has stopped (nil when the scheduler is off). serve
+// calls the wait function before it returns, and the database pool is
+// closed (serve's defer) only after that, so a job running when the process
+// stops finishes before its pool is closed under it.
+func startScheduler(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config, clock platform.Clock, logger *slog.Logger, mail email.Sender) ([]jobs.Job, func()) {
+	if !cfg.SchedulerEnabled {
+		logger.Info("scheduler is off (SCHEDULER_ENABLED)")
+		return nil, nil
+	}
+	jobList := scheduledJobs(pool, cfg, logger, mail)
+	wait := jobs.Start(ctx, pool, clock, func(err error) {
+		logger.Error("scheduled job failed", "err", err)
+	}, jobList...)
+	logger.Info("scheduler started", "jobs", len(jobList))
+	return jobList, wait
+}
+
+// scheduledJobs is the job list: the jobs' work is built from the
+// configuration here (the hosting job's Cloudflare client from CLOUDFLARE_*).
+// It is a variable so tests can replace the jobs' Run functions with no-ops.
+var scheduledJobs = func(pool *pgxpool.Pool, cfg platform.Config, logger *slog.Logger, mail email.Sender) []jobs.Job {
+	return []jobs.Job{
+		jobs.RecurringScan(pool, invoices.EmailNotifier{
+			Q: invoicesdb.New(pool), Sender: mail, AppBaseURL: cfg.AppBaseURL, Logger: logger,
+		}),
+		jobs.UsageLockScan(pool),
+		jobs.HostingEnforcement(func(ctx context.Context, slot time.Time) error {
+			_, err := hosting.Enforce(ctx, pool, hosting.NewClient(cfg), slot)
+			return err
+		}),
+		jobs.FXRatesSync(pool, cfg, fx.NewClient(cfg)),
+	}
 }
 
 // prepareDatabase is serve's database step: refuse a database goose does not

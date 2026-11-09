@@ -342,6 +342,14 @@ type ReconciliationLog struct {
 	CreatedAt   *time.Time
 }
 
+type ScheduledJobRun struct {
+	JobID      string
+	Slot       time.Time
+	StartedAt  time.Time
+	FinishedAt pgtype.Timestamptz
+	Error      *string
+}
+
 type User struct {
 	UserID               uuid.UUID
 	Email                string

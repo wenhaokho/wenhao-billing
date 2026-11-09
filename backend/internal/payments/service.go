@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
+	"github.com/LOQATO/gokit/observe"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -61,19 +63,47 @@ type IntakePayload struct {
 type Service struct {
 	// BaseCurrency is the ledger's base currency.
 	BaseCurrency string
-	// Hosting is told of every invoice that becomes PAID; nil is NoHosting.
+	// Hosting stamps every invoice that becomes PAID in the payment's
+	// transaction, and restores it once the caller committed (AfterCommit);
+	// nil is NoHosting.
 	Hosting HostingRestorer
 }
 
-func (s Service) restore(ctx context.Context, tx pgx.Tx, invoiceID uuid.UUID) error {
-	h := s.Hosting
-	if h == nil {
-		h = NoHosting{}
+func (s Service) hosting() HostingRestorer {
+	if s.Hosting == nil {
+		return NoHosting{}
 	}
-	if err := h.RestoreIfPaid(ctx, tx, invoiceID); err != nil {
-		return fmt.Errorf("payments: hosting restore: %w", err)
+	return s.Hosting
+}
+
+// stampPaid tells Hosting, in tx, that invoiceID became PAID.
+func (s Service) stampPaid(ctx context.Context, tx pgx.Tx, invoiceID uuid.UUID) error {
+	if err := s.hosting().StampPaid(ctx, tx, invoiceID); err != nil {
+		return fmt.Errorf("payments: hosting stamp: %w", err)
 	}
 	return nil
+}
+
+// AfterCommit finishes a payment that ProcessIncoming, ApproveManual or
+// record-payment returned, once the caller's transaction has committed:
+// when p is CLEARED against an invoice, Hosting restores that invoice's
+// hosting, best effort (a Cloudflare failure never fails the payment, Go
+// change 1). It must not be called inside the transaction, nor after a
+// rollback. A HostingRestorer that panics (for example a nil Cloudflare
+// client or a pgx panic) is recovered, logged and reported here, never
+// re-panicked: the payment is already committed, so a panic would otherwise
+// reach the platform recoverer and answer 500 for it.
+func (s Service) AfterCommit(ctx context.Context, p paymentsdb.Payment) {
+	if p.Status == matching.StatusCleared && p.InvoiceID.Valid {
+		defer func() {
+			if rec := recover(); rec != nil {
+				err := fmt.Errorf("hosting restore after payment panicked: %v", rec)
+				slog.ErrorContext(ctx, "hosting restore after payment panicked", "panic", rec, "invoice_id", uuid.UUID(p.InvoiceID.Bytes))
+				observe.Report(err, map[string]string{"component": "payments", "stage": "restore_after_commit"})
+			}
+		}()
+		s.hosting().RestoreAfterCommit(ctx, p.InvoiceID.Bytes)
+	}
 }
 
 // ProcessIncoming matches an incoming payment against the open invoices in
@@ -81,7 +111,8 @@ func (s Service) restore(ctx context.Context, tx pgx.Tx, invoiceID uuid.UUID) er
 // (Python's process_incoming_payment, SR:124-164). The payment keeps the best
 // candidate's invoice and customer even when held. A cleared payment posts
 // to the ledger, sets the invoice's balance to 0 and its status to PAID, and
-// tells Hosting. A HELD or CLEARED log row (no actor) records the reasons.
+// stamps Hosting (the caller calls AfterCommit once committed). A HELD or
+// CLEARED log row (no actor) records the reasons.
 //
 // Clearing runs in a savepoint after the payment row is written. When the
 // posting fails with ledger.ErrLedger or fx.ErrRateMissing, or the invoice,
@@ -179,7 +210,7 @@ func (s Service) clearIncoming(ctx context.Context, tx pgx.Tx, inc matching.Inco
 	if err := saveInvoice(ctx, q, inv); err != nil {
 		return "", err
 	}
-	if err := s.restore(ctx, sp, inv.InvoiceID); err != nil {
+	if err := s.stampPaid(ctx, sp, inv.InvoiceID); err != nil {
 		return "", err
 	}
 	if err := sp.Commit(ctx); err != nil {
@@ -207,8 +238,9 @@ func stillClears(inc matching.Incoming, inv paymentsdb.LockInvoiceRow) bool {
 // The payment takes the invoice and its customer, status CLEARED and adj
 // (stored only). Same currency, the balance drops by the payment plus any
 // withholding booked and the invoice is PAID at 0, PARTIAL otherwise; across
-// currencies it is settled in full with an FX gain or loss. PAID tells
-// Hosting. An OVERRIDDEN log row names the invoice; actor may be nil (MCP).
+// currencies it is settled in full with an FX gain or loss. PAID stamps
+// Hosting (the caller calls AfterCommit once committed). An OVERRIDDEN log
+// row names the invoice; actor may be nil (MCP).
 //
 // Refusals are ErrPayment with Python's sentence, plus Go's own: a DRAFT or
 // VOID invoice is "cannot approve payment against <STATUS> invoice". A PAID
@@ -216,6 +248,7 @@ func stillClears(inc matching.Incoming, inv paymentsdb.LockInvoiceRow) bool {
 // in Python. A ledger refusal or a missing rate is returned unchanged
 // (errors.Is ledger.ErrLedger or fx.ErrRateMissing; its text is Python's
 // sentence) for the route to answer 400. The caller rolls back on any error.
+// An MCP caller must also call Service.AfterCommit after its commit.
 func (s Service) ApproveManual(ctx context.Context, tx pgx.Tx, paymentID, invoiceID uuid.UUID, actor *uuid.UUID, adj string) (paymentsdb.Payment, error) {
 	q := paymentsdb.New(tx)
 	p, err := lockPayment(ctx, q, paymentID)
@@ -257,7 +290,7 @@ func (s Service) ApproveManual(ctx context.Context, tx pgx.Tx, paymentID, invoic
 		return paymentsdb.Payment{}, err
 	}
 	if paid {
-		if err := s.restore(ctx, tx, inv.InvoiceID); err != nil {
+		if err := s.stampPaid(ctx, tx, inv.InvoiceID); err != nil {
 			return paymentsdb.Payment{}, err
 		}
 	}
