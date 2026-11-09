@@ -568,6 +568,8 @@ func TestManualApprovalClearsAndPosts(t *testing.T) {
 func TestHeldPaymentLeavesInvoiceAndLedger(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
+	rec := &recorder{}
+	e.svc.Hosting = rec
 	invID := e.sentInvoice(t)
 	p := e.incoming(t, payload(amount("999.00")))
 
@@ -593,6 +595,9 @@ func TestHeldPaymentLeavesInvoiceAndLedger(t *testing.T) {
 	if len(logs) != 1 || logs[0].action != "HELD" || logs[0].actor != nil || !slices.Equal(logs[0].reasons, want) {
 		t.Errorf("logs = %+v, want one HELD %q", logs, want)
 	}
+	if got := rec.got(); len(got) != 0 {
+		t.Errorf("hosting restored %v for a held payment", got)
+	}
 }
 
 // rateless is an invoice dated before apitest's first USD rate (2026-01-01),
@@ -609,6 +614,8 @@ func (e *env) rateless(t *testing.T, balance, wht string) uuid.UUID {
 func TestIncomingClearWithoutRateIsHeld(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
+	rec := &recorder{}
+	e.svc.Hosting = rec
 	// The net payment clears, so the clearing writes the payment's
 	// wht_amount before the posting fails: the savepoint must undo it.
 	invID := e.rateless(t, "1020.41", "20.41")
@@ -625,6 +632,9 @@ func TestIncomingClearWithoutRateIsHeld(t *testing.T) {
 	want := []string{"exact amount+currency, high payer+date confidence", "no fx rate for USD->IDR on or before 2025-12-01"}
 	if len(logs) != 1 || logs[0].action != "HELD" || !slices.Equal(logs[0].reasons, want) {
 		t.Errorf("logs = %+v, want one HELD %q", logs, want)
+	}
+	if got := rec.got(); len(got) != 0 {
+		t.Errorf("hosting restored %v for a payment held at the savepoint", got)
 	}
 }
 
@@ -793,6 +803,8 @@ func TestApproveTwiceConcurrentPostsOnce(t *testing.T) {
 func TestIncomingConcurrentSameInvoiceClearsOnce(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
+	rec := &recorder{}
+	e.svc.Hosting = rec
 	invID := e.sentInvoice(t)
 	process := func(tx pgx.Tx) (paymentsdb.Payment, error) {
 		return e.svc.ProcessIncoming(context.Background(), tx, payload())
@@ -812,6 +824,10 @@ func TestIncomingConcurrentSameInvoiceClearsOnce(t *testing.T) {
 	want := []string{"exact amount+currency, high payer+date confidence", "invoice " + invID.String() + " changed before clearing"}
 	if len(logs) != 1 || logs[0].action != "HELD" || !slices.Equal(logs[0].reasons, want) {
 		t.Errorf("logs = %+v, want one HELD %q", logs, want)
+	}
+	// Only the first payment's clearing restores hosting.
+	if got := rec.got(); !slices.Equal(got, []uuid.UUID{invID}) {
+		t.Errorf("hosting restored %v, want [%s] once", got, invID)
 	}
 }
 
@@ -1016,7 +1032,78 @@ func TestPaymentOutFrom(t *testing.T) {
 	}
 	// A held payment with no candidate prints confidence 0.00.
 	none := e.incoming(t, payload(currency("GBP")))
-	if c := PaymentOutFrom(none).ConfidenceScore; c == nil || c.Decimal().String() != "0" {
-		t.Errorf("confidence %v, want 0", c)
+	nb, err := json.Marshal(PaymentOutFrom(none))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(nb), `"confidence_score":"0.00"`) {
+		t.Errorf("held payment JSON %s, want confidence_score 0.00", nb)
+	}
+}
+
+// Two identical open invoices of one customer both clear the payment: it is
+// held with the ambiguity reason and nothing changes.
+func TestIncomingAmbiguousIsHeld(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	rec := &recorder{}
+	e.svc.Hosting = rec
+	c := e.customer(t, "Acme Corp", "Acme")
+	var ids []uuid.UUID
+	for range 2 {
+		ids = append(ids, e.invoice(t, inv{
+			customer: c, currency: "USD", status: "SENT", balance: "1000.0000",
+			issue: day(2026, 4, 10), due: day(2026, 4, 24),
+		}))
+	}
+	p := e.incoming(t, payload())
+	if p.Status != "PENDING_MANUAL_REVIEW" || !p.InvoiceID.Valid || !slices.Contains(ids, uuid.UUID(p.InvoiceID.Bytes)) {
+		t.Errorf("payment %s invoice %v, want held with one of %v", p.Status, p.InvoiceID, ids)
+	}
+	logs := e.logs(t, p.PaymentID)
+	want := []string{"ambiguous match: 2 open invoices match exactly"}
+	if len(logs) != 1 || logs[0].action != "HELD" || !slices.Equal(logs[0].reasons, want) {
+		t.Errorf("logs = %+v, want one HELD %q", logs, want)
+	}
+	for _, id := range ids {
+		checkInvoice(t, e, id, "1000.0000", "0", "SENT")
+	}
+	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 0 {
+		t.Errorf("%d journal entries, want 0", n)
+	}
+	if got := rec.got(); len(got) != 0 {
+		t.Errorf("hosting restored %v", got)
+	}
+}
+
+// Inserting a payment takes FOR KEY SHARE on its invoice (the foreign key).
+// Intake's invoice lock must not wait on that, or two intakes for one invoice
+// deadlock (insert, insert, lock, lock) and one is lost.
+func TestIncomingLockCoexistsWithKeyShare(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	invID := e.sentInvoice(t)
+	ctx := context.Background()
+	holder, err := e.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback(ctx) }()
+	if _, err := holder.Exec(ctx, `SELECT 1 FROM invoices WHERE invoice_id = $1 FOR KEY SHARE`, invID); err != nil {
+		t.Fatal(err)
+	}
+	tctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	p, err := e.svc.ProcessIncoming(tctx, tx, payload())
+	if err != nil {
+		t.Fatalf("intake blocked behind a key-share lock: %v", err)
+	}
+	if p.Status != "CLEARED" {
+		t.Errorf("status %s, want CLEARED", p.Status)
 	}
 }

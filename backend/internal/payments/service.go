@@ -20,6 +20,7 @@ import (
 // Invoice statuses this package reads or writes.
 const (
 	invoiceOpen    = "OPEN"
+	invoiceSent    = "SENT"
 	invoicePartial = "PARTIAL"
 	invoicePaid    = "PAID"
 	invoiceDraft   = "DRAFT"
@@ -191,7 +192,7 @@ func (s Service) clearIncoming(ctx context.Context, tx pgx.Tx, inc matching.Inco
 // match for the payment.
 func stillClears(inc matching.Incoming, inv paymentsdb.LockInvoiceRow) bool {
 	switch inv.Status {
-	case "OPEN", "SENT", "PARTIAL":
+	case invoiceOpen, invoiceSent, invoicePartial:
 	default:
 		return false
 	}

@@ -34,10 +34,14 @@ VALUES ($1, $2, $3, sqlc.arg(reasons)::text[], $4);
 -- name: LockInvoice :one
 -- The invoice a payment settles, locked until the transaction ends so its
 -- balance, booked withholding and status are not changed under the clearing.
+-- FOR NO KEY UPDATE, not FOR UPDATE: inserting a payment takes FOR KEY SHARE
+-- on its invoice through payments_invoice_id_fkey, which FOR UPDATE would
+-- wait on, so two intakes for one invoice (insert, insert, lock, lock) would
+-- deadlock. NO KEY UPDATE still conflicts with itself and with FOR UPDATE.
 SELECT invoice_id, customer_id, currency, status, balance_due, wht_amount, wht_booked, issue_date, due_date
   FROM invoices
  WHERE invoice_id = $1
-   FOR UPDATE;
+   FOR NO KEY UPDATE;
 
 -- name: SetInvoiceSettlement :exec
 UPDATE invoices
