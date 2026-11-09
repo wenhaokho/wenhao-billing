@@ -7,14 +7,14 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// optionalMarker is implemented by Optional[T] only.
+// optionalMarker is implemented by Optional[T] and NotNull[T] only.
 type optionalMarker interface{ optionalField() }
 
 var optionalType = reflect.TypeFor[optionalMarker]()
 
 // relaxOptionalRequestFields is a huma OnAddOperation hook. Huma marks every
 // struct field required unless it carries omitempty, so a PATCH field of type
-// Optional[T], or a nullable *T request field, would be a 422 when omitted.
+// Optional[T] or NotNull[T], or a nullable *T request field, would be a 422 when omitted.
 // This walks each request body's Go types and drops those fields from the
 // schema's required list, so no author has to remember a tag.
 func relaxOptionalRequestFields(oapi *huma.OpenAPI, op *huma.Operation) {

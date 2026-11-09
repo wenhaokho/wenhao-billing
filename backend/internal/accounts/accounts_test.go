@@ -12,6 +12,7 @@ import (
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/accounts"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
 const path = "/api/v1/accounting/chart-of-accounts"
@@ -178,8 +179,7 @@ func TestAccountTypeOutsideEnumIs422(t *testing.T) {
 		}
 	}
 	// active may be left out (true), never null, as Python's `active: bool = True`.
-	wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"code": "6100", "name": "X", "type": "ASSET", "active": nil}),
-		http.StatusUnprocessableEntity, "", "active cannot be null")
+	wantNullRefused(t, a.Do(t, http.MethodPost, path, map[string]any{"code": "6100", "name": "X", "type": "ASSET", "active": nil}), "active")
 	if rec := a.Do(t, http.MethodPatch, accountPath(1), map[string]any{"code": ""}); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("patch empty code: %d %s", rec.Code, rec.Body)
 	}
@@ -188,17 +188,34 @@ func TestAccountTypeOutsideEnumIs422(t *testing.T) {
 	}
 }
 
+// wantNullRefused checks rec is the 422 for nulls sent for fields:
+// platform.NotNull refuses each at its own location, all listed.
+func wantNullRefused(t *testing.T, rec *httptest.ResponseRecorder, fields ...string) {
+	t.Helper()
+	p := wantProblem(t, rec, http.StatusUnprocessableEntity, "validation_error", "Request validation failed")
+	var got []string
+	for _, e := range p.Errors {
+		got = append(got, e.Location)
+		if e.Message != "value cannot be null" {
+			t.Errorf("%s: message %q", e.Location, e.Message)
+		}
+	}
+	slices.Sort(got)
+	slices.Sort(fields)
+	if !slices.Equal(got, fields) {
+		t.Errorf("locations %v, want %v: %s", got, fields, rec.Body)
+	}
+}
+
 // Python answers 409 here (the NOT NULL violation is an IntegrityError); Go
-// refuses the null before any query.
+// refuses the null before any query (platform.NotNull), reporting every one.
 func TestAccountPatchNullCodeIs422(t *testing.T) {
 	a := newApp(t)
 	for _, field := range []string{"code", "name", "type", "active"} {
-		rec := a.Do(t, http.MethodPatch, accountPath(1), map[string]any{field: nil})
-		p := wantProblem(t, rec, http.StatusUnprocessableEntity, "", field+" cannot be null")
-		if len(p.Errors) == 0 || p.Errors[0].Location != field {
-			t.Errorf("%s: %s", field, rec.Body)
-		}
+		wantNullRefused(t, a.Do(t, http.MethodPatch, accountPath(1), map[string]any{field: nil}), field)
 	}
+	wantNullRefused(t, a.Do(t, http.MethodPatch, accountPath(1), map[string]any{"code": nil, "name": nil, "type": nil, "active": nil}),
+		"code", "name", "type", "active")
 	back := apitest.Decode[accounts.AccountOut](t, a.Do(t, http.MethodGet, accountPath(1), nil), http.StatusOK)
 	if back != (accounts.AccountOut{AccountID: 1, Code: "1000", Name: "Operating Bank", Type: "ASSET", Active: true}) {
 		t.Errorf("changed: %+v", back)
@@ -255,6 +272,28 @@ func TestAccountTypesAreTheEnum(t *testing.T) {
 	for i, typ := range accounts.AccountTypes {
 		if got := create(t, a, map[string]any{"code": fmt.Sprint(7000 + i), "name": typ, "type": typ}); got.Type != typ {
 			t.Errorf("%s: %+v", typ, got)
+		}
+	}
+}
+
+// Every type field's enum, in requests and the response, is AccountTypes
+// exactly: same values, same order, nothing extra either way.
+func TestAccountTypeSchemasEnumIsAccountTypes(t *testing.T) {
+	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
+	accounts.Register(api, nil)
+	reg := api.OpenAPI().Components.Schemas
+	for _, name := range []string{"AccountCreate", "AccountUpdate", "AccountOut"} {
+		s := reg.SchemaFromRef("#/components/schemas/" + name)
+		if s == nil || s.Properties["type"] == nil {
+			t.Fatalf("%s: no type property", name)
+		}
+		var got []string
+		for _, v := range s.Properties["type"].Enum {
+			str, _ := v.(string)
+			got = append(got, str)
+		}
+		if !slices.Equal(got, accounts.AccountTypes) {
+			t.Errorf("%s.type enum %v, want %v", name, got, accounts.AccountTypes)
 		}
 	}
 }

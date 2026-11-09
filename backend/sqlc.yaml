@@ -1,4 +1,6 @@
 version: "2"
+# go_overrides is every package's type mapping; a new entry reuses it with
+# `overrides: *go_overrides`.
 sql:
   - engine: postgresql
     schema: migrations
@@ -10,7 +12,7 @@ sql:
         sql_package: pgx/v5
         emit_enum_valid_method: true
         emit_pointers_for_null_types: true
-        overrides:
+        overrides: &go_overrides
           - db_type: uuid
             go_type: github.com/google/uuid.UUID
           - db_type: pg_catalog.numeric
@@ -38,21 +40,4 @@ sql:
         sql_package: pgx/v5
         emit_enum_valid_method: true
         emit_pointers_for_null_types: true
-        overrides:
-          - db_type: uuid
-            go_type: github.com/google/uuid.UUID
-          - db_type: pg_catalog.numeric
-            go_type: github.com/shopspring/decimal.Decimal
-          - db_type: pg_catalog.numeric
-            nullable: true
-            go_type: github.com/shopspring/decimal.NullDecimal
-          - db_type: timestamptz
-            go_type: time.Time
-          # timestamp without time zone holds naive UTC; pgx reads it as UTC.
-          - db_type: pg_catalog.timestamp
-            go_type: time.Time
-          - db_type: pg_catalog.timestamp
-            nullable: true
-            go_type:
-              type: time.Time
-              pointer: true
+        overrides: *go_overrides

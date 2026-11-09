@@ -1,7 +1,6 @@
 package accounts
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -87,11 +86,8 @@ type createIn struct{ Body AccountCreate }
 
 func (r routes) create(ctx context.Context, in *createIn) (*accountBody, error) {
 	b := in.Body
-	if err := b.Active.RefuseNull("active"); err != nil {
-		return nil, err
-	}
 	a, err := r.q.CreateAccount(ctx, accountsdb.CreateAccountParams{
-		Code: b.Code, Name: b.Name, Type: b.Type, Active: !b.Active.Set || b.Active.Value,
+		Code: b.Code, Name: b.Name, Type: b.Type, Active: b.Active.Or(true),
 	})
 	if err != nil {
 		return nil, platform.MapConstraint(err, constraints)
@@ -116,13 +112,10 @@ type updateIn struct {
 	Body      AccountUpdate
 }
 
-// update is the PATCH pattern: refuse nulls for NOT NULL columns, read the
-// row locked, overlay the fields sent, and write every column back.
+// update is the PATCH pattern: read the row locked, overlay the fields sent
+// (a null never gets here: NotNull refuses it), and write every column back.
 func (r routes) update(ctx context.Context, in *updateIn) (*accountBody, error) {
 	b := in.Body
-	if err := cmp.Or(b.Code.RefuseNull("code"), b.Name.RefuseNull("name"), b.Type.RefuseNull("type"), b.Active.RefuseNull("active")); err != nil {
-		return nil, err
-	}
 	var a accountsdb.ChartOfAccount
 	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
 		q := r.q.WithTx(tx)
@@ -130,20 +123,13 @@ func (r routes) update(ctx context.Context, in *updateIn) (*accountBody, error) 
 		if err != nil {
 			return notFound(err)
 		}
-		p := accountsdb.UpdateAccountParams{AccountID: cur.AccountID, Code: cur.Code, Name: cur.Name, Type: cur.Type, Active: cur.Active}
-		if b.Code.Set {
-			p.Code = b.Code.Value
-		}
-		if b.Name.Set {
-			p.Name = b.Name.Value
-		}
-		if b.Type.Set {
-			p.Type = b.Type.Value
-		}
-		if b.Active.Set {
-			p.Active = b.Active.Value
-		}
-		a, err = q.UpdateAccount(ctx, p)
+		a, err = q.UpdateAccount(ctx, accountsdb.UpdateAccountParams{
+			AccountID: cur.AccountID,
+			Code:      b.Code.Or(cur.Code),
+			Name:      b.Name.Or(cur.Name),
+			Type:      b.Type.Or(cur.Type),
+			Active:    b.Active.Or(cur.Active),
+		})
 		return platform.MapConstraint(err, constraints)
 	})
 	if err != nil {

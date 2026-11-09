@@ -1,11 +1,12 @@
 package platform
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -129,38 +130,93 @@ func TestOptionalThreeStates(t *testing.T) {
 	}
 }
 
-type refuseNullIn struct {
+type notNullLine struct {
+	Memo NotNull[string] `json:"memo"`
+}
+
+type notNullIn struct {
 	Body struct {
-		Code   Optional[string] `json:"code"`
-		Active Optional[bool]   `json:"active"`
+		Code   NotNull[string] `json:"code" minLength:"1"`
+		Active NotNull[bool]   `json:"active"`
+		Amount NotNull[Dec4]   `json:"amount"`
+		Lines  []notNullLine   `json:"lines,omitempty"`
 	}
 }
 
-// RefuseNull answers a null as the client's 422 at the field; an omitted
-// member or a value passes.
-func TestOptionalRefuseNull(t *testing.T) {
+type notNullOut struct {
+	Body struct {
+		Seen string `json:"seen"`
+	}
+}
+
+// NotNull: omitted and a value pass; a null is a 422 at its own location,
+// nested ones included, with every invalid field reported; the schema is
+// the plain T.
+func TestNotNull(t *testing.T) {
 	h, api := NewServer(Config{Environment: "test"}, Deps{})
-	huma.Register(api, huma.Operation{OperationID: "refuse-null", Method: http.MethodPatch, Path: "/refuse-null", Tags: []string{PublicTag}},
-		func(_ context.Context, in *refuseNullIn) (*struct{}, error) {
-			return nil, cmp.Or(in.Body.Code.RefuseNull("code"), in.Body.Active.RefuseNull("active"))
+	huma.Register(api, huma.Operation{OperationID: "not-null", Method: http.MethodPatch, Path: "/not-null", Tags: []string{PublicTag}},
+		func(_ context.Context, in *notNullIn) (*notNullOut, error) {
+			b := in.Body
+			out := &notNullOut{}
+			out.Body.Seen = fmt.Sprintf("%v:%q %v:%v %v:%s", b.Code.Set, b.Code.Value, b.Active.Set, b.Active.Value, b.Amount.Set, b.Amount.Value.StringFixed(4))
+			return out, nil
 		})
-	for body, field := range map[string]string{
-		`{"code":null}`:               "code",
-		`{"active":null}`:             "active",
-		`{"code":null,"active":null}`: "code",
-		`{"code":"x","active":null}`:  "active",
+	for body, want := range map[string]string{
+		`{}`: `false:"" false:false false:0.0000`,
+		`{"code":"x","active":false,"amount":"1.5"}`: `true:"x" true:false true:1.5000`,
 	} {
-		rec := do(t, h, http.MethodPatch, "/refuse-null", body)
-		p := decodeProblem(t, rec.Body.Bytes())
-		want := field + " cannot be null"
-		if rec.Code != 422 || p.Detail != want || len(p.Errors) != 1 || p.Errors[0].Location != field || p.Errors[0].Message != want {
-			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		rec := do(t, h, http.MethodPatch, "/not-null", body)
+		var out struct{ Seen string }
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		if rec.Code != 200 || out.Seen != want {
+			t.Errorf("%s: %d %s, want %s", body, rec.Code, rec.Body, want)
 		}
 	}
-	for _, body := range []string{`{}`, `{"code":"x","active":false}`} {
-		if rec := do(t, h, http.MethodPatch, "/refuse-null", body); rec.Code != 204 {
-			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+	for body, want := range map[string][]string{
+		`{"code":null}`: {"code"},
+		`{"code":null,"active":null,"amount":null}`: {"active", "amount", "code"},
+		`{"lines":[{"memo":"a"},{"memo":null}]}`:    {"lines.1.memo"},
+		`{"code":"","active":null}`:                 {"active", "code"},
+	} {
+		rec := do(t, h, http.MethodPatch, "/not-null", body)
+		p := decodeProblem(t, rec.Body.Bytes())
+		var got []string
+		for _, e := range p.Errors {
+			got = append(got, e.Location)
+			if emptyCode := strings.Contains(body, `"code":""`) && e.Location == "code"; !emptyCode && e.Message != "value cannot be null" {
+				t.Errorf("%s: %s message %q", body, e.Location, e.Message)
+			}
 		}
+		slices.Sort(got)
+		if rec.Code != 422 || p.Detail != "Request validation failed" || !slices.Equal(got, want) {
+			t.Errorf("%s: %d %s, want locations %v", body, rec.Code, rec.Body, want)
+		}
+	}
+	// A bad decimal is still reported at the field, as Optional's is.
+	rec := do(t, h, http.MethodPatch, "/not-null", `{"amount":"abc"}`)
+	if p := decodeProblem(t, rec.Body.Bytes()); rec.Code != 422 || len(p.Errors) == 0 || p.Errors[0].Location != "amount" {
+		t.Errorf("bad decimal: %d %s", rec.Code, rec.Body)
+	}
+
+	body := api.OpenAPI().Paths["/not-null"].Patch.RequestBody.Content["application/json"].Schema
+	s := api.OpenAPI().Components.Schemas.SchemaFromRef(body.Ref)
+	for _, name := range []string{"code", "active", "memo"} {
+		p := s.Properties[name]
+		if name == "memo" {
+			p = api.OpenAPI().Components.Schemas.SchemaFromRef(s.Properties["lines"].Items.Ref).Properties["memo"]
+		}
+		if p == nil || p.Nullable {
+			t.Errorf("%s: schema %+v is nullable", name, p)
+		}
+	}
+	if s.Properties["code"].Type != huma.TypeString || *s.Properties["code"].MinLength != 1 || s.Properties["active"].Type != huma.TypeBoolean {
+		t.Errorf("schemas %+v %+v", s.Properties["code"], s.Properties["active"])
+	}
+	if len(s.Required) != 0 {
+		t.Errorf("required %v, want none", s.Required)
+	}
+	if (NotNull[bool]{}).Or(true) != true || (NotNull[bool]{Set: true}).Or(true) != false {
+		t.Error("Or")
 	}
 }
 
