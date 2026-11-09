@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -94,5 +95,64 @@ func TestSchemaNamesAreStable(t *testing.T) {
 		if strings.Contains(name, "InBody") || endsInDigit.MatchString(name) {
 			t.Errorf("schema %q: give the body a named type", name)
 		}
+	}
+}
+
+// Every response field is always present: Huma lists a property in required
+// unless its field has omitempty, so a property missing from required is one
+// the encoder may leave out. Nullable fields are pointers without omitempty.
+func TestResponsesNeverOmitFields(t *testing.T) {
+	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
+	register(api, features{Sessions: testSessions()})
+	reg := api.OpenAPI().Components.Schemas
+	seen := map[*huma.Schema]bool{}
+	var walk func(where string, s *huma.Schema)
+	walk = func(where string, s *huma.Schema) {
+		if s == nil {
+			return
+		}
+		if s.Ref != "" {
+			where = s.Ref
+			s = reg.SchemaFromRef(s.Ref)
+			if s == nil {
+				t.Errorf("%s: unresolved", where)
+				return
+			}
+		}
+		if seen[s] {
+			return
+		}
+		seen[s] = true
+		for name, p := range s.Properties {
+			if !slices.Contains(s.Required, name) {
+				t.Errorf("%s: %s may be omitted (drop its omitempty)", where, name)
+			}
+			walk(where+"."+name, p)
+		}
+		walk(where+"[]", s.Items)
+		if ap, ok := s.AdditionalProperties.(*huma.Schema); ok {
+			walk(where+"{}", ap)
+		}
+		for _, list := range [][]*huma.Schema{s.OneOf, s.AnyOf, s.AllOf} {
+			for _, b := range list {
+				walk(where, b)
+			}
+		}
+	}
+	checked := 0
+	for key, op := range operations(api) {
+		for status, resp := range op.Responses {
+			// Error bodies are apierr's problem+json, not a feature's.
+			if !strings.HasPrefix(status, "2") {
+				continue
+			}
+			for _, mt := range resp.Content {
+				walk(key+" "+status, mt.Schema)
+				checked++
+			}
+		}
+	}
+	if checked == 0 {
+		t.Error("no response schema was checked")
 	}
 }

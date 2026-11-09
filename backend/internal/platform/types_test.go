@@ -1,10 +1,15 @@
 package platform
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/shopspring/decimal"
 )
 
@@ -18,7 +23,7 @@ func mustJSON(t *testing.T, v any) string {
 }
 
 func TestDec4MarshalsFourPlaces(t *testing.T) {
-	if got := mustJSON(t, Dec4{decimal.NewFromInt(1500)}); got != `"1500.0000"` {
+	if got := mustJSON(t, Dec4{Decimal: decimal.NewFromInt(1500)}); got != `"1500.0000"` {
 		t.Error(got)
 	}
 }
@@ -37,13 +42,13 @@ func TestDec4AcceptsNumberAndString(t *testing.T) {
 }
 
 func TestDec8MarshalsEightPlaces(t *testing.T) {
-	if got := mustJSON(t, Dec8{decimal.RequireFromString("16000.5")}); got != `"16000.50000000"` {
+	if got := mustJSON(t, Dec8{Decimal: decimal.RequireFromString("16000.5")}); got != `"16000.50000000"` {
 		t.Error(got)
 	}
 }
 
 func TestDec2MarshalsTwoPlaces(t *testing.T) {
-	if got := mustJSON(t, Dec2{decimal.RequireFromString("97.5")}); got != `"97.50"` {
+	if got := mustJSON(t, Dec2{Decimal: decimal.RequireFromString("97.5")}); got != `"97.50"` {
 		t.Error(got)
 	}
 }
@@ -87,7 +92,7 @@ func TestDateRoundTrip(t *testing.T) {
 
 func TestTimeIsUTCWithZ(t *testing.T) {
 	loc := time.FixedZone("WIB", 7*3600)
-	tm := Time{time.Date(2026, 1, 1, 10, 0, 0, 123456000, loc)}
+	tm := Time{Time: time.Date(2026, 1, 1, 10, 0, 0, 123456000, loc)}
 	if got := mustJSON(t, tm); got != `"2026-01-01T03:00:00.123456Z"` {
 		t.Error(got)
 	}
@@ -96,7 +101,7 @@ func TestTimeIsUTCWithZ(t *testing.T) {
 		time.Date(2026, 1, 1, 10, 0, 0, 0, loc):         `"2026-01-01T03:00:00Z"`,
 		time.Date(2026, 1, 1, 10, 0, 0, 1000, loc):      `"2026-01-01T03:00:00.000001Z"`,
 	} {
-		if got := mustJSON(t, Time{in}); got != want {
+		if got := mustJSON(t, Time{Time: in}); got != want {
 			t.Errorf("%v: %s, want %s", in, got, want)
 		}
 	}
@@ -119,6 +124,85 @@ func TestOptionalThreeStates(t *testing.T) {
 		var p patch
 		if err := json.Unmarshal([]byte(in), &p); err != nil || p.Note != want {
 			t.Errorf("%s: %+v %v", in, p.Note, err)
+		}
+	}
+}
+
+func TestDecimalSchemaPatternPerScale(t *testing.T) {
+	_, api := NewServer(Config{Environment: "test"}, Deps{})
+	reg := api.OpenAPI().Components.Schemas
+	for typ, want := range map[reflect.Type]string{
+		reflect.TypeFor[Dec4](): `^-?[0-9]+(\.[0-9]{1,4})?$`,
+		reflect.TypeFor[Dec8](): `^-?[0-9]+(\.[0-9]{1,8})?$`,
+		reflect.TypeFor[Dec2](): `^-?[0-9]+(\.[0-9]{1,2})?$`,
+	} {
+		s := reg.Schema(typ, false, "")
+		var str *huma.Schema
+		for _, b := range s.OneOf {
+			if b.Type == huma.TypeString {
+				str = b
+			}
+		}
+		if str == nil || str.Pattern != want {
+			t.Errorf("%v: string branch %+v, want pattern %s", typ, str, want)
+		}
+	}
+}
+
+type parsedIn struct {
+	Body parsedBody
+}
+
+type parsedLine struct {
+	Amount Dec4 `json:"amount"`
+}
+
+type parsedBody struct {
+	Amount *Dec4           `json:"amount"`
+	Rate   *Dec8           `json:"rate"`
+	Day    *Date           `json:"day"`
+	At     *Time           `json:"at"`
+	Lines  []parsedLine    `json:"lines,omitempty"`
+	Maybe  Optional[Dec4]  `json:"maybe"`
+	When   Optional[Date]  `json:"when"`
+	ByKey  map[string]Time `json:"by_key,omitempty"`
+}
+
+// Every parse failure of a decimal, date or time is a 422 at the field,
+// with a sentence and never a Go type name.
+func TestBadDecimalDateTimeIs422WithSentence(t *testing.T) {
+	h, api := NewServer(Config{Environment: "test"}, Deps{})
+	huma.Register(api, huma.Operation{OperationID: "parsed", Method: http.MethodPost, Path: "/parsed", Tags: []string{PublicTag}},
+		func(_ context.Context, _ *parsedIn) (*struct{}, error) { return nil, nil })
+	const (
+		dec  = "value is not a valid decimal"
+		date = "value is not a valid date (YYYY-MM-DD)"
+		ts   = "value is not a valid timestamp (RFC 3339)"
+	)
+	for body, want := range map[string][2]string{
+		`{"amount":"abc"}`:                          {"amount", dec},
+		`{"rate":"x"}`:                              {"rate", dec},
+		`{"day":"2026-13-01"}`:                      {"day", date},
+		`{"at":"yesterday"}`:                        {"at", ts},
+		`{"lines":[{"amount":1},{"amount":"abc"}]}`: {"lines.1.amount", dec},
+		`{"maybe":"abc"}`:                           {"maybe", dec},
+		`{"when":"2026-02-30"}`:                     {"when", date},
+		`{"by_key":{"k":"nope"}}`:                   {"by_key.k", ts},
+	} {
+		rec := do(t, h, http.MethodPost, "/parsed", body)
+		p := decodeProblem(t, rec.Body.Bytes())
+		if rec.Code != 422 || p.Detail != want[1] || len(p.Errors) == 0 ||
+			p.Errors[0].Location != want[0] || p.Errors[0].Message != want[1] {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+		if strings.Contains(rec.Body.String(), "platform.") || strings.Contains(rec.Body.String(), "Go ") {
+			t.Errorf("%s: names a Go type: %s", body, rec.Body)
+		}
+	}
+	// Valid values and omitted ones still reach the handler.
+	for _, body := range []string{`{}`, `{"amount":"1.5","day":"2026-02-28","at":"2026-01-01T00:00:00Z","maybe":null,"when":"2026-01-02"}`} {
+		if rec := do(t, h, http.MethodPost, "/parsed", body); rec.Code != 204 {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
 		}
 	}
 }

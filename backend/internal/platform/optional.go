@@ -54,6 +54,12 @@ func relax(reg huma.Registry, s *huma.Schema, t reflect.Type, seen map[*huma.Sch
 		relax(reg, s.Items, t.Elem(), seen)
 		return
 	}
+	if t.Kind() == reflect.Map {
+		if values, ok := s.AdditionalProperties.(*huma.Schema); ok {
+			relax(reg, values, t.Elem(), seen)
+		}
+		return
+	}
 	if t.Kind() == reflect.Struct {
 		optional := map[string]bool{}
 		relaxStruct(reg, s, t, optional, seen)
@@ -73,9 +79,16 @@ func relax(reg huma.Registry, s *huma.Schema, t reflect.Type, seen map[*huma.Sch
 
 func relaxStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, optional map[string]bool, seen map[*huma.Schema]bool) {
 	for f := range t.Fields() {
-		if f.Anonymous && f.Type.Kind() == reflect.Struct {
-			relaxStruct(reg, s, f.Type, optional, seen)
-			continue
+		// Huma flattens an embedded struct, by value or by pointer, into the
+		// parent's properties.
+		if et := f.Type; f.Anonymous {
+			if et.Kind() == reflect.Pointer {
+				et = et.Elem()
+			}
+			if et.Kind() == reflect.Struct {
+				relaxStruct(reg, s, et, optional, seen)
+				continue
+			}
 		}
 		if !f.IsExported() {
 			continue
