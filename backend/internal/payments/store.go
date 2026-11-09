@@ -55,7 +55,10 @@ func lockPayment(ctx context.Context, q *paymentsdb.Queries, id uuid.UUID) (paym
 	return p, nil
 }
 
-// lockInvoice reads invoice id FOR UPDATE; found is false when there is none.
+// lockInvoice reads invoice id FOR NO KEY UPDATE; found is false when there is
+// none. Not FOR UPDATE: a payment INSERT's foreign key takes KEY SHARE on the
+// invoice, which FOR UPDATE conflicts with, so two payments would deadlock
+// (PORT-NOTES 84).
 func lockInvoice(ctx context.Context, q *paymentsdb.Queries, id uuid.UUID) (inv paymentsdb.LockInvoiceRow, found bool, err error) {
 	inv, err = q.LockInvoice(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {

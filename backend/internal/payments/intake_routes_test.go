@@ -1,14 +1,18 @@
 package payments
 
 import (
+	"bufio"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	gonet "net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -339,4 +343,72 @@ func TestIntakeChecksComeBeforeBodyHandling(t *testing.T) {
 		rec := a.post(t, emailPath, "", map[string]string{"X-Email-Token": "nope"})
 		wantProblem(t, rec, http.StatusUnauthorized, "invalid_email_token", "invalid email webhook token")
 	})
+}
+
+// A body over Huma's 1 MB default is 413, for a signed webhook and for the
+// email route with its token.
+func TestIntakeBodyOverOneMegabyteIs413(t *testing.T) {
+	t.Parallel()
+	a := newAPI(t, NoHosting{})
+	a.wantNoPayments(t)
+	big := `{"pad":"` + strings.Repeat("x", maxIntakeBody) + `"}`
+	t.Run("webhook", func(t *testing.T) {
+		t.Parallel()
+		wantProblem(t, a.webhook(t, big), http.StatusRequestEntityTooLarge, "body_too_large", "request body is too large")
+	})
+	t.Run("email", func(t *testing.T) {
+		t.Parallel()
+		wantProblem(t, a.postEmail(t, big), http.StatusRequestEntityTooLarge, "body_too_large", "request body is too large")
+	})
+}
+
+// A refusal from the guard is not cacheable either.
+func TestWebhookGuardRefusalIsNoStore(t *testing.T) {
+	t.Parallel()
+	a := newAPI(t, NoHosting{})
+	rec := a.post(t, webhookPath, hook("1000.00", "E1"), map[string]string{"X-Signature": "0000"})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+}
+
+// A sender that promises a body and then stalls is cut off by the read
+// deadline: the connection gets a 400 instead of holding the handler. This
+// needs a real server, since httptest's recorder has no read deadline.
+func TestWebhookStalledBodyFailsAtDeadline(t *testing.T) {
+	t.Parallel()
+	a := newAPI(t, NoHosting{})
+	a.wantNoPayments(t)
+	srv := httptest.NewServer(a.app.Handler)
+	t.Cleanup(srv.Close)
+	conn, err := gonet.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	start := time.Now()
+	_ = conn.SetDeadline(start.Add(intakeBodyDeadline + 10*time.Second))
+	req := strings.Join([]string{
+		"POST " + webhookPath + " HTTP/1.1", "Host: x", "Content-Type: application/json",
+		"X-Signature: " + sign("x"), "Content-Length: 500", "", "{",
+	}, "\r\n")
+	_, err = fmt.Fprint(conn, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("no response after %s: %v", time.Since(start), err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	took := time.Since(start)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status %d, want 400", resp.StatusCode)
+	}
+	if took < intakeBodyDeadline-time.Second || took > intakeBodyDeadline+3*time.Second {
+		t.Errorf("answered after %s, want about %s", took, intakeBodyDeadline)
+	}
 }

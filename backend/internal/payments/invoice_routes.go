@@ -172,7 +172,9 @@ func (s Service) recordManual(ctx context.Context, tx pgx.Tx, m manualPayment) (
 	if inv.Status == invoiceDraft || inv.Status == invoiceVoid {
 		return paymentsdb.Payment{}, clientRefuse(http.StatusBadRequest, "invoice_not_payable", "cannot record payment on %s invoice", inv.Status)
 	}
-	amount, wht := m.amount.python(), m.wht.python()
+	// The checks and all arithmetic use the exact decimals that the payment
+	// row stores; python() only decides what the two sentences print.
+	amount, wht := m.amount.Decimal(), m.wht.Decimal()
 	settled := amount.Add(wht)
 	if settled.IsZero() {
 		return paymentsdb.Payment{}, clientRefuse(http.StatusBadRequest, "payment_zero", "amount and withheld cannot both be zero")
@@ -183,12 +185,12 @@ func (s Service) recordManual(ctx context.Context, tx pgx.Tx, m manualPayment) (
 			label = "amount + withheld"
 		}
 		return paymentsdb.Payment{}, clientRefuse(http.StatusBadRequest, "payment_exceeds_balance", "%s %s exceeds balance due %s",
-			label, platform.PyDecimalStr(settled), inv.BalanceDue.StringFixed(4))
+			label, platform.PyDecimalStr(m.amount.python().Add(m.wht.python())), inv.BalanceDue.StringFixed(4))
 	}
 	outstanding := inv.WhtAmount.Sub(inv.WhtBooked)
 	if wht.GreaterThan(outstanding) {
 		return paymentsdb.Payment{}, clientRefuse(http.StatusBadRequest, "withholding_exceeds_outstanding", "withheld %s exceeds outstanding withholding %s",
-			platform.PyDecimalStr(wht), outstanding.StringFixed(4))
+			platform.PyDecimalStr(m.wht.python()), outstanding.StringFixed(4))
 	}
 
 	name := m.payerName
@@ -199,7 +201,7 @@ func (s Service) recordManual(ctx context.Context, tx pgx.Tx, m manualPayment) (
 	ref := "manual-" + hex.EncodeToString(suffix[:6])
 	p, err := q.InsertManualPayment(ctx, paymentsdb.InsertManualPaymentParams{
 		PaymentID: uuid.New(), InvoiceID: pgtype.UUID{Bytes: inv.InvoiceID, Valid: true}, CustomerID: inv.CustomerID,
-		Amount: m.amount.Decimal(), WhtAmount: m.wht.Decimal(), Currency: inv.Currency,
+		Amount: amount, WhtAmount: wht, Currency: inv.Currency,
 		PayerName: name, PayerReference: m.payerRef, PaymentDate: pgDate(m.date.Time), ExternalRef: &ref,
 	})
 	if err != nil {

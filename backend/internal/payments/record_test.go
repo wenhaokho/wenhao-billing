@@ -244,6 +244,26 @@ func TestRecordPaymentSentencePrintsAmountAsSent(t *testing.T) {
 	}
 }
 
+// Python compared and subtracted the float-derived amount; Go uses the exact
+// decimal, so the balance is relieved by what the payment row stores (PORT-NOTES
+// 81). 1234567890123.4567 has 17 significant digits, which a float rounds.
+func TestRecordPaymentSeventeenDigitsExact(t *testing.T) {
+	t.Parallel()
+	a := newAPI(t, NoHosting{})
+	c := a.customer(t, "Acme Corp")
+	const exact = "1234567890123.4567"
+	id := a.invoice(t, inv{customer: c, currency: "IDR", status: "OPEN", balance: exact})
+	rec := a.app.Do(t, http.MethodPost, recordPath(id), `{"amount": `+exact+`, "payment_date": "2026-04-20"}`)
+	got := apitest.Decode[PaymentOut](t, rec, http.StatusCreated)
+	if !got.Amount.Decimal().Equal(dec(exact)) {
+		t.Errorf("payment amount %s, want %s", got.Amount.Decimal(), exact)
+	}
+	if p := a.payment(t, got.PaymentID); !p.Amount.Equal(dec(exact)) {
+		t.Errorf("stored amount %s, want %s", p.Amount, exact)
+	}
+	checkInvoice(t, a.env, id, "0.0000", "0", "PAID")
+}
+
 func TestRecordPaymentStoresManualClearedPayment(t *testing.T) {
 	t.Parallel()
 	a := newAPI(t, NoHosting{})

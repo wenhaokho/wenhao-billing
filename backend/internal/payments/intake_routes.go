@@ -60,6 +60,10 @@ func jsonObjectBody() *huma.RequestBody {
 // maxIntakeBody is Huma's default body limit (1 MB), which these routes keep.
 const maxIntakeBody = 1024 * 1024
 
+// intakeBodyDeadline bounds how long a sender may take to deliver the body, so
+// a stalled connection cannot hold the handler open.
+const intakeBodyDeadline = 5 * time.Second
+
 type bodyKey struct{}
 
 // intakeBody is the request body the guard middleware read and verified.
@@ -103,7 +107,17 @@ func guard(api huma.API, pre func(ctx huma.Context) error, post func(ctx huma.Co
 		var body []byte
 		if r := ctx.BodyReader(); r != nil {
 			var err error
+			// Huma's context reaches the server's ResponseController; a writer
+			// that cannot set a deadline (httptest's recorder) just reads
+			// without one.
+			_ = ctx.SetReadDeadline(time.Now().Add(intakeBodyDeadline))
 			body, err = io.ReadAll(http.MaxBytesReader(nil, io.NopCloser(r), maxIntakeBody))
+			if err == nil {
+				// Cleared only on success: after a failed read the server may
+				// try to drain the rest of the body before it answers, and
+				// that must not wait without a limit either.
+				_ = ctx.SetReadDeadline(time.Time{})
+			}
 			var tooBig *http.MaxBytesError
 			if errors.As(err, &tooBig) {
 				refuse(ctx, platform.Err(http.StatusRequestEntityTooLarge, "body_too_large", "request body is too large"))
