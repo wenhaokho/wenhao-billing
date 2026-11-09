@@ -38,6 +38,7 @@ func insertRate(t *testing.T, a *apitest.App, from, rate string, m time.Month, d
 }
 
 func TestGetRateBaseIsOne(t *testing.T) {
+	t.Parallel()
 	pool, err := db.Open(context.Background(), db.PoolConfig{URL: testkit.PostgresURL(t, migrations.FS)})
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +51,7 @@ func TestGetRateBaseIsOne(t *testing.T) {
 }
 
 func TestGetRatePicksNewestOnOrBefore(t *testing.T) {
+	t.Parallel()
 	q, a := newQueries(t)
 	insertRate(t, a, "EUR", "17000", 1, 1)
 	insertRate(t, a, "EUR", "18000", 1, 10)
@@ -65,6 +67,7 @@ func TestGetRatePicksNewestOnOrBefore(t *testing.T) {
 }
 
 func TestGetRateMissing(t *testing.T) {
+	t.Parallel()
 	q, _ := newQueries(t)
 	_, err := fx.GetRate(context.Background(), q, "EUR", day(1, 1), "IDR")
 	if !errors.Is(err, fx.ErrRateMissing) {
@@ -76,6 +79,7 @@ func TestGetRateMissing(t *testing.T) {
 }
 
 func TestGetRateUpperCases(t *testing.T) {
+	t.Parallel()
 	q, _ := newQueries(t)
 	got, err := fx.GetRate(context.Background(), q, "usd", day(1, 1), "idr")
 	if err != nil || !got.Equal(dec("16000")) {
@@ -84,6 +88,7 @@ func TestGetRateUpperCases(t *testing.T) {
 }
 
 func TestConvertRoundsHalfEven(t *testing.T) {
+	t.Parallel()
 	q, a := newQueries(t)
 	insertRate(t, a, "EUR", "1.00005", 1, 1) // 1 × rate = 1.00005: even 4th digit, tie stays 1.0000
 	insertRate(t, a, "GBP", "1.00015", 1, 1) // odd 4th digit, tie goes up to 1.0002
@@ -103,6 +108,7 @@ func TestConvertRoundsHalfEven(t *testing.T) {
 }
 
 func TestGetRateUsesOnsOwnCalendarDate(t *testing.T) {
+	t.Parallel()
 	q, a := newQueries(t)
 	insertRate(t, a, "EUR", "17000", 1, 1)
 	insertRate(t, a, "EUR", "18000", 1, 10)
@@ -121,6 +127,7 @@ func TestGetRateUsesOnsOwnCalendarDate(t *testing.T) {
 }
 
 func TestGetRateAndConvertInsideATransaction(t *testing.T) {
+	t.Parallel()
 	_, a := newQueries(t)
 	tx, err := a.Pool.Begin(context.Background())
 	if err != nil {

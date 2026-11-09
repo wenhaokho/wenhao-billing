@@ -132,6 +132,7 @@ func syncApp(t *testing.T, f *frankfurter, currencies ...string) *apitest.App {
 }
 
 func TestSyncCreatesThenIdempotent(t *testing.T) {
+	t.Parallel()
 	f := newFrankfurter(t, map[string]answer{
 		"USD": quote("USD", "16250.5", "2026-01-09"),
 		"SGD": quote("SGD", "12100.25", "2026-01-09"),
@@ -162,6 +163,7 @@ func TestSyncCreatesThenIdempotent(t *testing.T) {
 }
 
 func TestSyncOverwritesManualSameDate(t *testing.T) {
+	t.Parallel()
 	f := newFrankfurter(t, map[string]answer{
 		"USD": quote("USD", "16250.5", "2026-01-09"),
 		"SGD": quote("SGD", "12100.25", "2026-01-09"),
@@ -177,6 +179,7 @@ func TestSyncOverwritesManualSameDate(t *testing.T) {
 }
 
 func TestSyncLeavesOtherDates(t *testing.T) {
+	t.Parallel()
 	f := newFrankfurter(t, map[string]answer{"USD": quote("USD", "16250.5", "2026-01-09")})
 	a := syncApp(t, f, "USD")
 	createRate(t, a, map[string]any{"from_currency": "USD", "to_currency": "IDR", "rate": "1", "as_of_date": "2026-01-08"})
@@ -188,6 +191,7 @@ func TestSyncLeavesOtherDates(t *testing.T) {
 }
 
 func TestSyncSkipsMissingPair(t *testing.T) {
+	t.Parallel()
 	f := newFrankfurter(t, map[string]answer{
 		"USD": quote("USD", "16250.5", "2026-01-09"),
 		"SGD": {body: `{"amount":1.0,"base":"SGD","date":"2026-01-09","rates":{}}`},
@@ -201,6 +205,7 @@ func TestSyncSkipsMissingPair(t *testing.T) {
 }
 
 func TestSyncSkipsBaseCurrency(t *testing.T) {
+	t.Parallel()
 	f := newFrankfurter(t, map[string]answer{"USD": quote("USD", "16250.5", "2026-01-09")})
 	a := syncApp(t, f, "idr", "usd")
 	wantSync(t, runSync(t, a), 1, 0, 1, "USD->IDR")
@@ -230,6 +235,7 @@ func wantProviderError(t *testing.T, a *apitest.App, prefix string) problem {
 }
 
 func TestSyncProviderErrorIs502WritesNothing(t *testing.T) {
+	t.Parallel()
 	f := newFrankfurter(t, map[string]answer{
 		"USD": quote("USD", "16250.5", "2026-01-09"),
 		"SGD": {status: http.StatusInternalServerError, body: `{"message":"boom"}`},
@@ -245,6 +251,7 @@ func TestSyncProviderErrorIs502WritesNothing(t *testing.T) {
 }
 
 func TestSyncInvalidJSONIs502(t *testing.T) {
+	t.Parallel()
 	f := newFrankfurter(t, map[string]answer{
 		"USD": quote("USD", "16250.5", "2026-01-09"),
 		"SGD": {body: `<html>maintenance</html>`},
@@ -253,6 +260,7 @@ func TestSyncInvalidJSONIs502(t *testing.T) {
 }
 
 func TestSyncInvalidDateIs502(t *testing.T) {
+	t.Parallel()
 	for body, detail := range map[string]string{
 		`{"date":"2026-13-01","rates":{"IDR":16000}}`: "fx provider returned invalid date for USD->IDR: '2026-13-01'",
 		`{"rates":{"IDR":16000}}`:                     "fx provider returned invalid date for USD->IDR: None",
@@ -267,6 +275,7 @@ func TestSyncInvalidDateIs502(t *testing.T) {
 }
 
 func TestSyncKeepsProviderLiteral(t *testing.T) {
+	t.Parallel()
 	// 19 significant digits: a float64 keeps about 16, so a decode through
 	// float64 would store 12345678901.12345700 (or similar).
 	f := newFrankfurter(t, map[string]answer{"USD": quote("USD", "12345678901.12345678", "2026-01-09")})
@@ -281,6 +290,7 @@ func TestSyncKeepsProviderLiteral(t *testing.T) {
 // A rate numeric(19,8) cannot hold, or one that is not positive, is a
 // provider error: nothing is written.
 func TestSyncInvalidRateIs502(t *testing.T) {
+	t.Parallel()
 	for _, literal := range []string{"0", "-1", "123456789012"} {
 		f := newFrankfurter(t, map[string]answer{"USD": quote("USD", literal, "2026-01-09")})
 		a := syncApp(t, f, "USD")
@@ -294,6 +304,7 @@ func TestSyncInvalidRateIs502(t *testing.T) {
 // Redirects are not followed (httpx's default): a 3xx is a provider error
 // even when the target would answer.
 func TestSyncRedirectIs502(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/latest" {
 			http.Redirect(w, r, "/v1/moved?"+r.URL.RawQuery, http.StatusFound)
@@ -311,6 +322,7 @@ func TestSyncRedirectIs502(t *testing.T) {
 }
 
 func TestNewClient(t *testing.T) {
+	t.Parallel()
 	c := fx.NewClient(fxConfig("http://provider.invalid"))
 	if c.Timeout != 5*time.Second || c.CheckRedirect == nil {
 		t.Errorf("timeout %s, CheckRedirect set %v", c.Timeout, c.CheckRedirect != nil)
@@ -318,6 +330,7 @@ func TestNewClient(t *testing.T) {
 }
 
 func TestSyncConcurrentIsIdempotent(t *testing.T) {
+	t.Parallel()
 	f := newFrankfurter(t, map[string]answer{
 		"USD": quote("USD", "16250.5", "2026-01-09"),
 		"SGD": quote("SGD", "12100.25", "2026-01-09"),
@@ -354,7 +367,7 @@ func TestSyncConcurrentIsIdempotent(t *testing.T) {
 	wantKeys(t, listRates(t, a, "?from_currency=SGD"), "SGD->IDR 2026-01-09 12100.25000000 FRANKFURTER", "SGD->IDR 2026-01-01 12000.00000000 TEST")
 }
 
-func TestSyncTimeout(t *testing.T) {
+func TestSyncTimeout(t *testing.T) { //nolint:paralleltest // asserts a wall-clock bound on a 100 ms timeout, which parallel load could stretch
 	f := newFrankfurter(t, map[string]answer{"USD": {body: quote("USD", "1", "2026-01-09").body, delay: time.Second}})
 	cfg := fxConfig(f.URL+"/v1", "USD")
 	cfg.FXProviderTimeout = 100 * time.Millisecond
@@ -368,6 +381,7 @@ func TestSyncTimeout(t *testing.T) {
 
 // Sync is what the weekly job calls: the same result as the route.
 func TestSyncDirect(t *testing.T) {
+	t.Parallel()
 	f := newFrankfurter(t, map[string]answer{"USD": quote("USD", "16250.5", "2026-01-09")})
 	cfg := fxConfig(f.URL+"/v1", "USD")
 	a := newApp(t, cfg)
@@ -386,6 +400,7 @@ func TestSyncDirect(t *testing.T) {
 }
 
 func TestSyncNothingFetchedPairsIsArray(t *testing.T) {
+	t.Parallel()
 	f := newFrankfurter(t, nil)
 	a := syncApp(t, f, "IDR", "EUR") // the base is skipped; EUR has no IDR rate
 	rec := a.Do(t, http.MethodPost, syncPath, nil)

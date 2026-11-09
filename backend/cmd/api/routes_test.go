@@ -351,6 +351,7 @@ var decimalTypes = []reflect.Type{reflect.TypeFor[platform.Dec2](), reflect.Type
 // against its Go type: embedded structs' fields included, and a decimal
 // inside slices, maps and pointers found at its items or values.
 func TestResponseDecimalsAreStringOnly(t *testing.T) {
+	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
 	register(api, features{Sessions: testSessions()})
 	doc, err := json.Marshal(api.OpenAPI())
@@ -464,6 +465,7 @@ func componentsReachable(reg huma.Registry, s *huma.Schema, into map[string]bool
 // decimals become strings, response objects nullable), and a shared
 // component would carry the response's rewrite into the request.
 func TestNoComponentSharedByRequestAndResponse(t *testing.T) {
+	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
 	register(api, features{Sessions: testSessions()})
 	reg := api.OpenAPI().Components.Schemas

@@ -397,6 +397,7 @@ func boundsAPI(t *testing.T) (http.Handler, huma.API) {
 // A request decimal is a string or a number; a response decimal is the
 // string it is written as, with exactly its places, null for a pointer.
 func TestDecimalRequestOneOfResponseString(t *testing.T) {
+	t.Parallel()
 	_, api := boundsAPI(t)
 	op := api.OpenAPI().Paths["/bounds"].Post
 	reg := api.OpenAPI().Components.Schemas
@@ -451,6 +452,7 @@ func wantEcho(t *testing.T, h http.Handler, body, field, want string) {
 }
 
 func TestDec4RefusesFivePlaces(t *testing.T) {
+	t.Parallel()
 	h := boundsServer(t)
 	for _, body := range []string{`{"d4":1.23456}`, `{"d4":"1.23456"}`, `{"d4":-0.00001}`} {
 		wantBound(t, h, body, "d4", "value has too many decimal places (max 4)")
@@ -459,6 +461,7 @@ func TestDec4RefusesFivePlaces(t *testing.T) {
 }
 
 func TestDec4AllowsTrailingZeros(t *testing.T) {
+	t.Parallel()
 	h := boundsServer(t)
 	for _, body := range []string{`{"d4":1.50000}`, `{"d4":"1.50000"}`} {
 		wantEcho(t, h, body, "d4", "1.5000")
@@ -468,6 +471,7 @@ func TestDec4AllowsTrailingZeros(t *testing.T) {
 
 // Exponents, signs and leading zeros, as a number or a string.
 func TestDec4Spellings(t *testing.T) {
+	t.Parallel()
 	h := boundsServer(t)
 	for body, want := range map[string]string{
 		`{"d4":1e3}`:     "1000.0000",
@@ -486,6 +490,7 @@ func TestDec4Spellings(t *testing.T) {
 // shopspring/decimal (v1.6.0) refuses an exponent beyond MaxDecodeExponent
 // (10000) as unparseable, so today 1e-2000000000 is "not a valid decimal".
 func TestDecimalExponentBeyondDecodeLimitIsInvalid(t *testing.T) {
+	t.Parallel()
 	h := boundsServer(t)
 	for _, body := range []string{`{"d4":1e-2000000000}`, `{"d4":"0e2000000000"}`} {
 		rec := do(t, h, http.MethodPost, "/bounds", body)
@@ -506,7 +511,7 @@ func TestDecimalExponentBeyondDecodeLimitIsInvalid(t *testing.T) {
 // hundreds of megabytes). The library's decode limit is lifted here (it is
 // a global anyone may raise), so the bounds alone are what keep it cheap.
 // Not parallel: no parallel test runs while a sequential one does.
-func TestDec4HugeExponentsAreCheap(t *testing.T) {
+func TestDec4HugeExponentsAreCheap(t *testing.T) { //nolint:paralleltest // it lifts the package-level decimal.MaxDecodeExponent for its duration
 	limit := decimal.MaxDecodeExponent
 	decimal.MaxDecodeExponent = math.MaxInt32
 	t.Cleanup(func() { decimal.MaxDecodeExponent = limit })
@@ -559,6 +564,7 @@ func TestDec4HugeExponentsAreCheap(t *testing.T) {
 // Decimal() is the only way to the value; for a refused value it panics
 // (the recoverer answers 500), so a refused amount is never read as zero.
 func TestRefusedDecimalCannotBeRead(t *testing.T) {
+	t.Parallel()
 	panics := func(read func()) (p bool) {
 		defer func() { p = recover() != nil }()
 		read()
@@ -589,6 +595,7 @@ func TestRefusedDecimalCannotBeRead(t *testing.T) {
 // Outside Huma nothing reports the refusal, so a refused value fails closed:
 // it never marshals or reaches the database as the zero it holds.
 func TestRefusedDecimalFailsClosed(t *testing.T) {
+	t.Parallel()
 	for _, in := range []string{`1.23456`, `1234567890123456`, `"abc"`} {
 		var d Dec4
 		_ = json.Unmarshal([]byte(in), &d)
@@ -621,6 +628,7 @@ func TestRefusedDecimalFailsClosed(t *testing.T) {
 }
 
 func TestDec4RefusesSixteenDigits(t *testing.T) {
+	t.Parallel()
 	h := boundsServer(t)
 	for _, body := range []string{`{"d4":1234567890123456}`, `{"d4":"1234567890123456"}`, `{"d4":-1000000000000000}`, `{"d4":1e15}`} {
 		wantBound(t, h, body, "d4", "value has too many digits (max 15 before the point)")
@@ -629,6 +637,7 @@ func TestDec4RefusesSixteenDigits(t *testing.T) {
 }
 
 func TestDec8RefusesNinePlacesAndTwelveDigits(t *testing.T) {
+	t.Parallel()
 	h := boundsServer(t)
 	for _, body := range []string{`{"d8":1.123456789}`, `{"d8":"1.123456789"}`} {
 		wantBound(t, h, body, "d8", "value has too many decimal places (max 8)")
@@ -641,6 +650,7 @@ func TestDec8RefusesNinePlacesAndTwelveDigits(t *testing.T) {
 }
 
 func TestDec2Bounds(t *testing.T) {
+	t.Parallel()
 	h := boundsServer(t)
 	wantEcho(t, h, `{"d2":999.99}`, "d2", "999.99")
 	wantEcho(t, h, `{"d2":"97.5"}`, "d2", "97.50")
@@ -655,6 +665,7 @@ func TestDec2Bounds(t *testing.T) {
 // Every refused bound is listed, each at its field, with the other fields'
 // validation errors.
 func TestDecimalBoundsListEveryField(t *testing.T) {
+	t.Parallel()
 	h := boundsServer(t)
 	rec := do(t, h, http.MethodPost, "/bounds", `{"d4":1.23456,"d8":123456789012,"d2":1000}`)
 	p := decodeProblem(t, rec.Body.Bytes())
