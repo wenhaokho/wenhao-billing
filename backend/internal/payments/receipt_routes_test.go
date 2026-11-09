@@ -185,6 +185,18 @@ func TestSendReceiptInvalidCCIs422(t *testing.T) {
 	}
 }
 
+// The CC is checked before any lookup, as Python's body validation ran before
+// the handler: a bad address is a 422 even for an unknown invoice.
+func TestSendReceiptBadCCBeatsUnknownInvoice(t *testing.T) {
+	t.Parallel()
+	r := newReceiptAPI(t, false)
+	rec := r.app.Do(t, http.MethodPost, receiptPath(uuid.New(), uuid.New()), map[string]any{"to_email": "acme@example.com", "cc_email": "nope"})
+	p := apitest.Decode[problemBody](t, rec, http.StatusUnprocessableEntity)
+	if p.Detail != "invalid email address: nope" || len(p.Errors) != 1 || p.Errors[0].Location != "cc_email" {
+		t.Errorf("problem %+v", p)
+	}
+}
+
 // Go change 7: a payment that is not CLEARED gets no receipt, though it
 // carries the invoice of its best match.
 func TestSendReceiptPendingPaymentIs404(t *testing.T) {

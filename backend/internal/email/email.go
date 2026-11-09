@@ -29,10 +29,11 @@ type Sender interface {
 	Send(ctx context.Context, m Message) error
 }
 
-// LogSender logs every message instead of sending it: who it is for and its
-// subject, CC addresses and attachment names, never its body or its files, which can hold a live reset link. ShowBodies logs
-// the text body too, so local development can read a reset link from the
-// log; serve sets it only for a local environment.
+// LogSender logs every message instead of sending it: who it is for, its
+// subject, CC addresses and attachment names, never its body or its files,
+// which can hold a live reset link. ShowBodies logs the text body too, so
+// local development can read a reset link from the log; serve sets it only
+// for a local environment.
 type LogSender struct {
 	Logger     *slog.Logger
 	ShowBodies bool
