@@ -614,7 +614,7 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
 
 117. **Kept: the enforcement retry keeps `SUSPEND_PENDING`, and one item's failure does not stop the run.**
     Python: a failed suspend leaves the item `SUSPEND_PENDING` and the target `ERROR`, committed (`app/services/hosting.py:133-143`, `app/workers/tasks/hosting_enforcement.py:38-46`); the next run retries it. Any exception counts as an error and the loop goes on.
-    Go: kept (`hosting.TestEnforcementSuspendFailureMarksProviderError`, `TestEnforcementContinuesAfterItemError`). Each item runs in its own transaction holding the item's row lock across the Cloudflare call, so enforcement and a payment's restore never act on one item at once (a payment touching that item waits at most the Cloudflare timeout). `hosting.Enforce` is not scheduled yet: the scheduler appends it (job `hosting-overdue-enforcement`).
+    Go: kept (`hosting.TestEnforcementSuspendFailureMarksProviderError`, `TestEnforcementContinuesAfterItemError`). Each item runs in its own transaction holding the item's row lock across the Cloudflare call, so enforcement and a payment's restore never act on one item at once (a payment touching that item waits at most the Cloudflare timeout). `hosting.Enforce` is scheduled by the API as job `hosting-overdue-enforcement`, daily 04:00 UTC (`cmd/api.TestSchedulerStartsWithTheVariable`, `jobs.TestDueSlotsDailyAndWeekly`).
     After the switch: none.
 
 118. **Cloudflare errors keep Python's sentences, except transport and JSON failures.**
@@ -626,3 +626,88 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Go: the scheduler is off unless `SCHEDULER_ENABLED=true` (Go change 8; the Python backend keeps running the jobs until the switch-over). Each job has a UTC slot (daily 02:00, 03:00, 04:00, and Monday 05:00, `scheduler.py:31-37`) and a slot that has passed is recorded in the new `scheduled_job_runs` table, whose primary key `(job_id, slot)` makes a slot run once. A slot older than 24 hours is recorded as skipped and logged, never run. The advisory lock keys are Python's unsigned crc32 of the job id (`scheduler.py:41`), passed as int64 unchanged, so the two backends exclude each other (`jobs.TestLockKeysMatchPython`, `jobs.TestPythonHoldingLockSkipsGo`).
     Kept: the jobs themselves are Python's, the usage-lock accrual still fails (note 1), and the jobs' dates are the UTC date (`invoices.Scan`, `invoices.CutoffScan`).
     After the switch: nothing; the Go scheduler replaces the Python one. During the overlap the shared lock keys keep the two backends from running a job *at the same time*, but they do not keep them from running it *twice*: Python writes no slot rows, so the Python run and the Go run of the same slot happen one after the other. The Go scheduler is therefore off (`SCHEDULER_ENABLED` unset) until the Python backend is gone.
+
+120. **The scheduler's shutdown waits for its goroutine, and a failed job's error carries one prefix.**
+    Python: APScheduler stops the background scheduler in the lifespan's shutdown (`app/main.py:43-60`), which joins the scheduler's threads; a failed job is logged as `job %s failed` (`app/workers/scheduler.py:47-52`).
+    Go: `jobs.Start` returns a wait function that blocks until the scheduler's goroutine has stopped, and `serve` calls it before it returns, so the database pool (`serve`'s `defer pool.Close()`) is closed only after the last tick has finished (`cmd/api.TestSchedulerWaitJoinsTheScheduler`, `cmd/api.TestSchedulerStartsWithTheVariable`). A job's error is prefixed once: the tick's inner errors carry no prefix and `tickAll` adds `job <id>: ` (`jobs.TestReportIsCalledForAFailedJob`, `jobs.TestAPanickingJobsReportedErrorHasASingleJobPrefix`); a panic is recovered, recorded as the slot's error and reported once (`jobs.TestAPanickingJobRecordsItsSlot`).
+    After the switch: none; a job cut short by the shutdown leaves its slot abandoned and the next start runs it again (note 119).
+
+121. **One amount format in every email body (Go change 3).**
+    Python: the quotation send prints the raw DB Decimal (for 5000.0000 SGD., `app/api/v1/routers/quotations.py:218`) while the invoice send and the PDFs use `_fmt_amount` (zero places for the 13 zero-decimal currencies, two otherwise, `app/services/invoice_pdf.py:68-84`); the draft digest always prints two places with the currency first (SGD 1,500.00 for IDR too, `app/services/draft_notifications.py:31`).
+    Go: the quotation send and the draft digest both use `pdf.FmtAmount`, so IDR has zero places and other currencies two, grouped, half-even, with the currency after the amount (`quotations.TestQuotationSendBodyAndLastSentAt` prints for 5,000.00 SGD.; `invoices.TestDigestTextListsDraftDetails` prints 1,500.00 SGD, and `invoices.TestDigestEscapesHtml` prints 1,500,000 IDR; `pdf.TestFormattersMatchPython` pins `_fmt_amount`). Python's digest grammar (1 draft invoice that need your review) is kept verbatim (`invoices.TestDigestSubjectCountsDrafts`).
+    After the switch: none; the bodies are not compared by the frontend.
+
+122. **Receipt summary values carry their own currency code (Go change 4).**
+    Python: the receipt's column header and hero use the payment currency while Invoice total and Remaining balance are formatted with the invoice currency places and no code (`app/services/pdf/context.py:233, 271-282`), so a cross-currency manual approval shows USD amounts under an IDR heading.
+    Go: each summary value is `pdf.FmtAmount` with the invoice currency, for example 16,000,000 IDR, while the table and the hero stay in the payment currency (`pdf.TestReceiptSummaryLabelsOwnCurrency`). `BalanceNote` already carries the invoice currency.
+    After the switch: none.
+
+123. **The logo is decoded, capped, sniffed, cached, and falls back to the default (Go change 5).**
+    Python: `resolve_logo` passes a data URI through as-is, fetches http(s) with a 5 s timeout and `raise_for_status`, takes the content-type before `;` and relabels a non-`image/` mime as `image/png`, and logs and falls back to the default on any exception; anything else falls back (`app/services/pdf/logo.py:19-35`); there is no size cap and the logo is fetched on every render.
+    Go: a data URI is decoded (base64 or percent-encoded), http(s) is fetched with a 5 s context and client timeout, no redirects, a 2xx check and a 2 MB cap (the cap applies to data URIs too); the type is sniffed with `http.DetectContentType` and only PNG and JPEG are accepted, because Maroto embeds only PNG and JPEG; a PNG is decoded and re-encoded as 8-bit non-interlaced NRGBA because gofpdf rejects interlaced and 16-bit PNGs; any failure is logged `failed to resolve logo; using default` and the default logo is used; successes are cached per logo_url for 10 minutes (failures are not cached), the cache holds at most 64 entries and returns copies; the dimensions are capped at 4096 px on a side and 16 MP in total (`pdf.TestPassthroughDataURI`, `pdf.TestHTTPFetchSuccess`, `pdf.TestHTTPFetchNonImageFallsBackToDefault`, `pdf.TestLogoTypeIsSniffedFromTheBytes`, `pdf.TestLogoSizeCapFallsBack`, `pdf.TestLogoIsCachedForTenMinutes`, `pdf.TestLogoRedirectIsNotFollowed`, `pdf.TestLogoDimensionsAreCapped`). Python's `test_http_fetch_non_image_mime_falls_back_to_png` now expects the default logo.
+    After the switch: none for PNG and JPEG; see note 124 for SVG.
+
+124. **SVG logos print the default logo (owner decision pending).**
+    Python: the business profile upload accepts `image/svg+xml` and WeasyPrint printed SVG, so an SVG logo_url rendered as the SVG.
+    Go: Maroto v2 embeds only PNG, JPG and JPEG, so the logo resolver sniffs the bytes and refuses SVG (and GIF) and prints the default logo instead (`pdf.TestHTTPFetchNonImageFallsBackToDefault`; `pdf.TestLogoTypeIsSniffedFromTheBytes`: a GIF labelled `image/png` falls back).
+    After the switch: the owner has not decided; rasterise the SVG on upload or in the resolver, or restrict the upload to PNG and JPEG.
+
+125. **The draft digest HTML is escaped (Go change 7).**
+    Python: `build_recurring_drafts_email` builds the HTML with f-strings and no HTML escaping of names (`app/services/email.py:180-186`), so a customer name with `<` breaks the mail (the text body carries the same names).
+    Go: the digest HTML escapes the customer name and the invoice number, and the text body keeps them as they are (`invoices.TestDigestEscapesHtml`).
+    After the switch: none.
+
+126. **The invoice and quotation PDFs show the footer and PO/SO number (Go change 10).**
+    Python: the HTML design drops the footer, the PO/SO number and the invoice summary tagline, and forces the invoice terms to None (Net N is not customer-facing) (`app/services/pdf/context.py:211-213`; `app/services/invoice_pdf.py:314-315, 325-329, 572-582`), while the reportlab fallback showed the footer and the PO/SO, so the same invoice could render two ways.
+    Go: one renderer shows them: the PO/SO number is a fourth meta cell labelled PO / SO when it is set, and the document footer text prints under Notes and Terms on invoices and quotations (`pdf.TestInvoiceAndQuotationShowFooterAndPOSO`, `pdf.TestDocumentsCarryPOSONumberAndFooter`). The invoice title, the issue and due dates and the `Net N` terms rule are as Python's (`pdf.TestInvoiceDocumentDiscountAndPaid`). Owner ruling R3 keeps the plan default (show them).
+    After the switch: if the owner answers otherwise, drop the fourth cell and the footer line; the reportlab footer text comes from the same fields.
+
+127. **PDF design simplifications against the HTML (Maroto limits).**
+    Python: the HTML and WeasyPrint design is the reference (palette navy blue azure cyan, fonts Inter Manrope JetBrains Mono as vendored woff2, a header and footer on every page, table rows that never split, 12 px rounded boxes, a 135 degree gradient, a status pill with a tinted background, letter-spacing, a 1 px rule above the NPWP line; `app/services/pdf/templates/document.html.j2:8-16, 23-44, 50-91, 99-132, 144-230` and `app/services/pdf/assets.py:16-20`).
+    Go: a faithful reading, not a pixel copy. The fonts are embedded TTF (Inter 400 and 600, Manrope 700 and 800, JetBrains Mono 400 and 600; `pdf.TestFontsEmbedAllFamilies`, and the PDFs are self-contained with no http(s) fetch and no URI in `pdf.TestInvoiceIsSelfContainedAndPopulated`). The simplifications are: square corners with 1 px borders; the hero band is solid #145BFF instead of the gradient (the 4 px top strip approximates the gradient in 21 bands); the status is shown as a coloured bullet and label with no pill background; no letter-spacing on the title; extra space above the NPWP line instead of a rule; the summary box and the pay panel are separate Maroto rows kept together on one page. The header, the footer and the table header row repeat on every page (`pdf.TestLongInvoiceRepeatsHeaderAndFooter`).
+    After the switch: iterate the design if the owner wants closer parity; the pager mirrors Maroto 2.4.1's page arithmetic, and its tests would catch a Maroto upgrade that moves the page breaks.
+
+128. **Fixed PDF dates, so the same document renders to the same bytes.**
+    Python: WeasyPrint and reportlab stamp the render instant.
+    Go: the PDF CreationDate is the document's date (the issue date for invoices and quotations, the payment date for receipts); a document with no date prints the fixed epoch 2000-01-01 UTC; the modification date is fixed at the same epoch and the catalog order is fixed, both through gofpdf's global init before any render (`pdf.TestRenderIsReproducible`, `pdf.TestPdfTitleMetadata`).
+    After the switch: none.
+
+129. **A row taller than a page overflows.**
+    Python: the HTML design keeps the table rows un-split (`app/services/pdf/templates/document.html.j2:128-132`), so a single item whose description is longer than a page overflowed the HTML too.
+    Go: each item is a single Maroto row, so it never splits across pages (`pdf.TestItemRowsNeverSplit`: 40 three-line items stay whole and every page with items has the table header); the same holds for a single Notes or Terms paragraph or footer line taller than a page, which runs under the footer. The Notes are split per paragraph, so ordinary long notes flow onto the next page.
+    After the switch: split a single over-long item across the pages if a real document needs it.
+
+130. **The receipt renderer reads the database.**
+    Python: `build_receipt_context` takes the payment, its invoice, the customer and the business (`app/services/pdf/context.py:227-296`).
+    Go: `payments.PDFReceiptRenderer` maps `payments.ReceiptData` field by field (ruling R1 below) and then reads what ReceiptData does not carry through `pdf.LoadReceipt`: the invoice amount and balance, the customer address and contacts, and the business profile and logo (`payments.TestPDFReceiptRendererMapsReceiptData` with no DB, `payments.TestPDFReceiptRendererReadsWhatReceiptDataLacks` with a DB). With no DB those values print as unknown (0.00, no addresses or logo).
+    After the switch: none; the alternative (widening `payments.ReceiptData` and its query instead of the DB read) was considered and not taken.
+
+131. **Intended removals: SMTP, `PDF_ENGINE` and the reportlab renderers.**
+    Python: `send_email` has an SMTP path when `SMTP_HOST` is set (`app/services/email.py:122-149`); one PDF renderer is chosen by `settings.pdf_engine`, with the default `html` (`app/config.py:83`), and any exception falls back to the reportlab renderer (`app/services/pdf/__init__.py:25-52`); the reportlab renderers for invoice, quotation and receipt remain (`app/services/invoice_pdf.py`, `app/services/quotation_pdf.py`, `app/services/receipt_pdf.py`); the production compose sets no SMTP host, so production mail is already Resend or logged.
+    Go: one Maroto renderer; the mail is Resend when `RESEND_API_KEY` is set and the logging sender otherwise; `PDF_ENGINE` and `SMTP_*` (except `SMTP_REPLY_TO`, whose name and default are kept) are not read. The dropped Python tests are marked not ported (`test_pdf_settings_defaults`, the three `test_pdf_facade` tests, `test_routers_use_facade` and the four `test_pdf_engine` tests); the no-fetch intent is kept by `pdf.TestOnlyLogoUrlIsFetched`.
+    After the switch: none; the removals are the switch.
+
+132. **Kept: the digest goes to every user row.**
+    Python: the recipients are every row of `users` with no role or active filter (`app/services/draft_notifications.py:38-39`); one mail per recipient, each failure logged `failed to notify <email> about <n> new drafts` and the loop continues; nothing is sent when there are no drafts.
+    Go: kept (`invoices.TestEmailNotifierSendsToEveryUserAndSkipsFailures` pins the three recipients, the logged failure and the no-drafts case; the `ListUserEmails` query has no filter). The digest sets no idempotency key (there is no document id).
+    After the switch: filter to active or admin users if the owner wants fewer recipients.
+
+133. **Kept: display rounding is half-even.**
+    Python: every `quantize` in the formatters runs in Python's default context, ROUND_HALF_EVEN (`app/services/invoice_pdf.py:82, 96, 131-132`; `app/services/pdf/context.py:188`), so 0.125 SGD shows 0.12 and IDR 2.5 shows 2.
+    Go: kept, with `RoundBank` (`pdf.TestFormattersMatchPython` carries the goldens generated from the frozen Python, ties at two and zero places; `pdf.TestFmtNumGroupsThousands`).
+    After the switch: none; the figures must match Python until the switch.
+
+134. **Ruling R1: `internal/pdf` never imports `payments`.**
+    Python: `receipt_reference` and `balance_note` live in `app/services/receipt_pdf.py:31-41` and the receipt's formatter lives in `app/services/invoice_pdf.py`.
+    Go: an import cycle would form if pdf imported payments for `ReceiptData` while payments imports pdf for `FmtAmount`. The receipt adapter therefore lives in payments (`payments.PDFReceiptRenderer` builds a `pdf.Document` with `pdf.ReceiptDocument` and calls `pdf.RenderReceipt`); pdf owns `ReceiptReference` and `BalanceNote` and payments delegates to the pdf copies. The amount formatting moved the same way (ruling R2: `payments.FormatAmount` delegates to `pdf.FmtAmount` and the digest uses `pdf.FmtAmount`).
+    After the switch: none; the adapter sits in payments rather than pdf, which is the cost of R1.
+
+135. **Ruling R3: the owner's three questions are unanswered, so the plan defaults stand.**
+    Python: sending promotes DRAFT straight to SENT without finalizing (`app/api/v1/routers/invoices.py:774-775`), the HTML design drops the footer and the PO/SO number (note 126), and `to_email` is unvalidated (`app/schemas/invoice.py:126-134`).
+    Go: the defaults are kept and are reversible: a DRAFT or OPEN invoice send makes it SENT without finalizing and the quotation send stamps `last_sent_at` in any sendable status (note 112); the footer and the PO/SO number are shown (note 126); a bad `to_email` is 422 at `to_email` with `invalid email address: <addr>` (note 111).
+    After the switch: if the owner answers, each is a small change: refuse DRAFT and templates or finalize first, drop the fourth meta cell and the footer line, or keep the 422 and rely on 502.
+
+136. **Kept and small choices: an empty `wht_type`, the dash, and the render-data loaders.**
+    Python: the invoice context tests `wht_type != "NONE"` with no None guard (`app/services/pdf/context.py:178`) while other places use `(wht_type or "NONE")` (`app/services/invoice_pdf.py:224, 458`); the column is NOT NULL DEFAULT 'NONE' (`backend/migrations/00001_baseline.sql:254`), so the guard is harmless; `_fmt_amount(None)` is a dash (`app/services/invoice_pdf.py:78-84`); the business profile is read as `db.get(BusinessProfile, 1)` and may be None (`app/api/v1/routers/invoices.py:710, 744`).
+    Go: an empty string is treated as NONE (`pdf.TestInvoiceDocumentNoWHTUnchanged`); the None dash exists only as `FmtNumN`, because the columns are NOT NULL elsewhere; `pdf.LoadInvoice`, `pdf.LoadQuotation` and `pdf.LoadReceipt` read business row 1 through `GetProfile` without creating it (note 12), order the lines by position with ties by line item id, return nil for a missing customer and `pgx.ErrNoRows` for a missing document (`pdf.TestLoadersReadBusinessRowWithoutCreatingIt`, `pdf.TestLoadInvoice`, `pdf.TestLoadInvoiceWithoutCustomer`, `pdf.TestLoadQuotation`, `pdf.TestLoadReceipt`, `pdf.TestLoadersRefuseWhatIsMissing`). The Document types import the sqlc row structs rather than copying fields; pdf depends on five db packages with no cycle (payments to pdf to paymentsdb).
+    After the switch: none; treat an empty `wht_type` as NONE forever, or add the guard everywhere.
