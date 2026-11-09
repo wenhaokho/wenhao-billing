@@ -122,6 +122,131 @@
         ],
         "type": "object"
       },
+      "CloudflareTargetIn": {
+        "additionalProperties": true,
+        "properties": {
+          "live_content": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maintenance_content": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "proxied": {
+            "description": "Defaults to true.",
+            "type": "boolean"
+          },
+          "record_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "record_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "record_type": {
+            "maxLength": 20,
+            "minLength": 1,
+            "type": "string"
+          },
+          "zone_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "zone_id",
+          "record_id",
+          "record_name",
+          "record_type",
+          "live_content",
+          "maintenance_content"
+        ],
+        "type": "object"
+      },
+      "CloudflareTargetOut": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          },
+          "last_action_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "live_content": {
+            "type": "string"
+          },
+          "maintenance_content": {
+            "type": "string"
+          },
+          "provider_status": {
+            "type": "string"
+          },
+          "proxied": {
+            "type": "boolean"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "record_name": {
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "zone_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_id",
+          "item_id",
+          "zone_id",
+          "record_id",
+          "record_name",
+          "record_type",
+          "live_content",
+          "maintenance_content",
+          "proxied",
+          "provider_status",
+          "last_action_at",
+          "last_error",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "ForgotPasswordRequest": {
         "additionalProperties": true,
         "properties": {
@@ -171,6 +296,457 @@
         "required": [
           "status"
         ],
+        "type": "object"
+      },
+      "ItemCreate": {
+        "additionalProperties": true,
+        "properties": {
+          "active": {
+            "description": "Defaults to true.",
+            "type": "boolean"
+          },
+          "cloudflare_target": {
+            "$ref": "#/components/schemas/CloudflareTargetIn"
+          },
+          "default_currency": {
+            "description": "Defaults to IDR.",
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "default_purchase_price": {
+            "description": "At least 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": [
+              "",
+              "null"
+            ]
+          },
+          "default_unit_price": {
+            "description": "At least 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": [
+              "",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expense_account_id": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hosting_domain": {
+            "description": "Trimmed and lower-cased.",
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hosting_grace_days": {
+            "format": "int32",
+            "maximum": 365,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hosting_suspension_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "is_hosting": {
+            "description": "Defaults to false.",
+            "type": "boolean"
+          },
+          "is_purchased": {
+            "description": "Defaults to false.",
+            "type": "boolean"
+          },
+          "is_sold": {
+            "description": "Defaults to true.",
+            "type": "boolean"
+          },
+          "item_type": {
+            "enum": [
+              "SERVICE",
+              "USAGE",
+              "FIXED_FEE"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revenue_account_id": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sku": {
+            "maxLength": 50,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "item_type"
+        ],
+        "type": "object"
+      },
+      "ItemOut": {
+        "additionalProperties": true,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "cloudflare_target": {
+            "$ref": "#/components/schemas/CloudflareTargetOut"
+          },
+          "created_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "default_currency": {
+            "type": "string"
+          },
+          "default_purchase_price": {
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "default_unit_price": {
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expense_account_id": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hosting_domain": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hosting_grace_days": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hosting_last_action_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "hosting_last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hosting_last_paid_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "hosting_status": {
+            "enum": [
+              "ACTIVE",
+              "SUSPEND_PENDING",
+              "SUSPENDED",
+              "CANCELLED"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hosting_suspension_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "is_hosting": {
+            "type": "boolean"
+          },
+          "is_purchased": {
+            "type": "boolean"
+          },
+          "is_sold": {
+            "type": "boolean"
+          },
+          "item_id": {
+            "type": "string"
+          },
+          "item_type": {
+            "enum": [
+              "SERVICE",
+              "USAGE",
+              "FIXED_FEE"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "revenue_account_id": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sku": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "sku",
+          "name",
+          "item_type",
+          "description",
+          "default_currency",
+          "default_unit_price",
+          "default_purchase_price",
+          "revenue_account_id",
+          "expense_account_id",
+          "is_sold",
+          "is_purchased",
+          "active",
+          "is_hosting",
+          "hosting_domain",
+          "hosting_grace_days",
+          "hosting_suspension_enabled",
+          "item_id",
+          "created_at",
+          "hosting_status",
+          "hosting_last_paid_at",
+          "hosting_last_action_at",
+          "hosting_last_error",
+          "cloudflare_target"
+        ],
+        "type": "object"
+      },
+      "ItemUpdate": {
+        "additionalProperties": true,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "cloudflare_target": {
+            "$ref": "#/components/schemas/CloudflareTargetIn"
+          },
+          "default_currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "default_purchase_price": {
+            "description": "At least 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": [
+              "",
+              "null"
+            ]
+          },
+          "default_unit_price": {
+            "description": "At least 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": [
+              "",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expense_account_id": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hosting_domain": {
+            "description": "Trimmed and lower-cased.",
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hosting_grace_days": {
+            "format": "int32",
+            "maximum": 365,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "hosting_status": {
+            "description": "A hosting item left with none becomes ACTIVE.",
+            "enum": [
+              "ACTIVE",
+              "SUSPEND_PENDING",
+              "SUSPENDED",
+              "CANCELLED"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hosting_suspension_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "is_hosting": {
+            "type": "boolean"
+          },
+          "is_purchased": {
+            "type": "boolean"
+          },
+          "is_sold": {
+            "type": "boolean"
+          },
+          "item_type": {
+            "enum": [
+              "SERVICE",
+              "USAGE",
+              "FIXED_FEE"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revenue_account_id": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sku": {
+            "maxLength": 50,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "LoginRequest": {
@@ -1104,6 +1680,329 @@
         "tags": [
           "public",
           "auth"
+        ]
+      }
+    },
+    "/api/v1/items": {
+      "get": {
+        "operationId": "items-list",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "active",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Empty lists every type.",
+            "explode": false,
+            "in": "query",
+            "name": "item_type",
+            "schema": {
+              "description": "Empty lists every type.",
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "is_hosting",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ItemOut"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List items",
+        "tags": [
+          "items"
+        ]
+      },
+      "post": {
+        "operationId": "items-create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Add an item",
+        "tags": [
+          "items"
+        ]
+      }
+    },
+    "/api/v1/items/{item_id}": {
+      "delete": {
+        "operationId": "items-deactivate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Deactivate an item (never deleted)",
+        "tags": [
+          "items"
+        ]
+      },
+      "get": {
+        "operationId": "items-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "An item",
+        "tags": [
+          "items"
+        ]
+      },
+      "patch": {
+        "operationId": "items-update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Change an item's fields",
+        "tags": [
+          "items"
         ]
       }
     },
