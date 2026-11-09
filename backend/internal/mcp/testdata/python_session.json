@@ -1,0 +1,2615 @@
+{
+  "_note": "Recorded from the frozen Python server (FastMCP 3.4.3) with a real access token, on 2026-11-10. The 'unauthorized' entry is the RAW HTTP exchange: the status, the response headers (including www-authenticate) and the body, exactly as the server sent them. Every other entry is a PARSED, CLIENT-SIDE object, not the raw wire exchange: the values were read off the MCP client's pydantic models and dumped, so they carry pydantic's spellings and defaults (the wire's _meta appears here as 'meta', and members the wire omits appear here as null). The 'tools_list' entry is the client's parsed tool list, with the schemas the client inferred. Compare the shapes, not the byte-for-byte wire text.",
+  "unauthorized": {
+    "status": 401,
+    "headers": {
+      "content-length": "0",
+      "www-authenticate": "Bearer resource_metadata=\"http://localhost:8000/.well-known/oauth-protected-resource\"",
+      "vary": "Origin",
+      "cache-control": "no-store"
+    },
+    "body": ""
+  },
+  "initialize": {
+    "meta": null,
+    "protocolVersion": "2025-11-25",
+    "capabilities": {
+      "experimental": {},
+      "logging": {},
+      "prompts": {
+        "listChanged": true
+      },
+      "resources": {
+        "subscribe": false,
+        "listChanged": true
+      },
+      "tools": {
+        "listChanged": true
+      },
+      "completions": null,
+      "tasks": null,
+      "extensions": {
+        "io.modelcontextprotocol/ui": {}
+      }
+    },
+    "serverInfo": {
+      "name": "wenhao-billing",
+      "title": null,
+      "version": "3.4.3",
+      "websiteUrl": null,
+      "icons": null
+    },
+    "instructions": null
+  },
+  "tools_list": [
+    {
+      "name": "ping",
+      "title": null,
+      "description": "Health check — returns 'pong'.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "delete_invoice",
+      "title": null,
+      "description": "Permanently delete a DRAFT invoice. GATED: first call (no\nconfirm_token) previews the delete and returns a confirm_token; call\nagain passing that confirm_token to actually delete. Only DRAFT\ninvoices can be deleted — invoicing.delete_invoice refuses anything\nelse.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          },
+          "confirm_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "invoice_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "delete_bill",
+      "title": null,
+      "description": "Permanently delete a DRAFT bill. GATED: first call (no\nconfirm_token) previews the delete and returns a confirm_token; call\nagain passing that confirm_token to actually delete. Only DRAFT bills\ncan be deleted — a bill that has moved past DRAFT already affects AP\nand should be voided instead (see void_bill).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "bill_id": {
+            "type": "string"
+          },
+          "confirm_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "bill_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "delete_customer",
+      "title": null,
+      "description": "Deactivate a customer (soft delete — sets active=False). GATED:\nfirst call (no confirm_token) previews the action and returns a\nconfirm_token; call again passing that confirm_token to actually\ndeactivate. Matches the existing DELETE /customers/{id} endpoint:\ncustomers are never hard-deleted anywhere in this app.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          },
+          "confirm_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "send_invoice_email",
+      "title": null,
+      "description": "Email an invoice PDF to a customer. GATED: first call (no\nconfirm_token) previews the send and returns a confirm_token; call again\npassing that confirm_token to actually send. If invoice status is DRAFT\nit is promoted to SENT once the email is sent.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          },
+          "to_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "confirm_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "invoice_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "send_payment_reminder",
+      "title": null,
+      "description": "Email a payment reminder for an outstanding invoice. GATED: first\ncall (no confirm_token) previews the send and returns a confirm_token;\ncall again passing that confirm_token to actually send. Bound to the\ninvoice's cash still expected (balance_due less unbooked PPh) so a partial\npayment between preview and confirm invalidates a stale token. No PDF\nis attached — a plain-text/HTML reminder only.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          },
+          "to_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "confirm_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "invoice_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "list_bills",
+      "title": null,
+      "description": "List bills with optional status/vendor filters.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "vendor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "limit": {
+            "default": 200,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "get_bill",
+      "title": null,
+      "description": "Fetch one bill by id, including terms/notes/discount. Returns {} if not\nfound.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "bill_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bill_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "list_items",
+      "title": null,
+      "description": "List items, optionally filtered by a name substring.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "limit": {
+            "default": 200,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "list_vendors",
+      "title": null,
+      "description": "List vendors, optionally filtered by a name substring.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "limit": {
+            "default": 200,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "resolve_vendor",
+      "title": null,
+      "description": "Resolve a vendor name substring to a single vendor id.\n\nAmbiguity-stop primitive: on exactly one match, returns\n{\"vendor_id\": \"<uuid>\"}. On zero or more than one match, returns\n{\"candidates\": [{\"vendor_id\", \"name\"}, ...]} and takes NO other\naction — later write tools depend on this exact shape to decide\nwhether they may proceed automatically or must ask for disambiguation.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "list_customers",
+      "title": null,
+      "description": "List customers, optionally filtered by a name substring.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "limit": {
+            "default": 200,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "get_customer",
+      "title": null,
+      "description": "Fetch one customer by id, with its full contact/billing/shipping\nprofile. Returns {} if not found.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "resolve_customer",
+      "title": null,
+      "description": "Resolve a customer name substring to a single customer id.\n\nAmbiguity-stop primitive: on exactly one match, returns\n{\"customer_id\": \"<uuid>\"}. On zero or more than one match, returns\n{\"candidates\": [{\"customer_id\", \"name\"}, ...]} and takes NO other\naction — later write tools depend on this exact shape to decide\nwhether they may proceed automatically or must ask for disambiguation.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "list_invoices",
+      "title": null,
+      "description": "List non-template invoices with optional status/customer/type filters.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "invoice_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "limit": {
+            "default": 200,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "get_invoice",
+      "title": null,
+      "description": "Fetch one invoice by id, including terms/notes/footer/discount.\nReturns {} if not found.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "get_business_profile",
+      "title": null,
+      "description": "Return the agency's business profile (name, contact, address, etc.).\n\nAn uploaded logo is stored as a base64 data URI (often hundreds of KB), so\n`logo_url` is replaced by a short placeholder in that case; a regular URL\nis returned as-is. `has_logo` says whether any logo is set.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "get_stats",
+      "title": null,
+      "description": "Return dashboard/summary figures (counts + open AR/quotation totals\nper currency), mirroring GET /api/v1/stats/dashboard (minus\n`recent_activity`, which is a reconciliation-log feed, not a summary\nfigure).\n\nDelegates all query logic to\n`app.services.stats.compute_dashboard_stats`, the same function the\nrouter calls — no duplicated SQL here.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "list_projects",
+      "title": null,
+      "description": "List projects, optionally filtered by customer_id.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "limit": {
+            "default": 200,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "get_project",
+      "title": null,
+      "description": "Fetch one project by id, including notes. Returns {} if not found.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "list_quotations",
+      "title": null,
+      "description": "List quotations with optional status/customer filters.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "limit": {
+            "default": 200,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "get_quotation",
+      "title": null,
+      "description": "Fetch one quotation by id, including terms/notes/footer/discount.\nReturns {} if not found.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "quotation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "quotation_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "get_reconciliation_queue",
+      "title": null,
+      "description": "List payments awaiting manual review (status == PENDING_MANUAL_REVIEW).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 200,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "create_bill",
+      "title": null,
+      "description": "Create a DRAFT bill. Autonomous.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "vendor_id": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "line_items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "bill_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "po_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "issue_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "payment_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "discount_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "discount_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "vendor_id",
+          "currency",
+          "line_items"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "update_bill",
+      "title": null,
+      "description": "Edit a DRAFT/OPEN bill. `changes` keys are BillUpdate field names (e.g.\nnotes, payment_terms, discount_type/discount_value, line_items).\nAutonomous.\n\nUnknown keys are rejected rather than applied, so a near-miss like \"note\"\nor \"terms\" errors instead of being dropped by Pydantic's default\nextra=\"ignore\" while the tool still reports success.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "bill_id": {
+            "type": "string"
+          },
+          "changes": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "bill_id",
+          "changes"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "create_item",
+      "title": null,
+      "description": "Create a catalog item (non-hosting: item_type SERVICE/USAGE/FIXED_FEE).\nAutonomous.\n\nEvery writable non-hosting ItemCreate field is an explicit arg, including\nthe revenue/expense account overrides — without them a caller had no way\nto post an item to a specific chart-of-accounts line. Hosting fields\n(is_hosting, hosting_*, cloudflare_target) are deliberately absent; see\nthe module docstring.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "item_type": {
+            "type": "string"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "default_currency": {
+            "default": "IDR",
+            "type": "string"
+          },
+          "default_unit_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "default_purchase_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "revenue_account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "expense_account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "is_sold": {
+            "default": true,
+            "type": "boolean"
+          },
+          "is_purchased": {
+            "default": false,
+            "type": "boolean"
+          },
+          "active": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "item_type"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "update_item",
+      "title": null,
+      "description": "Edit an item. `changes` keys are ItemUpdate field names — the same names\n`create_item` takes (e.g. name, default_unit_price, active). Autonomous.\n\nUnknown keys are rejected rather than applied: `unit_price` is a near-miss\nfor `default_unit_price` that Pydantic's default extra=\"ignore\" would\notherwise drop while still returning success.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "changes": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "item_id",
+          "changes"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "create_vendor",
+      "title": null,
+      "description": "Create a vendor. Autonomous.\n\nThese args are every writable Vendor column. Unlike Customer, Vendor has\nno address or phone column at all (see backend/app/models/vendor.py) —\nthere is nothing further to expose here, and a caller asking to record a\nvendor address should be told the field doesn't exist rather than have it\nfolded into `notes`.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "contact_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "default_currency": {
+            "default": "IDR",
+            "type": "string"
+          },
+          "payment_terms_days": {
+            "default": 30,
+            "type": "integer"
+          },
+          "tax_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "active": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "update_vendor",
+      "title": null,
+      "description": "Edit a vendor. `changes` keys are VendorUpdate field names — the same\nnames `create_vendor` takes (e.g. name, contact_email,\npayment_terms_days, tax_id, notes, active). Autonomous.\n\nUnknown keys are rejected rather than applied. This matters most for the\ncolumns Vendor doesn't have: a `changes={\"address\": ...}` used to return\nsuccess while storing nothing.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "vendor_id": {
+            "type": "string"
+          },
+          "changes": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "vendor_id",
+          "changes"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "create_customer",
+      "title": null,
+      "description": "Create a customer. Autonomous.\n\nEvery writable customer column is an explicit arg on purpose. When this\ntool only exposed name/email/contact-name/currency/notes, a caller asked\nfor a customer \"with phone X at address Y\" had nowhere to put either and\nended up folding both into `notes` — the data was in the record but not\nin the fields the UI, invoices, and matching read from.\n\n`default_wht_type` (NONE|PPH21|PPH23), `default_wht_rate` (percent) and\n`default_wht_gross_up` seed new invoices for this customer; gross-up raises\nthe invoice so that after the client withholds PPh you still receive the\nfull base amount.\n\nAddress is structured (address1/address2/city/state/postal_code/country),\nmatching the customer form. The legacy unstructured `billing_address`\ncolumn is deliberately not writable here — it is read-only back-compat.\n\nThe primary contact name is stored as first/last — the same fields the\ncustomer edit form writes. There is deliberately no combined\n`contact_name` arg: the legacy column was dropped in\n0024_customer_contact_single because writing it here left records whose\ncontact name could not be edited in the UI.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "matching_aliases": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "contact_first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "contact_last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "contact_phone_2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "account_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "website": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "default_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "default_wht_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "default_wht_rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "default_wht_gross_up": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "billing_address1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "billing_address2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "billing_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "billing_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "billing_postal_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "billing_country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "ship_to_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "shipping_address1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "shipping_address2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "shipping_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "shipping_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "shipping_postal_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "shipping_country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "shipping_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "shipping_delivery_instructions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "update_customer",
+      "title": null,
+      "description": "Edit a customer. `changes` keys are CustomerUpdate field names — the\nsame names `create_customer` takes (e.g. contact_phone, billing_address1,\nbilling_city, notes, default_currency, active,\ndefault_wht_type/default_wht_rate/default_wht_gross_up). Gross-up raises the\ninvoice so that after the client withholds PPh you still receive the full\nbase amount. Autonomous.\n\nUnknown keys are rejected rather than applied: CustomerUpdate's default\nextra=\"ignore\" would otherwise drop a near-miss key like \"phone\" or\n\"address\" and still return success, the edit silently doing nothing. See\napp/mcp/validate.py — every `update_*` tool shares that check.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          },
+          "changes": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "customer_id",
+          "changes"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "create_invoice",
+      "title": null,
+      "description": "Create a DRAFT invoice (lands in Awaiting Finalization). Autonomous.\n\nOptional withholding: `wht_type` NONE|PPH21|PPH23, `wht_rate` percent\n(defaults 2.5 for PPH21, 2 for PPH23), `wht_gross_up`; gross-up raises the\ninvoice so that after the client withholds PPh you still receive the full\nbase amount. Omitted values fall back to the customer's defaults.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "line_items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "invoice_type": {
+            "default": "MILESTONE",
+            "type": "string"
+          },
+          "discount_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "discount_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "payment_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "wht_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "wht_rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "wht_gross_up": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "customer_id",
+          "currency",
+          "line_items"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "update_invoice",
+      "title": null,
+      "description": "Edit a DRAFT invoice. `changes` keys are InvoiceUpdate field names (e.g.\nnotes, payment_terms, discount_type/discount_value, line_items,\nwht_type/wht_rate/wht_gross_up). Gross-up raises the invoice so that after\nthe client withholds PPh you still receive the full base amount. Autonomous.\n\nUnknown keys are rejected rather than applied, so a near-miss like \"note\"\nor \"terms\" errors instead of being dropped by Pydantic's default\nextra=\"ignore\" while the tool still reports success.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          },
+          "changes": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "invoice_id",
+          "changes"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "finalize_invoice",
+      "title": null,
+      "description": "Issue a DRAFT invoice (-> OPEN; becomes SENT only when emailed).\n\nAutonomous (internal, reversible via void). A zero-value invoice settles\nstraight to PAID.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "void_invoice",
+      "title": null,
+      "description": "Void an invoice (reversible state, not a delete). Autonomous.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "invoice_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "create_recurring_template",
+      "title": null,
+      "description": "Create a recurring invoice template (is_template=True, DRAFT).\n`schedule` matches RecurringSchedule fields (frequency, interval,\nstart_date, end_mode, end_date?, end_after_cycles?). Optional withholding\nvia `wht_type` NONE|PPH21|PPH23, `wht_rate`, `wht_gross_up`; gross-up\nraises the invoice so that after the client withholds PPh you still\nreceive the full base amount. Autonomous.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "line_items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "schedule": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "payment_terms": {
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "po_so_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "footer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "discount_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "discount_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "wht_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "wht_rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "wht_gross_up": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "customer_id",
+          "currency",
+          "line_items",
+          "schedule",
+          "payment_terms"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "trigger_recurring",
+      "title": null,
+      "description": "Manually trigger one recurring cycle for a template — idempotent per\n(template_id, cycle_key). Autonomous.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "template_id": {
+            "type": "string"
+          },
+          "cycle_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "cycle_key"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "create_project",
+      "title": null,
+      "description": "Create a project. Autonomous.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "contract_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "status": {
+            "default": "ACTIVE",
+            "type": "string"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "customer_id",
+          "code",
+          "name",
+          "currency"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "update_project",
+      "title": null,
+      "description": "Edit a project. `changes` keys are ProjectUpdate field names — the same\nnames `create_project` takes (e.g. code, name, currency, status,\ncontract_value, notes, active). Autonomous.\n\nUnknown keys are rejected rather than applied, so a near-miss like\n\"project_name\" errors instead of being dropped by Pydantic's default\nextra=\"ignore\" while the tool still reports success.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "changes": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "project_id",
+          "changes"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "create_quotation",
+      "title": null,
+      "description": "Create a DRAFT quotation. Autonomous.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "line_items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "po_so_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "issue_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "payment_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "footer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "discount_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "discount_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "customer_id",
+          "currency",
+          "line_items"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "update_quotation",
+      "title": null,
+      "description": "Edit a DRAFT/SENT quotation. `changes` keys are QuotationUpdate field\nnames (e.g. notes, payment_terms, discount_type/discount_value,\nline_items). Autonomous.\n\nUnknown keys are rejected rather than applied, so a near-miss like \"note\"\nor \"valid_till\" (real field: `valid_until`) errors instead of being dropped\nby Pydantic's default extra=\"ignore\" while the tool still reports success.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "quotation_id": {
+            "type": "string"
+          },
+          "changes": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "quotation_id",
+          "changes"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    },
+    {
+      "name": "resolve_reconciliation_match",
+      "title": null,
+      "description": "Force-resolve a PENDING_MANUAL_REVIEW payment against a chosen\ninvoice. Safe-stop: refuses — returns {\"error\": ...}, no side effect,\npayment status unchanged — on any currency or amount mismatch between\nthe payment and the invoice; a human must resolve those via the\nManualReviewView UI. Autonomous only for an exact currency+amount\nmatch (the payer/date ambiguity that put it in the queue).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "payment_id": {
+            "type": "string"
+          },
+          "invoice_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_id",
+          "invoice_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "execution": null
+    }
+  ],
+  "ping": {
+    "meta": {
+      "fastmcp": {
+        "wrap_result": true
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "pong",
+        "annotations": null,
+        "meta": null
+      }
+    ],
+    "structuredContent": {
+      "result": "pong"
+    },
+    "isError": false
+  },
+  "list_tool": {
+    "tool": "list_invoices",
+    "meta": {
+      "fastmcp": {
+        "wrap_result": true
+      }
+    },
+    "content": [],
+    "structuredContent": {
+      "result": []
+    },
+    "isError": false
+  },
+  "error_result": {
+    "tool": "create_customer",
+    "meta": null,
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"error\":\"invalid default_wht_rate: 'abc'\"}",
+        "annotations": null,
+        "meta": null
+      }
+    ],
+    "structuredContent": {
+      "error": "invalid default_wht_rate: 'abc'"
+    },
+    "isError": false
+  },
+  "validation_failure": {
+    "tool": "get_bill",
+    "**dump": null,
+    "meta": null,
+    "content": [
+      {
+        "type": "text",
+        "text": "1 validation error for call[get_bill]\nbill_id\n  Missing required argument [type=missing_argument, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing_argument",
+        "annotations": null,
+        "meta": null
+      }
+    ],
+    "structuredContent": null,
+    "isError": true
+  },
+  "admin_email": "mcp-record-admin@example.com"
+}

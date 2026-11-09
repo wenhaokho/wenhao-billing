@@ -46,6 +46,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/mcp"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/oauth"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
@@ -90,9 +91,11 @@ func register(api huma.API, f features) {
 	stats.Register(api, f.Pool, f.Config, f.Clock)
 }
 
-// oauthRoot mounts the MCP connector's OAuth server at the root, only when
-// MCP_ENABLED (nil mounts nothing, and its paths answer 404).
-func oauthRoot(cfg platform.Config, pool *pgxpool.Pool, sessions platform.Sessions, clock platform.Clock) func(chi.Router) {
+// oauthRoot mounts the MCP connector's OAuth server and the /mcp transport
+// at the root, only when MCP_ENABLED (nil mounts nothing, and its paths
+// answer 404). mail is the sender the connector's gated email tools use; it
+// is the same sender the API's routes use.
+func oauthRoot(cfg platform.Config, pool *pgxpool.Pool, sessions platform.Sessions, clock platform.Clock, mail email.Sender) func(chi.Router) {
 	if !cfg.MCPEnabled {
 		return nil
 	}
@@ -102,6 +105,13 @@ func oauthRoot(cfg platform.Config, pool *pgxpool.Pool, sessions platform.Sessio
 			Sessions: sessions, Clock: clock,
 			Tokens: oauth.NewTokens(cfg.MCPTokenSecret, cfg.MCPAccessTokenTTL, cfg.MCPRefreshTokenTTL),
 		})
+		handler := mcp.NewHandler(mcp.Deps{
+			Pool: pool, Clock: clock, Cfg: cfg,
+			Sender:   mail,
+			Payments: payments.Service{BaseCurrency: cfg.BaseCurrency, Hosting: payments.NoHosting{}},
+		})
+		r.Handle("/mcp", handler)
+		r.Handle("/mcp/*", handler)
 	}
 }
 
@@ -169,9 +179,12 @@ func serve() error {
 
 	clock := platform.SystemClock{}
 	sessions := platform.NewSessions(cfg)
-	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock, Root: oauthRoot(cfg, pool, sessions, clock)})
+	// One sender for the whole process: the API's routes and the MCP
+	// connector's gated email tools share it.
+	mail := mailSender(cfg, logger)
+	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock, Root: oauthRoot(cfg, pool, sessions, clock, mail)})
 	register(api, features{
-		Pool: pool, Sessions: sessions, Mail: mailSender(cfg, logger), Config: cfg, Clock: clock,
+		Pool: pool, Sessions: sessions, Mail: mail, Config: cfg, Clock: clock,
 		Logger:   logger,
 		FXClient: fx.NewClient(cfg),
 	})
