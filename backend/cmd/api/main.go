@@ -83,6 +83,8 @@ func register(api huma.API, f features) {
 		Q: invoicesdb.New(f.Pool), Sender: f.Mail, AppBaseURL: f.Config.AppBaseURL, Logger: f.Logger,
 	})
 	quotations.Register(api, f.Pool, f.Clock)
+	quotations.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
+	invoices.RegisterDocuments(api, f.Pool, f.Mail)
 	bills.Register(api, f.Pool, f.Clock)
 	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: payments.NoHosting{}}, f.Config, f.Clock,
 		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.PDFReceiptRenderer{DB: f.Pool}})

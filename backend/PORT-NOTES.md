@@ -581,3 +581,18 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Python: MRR divides in the 28-significant-digit decimal context and quantizes each currency's sum half-even (`app/services/stats.py:108-137`); products above 28 digits would round before `quantize`, and a quantized value above 10^24 raises (a 500) (`app/services/fx.py:72`, `accounting.py:494`).
     Go: `DivRound(x, 28)` per template (28 decimal places, not 28 significant digits), then `RoundHalfEven4` on the per-currency sum (`stats.TestMRRWeeklyTimes52Over12`, `stats.TestMRRWeeklyAndTie`); products are exact. At `numeric(19,4)` times `numeric(19,8)` sizes the two cannot differ except for a sum landing exactly on a four-place tie.
     After the switch: none.
+
+111. **Invoice and quotation send: a failed send is 502, `to_email` is validated, the quotation amount is formatted, and the send is idempotent.**
+    Python: the mailer's error is not caught, so a failed send is a plain 500 with nothing committed (`routers/invoices.py:766-772`, `quotations.py:225-231`); `to_email` has no validation, so a bad address reaches the mail provider (`schemas/invoice.py:126-134`); the quotation body prints the raw decimal (`for 5000.0000 SGD.`, `quotations.py:218`); a retry after a timeout mails twice.
+    Go: a send failure is 502 `failed to send invoice email` / `failed to send quotation email` and the status stays (`invoices.TestSendFailure502LeavesStatus`, `quotations.TestQuotationSendFailure502LeavesRow`); a bad `to_email` is 422 at `to_email` `invalid email address: <addr>` (`TestBadToEmail422`, `TestQuotationBadToEmail422`); the quotation body uses `pdf.FmtAmount` (`for 5,000.00 SGD.`); each message carries `email.IdempotencyKey` (the document id and a SHA-256 of recipients, subject and body), and the status changes only after a successful send, in a transaction that re-reads the row.
+    After the switch: none.
+
+112. **Kept: sending a DRAFT or OPEN invoice makes it SENT without finalizing; a quotation send stamps `last_sent_at` in any sendable status.**
+    Python: `send_invoice` sets DRAFT/OPEN to SENT with no finalize checks, so a DRAFT with no number goes out as `invoice  for` (`routers/invoices.py:774-775`); the quotation send stamps `last_sent_at` for ACCEPTED, DECLINED, EXPIRED and SENT too, and says `cannot send a INVOICED quotation` (`quotations.py:196-199, 233-236`).
+    Go: kept (owner ruling R3; `invoices.TestSendDraftBecomesSent`, `quotations.TestQuotationSendBodyAndLastSentAt`, `TestQuotationSendRefusals`).
+    After the switch: refuse DRAFT and templates, or finalize first, if the owner wants.
+
+113. **The PDF `Content-Disposition` is escaped.**
+    Python: `inline; filename="{name}"` with the number as stored, so a quote or non-ASCII character in a number (a PATCH can set one) breaks the header (`routers/invoices.py:716`, `quotations.py:182`).
+    Go: a plain ASCII name is unchanged; any other gets an underscore fallback `filename` and an RFC 6266 `filename*=UTF-8''...` (`pdf.ContentDisposition`; `invoices.TestInvoicePdfHeadersAndBytes/non-ascii`, `quotations.TestQuotationPdfHeadersAndBytes/non-ascii`).
+    After the switch: none.
