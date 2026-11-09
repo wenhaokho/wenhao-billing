@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
 )
@@ -214,5 +215,17 @@ VALUES ('USD', 'IDR', 17000, '2026-02-01', 'TEST'), ('USD', 'IDR', 18000, '2026-
 		if len(got.Lines) != 1 || str(got.Lines[0].Rate) != c.rate || str(got.Lines[0].RateAsOf) != c.date || str(got.Lines[0].RevaluedBase) != c.revalued {
 			t.Errorf("as_of %s: %+v", c.asOf, got.Lines)
 		}
+	}
+}
+
+func TestRevaluationCutoffInclusiveOfDay(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	post(t, a, time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC), dr(bank, "10", "USD", "150000"), cr(income, "10", "USD", "150000"))
+	post(t, a, time.Date(2026, 1, 10, 23, 59, 59, 999999000, time.UTC), dr(bank, "20", "USD", "300000"), cr(income, "20", "USD", "300000"))
+	post(t, a, time.Date(2026, 1, 11, 0, 0, 0, 0, time.UTC), dr(bank, "1000", "USD", "15000000"), cr(income, "1000", "USD", "15000000"))
+	got, _ := fxGet(t, a, "?as_of=2026-01-10")
+	if len(got.Lines) != 1 || got.Lines[0].FaceBalance != "30.0000" || got.Lines[0].OriginalBase != "450000.0000" {
+		t.Errorf("as_of day: %+v", got.Lines)
 	}
 }

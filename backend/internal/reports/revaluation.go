@@ -32,9 +32,14 @@ func revaluation(ctx context.Context, fq *fxdb.Queries, asOf time.Time, base str
 	missing := map[string]bool{}
 	var gain, loss decimal.Decimal
 	for _, r := range rows {
-		face, original, sign := r.Debit.Sub(r.Credit), r.BaseDebit.Sub(r.BaseCredit), decimal.NewFromInt(1)
-		if r.Type != "ASSET" {
+		var face, original, sign decimal.Decimal
+		switch r.Type {
+		case "ASSET":
+			face, original, sign = r.Debit.Sub(r.Credit), r.BaseDebit.Sub(r.BaseCredit), decimal.NewFromInt(1)
+		case "LIABILITY":
 			face, original, sign = r.Credit.Sub(r.Debit), r.BaseCredit.Sub(r.BaseDebit), decimal.NewFromInt(-1)
+		default: // the query returns only ASSET and LIABILITY
+			continue
 		}
 		if face.IsZero() && original.IsZero() {
 			continue
