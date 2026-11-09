@@ -1,6 +1,6 @@
 // Package projects serves the project routes at /api/v1/projects with the
 // Python backend's contract: create, list, read, partial update and delete.
-// The summary and the project's invoices are the invoice features' routes.
+// The summary and the project's invoices are in summary.go.
 package projects
 
 import (

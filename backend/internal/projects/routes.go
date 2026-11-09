@@ -54,6 +54,7 @@ func Register(api huma.API, pool *pgxpool.Pool) {
 		Summary: "Delete a project nothing references", DefaultStatus: http.StatusNoContent,
 		Errors: []int{http.StatusBadRequest, http.StatusNotFound},
 	}), r.delete)
+	registerSummary(api, r, prefix, tags)
 }
 
 // notFound is Python's 404 for a missing row; any other error is unchanged.

@@ -189,6 +189,43 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]P
 	return items, nil
 }
 
+const projectBillTotal = `-- name: ProjectBillTotal :one
+SELECT COALESCE(SUM(amount), 0)::numeric(19,4) AS bill_total
+FROM bills
+WHERE project_id = $1::uuid AND status IN ('OPEN', 'PARTIAL', 'PAID')
+`
+
+// projects.py:142-147.
+func (q *Queries) ProjectBillTotal(ctx context.Context, projectID uuid.UUID) (decimal.Decimal, error) {
+	row := q.db.QueryRow(ctx, projectBillTotal, projectID)
+	var bill_total decimal.Decimal
+	err := row.Scan(&bill_total)
+	return bill_total, err
+}
+
+const projectInvoiceTotals = `-- name: ProjectInvoiceTotals :one
+SELECT COALESCE(SUM(amount), 0)::numeric(19,4) AS invoiced,
+       COALESCE(SUM(balance_due), 0)::numeric(19,4) AS outstanding,
+       count(invoice_id)::bigint AS invoice_count
+FROM invoices
+WHERE project_id = $1::uuid AND status IN ('OPEN', 'SENT', 'PARTIAL', 'PAID')
+`
+
+type ProjectInvoiceTotalsRow struct {
+	Invoiced     decimal.Decimal
+	Outstanding  decimal.Decimal
+	InvoiceCount int64
+}
+
+// GET /projects/{id}/summary (projects.py:127-136): the issued invoices only.
+// No currency filter and no template filter (templates are DRAFT).
+func (q *Queries) ProjectInvoiceTotals(ctx context.Context, projectID uuid.UUID) (ProjectInvoiceTotalsRow, error) {
+	row := q.db.QueryRow(ctx, projectInvoiceTotals, projectID)
+	var i ProjectInvoiceTotalsRow
+	err := row.Scan(&i.Invoiced, &i.Outstanding, &i.InvoiceCount)
+	return i, err
+}
+
 const updateProject = `-- name: UpdateProject :one
 UPDATE projects
 SET customer_id = $1, code = $2, name = $3, currency = $4,
