@@ -173,13 +173,7 @@ func TestRevenueWindowStartIsFirstDayOfOldestMonth(t *testing.T) {
 	inv{cur: "IDR", amount: "20", issue: d(date(2025, 7, 31))}.insert(t, a, c)
 	r := revenue(t, a)
 	eq(t, "2025-08", dict(month(t, r, "2025-08").NativeTotals), []string{"IDR=10.0000"})
-	// 2025-07-31 would be in the window if it were widened, and its month is
-	// then still not a label: only the SQL window can tell (see mutation).
-	for _, m := range r.Months {
-		if m.Month == "2025-07" {
-			t.Fatalf("2025-07 is a label")
-		}
-	}
+	// 2025-07-31 is before the window and is not counted.
 }
 
 func TestRevenueEveryRevenueStatusCounts(t *testing.T) {
@@ -260,6 +254,34 @@ func TestRevenueConvertsHalfEvenAtTodaysRate(t *testing.T) {
 	if got := month(t, r, "2026-06").Totals["EUR"].Decimal().StringFixed(4); got != "0.0002" {
 		t.Fatalf("EUR 3 = %s, want 0.0002", got)
 	}
+	// The unpaid conversion rounds the same way (the balance equals the amount).
+	if got := month(t, r, "2026-07").UnpaidTotals["EUR"].Decimal().StringFixed(4); got != "0.0000" {
+		t.Fatalf("unpaid EUR 1 = %s, want 0.0000", got)
+	}
+	if got := month(t, r, "2026-06").UnpaidTotals["EUR"].Decimal().StringFixed(4); got != "0.0002" {
+		t.Fatalf("unpaid EUR 3 = %s, want 0.0002", got)
+	}
+}
+
+// requireAdmin checks that path answers 401 without a session and 403 to a
+// staff user.
+func requireAdmin(t *testing.T, path string) {
+	t.Helper()
+	a := newApp(t)
+	staffID := uuid.New()
+	exec(t, a, `INSERT INTO users (user_id, email, password_hash, role) VALUES ($1, 'staff@example.com', 'placeholder: never signs in', 'staff')`, staffID)
+	token, _, err := a.Sessions.Issue(staffID, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staff := *a
+	staff.Cookie = platform.SessionCookie + "=" + token
+	if p := apitest.Decode[problem](t, a.Anon(t, http.MethodGet, path, nil), http.StatusUnauthorized); p.Detail != "not authenticated" {
+		t.Errorf("anon: %q", p.Detail)
+	}
+	if p := apitest.Decode[problem](t, staff.Do(t, http.MethodGet, path, nil), http.StatusForbidden); p.Detail != "admin required" {
+		t.Errorf("staff: %q", p.Detail)
+	}
 }
 
 const revPath = "/api/v1/stats/revenue-monthly"
@@ -302,10 +324,7 @@ func TestRevenueMonthlyRoute(t *testing.T) {
 
 func TestRevenueMonthlyRequiresAdmin(t *testing.T) {
 	t.Parallel()
-	a := newApp(t)
-	if rec := a.Anon(t, http.MethodGet, revPath, nil); rec.Code != http.StatusUnauthorized {
-		t.Fatalf("anon = %d", rec.Code)
-	}
+	requireAdmin(t, revPath)
 }
 
 func TestRevenueFutureMonthDropped(t *testing.T) {

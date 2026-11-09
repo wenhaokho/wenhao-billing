@@ -184,6 +184,9 @@ func TestSummaryZeroBalanceAndNullDueDateExcluded(t *testing.T) {
 	z.balance = "0"
 	z.insert(t, a, c)
 	sentDue(nil, "200").insert(t, a, c)
+	soon := sentDue(ago(sumDay, 5), "100")
+	soon.balance = "0"
+	soon.insert(t, a, c) // zero balance due in 5 days: not in due_30d either
 	s := summary(t, a)
 	eq(t, "overdue", amounts(s.Overdue), []string{})
 	eq(t, "due_30d", amounts(s.Due30d), []string{})
@@ -334,7 +337,5 @@ func TestInvoicesSummaryRouteEmptyIsNullAvgAndEmptyLists(t *testing.T) {
 
 func TestInvoicesSummaryRequiresAdmin(t *testing.T) {
 	t.Parallel()
-	if rec := newApp(t).Anon(t, http.MethodGet, sumPath, nil); rec.Code != http.StatusUnauthorized {
-		t.Fatalf("anon = %d", rec.Code)
-	}
+	requireAdmin(t, sumPath)
 }

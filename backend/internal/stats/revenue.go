@@ -51,7 +51,13 @@ func monthLabels(today time.Time) []string {
 // listed in Unconverted. The unpaid dicts leave out a zero balance.
 func MonthlyRevenue(ctx context.Context, db statsdb.DBTX, base string, today time.Time) (MonthlyRevenueResponse, error) {
 	labels := monthLabels(today)
-	rows, err := statsdb.New(db).MonthlyRevenue(ctx, pgDay(time.Date(today.Year(), today.Month()-11, 1, 0, 0, 0, 0, time.UTC)))
+	// The window starts on the first day of the oldest label, so the SQL and
+	// the labels cannot drift apart.
+	windowStart, err := time.Parse("2006-01", labels[0])
+	if err != nil {
+		return MonthlyRevenueResponse{}, err
+	}
+	rows, err := statsdb.New(db).MonthlyRevenue(ctx, pgDay(windowStart))
 	if err != nil {
 		return MonthlyRevenueResponse{}, err
 	}
