@@ -45,6 +45,7 @@ func operations(api huma.API) map[string]*huma.Operation {
 // caller with no session cookie. A new feature is covered the moment it is
 // registered.
 func TestEveryOperationIsAuthenticated(t *testing.T) {
+	t.Parallel()
 	handler, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{Sessions: testSessions()})
 	register(api, features{Sessions: testSessions()})
 	checked := 0
@@ -78,6 +79,7 @@ func TestEveryOperationIsAuthenticated(t *testing.T) {
 // without platform.Admin fails here, not in production (where the middleware
 // refuses it to everyone).
 func TestEveryOperationIsAdminOrPublic(t *testing.T) {
+	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
 	register(api, features{Sessions: testSessions()})
 	for key, op := range operations(api) {
@@ -92,6 +94,7 @@ func TestEveryOperationIsAdminOrPublic(t *testing.T) {
 // with the same shape becomes "CreateInBody1", renaming the first one's
 // whenever registration order changes. Bodies must be named types.
 func TestSchemaNamesAreStable(t *testing.T) {
+	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
 	register(api, features{Sessions: testSessions()})
 	endsInDigit := regexp.MustCompile(`[0-9]$`)
@@ -106,6 +109,7 @@ func TestSchemaNamesAreStable(t *testing.T) {
 // unless its field has omitempty, so a property missing from required is one
 // the encoder may leave out. Nullable fields are pointers without omitempty.
 func TestResponsesNeverOmitFields(t *testing.T) {
+	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
 	register(api, features{Sessions: testSessions()})
 	reg := api.OpenAPI().Components.Schemas
@@ -188,6 +192,7 @@ func acceptsNull(m map[string]any) bool {
 // types must allow the null the encoder writes. The Go types are walked
 // from each response's component.
 func TestNullableResponseFieldsAcceptNull(t *testing.T) {
+	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
 	register(api, features{Sessions: testSessions()})
 	doc, err := json.Marshal(api.OpenAPI())
@@ -264,6 +269,7 @@ func TestNullableResponseFieldsAcceptNull(t *testing.T) {
 // `"type": ["", "null"]` for a nullable schema with no type of its own,
 // which is not JSON Schema.
 func TestOpenAPIHasNoEmptyType(t *testing.T) {
+	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
 	register(api, features{Sessions: testSessions()})
 	doc, err := json.Marshal(api.OpenAPI())
@@ -304,6 +310,7 @@ func TestOpenAPIHasNoEmptyType(t *testing.T) {
 // Huma makes a []T nullable by default, but the lists are never null, and a
 // null request body must be a 422, not an empty list.
 func TestArrayBodiesAreNotNullable(t *testing.T) {
+	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
 	register(api, features{Sessions: testSessions()})
 	arrays := 0

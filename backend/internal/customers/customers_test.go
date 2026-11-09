@@ -85,6 +85,7 @@ func wht(t *testing.T, c customers.CustomerOut, typ, rate string, grossUp bool) 
 // --- tests/unit/test_customers_service.py ---
 
 func TestCreateCustomerSetsFields(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, map[string]any{"name": "Beta Pte Ltd", "contact_email": "ap@beta.com"})
 	if got.CustomerID == uuid.Nil || got.Name != "Beta Pte Ltd" || got.ContactEmail == nil || *got.ContactEmail != "ap@beta.com" {
@@ -100,6 +101,7 @@ func TestCreateCustomerSetsFields(t *testing.T) {
 }
 
 func TestUpdateCustomerEditsFields(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{"name": "Acme", "website": "acme.example", "matching_aliases": []string{"ACME"}})
 	got := patch(t, a, c.CustomerID, map[string]any{"notes": "VIP account", "contact_phone": "+65 1234 5678"})
@@ -116,6 +118,7 @@ func TestUpdateCustomerEditsFields(t *testing.T) {
 }
 
 func TestUpdateCustomerNotFound(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	for _, m := range []string{http.MethodPatch, http.MethodGet, http.MethodDelete} {
 		var body any
@@ -129,6 +132,7 @@ func TestUpdateCustomerNotFound(t *testing.T) {
 // --- tests/integration/test_customer_cc.py ---
 
 func TestCustomerCCListsRoundtrip(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{
 		"name":                "CC Co",
@@ -146,6 +150,7 @@ func TestCustomerCCListsRoundtrip(t *testing.T) {
 }
 
 func TestCustomerCCRejectsInvalidAddress(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	for _, m := range []string{http.MethodPost, http.MethodPatch} {
 		u, body := path, map[string]any{"name": "Bad CC", "billing_cc_emails": []string{"ok@x.com", "not-an-email"}}
@@ -170,6 +175,7 @@ func TestCustomerCCRejectsInvalidAddress(t *testing.T) {
 // --- tests/integration/test_customer_wht_defaults.py ---
 
 func TestCreateCustomerWithPph23GrossUp(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{"name": "Wht Co", "default_wht_type": "PPH23", "default_wht_gross_up": true})
 	wht(t, c, "PPH23", "2.0000", true)
@@ -180,23 +186,27 @@ func TestCreateCustomerWithPph23GrossUp(t *testing.T) {
 }
 
 func TestCustomerDefaultsToNone(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wht(t, create(t, a, map[string]any{"name": "Plain Co"}), "NONE", "", false)
 }
 
 func TestCustomerWhtInvalidRate422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "Bad Rate", "default_wht_type": "PPH21", "default_wht_rate": 150}),
 		http.StatusUnprocessableEntity, "invalid_withholding", "Withholding tax rate must be greater than 0 and less than 100", "", "")
 }
 
 func TestCustomerWhtUnknownType422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "Bad Type", "default_wht_type": "PPH99"}),
 		http.StatusUnprocessableEntity, "invalid_withholding", "Unknown withholding tax type: PPH99", "", "")
 }
 
 func TestCustomerNoneClearsRate(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{"name": "Clear Co", "default_wht_type": "PPH21", "default_wht_rate": 3, "default_wht_gross_up": true})
 	wht(t, c, "PPH21", "3.0000", true)
@@ -204,12 +214,14 @@ func TestCustomerNoneClearsRate(t *testing.T) {
 }
 
 func TestPatchWithoutWhtFieldsKeepsStored(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{"name": "Keep Co", "default_wht_type": "PPH23", "default_wht_gross_up": true})
 	wht(t, patch(t, a, c.CustomerID, map[string]any{"notes": "hi"}), "PPH23", "2.0000", true)
 }
 
 func TestPatchPartialWhtMergesWithStored(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{"name": "Merge Co", "default_wht_type": "PPH23", "default_wht_gross_up": true})
 	wht(t, patch(t, a, c.CustomerID, map[string]any{"default_wht_rate": 4}), "PPH23", "4.0000", true)
@@ -221,6 +233,7 @@ func TestPatchPartialWhtMergesWithStored(t *testing.T) {
 }
 
 func TestPatchTypeSwitchUsesNewDefaultRate(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{"name": "Switch Co", "default_wht_type": "PPH23", "default_wht_gross_up": true})
 	wht(t, c, "PPH23", "2.0000", true)
@@ -233,6 +246,7 @@ func TestPatchTypeSwitchUsesNewDefaultRate(t *testing.T) {
 // --- new ---
 
 func TestCustomerWhtRateAcceptsNumberAndString(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	n := create(t, a, map[string]any{"name": "Num", "default_wht_type": "PPH23", "default_wht_rate": 1.5})
 	wht(t, n, "PPH23", "1.5000", false)
@@ -246,6 +260,7 @@ func TestCustomerWhtRateAcceptsNumberAndString(t *testing.T) {
 // create, NONE and false), as Python's data.get(...) is None does; it is not
 // a 422. The withholding is still normalised, as the key was sent.
 func TestCustomerNullWhtTypeAndGrossUpKeepStored(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wht(t, create(t, a, map[string]any{"name": "Null Co", "default_wht_type": nil, "default_wht_gross_up": nil}), "NONE", "", false)
 	c := create(t, a, map[string]any{"name": "Kept Co", "default_wht_type": "PPH23", "default_wht_rate": 4, "default_wht_gross_up": true})
@@ -258,6 +273,7 @@ func TestCustomerNullWhtTypeAndGrossUpKeepStored(t *testing.T) {
 // A rate with more than 4 decimal places is refused at its field, not
 // rounded into numeric(7,4).
 func TestCustomerWhtRateFivePlacesIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	// Dec4 refuses it at the field, listed as Huma's own validation errors.
 	const (
@@ -283,6 +299,7 @@ func TestCustomerWhtRateFivePlacesIs422(t *testing.T) {
 }
 
 func TestCustomerCCClearAndKeep(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{
 		"name":                "Keep CC",
@@ -307,6 +324,7 @@ func TestCustomerCCClearAndKeep(t *testing.T) {
 }
 
 func TestCustomerCCDedupesCaseInsensitively(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{"name": "Dup", "billing_cc_emails": []string{"a@x.com", "A@x.com", "b@X.com"}})
 	// Each address is kept as sent (trimmed): Python validated it and stored
@@ -317,6 +335,7 @@ func TestCustomerCCDedupesCaseInsensitively(t *testing.T) {
 }
 
 func TestCustomerListOrderAndFilter(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	b := create(t, a, map[string]any{"name": "Bravo"})
 	create(t, a, map[string]any{"name": "Alpha"})
@@ -349,6 +368,7 @@ func TestCustomerListOrderAndFilter(t *testing.T) {
 }
 
 func TestCustomerDeleteDeactivates(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{"name": "Gone", "notes": "keep"})
 	got := apitest.Decode[customers.CustomerOut](t, a.Do(t, http.MethodDelete, customerPath(c.CustomerID), nil), http.StatusOK)
@@ -362,6 +382,7 @@ func TestCustomerDeleteDeactivates(t *testing.T) {
 }
 
 func TestCustomerPatchNullNameIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{"name": "Named"})
 	notNull := []string{
@@ -387,6 +408,7 @@ func TestCustomerPatchNullNameIs422(t *testing.T) {
 }
 
 func TestCustomerResponseHasEveryField(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	c := create(t, a, map[string]any{"name": "Bare"})
 	rec := a.Do(t, http.MethodGet, customerPath(c.CustomerID), nil)
@@ -438,6 +460,7 @@ func TestCustomerResponseHasEveryField(t *testing.T) {
 }
 
 func TestCustomerFieldLengths(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	long := func(n int) string { return strings.Repeat("x", n) }
 	for f, n := range map[string]int{

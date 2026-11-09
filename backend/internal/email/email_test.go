@@ -11,6 +11,7 @@ import (
 // A reset email carries a live link: outside local development it must
 // never reach the log, only who it was for and what it was about.
 func TestLogSenderHidesBodiesOutsideLocal(t *testing.T) {
+	t.Parallel()
 	const link = "http://app.test/reset-password?token=secret-token-value"
 	m := Message{To: "a@example.com", Subject: "Reset your password", Text: "Open " + link, HTML: `<a href="` + link + `">reset</a>`}
 	for _, show := range []bool{false, true} {

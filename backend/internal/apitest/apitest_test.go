@@ -11,6 +11,7 @@ import (
 )
 
 func TestApitestAdminReachesAdminRoute(t *testing.T) {
+	t.Parallel()
 	a := apitest.New(t, func(api huma.API, d apitest.Deps) {
 		auth.Register(api, d.Pool, d.Sessions, d.Mail, d.Config, d.Clock)
 	})

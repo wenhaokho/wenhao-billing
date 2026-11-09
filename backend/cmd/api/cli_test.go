@@ -70,6 +70,7 @@ func (a cliApp) serve(req *http.Request) *httptest.ResponseRecorder {
 }
 
 func TestSetPasswordThenLogin(t *testing.T) {
+	t.Parallel()
 	a := newCLIApp(t)
 	a.user(t, "admin@example.com", "admin")
 	if err := setPasswordCmd(context.Background(), a.pool, "admin@example.com", strings.NewReader("a-new-password\r\n")); err != nil {
@@ -89,6 +90,7 @@ func TestSetPasswordThenLogin(t *testing.T) {
 }
 
 func TestSetPasswordBumpsEpoch(t *testing.T) {
+	t.Parallel()
 	a := newCLIApp(t)
 	id := a.user(t, "admin@example.com", "admin")
 	if err := setPasswordCmd(context.Background(), a.pool, "admin@example.com", strings.NewReader("a-new-password")); err != nil {
@@ -107,6 +109,7 @@ func TestSetPasswordBumpsEpoch(t *testing.T) {
 }
 
 func TestIssueSessionTokenOpensMe(t *testing.T) {
+	t.Parallel()
 	a := newCLIApp(t)
 	id := a.user(t, "admin@example.com", "admin")
 	var out bytes.Buffer
@@ -125,6 +128,7 @@ func TestIssueSessionTokenOpensMe(t *testing.T) {
 }
 
 func TestIssueSessionRefusesNonAdmin(t *testing.T) {
+	t.Parallel()
 	a := newCLIApp(t)
 	a.user(t, "viewer@example.com", "viewer")
 	var out bytes.Buffer
@@ -142,6 +146,7 @@ func TestIssueSessionRefusesNonAdmin(t *testing.T) {
 // serve shows email bodies (live reset links) in the log only for a local
 // environment.
 func TestMailSenderShowsBodiesOnlyLocally(t *testing.T) {
+	t.Parallel()
 	for env, want := range map[string]bool{"development": true, "test": true, "production": false, "staging": false, "prod": false} {
 		if got := mailSender(platform.Config{Environment: env}, nil).ShowBodies; got != want {
 			t.Errorf("%s: ShowBodies %v, want %v", env, got, want)

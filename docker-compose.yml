@@ -87,8 +87,8 @@ services:
       # and avoids the host overlay clobbering it.
       - frontend_node_modules:/app/node_modules
 
-  # Go toolchain for backend/ (run via backend/dev). Uses this file's network
-  # and Postgres, so no extra Compose project or network is created.
+  # Go toolchain for backend/ (run via backend/dev). Uses this file's network,
+  # so no extra Compose project or network is created.
   go:
     profiles: ["tools"]
     image: golang:1.27-bookworm
@@ -100,10 +100,35 @@ services:
     environment:
       CGO_ENABLED: "1"
       GOFLAGS: -mod=vendor
-      PGTESTDB_URL: postgres://billing:billing@db:5432/postgres?sslmode=disable
+      PGTESTDB_URL: postgres://billing:billing@db-test:5432/postgres?sslmode=disable
     depends_on:
       db:
         condition: service_healthy
+      db-test:
+        condition: service_healthy
+
+  # Postgres for the Go tests only (PGTESTDB_URL above), never for data that
+  # matters. Each test clones its own database from a migrated template and
+  # drops it, so durability buys nothing: fsync is off and the data lives in
+  # tmpfs (gone when the container stops; the first test run after that
+  # rebuilds the template). Created and dropped databases were most of each
+  # test's time on the dev `db`. max_connections leaves room for
+  # ./dev test's parallel tests, each with its own pool. No published port.
+  db-test:
+    profiles: ["tools"]
+    image: postgres:16-alpine
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off", "-c", "max_connections=300"]
+    environment:
+      POSTGRES_USER: billing
+      POSTGRES_PASSWORD: billing
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      # Over TCP: the image's first-start setup server listens on the socket only.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "billing"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
   # The Go API (backend/) for local comparison with the Python backend on
   # :8000. Not started by `docker compose up`. Run it against a scratch copy of

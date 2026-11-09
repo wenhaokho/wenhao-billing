@@ -111,10 +111,12 @@ func sign(t *testing.T, claims jwt.MapClaims) string {
 }
 
 func TestNoCookieIs401NotAuthenticated(t *testing.T) {
+	t.Parallel()
 	wantRefusal(t, get(t, newSessionApp(t).h, "/whoami"), 401, "not authenticated")
 }
 
 func TestTamperedCookieIs401(t *testing.T) {
+	t.Parallel()
 	a := newSessionApp(t)
 	id := a.user(t, "a@example.com", "admin", 0)
 	c := a.cookie(t, id, 0)
@@ -155,6 +157,7 @@ func TestTamperedCookieIs401(t *testing.T) {
 }
 
 func TestExpiredCookieIs401SessionExpired(t *testing.T) {
+	t.Parallel()
 	a := newSessionApp(t)
 	id := a.user(t, "a@example.com", "admin", 0)
 	tok := sign(t, jwt.MapClaims{
@@ -170,6 +173,7 @@ func TestExpiredCookieIs401SessionExpired(t *testing.T) {
 }
 
 func TestOlderEpochIs401SessionExpired(t *testing.T) {
+	t.Parallel()
 	a := newSessionApp(t)
 	id := a.user(t, "a@example.com", "admin", 3)
 	wantRefusal(t, get(t, a.h, "/whoami", "Cookie", a.cookie(t, id, 2)), 401, "session expired")
@@ -181,23 +185,27 @@ func TestOlderEpochIs401SessionExpired(t *testing.T) {
 // A token never legitimately carries a higher epoch than its user's (a
 // deleted-then-recreated user, say): refused too.
 func TestNewerEpochIs401SessionExpired(t *testing.T) {
+	t.Parallel()
 	a := newSessionApp(t)
 	id := a.user(t, "a@example.com", "admin", 0)
 	wantRefusal(t, get(t, a.h, "/whoami", "Cookie", a.cookie(t, id, 1)), 401, "session expired")
 }
 
 func TestNonAdminIs403AdminRequired(t *testing.T) {
+	t.Parallel()
 	a := newSessionApp(t)
 	id := a.user(t, "v@example.com", "viewer", 0)
 	wantRefusal(t, get(t, a.h, "/whoami", "Cookie", a.cookie(t, id, 0)), 403, "admin required")
 }
 
 func TestDeletedUserIs403(t *testing.T) {
+	t.Parallel()
 	a := newSessionApp(t)
 	wantRefusal(t, get(t, a.h, "/whoami", "Cookie", a.cookie(t, uuid.New(), 0)), 403, "admin required")
 }
 
 func TestAdminReachesHandlerWithPrincipal(t *testing.T) {
+	t.Parallel()
 	a := newSessionApp(t)
 	id := a.user(t, "a@example.com", "admin", 0)
 	rec := get(t, a.h, "/whoami", "Cookie", a.cookie(t, id, 0))
@@ -214,6 +222,7 @@ func TestAdminReachesHandlerWithPrincipal(t *testing.T) {
 
 // Remember-me lasts RememberMaxAge, otherwise MaxAge; the token's exp agrees.
 func TestIssueLifetimes(t *testing.T) {
+	t.Parallel()
 	s := testSessions("test")
 	for remember, want := range map[bool]time.Duration{false: 8 * time.Hour, true: 30 * 24 * time.Hour} {
 		tok, maxAge, err := s.Issue(uuid.New(), 0, remember)
@@ -235,6 +244,7 @@ func TestIssueLifetimes(t *testing.T) {
 }
 
 func TestUndeclaredOperationIsRefused(t *testing.T) {
+	t.Parallel()
 	a := newSessionApp(t)
 	id := a.user(t, "a@example.com", "admin", 0)
 	wantRefusal(t, get(t, a.h, "/undeclared", "Cookie", a.cookie(t, id, 0)), 403, "admin required")
@@ -243,6 +253,7 @@ func TestUndeclaredOperationIsRefused(t *testing.T) {
 // The server's own operations are each admin-only or public; the features'
 // operations are walked by cmd/api's test of the same name.
 func TestEveryOperationIsAdminOrPublic(t *testing.T) {
+	t.Parallel()
 	_, api := NewServer(Config{Environment: "test"}, Deps{})
 	checked := 0
 	for path, item := range api.OpenAPI().Paths {
@@ -266,6 +277,7 @@ func TestEveryOperationIsAdminOrPublic(t *testing.T) {
 }
 
 func TestSessionCookieAttributes(t *testing.T) {
+	t.Parallel()
 	for env, secure := range map[string]bool{"production": true, "prod": true, "": true, "development": false, "test": false} {
 		s := testSessions(env)
 		rec := httptest.NewRecorder()
@@ -290,6 +302,7 @@ func TestSessionCookieAttributes(t *testing.T) {
 }
 
 func TestHealthStaysPublic(t *testing.T) {
+	t.Parallel()
 	if rec := get(t, newSessionApp(t).h, "/health"); rec.Code != 200 {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
@@ -298,6 +311,7 @@ func TestHealthStaysPublic(t *testing.T) {
 // A panic is a 500 problem body (the frontend can read it), never a bare
 // body, and the server keeps serving.
 func TestAPanicIsAProblem500(t *testing.T) {
+	t.Parallel()
 	a := newSessionApp(t)
 	id := a.user(t, "a@example.com", "admin", 0)
 	rec := get(t, a.h, "/panics", "Cookie", a.cookie(t, id, 0))
@@ -314,6 +328,7 @@ func TestAPanicIsAProblem500(t *testing.T) {
 // opens the API on that clock and expires exactly at its lifetime there. The
 // principal says whether the session was remembered.
 func TestSessionsFollowTheirClock(t *testing.T) {
+	t.Parallel()
 	pool := newSessionApp(t).pool
 	clock := testkit.NewClock(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
 	s := testSessions("test")

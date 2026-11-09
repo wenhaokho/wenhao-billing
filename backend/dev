@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Development commands; only Docker is needed. GitHub Actions is off; scripts/check.sh runs it.
-#   ./dev test [packages]   go test -race (default ./...)
+#   ./dev test [packages]   go test -race -parallel 8 (default ./...)
 #   ./dev lint | fmt        golangci-lint run | fmt
 #   ./dev sqlc              regenerate the sqlc code from internal/*/queries.sql
 #   ./dev openapi           write openapi.json for the frontend's generated types
@@ -17,13 +17,22 @@ SQLC_IMAGE=sqlc/sqlc:1.31.1
 if [[ -n "${MSYSTEM:-}" ]]; then export MSYS_NO_PATHCONV=1; here=$(pwd -W); else here=$(pwd); fi
 
 # Go runs in the root docker-compose.yml (service `go`, profile tools) so it
-# shares the dev stack's network and Postgres.
+# shares the dev stack's network; its tests use the db-test Postgres there.
 # A PGTESTDB_URL set in the calling environment (even blank) overrides the
 # service's default; check.sh's skip guard is tested by blanking it.
 run_go() { docker compose -f ../docker-compose.yml --profile tools run --rm -T ${PGTESTDB_URL+-e PGTESTDB_URL} go "$@"; }
 
+# test streams the source into the container with tar instead of reading it
+# through the bind mount: on Docker Desktop go test's many small reads through
+# the mount cost about 5 s a run, one tar well under a second.
+# -parallel bounds each package's concurrent tests (each holds a database and
+# a pool on db-test); -timeout fails a hung package long before anyone waits
+# on it, while staying far above the slowest package (about 5 s).
+test_flags=(-race -parallel 8 -timeout 60s)
+in_copy='mkdir -p /tmp/src && tar -xf - -C /tmp/src && cd /tmp/src && exec "$@"'
+
 case "${1:-}" in
-  test) shift; run_go go test -race -timeout 120s "${@:-./...}" ;;
+  test) shift; tar -cf - . | run_go sh -c "$in_copy" sh go test "${test_flags[@]}" "${@:-./...}" ;;
   lint) docker run --rm -v "$here:/src" -w /src -e GOFLAGS=-mod=vendor "$LINT_IMAGE" golangci-lint run ./... ;;
   fmt) docker run --rm -v "$here:/src" -w /src -e GOFLAGS=-mod=vendor "$LINT_IMAGE" golangci-lint fmt ./... ;;
   sqlc) docker run --rm -v "$here:/src" -w /src "$SQLC_IMAGE" generate ;;

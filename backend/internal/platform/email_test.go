@@ -12,6 +12,7 @@ import (
 // The values were observed from the frozen Python (pydantic EmailStr,
 // deliverability off) on 2026-11-09.
 func TestNormalizeEmail(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"AP@Beta.COM":   "AP@beta.com",
 		" a@b.co ":      "a@b.co", //nolint:gocritic // the surrounding space is the case
@@ -59,6 +60,7 @@ func decodeProblem(t *testing.T, b []byte) problem {
 }
 
 func TestEmailFieldIs422(t *testing.T) {
+	t.Parallel()
 	h, api := NewServer(Config{Environment: "test"}, Deps{})
 	huma.Register(api, huma.Operation{OperationID: "email", Method: http.MethodPost, Path: "/email", Tags: []string{PublicTag}},
 		func(_ context.Context, in *emailIn) (*emailOut, error) {

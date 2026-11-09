@@ -118,6 +118,7 @@ func countTargets(t *testing.T, a *apitest.App, itemID uuid.UUID) int {
 }
 
 func TestCreateItemBasic(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, map[string]any{"name": "Consulting", "item_type": "SERVICE", "default_currency": "USD"})
 	if got.ItemID == uuid.Nil || got.Name != "Consulting" || got.IsHosting || got.HostingStatus != nil || got.CloudflareTarget != nil {
@@ -126,6 +127,7 @@ func TestCreateItemBasic(t *testing.T) {
 }
 
 func TestCreateHostingItemSetsActiveStatusAndNormalizes(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, hosting(nil))
 	if got.HostingStatus == nil || *got.HostingStatus != "ACTIVE" || got.HostingDomain == nil || *got.HostingDomain != "example.com" {
@@ -149,6 +151,7 @@ func TestCreateHostingItemSetsActiveStatusAndNormalizes(t *testing.T) {
 }
 
 func TestUpdateItemNotFound(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wantProblem(t, a.Do(t, http.MethodPatch, itemPath(uuid.New()), map[string]any{"name": "x"}), http.StatusNotFound, "item_not_found", "item not found", "", "")
 	wantProblem(t, a.Do(t, http.MethodGet, itemPath(uuid.New()), nil), http.StatusNotFound, "item_not_found", "item not found", "", "")
@@ -156,6 +159,7 @@ func TestUpdateItemNotFound(t *testing.T) {
 }
 
 func TestUpdateItemEditsFields(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	it := create(t, a, minimal(map[string]any{"name": "Web Hosting", "sku": "WH-1", "description": "keep"}))
 	got := patch(t, a, it.ItemID, map[string]any{"name": "Web Hosting Renamed"})
@@ -173,6 +177,7 @@ func TestUpdateItemEditsFields(t *testing.T) {
 }
 
 func TestItemDefaultsSoldTruePurchasedFalse(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, map[string]any{"name": "Plain", "item_type": "USAGE"})
 	if !got.IsSold || got.IsPurchased || got.ExpenseAccountID != nil || got.DefaultPurchasePrice != nil ||
@@ -182,6 +187,7 @@ func TestItemDefaultsSoldTruePurchasedFalse(t *testing.T) {
 }
 
 func TestItemCanBePurchasedOnly(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, minimal(map[string]any{"name": "Cloud hosting", "is_sold": false, "is_purchased": true, "default_purchase_price": "120.00"}))
 	if got.IsSold || !got.IsPurchased {
@@ -195,6 +201,7 @@ func TestItemCanBePurchasedOnly(t *testing.T) {
 }
 
 func TestItemCanBeBothSoldAndPurchased(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, minimal(map[string]any{
 		"name": "Reseller SaaS seat", "is_sold": true, "is_purchased": true,
@@ -208,6 +215,7 @@ func TestItemCanBeBothSoldAndPurchased(t *testing.T) {
 }
 
 func TestItemCreateAcceptsPurchaseFields(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, map[string]any{
 		"name": "AWS", "item_type": "USAGE", "is_sold": false, "is_purchased": true,
@@ -220,6 +228,7 @@ func TestItemCreateAcceptsPurchaseFields(t *testing.T) {
 }
 
 func TestItemOutSerializesNewFields(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	it := create(t, a, minimal(map[string]any{
 		"name": "Reseller", "is_sold": true, "is_purchased": true,
@@ -254,6 +263,7 @@ func TestItemOutSerializesNewFields(t *testing.T) {
 }
 
 func TestItemUpdateCanTogglePurchased(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	it := create(t, a, minimal(nil))
 	got := patch(t, a, it.ItemID, map[string]any{"is_purchased": true, "default_purchase_price": 10})
@@ -264,6 +274,7 @@ func TestItemUpdateCanTogglePurchased(t *testing.T) {
 }
 
 func TestHostingItemCreatesWithCloudflareTarget(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, map[string]any{
 		"name": "Acme hosting", "item_type": "SERVICE", "default_currency": "USD", "default_unit_price": "240.0000",
@@ -293,6 +304,7 @@ func TestHostingItemCreatesWithCloudflareTarget(t *testing.T) {
 }
 
 func TestHostingItemMissingFieldsIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "H", "item_type": "SERVICE", "is_hosting": true}),
 		http.StatusUnprocessableEntity, "hosting_item_incomplete",
@@ -304,6 +316,7 @@ func TestHostingItemMissingFieldsIs422(t *testing.T) {
 }
 
 func TestItemPatchUpdatesExistingTarget(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	it := create(t, a, minimal(nil))
 	first := patch(t, a, it.ItemID, map[string]any{"cloudflare_target": cfTarget()})
@@ -339,6 +352,7 @@ func TestItemPatchUpdatesExistingTarget(t *testing.T) {
 // A PATCH target without proxied keeps the stored value, as Python's nested
 // exclude_unset does; a target added by PATCH without it takes true.
 func TestItemPatchTargetWithoutProxiedKeepsIt(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	it := create(t, a, minimal(nil))
 	added := patch(t, a, it.ItemID, map[string]any{"cloudflare_target": cfTarget()})
@@ -359,6 +373,7 @@ func TestItemPatchTargetWithoutProxiedKeepsIt(t *testing.T) {
 }
 
 func TestItemPatchHostingSetsActive(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	it := create(t, a, minimal(nil))
 	got := patch(t, a, it.ItemID, map[string]any{"is_hosting": true, "hosting_domain": " Shop.Example.COM "})
@@ -383,6 +398,7 @@ func TestItemPatchHostingSetsActive(t *testing.T) {
 }
 
 func TestItemPriceFivePlacesIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	// Dec4 refuses these at the field, listed as Huma's own validation errors.
 	const (
@@ -419,6 +435,7 @@ func TestItemPriceFivePlacesIs422(t *testing.T) {
 }
 
 func TestItemDuplicateSkuIs409(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	create(t, a, minimal(map[string]any{"sku": "SKU-1"}))
 	other := create(t, a, minimal(map[string]any{"sku": "SKU-2"}))
@@ -430,6 +447,7 @@ func TestItemDuplicateSkuIs409(t *testing.T) {
 }
 
 func TestItemUnknownAccountIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	for _, f := range []string{"revenue_account_id", "expense_account_id"} {
 		wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{f: 9999})), http.StatusUnprocessableEntity, "account_not_found", "account not found", "", "")
@@ -445,6 +463,7 @@ func TestItemUnknownAccountIs422(t *testing.T) {
 }
 
 func TestItemListFilters(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	create(t, a, map[string]any{"name": "Bravo", "item_type": "USAGE"})
 	create(t, a, map[string]any{"name": "Alpha", "item_type": "SERVICE"})
@@ -479,6 +498,7 @@ func TestItemListFilters(t *testing.T) {
 // The boolean filters take strconv.ParseBool's spellings and refuse
 // pydantic's others (PORT-NOTES 15).
 func TestItemListActiveFilterSpellings(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	for _, v := range []string{"true", "false", "1", "0", "t", "f", "TRUE", "False"} {
 		if rec := a.Do(t, http.MethodGet, path+"?active="+v, nil); rec.Code != http.StatusOK {
@@ -493,6 +513,7 @@ func TestItemListActiveFilterSpellings(t *testing.T) {
 }
 
 func TestItemResponseHasNullTarget(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	it := create(t, a, minimal(nil))
 	for _, rec := range []*httptest.ResponseRecorder{
@@ -510,6 +531,7 @@ func TestItemResponseHasNullTarget(t *testing.T) {
 }
 
 func TestItemEmptyListIsArray(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	if rec := a.Do(t, http.MethodGet, path, nil); rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
 		t.Errorf("%d %q", rec.Code, rec.Body)
@@ -517,6 +539,7 @@ func TestItemEmptyListIsArray(t *testing.T) {
 }
 
 func TestItemDeleteDeactivatesAndKeepsTarget(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	it := create(t, a, hosting(nil))
 	got := apitest.Decode[items.ItemOut](t, a.Do(t, http.MethodDelete, itemPath(it.ItemID), nil), http.StatusOK)
@@ -529,6 +552,7 @@ func TestItemDeleteDeactivatesAndKeepsTarget(t *testing.T) {
 }
 
 func TestItemNullOnNotNullIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	it := create(t, a, minimal(nil))
 	for _, f := range []string{"name", "item_type", "default_currency", "is_sold", "is_purchased", "active", "is_hosting"} {
@@ -574,6 +598,7 @@ func TestItemNullOnNotNullIs422(t *testing.T) {
 // TestItemEnumsMatch keeps the enum tags in step with ItemTypes and
 // HostingStatuses.
 func TestItemEnumsMatch(t *testing.T) {
+	t.Parallel()
 	check := func(v any, field string, want []string) {
 		t.Helper()
 		f, ok := reflect.TypeOf(v).FieldByName(field)
@@ -592,6 +617,7 @@ func TestItemEnumsMatch(t *testing.T) {
 }
 
 func TestItemsRequireAdmin(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	id := uuid.New()
 	for _, c := range []struct{ method, p string }{
