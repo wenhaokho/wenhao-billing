@@ -60,3 +60,22 @@ SELECT i.invoice_id, c.customer_id, c.name AS customer_name, c.matching_aliases,
  WHERE i.status IN ('OPEN', 'SENT', 'PARTIAL')
    AND i.currency = $1
  ORDER BY i.invoice_id;
+
+-- name: InsertManualPayment :one
+-- record-payment's row: a CLEARED MANUAL payment against a known invoice with
+-- its withheld amount set at once and no confidence. external_ref is random
+-- (manual-<12 hex>), so it never meets the unique key.
+INSERT INTO payments (payment_id, invoice_id, customer_id, amount, wht_amount, currency, payer_name, payer_reference,
+                      payment_date, intake_source, external_ref, status, adjustment_type)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'MANUAL', $10, 'CLEARED', 'NONE')
+RETURNING *;
+
+-- name: InvoiceExists :one
+SELECT EXISTS (SELECT 1 FROM invoices WHERE invoice_id = $1);
+
+-- name: ListInvoicePayments :many
+-- The CLEARED payments of an invoice, newest first (Python ordered by date
+-- and created_at only; the key breaks the tie of one transaction's rows).
+SELECT * FROM payments
+ WHERE invoice_id = $1 AND status = 'CLEARED'
+ ORDER BY payment_date DESC, created_at DESC, payment_id DESC;

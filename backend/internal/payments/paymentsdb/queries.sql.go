@@ -40,6 +40,63 @@ func (q *Queries) GetPayment(ctx context.Context, paymentID uuid.UUID) (Payment,
 	return i, err
 }
 
+const insertManualPayment = `-- name: InsertManualPayment :one
+INSERT INTO payments (payment_id, invoice_id, customer_id, amount, wht_amount, currency, payer_name, payer_reference,
+                      payment_date, intake_source, external_ref, status, adjustment_type)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'MANUAL', $10, 'CLEARED', 'NONE')
+RETURNING payment_id, invoice_id, customer_id, amount, currency, payer_name, payer_reference, payment_date, intake_source, external_ref, status, adjustment_type, confidence_score, created_at, wht_amount
+`
+
+type InsertManualPaymentParams struct {
+	PaymentID      uuid.UUID
+	InvoiceID      pgtype.UUID
+	CustomerID     pgtype.UUID
+	Amount         decimal.Decimal
+	WhtAmount      decimal.Decimal
+	Currency       string
+	PayerName      string
+	PayerReference *string
+	PaymentDate    pgtype.Date
+	ExternalRef    *string
+}
+
+// record-payment's row: a CLEARED MANUAL payment against a known invoice with
+// its withheld amount set at once and no confidence. external_ref is random
+// (manual-<12 hex>), so it never meets the unique key.
+func (q *Queries) InsertManualPayment(ctx context.Context, arg InsertManualPaymentParams) (Payment, error) {
+	row := q.db.QueryRow(ctx, insertManualPayment,
+		arg.PaymentID,
+		arg.InvoiceID,
+		arg.CustomerID,
+		arg.Amount,
+		arg.WhtAmount,
+		arg.Currency,
+		arg.PayerName,
+		arg.PayerReference,
+		arg.PaymentDate,
+		arg.ExternalRef,
+	)
+	var i Payment
+	err := row.Scan(
+		&i.PaymentID,
+		&i.InvoiceID,
+		&i.CustomerID,
+		&i.Amount,
+		&i.Currency,
+		&i.PayerName,
+		&i.PayerReference,
+		&i.PaymentDate,
+		&i.IntakeSource,
+		&i.ExternalRef,
+		&i.Status,
+		&i.AdjustmentType,
+		&i.ConfidenceScore,
+		&i.CreatedAt,
+		&i.WhtAmount,
+	)
+	return i, err
+}
+
 const insertPayment = `-- name: InsertPayment :one
 INSERT INTO payments (payment_id, invoice_id, customer_id, amount, currency, payer_name, payer_reference,
                       payment_date, intake_source, external_ref, status, adjustment_type, confidence_score)
@@ -125,6 +182,61 @@ func (q *Queries) InsertReconLog(ctx context.Context, arg InsertReconLogParams) 
 		arg.Reasons,
 	)
 	return err
+}
+
+const invoiceExists = `-- name: InvoiceExists :one
+SELECT EXISTS (SELECT 1 FROM invoices WHERE invoice_id = $1)
+`
+
+func (q *Queries) InvoiceExists(ctx context.Context, invoiceID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, invoiceExists, invoiceID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const listInvoicePayments = `-- name: ListInvoicePayments :many
+SELECT payment_id, invoice_id, customer_id, amount, currency, payer_name, payer_reference, payment_date, intake_source, external_ref, status, adjustment_type, confidence_score, created_at, wht_amount FROM payments
+ WHERE invoice_id = $1 AND status = 'CLEARED'
+ ORDER BY payment_date DESC, created_at DESC, payment_id DESC
+`
+
+// The CLEARED payments of an invoice, newest first (Python ordered by date
+// and created_at only; the key breaks the tie of one transaction's rows).
+func (q *Queries) ListInvoicePayments(ctx context.Context, invoiceID pgtype.UUID) ([]Payment, error) {
+	rows, err := q.db.Query(ctx, listInvoicePayments, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Payment
+	for rows.Next() {
+		var i Payment
+		if err := rows.Scan(
+			&i.PaymentID,
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.Amount,
+			&i.Currency,
+			&i.PayerName,
+			&i.PayerReference,
+			&i.PaymentDate,
+			&i.IntakeSource,
+			&i.ExternalRef,
+			&i.Status,
+			&i.AdjustmentType,
+			&i.ConfidenceScore,
+			&i.CreatedAt,
+			&i.WhtAmount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockInvoice = `-- name: LockInvoice :one
