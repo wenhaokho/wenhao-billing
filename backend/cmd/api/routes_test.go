@@ -299,3 +299,34 @@ func TestOpenAPIHasNoEmptyType(t *testing.T) {
 	}
 	walk("$", v)
 }
+
+// No top-level array body, request or response, is documented nullable:
+// Huma makes a []T nullable by default, but the lists are never null, and a
+// null request body must be a 422, not an empty list.
+func TestArrayBodiesAreNotNullable(t *testing.T) {
+	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
+	register(api, features{Sessions: testSessions()})
+	arrays := 0
+	for name, op := range operations(api) {
+		var contents []map[string]*huma.MediaType
+		if op.RequestBody != nil {
+			contents = append(contents, op.RequestBody.Content)
+		}
+		for _, resp := range op.Responses {
+			contents = append(contents, resp.Content)
+		}
+		for _, content := range contents {
+			for ct, mt := range content {
+				if s := mt.Schema; s != nil && s.Type == huma.TypeArray {
+					arrays++
+					if s.Nullable {
+						t.Errorf("%s %s: array body is nullable", name, ct)
+					}
+				}
+			}
+		}
+	}
+	if arrays == 0 {
+		t.Error("no array body found")
+	}
+}

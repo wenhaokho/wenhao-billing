@@ -2032,10 +2032,7 @@
                   "items": {
                     "$ref": "#/components/schemas/AccountOut"
                   },
-                  "type": [
-                    "array",
-                    "null"
-                  ]
+                  "type": "array"
                 }
               }
             },
@@ -2714,10 +2711,7 @@
                   "items": {
                     "$ref": "#/components/schemas/PaymentAccountOut"
                   },
-                  "type": [
-                    "array",
-                    "null"
-                  ]
+                  "type": "array"
                 }
               }
             },
@@ -2748,10 +2742,7 @@
                 "items": {
                   "$ref": "#/components/schemas/PaymentAccountIn"
                 },
-                "type": [
-                  "array",
-                  "null"
-                ]
+                "type": "array"
               }
             }
           },
@@ -2765,10 +2756,7 @@
                   "items": {
                     "$ref": "#/components/schemas/PaymentAccountOut"
                   },
-                  "type": [
-                    "array",
-                    "null"
-                  ]
+                  "type": "array"
                 }
               }
             },
@@ -2822,10 +2810,7 @@
                   "items": {
                     "$ref": "#/components/schemas/CustomerOut"
                   },
-                  "type": [
-                    "array",
-                    "null"
-                  ]
+                  "type": "array"
                 }
               }
             },
@@ -3115,10 +3100,7 @@
                   "items": {
                     "$ref": "#/components/schemas/ItemOut"
                   },
-                  "type": [
-                    "array",
-                    "null"
-                  ]
+                  "type": "array"
                 }
               }
             },
@@ -3420,10 +3402,7 @@
                   "items": {
                     "$ref": "#/components/schemas/VendorOut"
                   },
-                  "type": [
-                    "array",
-                    "null"
-                  ]
+                  "type": "array"
                 }
               }
             },

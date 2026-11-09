@@ -305,6 +305,21 @@ func TestPaymentAccountsEmptyIsArray(t *testing.T) {
 	}
 }
 
+// A null body is not an empty list: Python's list[PaymentAccountIn] refuses
+// it, and the accounts stay.
+func TestPaymentAccountsNullBodyRefused(t *testing.T) {
+	a := newApp(t)
+	putAccounts(t, a, []acct{{"currency": "USD", "instructions": "Wells"}})
+	if rec := a.Do(t, http.MethodPut, accountsPath, "null"); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("%d %s", rec.Code, rec.Body)
+	} else {
+		t.Logf("PUT null: %s", rec.Body)
+	}
+	if s := summary(listAccounts(t, a)); !reflect.DeepEqual(s, []string{"USD:Wells"}) {
+		t.Errorf("%v", s)
+	}
+}
+
 func TestPaymentAccountsPutCreatesMissingProfile(t *testing.T) {
 	a := newApp(t)
 	if err := exec(t, a, `DELETE FROM business_profile`); err != nil {

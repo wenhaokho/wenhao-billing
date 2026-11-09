@@ -170,3 +170,26 @@ func markNullableStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, objec
 		markNullable(reg, p, f.Type, objects, seen)
 	}
 }
+
+// nonNullableArrayBodies is a huma OnAddOperation hook: a request or
+// response body that is a bare JSON array is never null. Huma makes every
+// []T nullable (a nil slice encodes as null), but the handlers answer lists
+// made non-nil, and a null request body is a list nobody sent: Huma's own
+// validation then refuses it at 422, as Python's list[T] does.
+func nonNullableArrayBodies(_ *huma.OpenAPI, op *huma.Operation) {
+	var contents []map[string]*huma.MediaType
+	if op.RequestBody != nil {
+		contents = append(contents, op.RequestBody.Content)
+	}
+	for _, resp := range op.Responses {
+		contents = append(contents, resp.Content)
+	}
+	for _, content := range contents {
+		for _, mt := range content {
+			if s := mt.Schema; s != nil && s.Ref == "" && s.Type == huma.TypeArray && s.Nullable {
+				s.Nullable = false
+				s.PrecomputeMessages()
+			}
+		}
+	}
+}
