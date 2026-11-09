@@ -70,7 +70,7 @@ func list(ctx context.Context, q *itemsdb.Queries, p itemsdb.ListItemsParams) ([
 // `Field(ge=0, max_digits=19, decimal_places=4)`.
 const (
 	negativeSentence = "Input should be greater than or equal to 0"
-	placesSentence   = "Decimal input should have no more than 4 decimal places"
+	placesSentence   = platform.PlacesSentence
 	wholeSentence    = "Decimal input should have no more than 15 digits before the decimal point"
 )
 
@@ -87,7 +87,7 @@ func priceRefusal(f platform.Optional[platform.Dec4]) string {
 	switch {
 	case d.Sign() < 0:
 		return negativeSentence
-	case !d.Equal(d.Round(4)):
+	case platform.MoreThanFourPlaces(d):
 		return placesSentence
 	case d.Cmp(maxPrice) >= 0:
 		return wholeSentence
@@ -142,8 +142,9 @@ func domain(d *string) *string {
 }
 
 // upsertTarget writes the item's target from in, every string trimmed,
-// record_name lower-cased and record_type upper-cased.
-func upsertTarget(ctx context.Context, q *itemsdb.Queries, itemID uuid.UUID, in CloudflareTargetIn) (*itemsdb.CloudflareTarget, error) {
+// record_name lower-cased and record_type upper-cased. A nil proxied keeps
+// the stored value (true for a new target), as a PATCH that leaves it out.
+func upsertTarget(ctx context.Context, q *itemsdb.Queries, itemID uuid.UUID, in CloudflareTargetIn, proxied *bool) (*itemsdb.CloudflareTarget, error) {
 	t, err := q.UpsertTarget(ctx, itemsdb.UpsertTargetParams{
 		TargetID:           uuid.New(),
 		ItemID:             itemID,
@@ -153,7 +154,7 @@ func upsertTarget(ctx context.Context, q *itemsdb.Queries, itemID uuid.UUID, in 
 		RecordType:         strings.ToUpper(strings.TrimSpace(in.RecordType)),
 		LiveContent:        strings.TrimSpace(in.LiveContent),
 		MaintenanceContent: strings.TrimSpace(in.MaintenanceContent),
-		Proxied:            in.Proxied.Or(true),
+		Proxied:            proxied,
 	})
 	if err != nil {
 		return nil, err
@@ -198,7 +199,8 @@ func create(ctx context.Context, q *itemsdb.Queries, b ItemCreate) (ItemOut, err
 	}
 	var t *itemsdb.CloudflareTarget
 	if b.CloudflareTarget != nil {
-		if t, err = upsertTarget(ctx, q, it.ItemID, *b.CloudflareTarget); err != nil {
+		proxied := b.CloudflareTarget.Proxied.Or(true)
+		if t, err = upsertTarget(ctx, q, it.ItemID, *b.CloudflareTarget, &proxied); err != nil {
 			return ItemOut{}, err
 		}
 	}
@@ -246,7 +248,11 @@ func update(ctx context.Context, q *itemsdb.Queries, id uuid.UUID, b ItemUpdate)
 	}
 	var t *itemsdb.CloudflareTarget
 	if b.CloudflareTarget != nil {
-		t, err = upsertTarget(ctx, q, it.ItemID, *b.CloudflareTarget)
+		var proxied *bool
+		if p := b.CloudflareTarget.Proxied; p.Set {
+			proxied = &p.Value
+		}
+		t, err = upsertTarget(ctx, q, it.ItemID, *b.CloudflareTarget, proxied)
 	} else {
 		t, err = target(ctx, q, it.ItemID)
 	}

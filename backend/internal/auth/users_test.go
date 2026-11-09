@@ -195,6 +195,22 @@ func TestAdminResetPasswordSignsUserOut(t *testing.T) {
 	}
 }
 
+// An admin resetting their own password bumps their own session epoch too
+// (PORT-NOTES 22): the reset answers 200, then the old cookie is refused.
+func TestAdminSelfResetSignsCallerOut(t *testing.T) {
+	a := newApp(t)
+	id := a.user(t, adminEmail, "admin")
+	c := a.mustLogin(t, adminEmail, false)
+	rec := a.do(t, http.MethodPost, usersPath+"/"+id.String()+"/reset-password", jsonBody(t, map[string]any{"password": "brand-new-pw"}), "Cookie", c)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	wantError(t, a.me(t, c), http.StatusUnauthorized, "session expired")
+	if rec := a.login(t, adminEmail, "brand-new-pw", false); rec.Code != http.StatusOK {
+		t.Errorf("new password: %d %s", rec.Code, rec.Body)
+	}
+}
+
 func TestAdminResetPasswordUnknownIs404(t *testing.T) {
 	a, c := adminApp(t)
 	rec := a.do(t, http.MethodPost, usersPath+"/00000000-0000-4000-8000-000000000000/reset-password",

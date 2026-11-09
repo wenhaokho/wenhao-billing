@@ -242,6 +242,42 @@ func TestCustomerWhtRateAcceptsNumberAndString(t *testing.T) {
 	wht(t, patch(t, a, s.CustomerID, map[string]any{"default_wht_rate": nil}), "PPH23", "2.0000", false)
 }
 
+// A null default_wht_type or default_wht_gross_up keeps the stored value (on
+// create, NONE and false), as Python's data.get(...) is None does; it is not
+// a 422. The withholding is still normalised, as the key was sent.
+func TestCustomerNullWhtTypeAndGrossUpKeepStored(t *testing.T) {
+	a := newApp(t)
+	wht(t, create(t, a, map[string]any{"name": "Null Co", "default_wht_type": nil, "default_wht_gross_up": nil}), "NONE", "", false)
+	c := create(t, a, map[string]any{"name": "Kept Co", "default_wht_type": "PPH23", "default_wht_rate": 4, "default_wht_gross_up": true})
+	wht(t, patch(t, a, c.CustomerID, map[string]any{"default_wht_type": nil}), "PPH23", "4.0000", true)
+	wht(t, patch(t, a, c.CustomerID, map[string]any{"default_wht_gross_up": nil}), "PPH23", "4.0000", true)
+	// With the rate also null, the stored type's default rate.
+	wht(t, patch(t, a, c.CustomerID, map[string]any{"default_wht_type": nil, "default_wht_rate": nil}), "PPH23", "2.0000", true)
+}
+
+// A rate with more than 4 decimal places is refused at its field, not
+// rounded into numeric(7,4).
+func TestCustomerWhtRateFivePlacesIs422(t *testing.T) {
+	a := newApp(t)
+	const places = "Decimal input should have no more than 4 decimal places"
+	for _, rate := range []any{99.99999, 2.00001} {
+		wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "Places Co", "default_wht_type": "PPH23", "default_wht_rate": rate}),
+			http.StatusUnprocessableEntity, "", places, "default_wht_rate", places)
+	}
+	// A string with five places already fails Dec4's schema pattern, at the field.
+	wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "Places Co", "default_wht_type": "PPH23", "default_wht_rate": "99.99999"}),
+		http.StatusUnprocessableEntity, "", "Request validation failed", "default_wht_rate", "expected value to match exactly one schema but matched none")
+	if list := apitest.Decode[[]customers.CustomerOut](t, a.Do(t, http.MethodGet, path, nil), http.StatusOK); len(list) != 0 {
+		t.Errorf("stored %+v", list)
+	}
+	c := create(t, a, map[string]any{"name": "Kept Co", "default_wht_type": "PPH23", "default_wht_rate": "1.2345"})
+	wht(t, c, "PPH23", "1.2345", false)
+	wantProblem(t, a.Do(t, http.MethodPatch, customerPath(c.CustomerID), map[string]any{"default_wht_rate": 1.23456}),
+		http.StatusUnprocessableEntity, "", places, "default_wht_rate", places)
+	back := apitest.Decode[customers.CustomerOut](t, a.Do(t, http.MethodGet, customerPath(c.CustomerID), nil), http.StatusOK)
+	wht(t, back, "PPH23", "1.2345", false)
+}
+
 func TestCustomerCCClearAndKeep(t *testing.T) {
 	a := newApp(t)
 	c := create(t, a, map[string]any{
@@ -326,13 +362,13 @@ func TestCustomerPatchNullNameIs422(t *testing.T) {
 	c := create(t, a, map[string]any{"name": "Named"})
 	notNull := []string{
 		"name", "active", "default_currency", "matching_aliases", "quotation_cc_emails",
-		"billing_cc_emails", "default_wht_type", "default_wht_gross_up",
+		"billing_cc_emails",
 	}
 	for _, f := range notNull {
 		wantProblem(t, a.Do(t, http.MethodPatch, customerPath(c.CustomerID), map[string]any{f: nil}),
 			http.StatusUnprocessableEntity, "", "Request validation failed", f, "value cannot be null")
 	}
-	for _, f := range []string{"active", "default_currency", "matching_aliases", "quotation_cc_emails", "default_wht_type"} {
+	for _, f := range []string{"active", "default_currency", "matching_aliases", "quotation_cc_emails"} {
 		wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "N", f: nil}),
 			http.StatusUnprocessableEntity, "", "Request validation failed", f, "value cannot be null")
 	}

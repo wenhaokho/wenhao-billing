@@ -122,6 +122,16 @@ func (d *Dec4) UnmarshalJSON(b []byte) error {
 // Schema describes Dec4 to OpenAPI as a decimal string.
 func (Dec4) Schema(huma.Registry) *huma.Schema { return decimalSchema("4", "1500000.0000") }
 
+// PlacesSentence is pydantic's refusal of a decimal with more than four
+// places (`decimal_places=4`).
+const PlacesSentence = "Decimal input should have no more than 4 decimal places"
+
+// MoreThanFourPlaces reports whether d needs more than four decimal places
+// to be exact. Dec4 takes any decimal sent as a JSON number (its schema's
+// pattern refuses only such a string), so a numeric(…,4) column checks this
+// before it would round.
+func MoreThanFourPlaces(d decimal.Decimal) bool { return !d.Equal(d.Round(4)) }
+
 // Dec8 is numeric(19,8), the FX rates: eight decimals.
 type Dec8 struct {
 	decimal.Decimal

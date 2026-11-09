@@ -125,9 +125,9 @@ type CustomerFields struct {
 	ShippingPhone                platform.Optional[string] `json:"shipping_phone" maxLength:"64"`
 	ShippingDeliveryInstructions platform.Optional[string] `json:"shipping_delivery_instructions"`
 
-	DefaultWhtType    platform.NotNull[string]         `json:"default_wht_type" maxLength:"16" doc:"NONE, PPH21 or PPH23. Defaults to NONE."`
-	DefaultWhtRate    platform.Optional[platform.Dec4] `json:"default_wht_rate" doc:"Percent, above 0 and below 100. Null or left out with a new type: the type's default rate (PPH21 2.5, PPH23 2)."`
-	DefaultWhtGrossUp platform.NotNull[bool]           `json:"default_wht_gross_up" doc:"Defaults to false."`
+	DefaultWhtType    platform.Optional[string]        `json:"default_wht_type" maxLength:"16" doc:"NONE, PPH21 or PPH23. Defaults to NONE; null keeps the stored type."`
+	DefaultWhtRate    platform.Optional[platform.Dec4] `json:"default_wht_rate" doc:"Percent, above 0 and below 100, at most 4 decimal places. Null or left out with a new type: the type's default rate (PPH21 2.5, PPH23 2)."`
+	DefaultWhtGrossUp platform.Optional[bool]          `json:"default_wht_gross_up" doc:"Defaults to false; null keeps the stored value."`
 }
 
 // CustomerCreate adds a customer.

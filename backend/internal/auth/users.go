@@ -26,8 +26,8 @@ const (
 // UserProfileUpdate is the signed-in user's own edit. As in Python, null and
 // omitted both leave a field alone; an empty display_name clears it.
 type UserProfileUpdate struct {
-	DisplayName *string         `json:"display_name,omitempty" maxLength:"255"`
-	Email       *platform.Email `json:"email,omitempty" maxLength:"255"`
+	DisplayName *string         `json:"display_name" maxLength:"255"`
+	Email       *platform.Email `json:"email" maxLength:"255"`
 }
 
 // UserCreate adds a user.

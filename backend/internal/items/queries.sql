@@ -53,13 +53,17 @@ SELECT * FROM cloudflare_targets WHERE item_id = ANY(sqlc.arg(item_ids)::uuid[])
 -- An item has at most one target (cloudflare_targets_item_id_key): a second
 -- write replaces the fields sent and keeps target_id, provider_status and
 -- the last action. A new target takes provider_status's default (ACTIVE).
+-- A null proxied (a PATCH that did not send it) keeps the stored value, or
+-- is true for a new target.
 INSERT INTO cloudflare_targets (target_id, item_id, zone_id, record_id, record_name, record_type, live_content,
                                 maintenance_content, proxied)
 VALUES (sqlc.arg(target_id), sqlc.arg(item_id), sqlc.arg(zone_id), sqlc.arg(record_id), sqlc.arg(record_name),
-        sqlc.arg(record_type), sqlc.arg(live_content), sqlc.arg(maintenance_content), sqlc.arg(proxied))
+        sqlc.arg(record_type), sqlc.arg(live_content), sqlc.arg(maintenance_content),
+        COALESCE(sqlc.narg(proxied)::boolean, true))
 ON CONFLICT (item_id) DO UPDATE
 SET zone_id = EXCLUDED.zone_id, record_id = EXCLUDED.record_id, record_name = EXCLUDED.record_name,
     record_type = EXCLUDED.record_type, live_content = EXCLUDED.live_content,
-    maintenance_content = EXCLUDED.maintenance_content, proxied = EXCLUDED.proxied,
+    maintenance_content = EXCLUDED.maintenance_content,
+    proxied = COALESCE(sqlc.narg(proxied)::boolean, cloudflare_targets.proxied),
     updated_at = CURRENT_TIMESTAMP
 RETURNING *;

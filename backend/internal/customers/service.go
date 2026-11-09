@@ -69,23 +69,36 @@ func cleanCC(f *CustomerFields) error {
 // normalizeWHT is Python's _normalize_wht: when any of the three withholding
 // fields was sent, the stored values overlaid with the ones sent go through
 // withholding.Normalize. A type change without a rate takes the new type's
-// default rate; a rate sent as null does too.
+// default rate; a rate sent as null does too. A type or gross-up sent as
+// null counts as sent (Python tests `f in data`) but keeps the stored value
+// (Python's `data.get(f)` is None). A rate with more than four decimal
+// places is refused first: numeric(7,4) would round it.
 func normalizeWHT(f CustomerFields, c *customersdb.Customer) error {
 	if !f.DefaultWhtType.Set && !f.DefaultWhtRate.Set && !f.DefaultWhtGrossUp.Set {
 		return nil
+	}
+	typ, grossUp := c.DefaultWhtType, c.DefaultWhtGrossUp
+	if f.DefaultWhtType.Set && !f.DefaultWhtType.Null {
+		typ = f.DefaultWhtType.Value
+	}
+	if f.DefaultWhtGrossUp.Set && !f.DefaultWhtGrossUp.Null {
+		grossUp = f.DefaultWhtGrossUp.Value
 	}
 	var rate *decimal.Decimal
 	switch {
 	case f.DefaultWhtRate.Set:
 		if !f.DefaultWhtRate.Null {
 			rate = &f.DefaultWhtRate.Value.Decimal
+			if platform.MoreThanFourPlaces(*rate) {
+				return platform.FieldError("default_wht_rate", platform.PlacesSentence)
+			}
 		}
-	case f.DefaultWhtType.Set && f.DefaultWhtType.Value != c.DefaultWhtType:
+	case typ != c.DefaultWhtType:
 		rate = nil
 	case c.DefaultWhtRate.Valid:
 		rate = &c.DefaultWhtRate.Decimal
 	}
-	typ, rate, grossUp, err := withholding.Normalize(f.DefaultWhtType.Or(c.DefaultWhtType), rate, f.DefaultWhtGrossUp.Or(c.DefaultWhtGrossUp))
+	typ, rate, grossUp, err := withholding.Normalize(typ, rate, grossUp)
 	if err != nil {
 		return platform.Err(http.StatusUnprocessableEntity, "invalid_withholding", err.Error())
 	}

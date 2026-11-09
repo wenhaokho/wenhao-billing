@@ -335,6 +335,28 @@ func TestItemPatchUpdatesExistingTarget(t *testing.T) {
 	}
 }
 
+// A PATCH target without proxied keeps the stored value, as Python's nested
+// exclude_unset does; a target added by PATCH without it takes true.
+func TestItemPatchTargetWithoutProxiedKeepsIt(t *testing.T) {
+	a := newApp(t)
+	it := create(t, a, minimal(nil))
+	added := patch(t, a, it.ItemID, map[string]any{"cloudflare_target": cfTarget()})
+	if added.CloudflareTarget == nil || !added.CloudflareTarget.Proxied {
+		t.Fatalf("added %+v", added.CloudflareTarget)
+	}
+	off := cfTarget()
+	off["proxied"] = false
+	if got := patch(t, a, it.ItemID, map[string]any{"cloudflare_target": off}); got.CloudflareTarget.Proxied {
+		t.Fatalf("proxied:false not stored: %+v", got.CloudflareTarget)
+	}
+	tg := cfTarget()
+	tg["live_content"] = "9.9.9.9"
+	got := patch(t, a, it.ItemID, map[string]any{"cloudflare_target": tg})
+	if got.CloudflareTarget.Proxied || got.CloudflareTarget.LiveContent != "9.9.9.9" {
+		t.Errorf("PATCH without proxied: %+v", got.CloudflareTarget)
+	}
+}
+
 func TestItemPatchHostingSetsActive(t *testing.T) {
 	a := newApp(t)
 	it := create(t, a, minimal(nil))
@@ -442,6 +464,22 @@ func TestItemListFilters(t *testing.T) {
 	}
 	if rec := a.Do(t, http.MethodGet, path+"?is_hosting=maybe", nil); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("bad filter: %d", rec.Code)
+	}
+}
+
+// The boolean filters take strconv.ParseBool's spellings and refuse
+// pydantic's others (PORT-NOTES 15).
+func TestItemListActiveFilterSpellings(t *testing.T) {
+	a := newApp(t)
+	for _, v := range []string{"true", "false", "1", "0", "t", "f", "TRUE", "False"} {
+		if rec := a.Do(t, http.MethodGet, path+"?active="+v, nil); rec.Code != http.StatusOK {
+			t.Errorf("?active=%s: %d %s", v, rec.Code, rec.Body)
+		}
+	}
+	for _, v := range []string{"yes", "no", "on", "off", "y", "n"} {
+		if rec := a.Do(t, http.MethodGet, path+"?active="+v, nil); rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("?active=%s: %d %s", v, rec.Code, rec.Body)
+		}
 	}
 }
 

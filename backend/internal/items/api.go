@@ -32,7 +32,7 @@ type CloudflareTargetIn struct {
 	RecordType         string                 `json:"record_type" minLength:"1" maxLength:"20"`
 	LiveContent        string                 `json:"live_content" minLength:"1"`
 	MaintenanceContent string                 `json:"maintenance_content" minLength:"1"`
-	Proxied            platform.NotNull[bool] `json:"proxied" doc:"Defaults to true."`
+	Proxied            platform.NotNull[bool] `json:"proxied" doc:"Defaults to true; a PATCH that leaves it out keeps the stored value."`
 }
 
 // CloudflareTargetOut is the item's DNS record.

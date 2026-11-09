@@ -134,7 +134,7 @@
             "type": "string"
           },
           "proxied": {
-            "description": "Defaults to true.",
+            "description": "Defaults to true; a PATCH that leaves it out keeps the stored value.",
             "type": "boolean"
           },
           "record_id": {
@@ -365,11 +365,14 @@
             "type": "string"
           },
           "default_wht_gross_up": {
-            "description": "Defaults to false.",
-            "type": "boolean"
+            "description": "Defaults to false; null keeps the stored value.",
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "default_wht_rate": {
-            "description": "Percent, above 0 and below 100. Null or left out with a new type: the type's default rate (PPH21 2.5, PPH23 2).",
+            "description": "Percent, above 0 and below 100, at most 4 decimal places. Null or left out with a new type: the type's default rate (PPH21 2.5, PPH23 2).",
             "oneOf": [
               {
                 "examples": [
@@ -387,9 +390,12 @@
             ]
           },
           "default_wht_type": {
-            "description": "NONE, PPH21 or PPH23. Defaults to NONE.",
+            "description": "NONE, PPH21 or PPH23. Defaults to NONE; null keeps the stored type.",
             "maxLength": 16,
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "matching_aliases": {
             "description": "Defaults to [].",
@@ -845,11 +851,14 @@
             "type": "string"
           },
           "default_wht_gross_up": {
-            "description": "Defaults to false.",
-            "type": "boolean"
+            "description": "Defaults to false; null keeps the stored value.",
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "default_wht_rate": {
-            "description": "Percent, above 0 and below 100. Null or left out with a new type: the type's default rate (PPH21 2.5, PPH23 2).",
+            "description": "Percent, above 0 and below 100, at most 4 decimal places. Null or left out with a new type: the type's default rate (PPH21 2.5, PPH23 2).",
             "oneOf": [
               {
                 "examples": [
@@ -867,9 +876,12 @@
             ]
           },
           "default_wht_type": {
-            "description": "NONE, PPH21 or PPH23. Defaults to NONE.",
+            "description": "NONE, PPH21 or PPH23. Defaults to NONE; null keeps the stored type.",
             "maxLength": 16,
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "matching_aliases": {
             "description": "Defaults to [].",
@@ -1872,14 +1884,20 @@
         "properties": {
           "display_name": {
             "maxLength": 255,
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "email": {
             "examples": [
               "ap@example.com"
             ],
             "maxLength": 255,
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "type": "object"
