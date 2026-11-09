@@ -331,12 +331,18 @@ func TestArrayBodiesAreNotNullable(t *testing.T) {
 	}
 }
 
+// elemSchema is where a schema holds a container's element.
+var elemSchema = map[reflect.Kind]string{reflect.Slice: "items", reflect.Array: "items", reflect.Map: "additionalProperties"}
+
 var decimalTypes = []reflect.Type{reflect.TypeFor[platform.Dec2](), reflect.TypeFor[platform.Dec4](), reflect.TypeFor[platform.Dec8]()}
 
 // Every decimal a 2xx response writes is documented as the string it is
 // (`"type": "string"`, or `["string", "null"]` for a pointer), never as a
 // oneOf that also offers a number: a generated client must not type money
-// as a float. The Go types are walked from each response's component.
+// as a float. Every component reachable from a 2xx response (through
+// properties, items, additionalProperties and oneOf/anyOf/allOf) is checked
+// against its Go type: embedded structs' fields included, and a decimal
+// inside slices, maps and pointers found at its items or values.
 func TestResponseDecimalsAreStringOnly(t *testing.T) {
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
 	register(api, features{Sessions: testSessions()})
@@ -355,34 +361,48 @@ func TestResponseDecimalsAreStringOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := api.OpenAPI().Components.Schemas
-	seen := map[reflect.Type]bool{}
+	names := map[string]bool{}
+	for _, op := range operations(api) {
+		for status, resp := range op.Responses {
+			if !strings.HasPrefix(status, "2") {
+				continue
+			}
+			for _, mt := range resp.Content {
+				componentsReachable(reg, mt.Schema, names)
+			}
+		}
+	}
 	var checked []string
-	var walk func(ref string)
-	walk = func(ref string) {
-		typ := reg.TypeFromRef(ref)
-		for typ != nil && (typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice) {
+	for _, name := range slices.Sorted(maps.Keys(names)) {
+		typ := reg.TypeFromRef("#/components/schemas/" + name)
+		for typ != nil && typ.Kind() == reflect.Pointer {
 			typ = typ.Elem()
 		}
-		if typ == nil || typ.Kind() != reflect.Struct || seen[typ] {
-			return
+		if typ == nil || typ.Kind() != reflect.Struct {
+			continue
 		}
-		seen[typ] = true
-		name := strings.TrimPrefix(ref, "#/components/schemas/")
 		props := parsed.Components.Schemas[name].Properties
-		for f := range typ.Fields() {
+		for _, f := range reflect.VisibleFields(typ) {
+			if f.Anonymous || !f.IsExported() {
+				continue
+			}
 			field, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-			ft := f.Type
-			for ft.Kind() == reflect.Pointer || ft.Kind() == reflect.Slice {
+			if field == "" {
+				field = f.Name
+			}
+			// Go type and schema unwrapped together: a slice's decimal is
+			// at items, a map's at additionalProperties.
+			ft, p := f.Type, props[field]
+			for k := ft.Kind(); k == reflect.Pointer || k == reflect.Slice || k == reflect.Array || k == reflect.Map; k = ft.Kind() {
+				if key, ok := elemSchema[k]; ok {
+					p, _ = p[key].(map[string]any)
+				}
 				ft = ft.Elem()
 			}
 			if !slices.Contains(decimalTypes, ft) {
 				continue
 			}
-			p := props[field]
-			if f.Type.Kind() == reflect.Slice {
-				p, _ = p["items"].(map[string]any)
-			}
-			ok := p["oneOf"] == nil && p["anyOf"] == nil
+			ok := p != nil && p["oneOf"] == nil && p["anyOf"] == nil
 			switch typ := p["type"].(type) {
 			case string:
 				ok = ok && typ == "string"
@@ -395,27 +415,6 @@ func TestResponseDecimalsAreStringOnly(t *testing.T) {
 				t.Errorf("%s.%s is a decimal but its schema is not a string: %v", name, field, p)
 			}
 			checked = append(checked, name+"."+field)
-		}
-		for _, p := range reg.SchemaFromRef(ref).Properties {
-			for _, s := range append([]*huma.Schema{p, p.Items}, p.AnyOf...) {
-				if s != nil && s.Ref != "" {
-					walk(s.Ref)
-				}
-			}
-		}
-	}
-	for _, op := range operations(api) {
-		for status, resp := range op.Responses {
-			if !strings.HasPrefix(status, "2") {
-				continue
-			}
-			for _, mt := range resp.Content {
-				if s := mt.Schema; s.Ref != "" {
-					walk(s.Ref)
-				} else if s.Items != nil && s.Items.Ref != "" {
-					walk(s.Items.Ref)
-				}
-			}
 		}
 	}
 	if !slices.Contains(checked, "ItemOut.default_unit_price") {

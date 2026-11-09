@@ -268,11 +268,9 @@ func TestCustomerWhtRateFivePlacesIs422(t *testing.T) {
 		wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "Places Co", "default_wht_type": "PPH23", "default_wht_rate": rate}),
 			http.StatusUnprocessableEntity, "", invalid, "default_wht_rate", places)
 	}
-	// A string with five places also fails Dec4's schema pattern, at the field.
-	for _, msg := range []string{"expected value to match exactly one schema but matched none", places} {
-		wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "Places Co", "default_wht_type": "PPH23", "default_wht_rate": "99.99999"}),
-			http.StatusUnprocessableEntity, "", invalid, "default_wht_rate", msg)
-	}
+	// A string is refused as the same number is.
+	wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "Places Co", "default_wht_type": "PPH23", "default_wht_rate": "99.99999"}),
+		http.StatusUnprocessableEntity, "", invalid, "default_wht_rate", places)
 	if list := apitest.Decode[[]customers.CustomerOut](t, a.Do(t, http.MethodGet, path, nil), http.StatusOK); len(list) != 0 {
 		t.Errorf("stored %+v", list)
 	}

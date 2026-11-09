@@ -391,10 +391,11 @@ func TestItemPriceFivePlacesIs422(t *testing.T) {
 	)
 	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": 1.23456})),
 		http.StatusUnprocessableEntity, "", invalid, "default_unit_price", places)
-	// A string with five places also fails Dec4's schema pattern, at the field.
-	for _, msg := range []string{"expected value to match exactly one schema but matched none", places} {
-		wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_purchase_price": "1.23456"})),
-			http.StatusUnprocessableEntity, "", invalid, "default_purchase_price", msg)
+	// A string is refused as the same number is, with that one error.
+	rec := a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_purchase_price": "1.23456"}))
+	wantProblem(t, rec, http.StatusUnprocessableEntity, "", invalid, "default_purchase_price", places)
+	if p := apitest.Decode[problem](t, rec, http.StatusUnprocessableEntity); len(p.Errors) != 1 {
+		t.Errorf("string: %s", rec.Body)
 	}
 	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": -1})),
 		http.StatusUnprocessableEntity, "", "Input should be greater than or equal to 0", "default_unit_price", "Input should be greater than or equal to 0")
@@ -405,6 +406,7 @@ func TestItemPriceFivePlacesIs422(t *testing.T) {
 	it := create(t, a, minimal(map[string]any{"default_unit_price": "999999999999999.9999", "default_purchase_price": json.Number("1.50000")}))
 	price(t, it.DefaultUnitPrice, "999999999999999.9999")
 	price(t, it.DefaultPurchasePrice, "1.5000") // trailing zeros are not places
+	price(t, create(t, a, minimal(map[string]any{"default_unit_price": "1.50000"})).DefaultUnitPrice, "1.5000")
 	// Both prices refused: the first is reported.
 	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": -1, "default_purchase_price": -1})),
 		http.StatusUnprocessableEntity, "", "Input should be greater than or equal to 0", "default_unit_price", "Input should be greater than or equal to 0")
