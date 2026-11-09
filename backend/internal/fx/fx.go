@@ -60,3 +60,25 @@ func Convert(ctx context.Context, q *fxdb.Queries, amount decimal.Decimal, from 
 	}
 	return Conversion{BaseAmount: platform.RoundHalfEven4(amount.Mul(rate)), Rate: rate}, nil
 }
+
+// RateOn is GetRate that also says which day's rate it found, and reports a
+// missing rate as ok=false rather than an error. It serves revaluation's own
+// query: the currency codes are used as given (no upper-casing), and the newest
+// as_of_date on or before on's UTC calendar date wins (unlike GetRate, which
+// reads the date in on's own location). The same currency is 1, with
+// asOf equal to on's date.
+func RateOn(ctx context.Context, q *fxdb.Queries, from string, on time.Time, to string) (rate decimal.Decimal, asOf time.Time, ok bool, err error) {
+	u := on.UTC()
+	day := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
+	if from == to {
+		return decimal.NewFromInt(1), day, true, nil
+	}
+	row, err := q.LatestRate(ctx, fxdb.LatestRateParams{FromCurrency: from, ToCurrency: to, OnDate: pgtype.Date{Time: day, Valid: true}})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return decimal.Decimal{}, time.Time{}, false, nil
+	}
+	if err != nil {
+		return decimal.Decimal{}, time.Time{}, false, err
+	}
+	return row.Rate, row.AsOfDate.Time, true, nil
+}

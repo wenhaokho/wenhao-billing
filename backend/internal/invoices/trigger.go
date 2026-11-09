@@ -260,7 +260,7 @@ type triggerIn struct {
 // trigger is the route (invoices.py:365-388): 200 with the new or existing
 // invoice; the new one's summary is notified after the commit.
 func (r routes) trigger(ctx context.Context, in *triggerIn) (*invoiceBody, error) {
-	out, summary, err := triggerAndSummarise(ctx, r.pool, in.TemplateID, in.Body.CycleKey, todayUTC(r.clock))
+	out, summary, err := triggerAndSummarise(ctx, r.pool, in.TemplateID, in.Body.CycleKey, platform.TodayUTC(r.clock))
 	if err != nil {
 		return nil, clientError(err)
 	}

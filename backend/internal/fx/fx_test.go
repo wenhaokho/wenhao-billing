@@ -144,3 +144,62 @@ func TestGetRateAndConvertInsideATransaction(t *testing.T) {
 		t.Errorf("Convert in tx: %+v, %v", got, err)
 	}
 }
+
+func TestRateOnReturnsDate(t *testing.T) {
+	t.Parallel()
+	q, a := newQueries(t)
+	insertRate(t, a, "EUR", "17000", 1, 1)
+	insertRate(t, a, "EUR", "18000", 1, 10)
+	insertRate(t, a, "EUR", "19000", 1, 20)
+	rate, asOf, ok, err := fx.RateOn(context.Background(), q, "EUR", day(1, 15), "IDR")
+	if err != nil || !ok {
+		t.Fatalf("ok = %v, err = %v", ok, err)
+	}
+	if !rate.Equal(dec("18000")) {
+		t.Errorf("rate = %s, want 18000", rate)
+	}
+	if want := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC); !asOf.Equal(want) {
+		t.Errorf("asOf = %v, want %v", asOf, want)
+	}
+}
+
+func TestRateOnMissing(t *testing.T) {
+	t.Parallel()
+	q, a := newQueries(t)
+	insertRate(t, a, "EUR", "17000", 2, 1)
+	_, _, ok, err := fx.RateOn(context.Background(), q, "EUR", day(1, 15), "IDR")
+	if err != nil || ok {
+		t.Errorf("ok = %v, err = %v; want not ok, no error", ok, err)
+	}
+}
+
+func TestRateOnCaseSensitive(t *testing.T) {
+	t.Parallel()
+	q, a := newQueries(t)
+	insertRate(t, a, "EUR", "17000", 1, 1)
+	_, _, ok, err := fx.RateOn(context.Background(), q, "eur", day(1, 15), "IDR")
+	if err != nil || ok {
+		t.Errorf("lower-case from: ok = %v, err = %v; want not ok", ok, err)
+	}
+}
+
+func TestRateOnSameCurrency(t *testing.T) {
+	t.Parallel()
+	q, _ := newQueries(t)
+	on := day(1, 15)
+	rate, asOf, ok, err := fx.RateOn(context.Background(), q, "IDR", on, "IDR")
+	if err != nil || !ok || !rate.Equal(decimal.NewFromInt(1)) || !asOf.Equal(time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("rate = %s, asOf = %v, ok = %v, err = %v", rate, asOf, ok, err)
+	}
+}
+
+func TestRateOnExactDateIsIncluded(t *testing.T) {
+	t.Parallel()
+	q, a := newQueries(t)
+	insertRate(t, a, "EUR", "17000", 1, 1)
+	insertRate(t, a, "EUR", "18000", 1, 10)
+	rate, asOf, ok, err := fx.RateOn(context.Background(), q, "EUR", day(1, 10), "IDR")
+	if err != nil || !ok || !rate.Equal(dec("18000")) || !asOf.Equal(time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("rate = %s, asOf = %v, ok = %v, err = %v; want the 10th's 18000", rate, asOf, ok, err)
+	}
+}

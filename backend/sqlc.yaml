@@ -213,3 +213,45 @@ sql:
         emit_enum_valid_method: true
         emit_pointers_for_null_types: true
         overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/reports/queries.sql
+    gen:
+      go:
+        package: reportsdb
+        out: internal/reports/reportsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/stats/queries.sql
+    gen:
+      go:
+        package: statsdb
+        out: internal/stats/statsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        # go_overrides plus billing_cycle_ref passed through as stored (see
+        # the invoices entry).
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: pg_catalog.numeric
+            go_type: github.com/shopspring/decimal.Decimal
+          - db_type: pg_catalog.numeric
+            nullable: true
+            go_type: github.com/shopspring/decimal.NullDecimal
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: pg_catalog.timestamp
+            go_type: time.Time
+          - db_type: pg_catalog.timestamp
+            nullable: true
+            go_type:
+              type: time.Time
+              pointer: true
+          - column: invoices.billing_cycle_ref
+            go_type: encoding/json.RawMessage
