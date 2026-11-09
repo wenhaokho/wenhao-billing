@@ -12,10 +12,10 @@ the Go migrations start from. A change that needs one waits for the port.
 ## Commands
 
 Only Docker is needed. `./dev` runs Go in the root `docker-compose.yml` (service `go`,
-profile `tools`), so it shares the dev stack's network and Postgres.
+profile `tools`), so it shares the dev stack's network.
 
 ```
-./dev test [packages]   go test -race (default ./...)
+./dev test [packages]   go test -race -parallel 8 (default ./...)
 ./dev lint | fmt        golangci-lint run | fmt
 ./dev sqlc              regenerate the sqlc code from internal/*/queries.sql
 ./dev openapi           write openapi.json (the frontend's generated types come from it)
@@ -24,9 +24,15 @@ profile `tools`), so it shares the dev stack's network and Postgres.
 ./dev go <args>         any go command
 ```
 
-Tests need Postgres: `PGTESTDB_URL` (set by the `go` service) points at the dev database
-server, and each test gets its own database from a template. Without it every database
-test skips.
+Tests need Postgres: `PGTESTDB_URL` (set by the `go` service) points at `db-test`, a
+throwaway server for tests only (tmpfs, fsync off; not the dev `db`), and each test gets
+its own database from a template. Without it every database test skips.
+
+Tests run in parallel: every test calls `t.Parallel()` unless it changes package state
+that other tests read (a swapped function, a filled semaphore, a test hook); those say
+why next to the test. `./dev test` runs `-race -parallel 8 -timeout 60s` and leaves `-p`
+at its default, the number of CPUs, since `-p` also limits how many test binaries build
+and link at once.
 
 ## Checks
 
