@@ -192,6 +192,8 @@ func TestCutoffScanSkipsLockedAndOtherDays(t *testing.T) {
 		insertUsage(t, a.Pool, "DRAFT", `{"cut_off_day": "last"}`),
 		insertUsage(t, a.Pool, "DRAFT", `{"cut_off_day": 25.5}`),
 		insertUsage(t, a.Pool, "DRAFT", `{"cut_off_day": true}`),
+		insertUsage(t, a.Pool, "DRAFT", `{"cut_off_day": 25.0}`),
+		insertUsage(t, a.Pool, "DRAFT", `{"cut_off_day": "2_5"}`),
 		insertUsage(t, a.Pool, "OPEN", `{"cut_off_day": 25}`),
 		insertWithStatus(t, a.Pool, "DRAFT", "10"),
 	}
@@ -259,5 +261,22 @@ func TestCutoffScanUsesUTCDate(t *testing.T) {
 	n, err := CutoffScan(t.Context(), a.Pool, late, accruing(map[uuid.UUID]string{id: "1"}, &seen))
 	if err != nil || n != 0 {
 		t.Errorf("locked %d, err %v", n, err)
+	}
+}
+
+// TestPatchAfterUsageLockRecomputesFromLines: as in Python
+// (invoicing.py:283-341), a PATCH after the usage lock recomputes the
+// amount and balance from the lines, so the locked accrued total is lost
+// (port note 54).
+func TestPatchAfterUsageLockRecomputesFromLines(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	id := insertUsage(t, a.Pool, "DRAFT", `{"cut_off_day": 25}`)
+	lockUsageRoute(t, a, id, "100", "2026-05-25")
+	out := patch(t, a, id, map[string]any{"notes": "edited"})
+	wantDec4(t, "amount", p4(out.Amount), "0")
+	wantDec4(t, "balance_due", p4(out.BalanceDue), "0")
+	if cfgOf(t, out.BillingCycleRef)["locked"] != true {
+		t.Errorf("billing_cycle_ref = %s, want still locked", out.BillingCycleRef)
 	}
 }

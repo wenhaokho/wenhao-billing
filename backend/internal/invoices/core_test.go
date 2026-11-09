@@ -824,3 +824,18 @@ func TestLogNotifierLogsEachDraft(t *testing.T) {
 	// A nil logger is slog's default (nothing to log here, so no output).
 	LogNotifier{}.NotifyNewDrafts(t.Context(), nil)
 }
+
+// TestCurrencyIsAnyThreeCharacters: as in Python (schemas/invoice.py:61,
+// :82) the currency is checked for its length only, in any case, and a
+// PATCH can change it on a DRAFT (port note 52).
+func TestCurrencyIsAnyThreeCharacters(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	out := post(t, a, map[string]any{"currency": "usd", "line_items": []any{lineBody("1")}})
+	if out.Currency != "usd" {
+		t.Errorf("currency = %q, want usd as sent", out.Currency)
+	}
+	if got := patch(t, a, out.InvoiceID, map[string]any{"currency": "ZZZ"}); got.Currency != "ZZZ" {
+		t.Errorf("patched currency = %q, want ZZZ", got.Currency)
+	}
+}
