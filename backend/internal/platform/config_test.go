@@ -265,3 +265,11 @@ func TestConfigRefusesZeroResendTimeout(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestConfigTrimsResendKey(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(map[string]string{"RESEND_API_KEY": "  re_x \n"}))
+	if err != nil || cfg.ResendAPIKey != "re_x" {
+		t.Errorf("key = %q, err %v", cfg.ResendAPIKey, err)
+	}
+}

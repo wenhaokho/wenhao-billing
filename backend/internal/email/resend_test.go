@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -188,6 +189,34 @@ func TestIdempotencyKeyStableAndBodyBound(t *testing.T) {
 	}
 }
 
+// A long error body is logged cut to about 2 KiB.
+func TestResendErrorBodyLogIsTruncated(t *testing.T) {
+	t.Parallel()
+	c := &capture{status: 500, reply: strings.Repeat("x", 100<<10)}
+	s, logs := newResend(t, c, nil)
+	if err := s.Send(context.Background(), Message{To: "a@example.com", Subject: "Hi", Text: "x"}); err == nil {
+		t.Fatal("a 500 was not an error")
+	}
+	if n := logs.Len(); n > 4<<10 || !strings.Contains(logs.String(), "truncated") {
+		t.Errorf("log is %d bytes, want it cut near 2 KiB", n)
+	}
+}
+
+// A status just under 400 is a success.
+func TestResendStatusBelow400Succeeds(t *testing.T) {
+	t.Parallel()
+	c := &capture{status: 399}
+	s, _ := newResend(t, c, nil)
+	if err := s.Send(context.Background(), Message{To: "a@example.com", Subject: "Hi", Text: "x"}); err != nil {
+		t.Errorf("399: %v", err)
+	}
+	c2 := &capture{status: 400}
+	s2, _ := newResend(t, c2, nil)
+	if err := s2.Send(context.Background(), Message{To: "a@example.com", Subject: "Hi", Text: "x"}); err == nil {
+		t.Errorf("400 was not an error")
+	}
+}
+
 // A Resend that never answers fails the send at the configured timeout
 // instead of holding the request.
 func TestResendTimeout(t *testing.T) {
@@ -205,12 +234,19 @@ func TestResendTimeout(t *testing.T) {
 		APIKey: "k", FromEmail: "f@x.test", FromName: "F", BaseURL: srv.URL, Timeout: 50 * time.Millisecond,
 		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
 	}, srv.Client())
+	// The parent deadline only stops a missing sender timeout from hanging
+	// the test; the sender's own 50ms must fire first.
+	parent, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 	start := time.Now()
-	err := s.Send(context.Background(), Message{To: "a@example.com", Subject: "Hi", Text: "x"})
+	err := s.Send(parent, Message{To: "a@example.com", Subject: "Hi", Text: "x"})
 	if err == nil {
 		t.Fatal("a hung Resend did not fail the send")
 	}
-	if d := time.Since(start); d > 3*time.Second {
+	if !errors.Is(err, context.DeadlineExceeded) || parent.Err() != nil {
+		t.Errorf("err = %v (parent ctx err %v), want the sender's own deadline", err, parent.Err())
+	}
+	if d := time.Since(start); d > time.Second {
 		t.Errorf("failed after %v, want about the 50ms timeout", d)
 	}
 	if !strings.Contains(logs.String(), "failed to send email via Resend") {

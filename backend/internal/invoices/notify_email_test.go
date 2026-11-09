@@ -1,8 +1,10 @@
 package invoices
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -130,7 +132,8 @@ func TestEmailNotifierSendsToEveryUserAndSkipsFailures(t *testing.T) {
 		}
 	}
 	s := &failingSender{fail: map[string]bool{"staff@example.com": true}}
-	n := EmailNotifier{Q: invoicesdb.New(a.Pool), Sender: s, AppBaseURL: "http://app.test"}
+	var logs bytes.Buffer
+	n := EmailNotifier{Q: invoicesdb.New(a.Pool), Sender: s, AppBaseURL: "http://app.test", Logger: slog.New(slog.NewTextHandler(&logs, nil))}
 
 	n.NotifyNewDrafts(t.Context(), nil)
 	if len(s.sent) != 0 {
@@ -148,6 +151,9 @@ func TestEmailNotifierSendsToEveryUserAndSkipsFailures(t *testing.T) {
 		if !got[want] {
 			t.Errorf("no digest to %s (sent to %v)", want, got)
 		}
+	}
+	if !strings.Contains(logs.String(), "failed to notify staff@example.com about 1 new drafts") {
+		t.Errorf("failure not logged: %s", logs.String())
 	}
 	if len(s.sent) != 3 {
 		t.Errorf("sent %d mails, want 3", len(s.sent))

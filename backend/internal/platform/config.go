@@ -170,7 +170,7 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 		FXSyncCurrencies:       syncCurrencies,
 		WebhookHMACSecret:      r.WebhookHMACSecret,
 		EmailWebhookToken:      r.EmailWebhookToken,
-		ResendAPIKey:           r.ResendAPIKey,
+		ResendAPIKey:           strings.TrimSpace(r.ResendAPIKey),
 		ResendFromEmail:        r.ResendFromEmail,
 		ResendFromName:         r.ResendFromName,
 		ResendBaseURL:          r.ResendBaseURL,

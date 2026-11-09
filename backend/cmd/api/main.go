@@ -133,7 +133,7 @@ func pickSender(cfg platform.Config, logger *slog.Logger) email.Sender {
 	return email.NewResendSender(email.ResendConfig{
 		APIKey: cfg.ResendAPIKey, FromEmail: cfg.ResendFromEmail, FromName: cfg.ResendFromName,
 		BaseURL: cfg.ResendBaseURL, ReplyTo: cfg.SMTPReplyTo, Timeout: cfg.ResendTimeout, Logger: logger,
-	}, &http.Client{})
+	}, &http.Client{Timeout: cfg.ResendTimeout + time.Second})
 }
 
 func serve() error {

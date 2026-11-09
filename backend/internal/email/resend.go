@@ -119,7 +119,12 @@ func (s resendSender) Send(ctx context.Context, m Message) error {
 	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 400 {
-		logger.ErrorContext(ctx, fmt.Sprintf("Resend rejected email to %s: %d %s", m.To, resp.StatusCode, respBody))
+		const maxLogged = 2 << 10 // the drain above is 1 MiB; the log keeps 2 KiB
+		logged := respBody
+		if len(logged) > maxLogged {
+			logged = append(append([]byte{}, logged[:maxLogged]...), "...(truncated)"...)
+		}
+		logger.ErrorContext(ctx, fmt.Sprintf("Resend rejected email to %s: %d %s", m.To, resp.StatusCode, logged))
 		return fmt.Errorf("resend returned %d", resp.StatusCode)
 	}
 	logger.InfoContext(ctx, "sent email via Resend", "to", m.To, "subject", m.Subject)
