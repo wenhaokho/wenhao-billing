@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"slices"
 	"strings"
@@ -26,7 +27,7 @@ func mustJSON(t *testing.T, v any) string {
 }
 
 func TestDec4MarshalsFourPlaces(t *testing.T) {
-	if got := mustJSON(t, Dec4{Decimal: decimal.NewFromInt(1500)}); got != `"1500.0000"` {
+	if got := mustJSON(t, NewDec4(decimal.NewFromInt(1500))); got != `"1500.0000"` {
 		t.Error(got)
 	}
 }
@@ -34,7 +35,7 @@ func TestDec4MarshalsFourPlaces(t *testing.T) {
 func TestDec4AcceptsNumberAndString(t *testing.T) {
 	for _, in := range []string{`12.5`, `"12.5"`} {
 		var d Dec4
-		if err := json.Unmarshal([]byte(in), &d); err != nil || d.String() != "12.5" {
+		if err := json.Unmarshal([]byte(in), &d); err != nil || d.Decimal().String() != "12.5" {
 			t.Errorf("%s: %v %v", in, d, err)
 		}
 	}
@@ -45,13 +46,13 @@ func TestDec4AcceptsNumberAndString(t *testing.T) {
 }
 
 func TestDec8MarshalsEightPlaces(t *testing.T) {
-	if got := mustJSON(t, Dec8{Decimal: decimal.RequireFromString("16000.5")}); got != `"16000.50000000"` {
+	if got := mustJSON(t, NewDec8(decimal.RequireFromString("16000.5"))); got != `"16000.50000000"` {
 		t.Error(got)
 	}
 }
 
 func TestDec2MarshalsTwoPlaces(t *testing.T) {
-	if got := mustJSON(t, Dec2{Decimal: decimal.RequireFromString("97.5")}); got != `"97.50"` {
+	if got := mustJSON(t, NewDec2(decimal.RequireFromString("97.5"))); got != `"97.50"` {
 		t.Error(got)
 	}
 }
@@ -159,7 +160,7 @@ func TestNotNull(t *testing.T) {
 		func(_ context.Context, in *notNullIn) (*notNullOut, error) {
 			b := in.Body
 			out := &notNullOut{}
-			out.Body.Seen = fmt.Sprintf("%v:%q %v:%v %v:%s", b.Code.Set, b.Code.Value, b.Active.Set, b.Active.Value, b.Amount.Set, b.Amount.Value.StringFixed(4))
+			out.Body.Seen = fmt.Sprintf("%v:%q %v:%v %v:%s", b.Code.Set, b.Code.Value, b.Active.Set, b.Active.Value, b.Amount.Set, b.Amount.Value.Decimal().StringFixed(4))
 			return out, nil
 		})
 	for body, want := range map[string]string{
@@ -357,6 +358,7 @@ type boundsOutBody struct {
 	D2    *Dec2            `json:"d2"`
 	List  []Dec4           `json:"list"`
 	ByKey map[string]*Dec4 `json:"by_key"`
+	Doc   *Dec4            `json:"doc" doc:"Kept."`
 }
 
 type boundsOut struct{ Body boundsOutBody }
@@ -391,9 +393,16 @@ func TestDecimalRequestOneOfResponseString(t *testing.T) {
 		if r := req.Properties[name]; len(r.OneOf) != 3 || r.OneOf[0].Type != huma.TypeString || r.OneOf[1].Type != huma.TypeNumber || r.OneOf[2].Type != huma.TypeNull {
 			t.Errorf("request %s: %s", name, mustJSON(t, r))
 		}
-		if r := resp.Properties[name]; r.OneOf != nil || r.Type != huma.TypeString || !r.Nullable || r.Pattern != places {
+		if r := resp.Properties[name]; r.OneOf != nil || r.Type != huma.TypeString || !r.Nullable || r.Pattern != places || r.Description != "" {
 			t.Errorf("response %s: %s", name, mustJSON(t, r))
 		}
+	}
+	// A response does not carry the request's bounds, but keeps a doc tag.
+	if r := req.Properties["d4"]; r.Description != "At most 4 decimal places and 15 digits before the point." {
+		t.Errorf("request d4 description: %s", mustJSON(t, r))
+	}
+	if r := resp.Properties["doc"]; r.Description != "Kept." || r.Type != huma.TypeString {
+		t.Errorf("response doc: %s", mustJSON(t, r))
 	}
 	// A slice item is the plain string; a pointer map value also null.
 	four := `^-?[0-9]{1,15}\.[0-9]{4}$`
@@ -489,26 +498,78 @@ func TestDec4HugeExponentsAreCheap(t *testing.T) {
 	decimal.MaxDecodeExponent = math.MaxInt32
 	t.Cleanup(func() { decimal.MaxDecodeExponent = limit })
 	h := boundsServer(t)
-	within := func(body string, check func()) {
+	// The request runs on its own goroutine, which never touches t; the
+	// result comes back here, where it is checked. A request still running
+	// at the deadline is abandoned.
+	within := func(body string) *httptest.ResponseRecorder {
 		t.Helper()
-		done := make(chan struct{})
+		done := make(chan *httptest.ResponseRecorder, 1)
 		start := time.Now()
-		go func() { check(); close(done) }()
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/bounds", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			done <- rec
+		}()
 		select {
-		case <-done:
+		case rec := <-done:
 			t.Logf("%s: %v", body, time.Since(start))
+			return rec
 		case <-time.After(time.Second):
 			t.Fatalf("%s: not done after 1s", body)
+			return nil
 		}
 	}
-	for _, body := range []string{`{"d4":1e-2000000000}`, `{"d4":"1e-2000000000"}`, `{"d4":"-1e-2000000000"}`} {
-		within(body, func() { wantBound(t, h, body, "d4", "value has too many decimal places (max 4)") })
-	}
-	for _, body := range []string{`{"d4":"1e2000000000"}`} {
-		within(body, func() { wantBound(t, h, body, "d4", "value has too many digits (max 15 before the point)") })
+	for body, message := range map[string]string{
+		`{"d4":1e-2000000000}`:    "value has too many decimal places (max 4)",
+		`{"d4":"1e-2000000000"}`:  "value has too many decimal places (max 4)",
+		`{"d4":"-1e-2000000000"}`: "value has too many decimal places (max 4)",
+		`{"d4":"1e2000000000"}`:   "value has too many digits (max 15 before the point)",
+	} {
+		rec := within(body)
+		p := decodeProblem(t, rec.Body.Bytes())
+		if rec.Code != 422 || len(p.Errors) != 1 || p.Errors[0].Location != "d4" || p.Errors[0].Message != message {
+			t.Errorf("%s: %d %s, want %q", body, rec.Code, rec.Body, message)
+		}
 	}
 	for _, body := range []string{`{"d4":0e2000000000}`, `{"d4":0e-2000000000}`, `{"d4":"0e2000000000"}`, `{"d4":"0e-9"}`} {
-		within(body, func() { wantEcho(t, h, body, "d4", "0.0000") })
+		rec := within(body)
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		if rec.Code != 200 || out["d4"] != "0.0000" {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+}
+
+// Decimal() is the only way to the value; for a refused value it panics
+// (the recoverer answers 500), so a refused amount is never read as zero.
+func TestRefusedDecimalCannotBeRead(t *testing.T) {
+	panics := func(read func()) (p bool) {
+		defer func() { p = recover() != nil }()
+		read()
+		return false
+	}
+	var d4 Dec4
+	_ = json.Unmarshal([]byte(`1.23456`), &d4)
+	var d8 Dec8
+	_ = json.Unmarshal([]byte(`123456789012`), &d8)
+	var d2 Dec2
+	_ = json.Unmarshal([]byte(`"abc"`), &d2)
+	for name, read := range map[string]func(){
+		"Dec4": func() { d4.Decimal() }, "Dec8": func() { d8.Decimal() }, "Dec2": func() { d2.Decimal() },
+	} {
+		if !panics(read) {
+			t.Errorf("%s: refused value read", name)
+		}
+	}
+	var ok Dec4
+	if err := json.Unmarshal([]byte(`1.5`), &ok); err != nil || panics(func() { ok.Decimal() }) || ok.Decimal().String() != "1.5" {
+		t.Errorf("valid value: %v", err)
+	}
+	if got := NewDec8(decimal.RequireFromString("2.5")).Decimal().String(); got != "2.5" {
+		t.Errorf("NewDec8: %s", got)
 	}
 }
 

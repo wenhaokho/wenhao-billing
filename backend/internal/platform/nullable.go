@@ -190,7 +190,7 @@ func markNullableStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, respo
 // decimalResponse is s, or for a decimal t (Dec2, Dec4, Dec8, or a pointer
 // to one) whose schema is still the request's oneOf of string and number,
 // a copy that is the string alone: a response always writes the string.
-// The copy keeps s's own documentation (a field's doc tag).
+// The copy keeps a field's own doc tag, not the request's bounds.
 func decimalResponse(s *huma.Schema, t reflect.Type) *huma.Schema {
 	for t != nil && t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -198,10 +198,15 @@ func decimalResponse(s *huma.Schema, t reflect.Type) *huma.Schema {
 	if s == nil || t == nil || s.OneOf == nil || !t.Implements(decimalTypeIface) {
 		return s
 	}
-	str := reflect.Zero(t).Interface().(decimalType).responseString()
+	dec := reflect.Zero(t).Interface().(decimalType)
+	str := dec.responseString()
 	c := *s
 	c.OneOf = nil
 	c.Type, c.Pattern, c.Examples = str.Type, str.Pattern, str.Examples
+	// The request's bounds describe what may be sent, not what is written.
+	if c.Description == dec.boundsDescription() {
+		c.Description = ""
+	}
 	c.PrecomputeMessages()
 	return &c
 }

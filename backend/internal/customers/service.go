@@ -88,7 +88,8 @@ func normalizeWHT(f CustomerFields, c *customersdb.Customer) error {
 	switch {
 	case f.DefaultWhtRate.Set:
 		if !f.DefaultWhtRate.Null {
-			rate = &f.DefaultWhtRate.Value.Decimal
+			v := f.DefaultWhtRate.Value.Decimal()
+			rate = &v
 		}
 	case typ != c.DefaultWhtType:
 		rate = nil

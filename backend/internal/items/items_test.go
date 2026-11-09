@@ -18,6 +18,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items/itemsdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
 const path = "/api/v1/items"
@@ -96,13 +97,13 @@ func wantProblem(t *testing.T, rec *httptest.ResponseRecorder, status int, code,
 	t.Errorf("no error %q %q: %s", location, message, rec.Body)
 }
 
-func price(t *testing.T, d interface{ StringFixed(int32) string }, want string) {
+func price(t *testing.T, d *platform.Dec4, want string) {
 	t.Helper()
-	if reflect.ValueOf(d).IsNil() {
+	if d == nil {
 		t.Errorf("price nil, want %s", want)
 		return
 	}
-	if got := d.StringFixed(4); got != want {
+	if got := d.Decimal().StringFixed(4); got != want {
 		t.Errorf("price %s, want %s", got, want)
 	}
 }

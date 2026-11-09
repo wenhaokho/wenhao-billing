@@ -71,7 +71,7 @@ func wht(t *testing.T, c customers.CustomerOut, typ, rate string, grossUp bool) 
 	t.Helper()
 	got := "<nil>"
 	if c.DefaultWhtRate != nil {
-		got = c.DefaultWhtRate.StringFixed(4)
+		got = c.DefaultWhtRate.Decimal().StringFixed(4)
 	}
 	want := rate
 	if want == "" {

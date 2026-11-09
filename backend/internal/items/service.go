@@ -72,7 +72,7 @@ const negativeSentence = "Input should be greater than or equal to 0"
 
 // priceRefusal is why a price sent in f is refused, or "".
 func priceRefusal(f platform.Optional[platform.Dec4]) string {
-	if f.Set && !f.Null && f.Value.Sign() < 0 {
+	if f.Set && !f.Null && f.Value.Decimal().Sign() < 0 {
 		return negativeSentence
 	}
 	return ""

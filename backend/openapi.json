@@ -597,7 +597,6 @@
             "type": "boolean"
           },
           "default_wht_rate": {
-            "description": "At most 4 decimal places and 15 digits before the point.",
             "examples": [
               "1500000.0000"
             ],
@@ -1187,7 +1186,6 @@
             "type": "string"
           },
           "default_purchase_price": {
-            "description": "At most 4 decimal places and 15 digits before the point.",
             "examples": [
               "1500000.0000"
             ],
@@ -1198,7 +1196,6 @@
             ]
           },
           "default_unit_price": {
-            "description": "At most 4 decimal places and 15 digits before the point.",
             "examples": [
               "1500000.0000"
             ],

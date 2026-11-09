@@ -109,7 +109,8 @@ func dec4(d decimal.NullDecimal) *platform.Dec4 {
 	if !d.Valid {
 		return nil
 	}
-	return &platform.Dec4{Decimal: d.Decimal}
+	v := platform.NewDec4(d.Decimal)
+	return &v
 }
 
 func timePtr(t *time.Time) *platform.Time {
@@ -176,5 +177,5 @@ func nullDec(f platform.Optional[platform.Dec4], cur decimal.NullDecimal) decima
 	if f.Null {
 		return decimal.NullDecimal{}
 	}
-	return decimal.NullDecimal{Decimal: f.Value.Decimal, Valid: true}
+	return decimal.NullDecimal{Decimal: f.Value.Decimal(), Valid: true}
 }
