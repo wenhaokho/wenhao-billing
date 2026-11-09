@@ -135,6 +135,9 @@ func TestParseErrorSentences(t *testing.T) {
 		{"frequency number", base(map[string]any{"frequency": 5}), "invalid frequency: 5"},
 		{"frequency lowercase", base(map[string]any{"frequency": "monthly"}), "invalid frequency: 'monthly'"},
 		{"frequency quote", base(map[string]any{"frequency": "it's"}), `invalid frequency: "it's"`},
+		{"frequency control", base(map[string]any{"frequency": "A\x01B"}), `invalid frequency: 'A\x01B'`},
+		// U+0085 and U+200B are not printable: Python escapes them too.
+		{"frequency non-printable", base(map[string]any{"frequency": "M\xc2\x85\xe2\x80\x8b"}), `invalid frequency: 'M\x85\` + `u200b'`},
 		{"interval zero", base(map[string]any{"interval": 0}), "interval must be a positive int, got 0"},
 		{"interval negative", base(map[string]any{"interval": -2}), "interval must be a positive int, got -2"},
 		{"interval string", base(map[string]any{"interval": "2"}), "interval must be a positive int, got '2'"},

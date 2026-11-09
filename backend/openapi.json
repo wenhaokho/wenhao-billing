@@ -1,6 +1,20 @@
 {
   "components": {
     "schemas": {
+      "AcceptRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "accepted_by": {
+            "description": "Who accepted; stored as sent, null clears.",
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "AccountCreate": {
         "additionalProperties": true,
         "properties": {
@@ -114,6 +128,571 @@
         "required": [
           "base_currency"
         ],
+        "type": "object"
+      },
+      "BillCreate": {
+        "additionalProperties": true,
+        "properties": {
+          "bill_number": {
+            "description": "The vendor's own number; not unique.",
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "description": "Upper-cased.",
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "discount_type": {
+            "enum": [
+              "PERCENT",
+              "AMOUNT"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "description": "At least 0, at most 4 decimal places; applies only with a discount_type.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "due_date": {
+            "description": "Never defaulted.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issue_date": {
+            "description": "Never defaulted.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "description": "Optional; a bill without lines is 0.",
+            "items": {
+              "$ref": "#/components/schemas/BillLineItemIn"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "description": "Never parsed.",
+            "maxLength": 30,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "po_number": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "description": "It must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vendor_id": {
+            "description": "It must exist.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vendor_id",
+          "currency"
+        ],
+        "type": "object"
+      },
+      "BillLineItemIn": {
+        "additionalProperties": true,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "expense_account_id": {
+            "description": "The chart-of-accounts account, if any; it must exist.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "item_id": {
+            "description": "The catalogue item, if any; it must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "position": {
+            "description": "Lines are listed by position. Defaults to 0, and 0 is stored as the line's index in the list.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "quantity": {
+            "description": "At least 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "unit_price": {
+            "description": "At least 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        },
+        "required": [
+          "description",
+          "quantity",
+          "unit_price"
+        ],
+        "type": "object"
+      },
+      "BillLineItemOut": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "expense_account_id": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "item_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_item_id": {
+            "type": "string"
+          },
+          "position": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "quantity": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "unit_price": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line_item_id",
+          "item_id",
+          "expense_account_id",
+          "description",
+          "quantity",
+          "unit_price",
+          "amount",
+          "position"
+        ],
+        "type": "object"
+      },
+      "BillOut": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "balance_due": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "bill_id": {
+            "type": "string"
+          },
+          "bill_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "discount_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "due_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issue_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "items": {
+              "$ref": "#/components/schemas/BillLineItemOut"
+            },
+            "type": "array"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "po_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "OPEN",
+              "PARTIAL",
+              "PAID",
+              "VOID"
+            ],
+            "type": "string"
+          },
+          "subtotal": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vendor_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bill_id",
+          "vendor_id",
+          "project_id",
+          "bill_number",
+          "po_number",
+          "currency",
+          "subtotal",
+          "discount_type",
+          "discount_value",
+          "amount",
+          "balance_due",
+          "status",
+          "issue_date",
+          "due_date",
+          "payment_terms",
+          "notes",
+          "created_at",
+          "line_items"
+        ],
+        "type": "object"
+      },
+      "BillPaymentRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "description": "Above 0, at most 4 decimal places, at most the balance due.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "notes": {
+            "description": "Not stored.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payer_name": {
+            "description": "Not stored.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payer_reference": {
+            "description": "Not stored.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_date": {
+            "description": "Required, but not stored.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "payment_date"
+        ],
+        "type": "object"
+      },
+      "BillUpdate": {
+        "additionalProperties": true,
+        "properties": {
+          "bill_number": {
+            "description": "The vendor's own number; not unique.",
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "description": "Upper-cased.",
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "discount_type": {
+            "enum": [
+              "PERCENT",
+              "AMOUNT"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "description": "At least 0, at most 4 decimal places; applies only with a discount_type.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "due_date": {
+            "description": "Never defaulted.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issue_date": {
+            "description": "Never defaulted.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "description": "A list replaces every line and reprices the bill (an empty one leaves none); null or left out keeps the lines and the totals.",
+            "items": {
+              "$ref": "#/components/schemas/BillLineItemIn"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "description": "Never parsed.",
+            "maxLength": 30,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "po_number": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "description": "It must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Any of the five, with no payment or void behind it; the only way to open a bill.",
+            "enum": [
+              "DRAFT",
+              "OPEN",
+              "PARTIAL",
+              "PAID",
+              "VOID"
+            ],
+            "type": "string"
+          },
+          "vendor_id": {
+            "description": "It must exist.",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "BillingSummary": {
@@ -331,6 +910,28 @@
           "created_at",
           "updated_at"
         ],
+        "type": "object"
+      },
+      "ConvertToInvoiceRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "due_in_days": {
+            "description": "Days from the issue date to the due date, used only when the quotation has no payment terms; may be negative. Defaults to 14.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "issue_date": {
+            "description": "The invoice's issue date; null is today.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "CurrencyAmount": {
@@ -2662,6 +3263,865 @@
         },
         "type": "object"
       },
+      "ProjectCreate": {
+        "additionalProperties": true,
+        "properties": {
+          "code": {
+            "description": "Trimmed and upper-cased.",
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          },
+          "contract_value": {
+            "description": "The project's budget; 0 or more.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "description": "Upper-cased.",
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "end_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Trimmed.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Defaults to ACTIVE.",
+            "enum": [
+              "ACTIVE",
+              "ON_HOLD",
+              "COMPLETED",
+              "CANCELLED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "code",
+          "name",
+          "currency"
+        ],
+        "type": "object"
+      },
+      "ProjectOut": {
+        "additionalProperties": true,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "contract_value": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "end_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "start_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "ON_HOLD",
+              "COMPLETED",
+              "CANCELLED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "customer_id",
+          "code",
+          "name",
+          "currency",
+          "contract_value",
+          "status",
+          "start_date",
+          "end_date",
+          "notes",
+          "active",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "ProjectSummary": {
+        "additionalProperties": true,
+        "properties": {
+          "bill_total": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "contract_remaining": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contract_value": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "invoiced_total": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "outstanding_total": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "paid_total": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "invoiced_total",
+          "paid_total",
+          "outstanding_total",
+          "contract_value",
+          "contract_remaining",
+          "invoice_count",
+          "bill_total"
+        ],
+        "type": "object"
+      },
+      "ProjectUpdate": {
+        "additionalProperties": true,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "code": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          },
+          "contract_value": {
+            "description": "0 or more; null clears it.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "end_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "ON_HOLD",
+              "COMPLETED",
+              "CANCELLED"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "QuotationCreate": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "description": "Stored as sent.",
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "It must exist.",
+            "type": "string"
+          },
+          "discount_type": {
+            "enum": [
+              "PERCENT",
+              "AMOUNT"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "description": "At least 0, at most 4 decimal places; applies only with a discount_type.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "footer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issue_date": {
+            "description": "On create, null is today.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "description": "At least one.",
+            "items": {
+              "$ref": "#/components/schemas/QuotationLineItemIn"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "maxLength": 30,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "po_so_number": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "description": "It must exist; it is not checked against the customer.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quotation_number": {
+            "description": "Unique. On create, null or empty takes the next Q\u003cyear\u003e\u003cNNNN\u003e number; on PATCH, null clears it and empty is stored as empty.",
+            "maxLength": 50,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "valid_until": {
+            "description": "On create, null is the issue date plus 30 days. Never enforced.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "customer_id",
+          "currency"
+        ],
+        "type": "object"
+      },
+      "QuotationLineItemIn": {
+        "additionalProperties": true,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "item_id": {
+            "description": "The catalogue item, if any; it must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "position": {
+            "description": "Lines are listed by position. Defaults to 0.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "quantity": {
+            "description": "At least 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "unit_price": {
+            "description": "At least 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        },
+        "required": [
+          "description",
+          "quantity",
+          "unit_price"
+        ],
+        "type": "object"
+      },
+      "QuotationLineItemOut": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_item_id": {
+            "type": "string"
+          },
+          "position": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "quantity": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "unit_price": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line_item_id",
+          "item_id",
+          "description",
+          "quantity",
+          "unit_price",
+          "amount",
+          "position"
+        ],
+        "type": "object"
+      },
+      "QuotationOut": {
+        "additionalProperties": true,
+        "properties": {
+          "accepted_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "accepted_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "converted_invoice_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "discount_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "footer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issue_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_sent_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "items": {
+              "$ref": "#/components/schemas/QuotationLineItemOut"
+            },
+            "type": "array"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "po_so_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quotation_id": {
+            "type": "string"
+          },
+          "quotation_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "SENT",
+              "ACCEPTED",
+              "DECLINED",
+              "EXPIRED",
+              "INVOICED",
+              "VOID"
+            ],
+            "type": "string"
+          },
+          "subtotal": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "valid_until": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "quotation_id",
+          "customer_id",
+          "project_id",
+          "quotation_number",
+          "po_so_number",
+          "currency",
+          "subtotal",
+          "discount_type",
+          "discount_value",
+          "amount",
+          "status",
+          "issue_date",
+          "valid_until",
+          "payment_terms",
+          "notes",
+          "footer",
+          "last_sent_at",
+          "accepted_at",
+          "accepted_by",
+          "converted_invoice_id",
+          "created_at",
+          "line_items"
+        ],
+        "type": "object"
+      },
+      "QuotationUpdate": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "description": "Stored as sent.",
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "It must exist.",
+            "type": "string"
+          },
+          "discount_type": {
+            "enum": [
+              "PERCENT",
+              "AMOUNT"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "description": "At least 0, at most 4 decimal places; applies only with a discount_type.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "footer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issue_date": {
+            "description": "On create, null is today.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "description": "A list replaces every line (an empty one leaves none); null or left out keeps them.",
+            "items": {
+              "$ref": "#/components/schemas/QuotationLineItemIn"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "maxLength": 30,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "po_so_number": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "description": "It must exist; it is not checked against the customer.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quotation_number": {
+            "description": "Unique. On create, null or empty takes the next Q\u003cyear\u003e\u003cNNNN\u003e number; on PATCH, null clears it and empty is stored as empty.",
+            "maxLength": 50,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "valid_until": {
+            "description": "On create, null is the issue date plus 30 days. Never enforced.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "RateCreate": {
         "additionalProperties": true,
         "properties": {
@@ -3466,6 +4926,15 @@
               "string",
               "null"
             ]
+          }
+        },
+        "type": "object"
+      },
+      "VoidBillRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "reason": {
+            "description": "Any JSON value, written into the notes as Python prints it (a string as is, true as True, a list or object as Python's repr); left out or falsy (null, false, 0, \"\", [], {}) is \"no reason given\"."
           }
         },
         "type": "object"
@@ -4436,6 +5905,409 @@
         "tags": [
           "public",
           "auth"
+        ]
+      }
+    },
+    "/api/v1/bills": {
+      "get": {
+        "operationId": "bills-list",
+        "parameters": [
+          {
+            "description": "Repeat for several (status=OPEN\u0026status=PARTIAL); any string.",
+            "explode": true,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "description": "Repeat for several (status=OPEN\u0026status=PARTIAL); any string.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "vendor_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BillOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List bills, newest first",
+        "tags": [
+          "bills"
+        ]
+      },
+      "post": {
+        "operationId": "bills-create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Add a DRAFT bill",
+        "tags": [
+          "bills"
+        ]
+      }
+    },
+    "/api/v1/bills/{bill_id}": {
+      "get": {
+        "operationId": "bills-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "A bill",
+        "tags": [
+          "bills"
+        ]
+      },
+      "patch": {
+        "operationId": "bills-update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Change a DRAFT or OPEN bill's fields; a list of lines reprices it",
+        "tags": [
+          "bills"
+        ]
+      }
+    },
+    "/api/v1/bills/{bill_id}/record-payment": {
+      "post": {
+        "description": "The balance falls by the amount: to 0 is PAID, otherwise PARTIAL. More than the balance is refused. Nothing is posted to the ledger and no payment row is kept.",
+        "operationId": "bills-record-payment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillPaymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Record an outgoing payment against an OPEN or PARTIAL bill",
+        "tags": [
+          "bills"
+        ]
+      }
+    },
+    "/api/v1/bills/{bill_id}/void": {
+      "post": {
+        "description": "Nothing is left due, and \"[voided] \u003creason\u003e\" is appended to the notes on a new line.",
+        "operationId": "bills-void",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoidBillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Void a DRAFT, OPEN or PARTIAL bill",
+        "tags": [
+          "bills"
         ]
       }
     },
@@ -6488,6 +8360,1127 @@
         "summary": "Change an item's fields",
         "tags": [
           "items"
+        ]
+      }
+    },
+    "/api/v1/projects": {
+      "get": {
+        "operationId": "projects-list",
+        "parameters": [
+          {
+            "description": "Repeat for several (status=ACTIVE\u0026status=ON_HOLD).",
+            "explode": true,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "description": "Repeat for several (status=ACTIVE\u0026status=ON_HOLD).",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "customer_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "active",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List projects, newest first",
+        "tags": [
+          "projects"
+        ]
+      },
+      "post": {
+        "operationId": "projects-create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Add a project",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}": {
+      "delete": {
+        "operationId": "projects-delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Delete a project nothing references",
+        "tags": [
+          "projects"
+        ]
+      },
+      "get": {
+        "operationId": "projects-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "A project",
+        "tags": [
+          "projects"
+        ]
+      },
+      "patch": {
+        "operationId": "projects-update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Change a project's fields",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/invoices": {
+      "get": {
+        "operationId": "projects-invoices",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InvoiceOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "A project's invoices, templates excluded, newest first",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/summary": {
+      "get": {
+        "operationId": "projects-summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSummary"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "A project's invoiced, paid, outstanding and bill totals",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/quotations": {
+      "get": {
+        "operationId": "quotations-list",
+        "parameters": [
+          {
+            "description": "Repeat for several (status=DRAFT\u0026status=SENT); any string.",
+            "explode": true,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "description": "Repeat for several (status=DRAFT\u0026status=SENT); any string.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "customer_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "project_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 200,
+              "format": "int32",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QuotationOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List quotations, newest first",
+        "tags": [
+          "quotations"
+        ]
+      },
+      "post": {
+        "operationId": "quotations-create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuotationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotationOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Add a DRAFT quotation",
+        "tags": [
+          "quotations"
+        ]
+      }
+    },
+    "/api/v1/quotations/{quotation_id}": {
+      "delete": {
+        "operationId": "quotations-delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Delete a DRAFT quotation and its lines",
+        "tags": [
+          "quotations"
+        ]
+      },
+      "get": {
+        "operationId": "quotations-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotationOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "A quotation",
+        "tags": [
+          "quotations"
+        ]
+      },
+      "patch": {
+        "operationId": "quotations-update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuotationUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotationOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Change a DRAFT or SENT quotation's fields and reprice it",
+        "tags": [
+          "quotations"
+        ]
+      }
+    },
+    "/api/v1/quotations/{quotation_id}/accept": {
+      "post": {
+        "operationId": "quotations-accept",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotationOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Accept a DRAFT or SENT quotation",
+        "tags": [
+          "quotations"
+        ]
+      }
+    },
+    "/api/v1/quotations/{quotation_id}/convert-to-invoice": {
+      "post": {
+        "description": "Any status but INVOICED, VOID and DECLINED converts. Non-empty payment terms set the due date, even ones that do not parse (14 days); due_in_days counts only without them. The withholding is the customer's default.",
+        "operationId": "quotations-convert-to-invoice",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConvertToInvoiceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Copy a quotation into a new DRAFT invoice and mark the quotation INVOICED",
+        "tags": [
+          "quotations"
+        ]
+      }
+    },
+    "/api/v1/quotations/{quotation_id}/decline": {
+      "post": {
+        "operationId": "quotations-decline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotationOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Decline a DRAFT or SENT quotation",
+        "tags": [
+          "quotations"
+        ]
+      }
+    },
+    "/api/v1/quotations/{quotation_id}/mark-sent": {
+      "post": {
+        "operationId": "quotations-mark-sent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotationOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Mark a DRAFT or SENT quotation SENT now",
+        "tags": [
+          "quotations"
+        ]
+      }
+    },
+    "/api/v1/quotations/{quotation_id}/void": {
+      "post": {
+        "operationId": "quotations-void",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quotation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotationOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Void any quotation that is not INVOICED",
+        "tags": [
+          "quotations"
         ]
       }
     },

@@ -226,15 +226,15 @@ func (q *Queries) GetLatestInvoiceOfCustomer(ctx context.Context, customerID pgt
 
 const insertInvoice = `-- name: InsertInvoice :exec
 INSERT INTO invoices (
-    invoice_id, customer_id, project_id, invoice_type, invoice_number, po_so_number, currency,
+    invoice_id, customer_id, project_id, source_quote_id, invoice_type, invoice_number, po_so_number, currency,
     subtotal, discount_type, discount_value, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount,
     amount, balance_due, status, billing_cycle_ref, issue_date, due_date, payment_terms, notes, footer,
     internal_note, is_template
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7,
-    $8, $9, $10, $11, $12, $13, $14, $15,
-    $16, $17, $18, $19, $20, $21, $22, $23, $24,
-    $25, $26
+    $1, $2, $3, $4, $5, $6, $7, $8,
+    $9, $10, $11, $12, $13, $14, $15, $16,
+    $17, $18, $19, $20, $21, $22, $23, $24, $25,
+    $26, $27
 )
 `
 
@@ -242,6 +242,7 @@ type InsertInvoiceParams struct {
 	InvoiceID       uuid.UUID
 	CustomerID      pgtype.UUID
 	ProjectID       pgtype.UUID
+	SourceQuoteID   pgtype.UUID
 	InvoiceType     string
 	InvoiceNumber   *string
 	PoSoNumber      *string
@@ -267,11 +268,14 @@ type InsertInvoiceParams struct {
 	IsTemplate      bool
 }
 
+// Every new invoice row, this package's and a quotation conversion's
+// (source_quote_id is NULL unless converted).
 func (q *Queries) InsertInvoice(ctx context.Context, arg InsertInvoiceParams) error {
 	_, err := q.db.Exec(ctx, insertInvoice,
 		arg.InvoiceID,
 		arg.CustomerID,
 		arg.ProjectID,
+		arg.SourceQuoteID,
 		arg.InvoiceType,
 		arg.InvoiceNumber,
 		arg.PoSoNumber,
@@ -538,6 +542,72 @@ func (q *Queries) ListInvoices(ctx context.Context, arg ListInvoicesParams) ([]I
 		arg.InvoiceType,
 		arg.RowLimit,
 	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.InvoiceType,
+			&i.Currency,
+			&i.Amount,
+			&i.BalanceDue,
+			&i.Status,
+			&i.BillingCycleRef,
+			&i.IssueDate,
+			&i.DueDate,
+			&i.CreatedAt,
+			&i.InvoiceNumber,
+			&i.PoSoNumber,
+			&i.Subtotal,
+			&i.DiscountType,
+			&i.DiscountValue,
+			&i.Notes,
+			&i.Footer,
+			&i.PaymentTerms,
+			&i.IsTemplate,
+			&i.ProjectID,
+			&i.SourceQuoteID,
+			&i.CoverageStart,
+			&i.CoverageEnd,
+			&i.InternalNote,
+			&i.WhtType,
+			&i.WhtRate,
+			&i.WhtGrossUp,
+			&i.WhtBase,
+			&i.WhtAmount,
+			&i.WhtBooked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInvoicesBy = `-- name: ListInvoicesBy :many
+SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
+WHERE ($1::uuid IS NULL OR project_id = $1::uuid)
+  AND (NOT $2::boolean OR is_template = false)
+ORDER BY created_at DESC, invoice_id DESC
+`
+
+type ListInvoicesByParams struct {
+	ProjectID        pgtype.UUID
+	ExcludeTemplates bool
+}
+
+// ListBy's loader (the project routes): optionally one project's, optionally
+// without templates; ListInvoices' order.
+func (q *Queries) ListInvoicesBy(ctx context.Context, arg ListInvoicesByParams) ([]Invoice, error) {
+	rows, err := q.db.Query(ctx, listInvoicesBy, arg.ProjectID, arg.ExcludeTemplates)
 	if err != nil {
 		return nil, err
 	}

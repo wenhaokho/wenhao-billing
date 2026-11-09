@@ -33,8 +33,10 @@ func refuse(code, format string, args ...any) error {
 	return invoicingError{code: code, msg: fmt.Sprintf(format, args...)}
 }
 
-// refusalCode is the code of an ErrInvoicing, "" for any other error.
-func refusalCode(err error) string {
+// RefusalCode is the code of an ErrInvoicing (the 400's stable snake_case
+// code), "" for any other error. Other packages that call into invoicing
+// (a quotation conversion) answer its refusals with it.
+func RefusalCode(err error) string {
 	var e invoicingError
 	if errors.As(err, &e) {
 		return e.code

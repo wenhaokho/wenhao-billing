@@ -122,7 +122,8 @@ var foreignKeys = map[string]struct{ field, sentence string }{
 // answered 500 for both (port note 36). Any other error, Postgres or not,
 // comes back unchanged. Every write of an invoice row passes its error here,
 // including those of other packages (the quotations plan converts a quote
-// into an invoice).
+// into an invoice). A line item's foreign key is not an invoice-row error:
+// it is mapped where the lines are inserted, located by line.
 func MapWriteError(err error) error {
 	var pg *pgconn.PgError
 	if !errors.As(err, &pg) {
@@ -243,6 +244,13 @@ func dueOr(sent *platform.Date, issue time.Time, terms *string) (time.Time, erro
 // is null and there is an issue date; a new issue date never moves it.
 func updateInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID, b InvoiceUpdate) (InvoiceOut, error) {
 	q := invoicesdb.New(tx)
+	// The template's lock first, for every invoice (the key is namespaced, so
+	// it costs an ordinary invoice nothing): this route edits a template too
+	// (port note 43), and a trigger must see that edit whole. Lock order: the
+	// template lock, the invoice row, the number lock (see Trigger).
+	if err := q.LockRecurringTemplate(ctx, id.String()); err != nil {
+		return InvoiceOut{}, err
+	}
 	inv, err := q.GetInvoiceForUpdate(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return InvoiceOut{}, refuse("invoice_not_found", "invoice %s not found", id)

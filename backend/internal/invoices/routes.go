@@ -129,7 +129,7 @@ func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, notify Dra
 // 400 with Python's sentence; anything else is unchanged.
 func clientError(err error) error {
 	if errors.Is(err, ErrInvoicing) {
-		return platform.Err(http.StatusBadRequest, refusalCode(err), err.Error())
+		return platform.Err(http.StatusBadRequest, RefusalCode(err), err.Error())
 	}
 	return err
 }

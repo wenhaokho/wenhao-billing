@@ -169,3 +169,36 @@ sql:
               pointer: true
           - column: invoices.billing_cycle_ref
             go_type: encoding/json.RawMessage
+  - engine: postgresql
+    schema: migrations
+    queries: internal/projects/queries.sql
+    gen:
+      go:
+        package: projectsdb
+        out: internal/projects/projectsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/quotations/queries.sql
+    gen:
+      go:
+        package: quotationsdb
+        out: internal/quotations/quotationsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/bills/queries.sql
+    gen:
+      go:
+        package: billsdb
+        out: internal/bills/billsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides

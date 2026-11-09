@@ -16,6 +16,7 @@ import (
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/schedule"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
 // RecurringTrigger is the body of a manual trigger (schemas/invoice.py:22-25).
@@ -73,11 +74,11 @@ func Trigger(ctx context.Context, tx pgx.Tx, templateID uuid.UUID, cycleKey stri
 	}
 	cycleStart, ok := parseCycleKey(cycleKey)
 	if !ok {
-		return InvoiceOut{}, false, refuse("invalid_cycle_key", "cycle_key must be an ISO date (YYYY-MM-DD), got %s", schedule.ReprString(cycleKey))
+		return InvoiceOut{}, false, refuse("invalid_cycle_key", "cycle_key must be an ISO date (YYYY-MM-DD), got %s", platform.PyRepr(cycleKey))
 	}
 	// Paused or ended templates are not refused (recurring_schedule.py:185-186).
 	if !sched.IsCycleStart(cycleStart) {
-		return InvoiceOut{}, false, refuse("not_a_cycle_start", "cycle_key %s is not a valid cycle start for this schedule", schedule.ReprString(cycleKey))
+		return InvoiceOut{}, false, refuse("not_a_cycle_start", "cycle_key %s is not a valid cycle start for this schedule", platform.PyRepr(cycleKey))
 	}
 
 	existing, found, err := findCycleInvoice(ctx, q, templateID, cycleKey)
