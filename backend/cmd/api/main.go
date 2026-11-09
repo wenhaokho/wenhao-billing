@@ -179,7 +179,7 @@ func serve() error {
 		Logger:   logger,
 		FXClient: fx.NewClient(cfg),
 	})
-	startScheduler(ctx, pool, cfg, clock, logger, mail)
+	_, waitScheduler := startScheduler(ctx, pool, cfg, clock, logger, mail)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -191,13 +191,23 @@ func serve() error {
 	logger.Info("listening", "port", cfg.Port)
 	select {
 	case err := <-errs:
+		stop()
+		if waitScheduler != nil {
+			waitScheduler()
+		}
 		return err
 	case <-ctx.Done():
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdown); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if waitScheduler != nil {
+			waitScheduler()
+		}
 		return err
+	}
+	if waitScheduler != nil {
+		waitScheduler()
 	}
 	return nil
 }
@@ -206,26 +216,32 @@ func serve() error {
 // off unless SCHEDULER_ENABLED says otherwise (Go change 8): the Python
 // backend runs the jobs until the switch-over.
 //
-// The job list is built here, so a job whose work arrives later (the hosting
-// enforcement) is appended to it. It returns the jobs it started, nil when
-// the scheduler is off.
-func startScheduler(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config, clock platform.Clock, logger *slog.Logger, mail email.Sender) []jobs.Job {
+// It returns the jobs it started and a wait function that blocks until the
+// scheduler's goroutine has stopped (nil when the scheduler is off). serve
+// calls the wait function before it returns, and the database pool is
+// closed (serve's defer) only after that, so a job running when the process
+// stops finishes before its pool is closed under it.
+func startScheduler(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config, clock platform.Clock, logger *slog.Logger, mail email.Sender) ([]jobs.Job, func()) {
 	if !cfg.SchedulerEnabled {
 		logger.Info("scheduler is off (SCHEDULER_ENABLED)")
-		return nil
+		return nil, nil
 	}
 	jobList := []jobs.Job{
 		jobs.RecurringScan(pool, invoices.EmailNotifier{
 			Q: invoicesdb.New(pool), Sender: mail, AppBaseURL: cfg.AppBaseURL, Logger: logger,
 		}),
 		jobs.UsageLockScan(pool),
+		jobs.HostingEnforcement(func(ctx context.Context, slot time.Time) error {
+			_, err := hosting.Enforce(ctx, pool, hosting.NewClient(cfg), slot)
+			return err
+		}),
 		jobs.FXRatesSync(pool, cfg, fx.NewClient(cfg)),
 	}
-	jobs.Start(ctx, pool, clock, func(err error) {
+	wait := jobs.Start(ctx, pool, clock, func(err error) {
 		logger.Error("scheduled job failed", "err", err)
 	}, jobList...)
 	logger.Info("scheduler started", "jobs", len(jobList))
-	return jobList
+	return jobList, wait
 }
 
 // prepareDatabase is serve's database step: refuse a database goose does not

@@ -44,9 +44,12 @@ func TestSchedulerDoesNotStartWithoutTheVariable(t *testing.T) {
 		t.Fatal("the config turns the scheduler on with SCHEDULER_ENABLED unset")
 	}
 	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
-	got := startScheduler(t.Context(), schedulerPool(t), cfg, platform.SystemClock{}, logger, email.LogSender{})
+	got, wait := startScheduler(t.Context(), schedulerPool(t), cfg, platform.SystemClock{}, logger, email.LogSender{})
 	if got != nil {
 		t.Errorf("the scheduler started %d jobs with SCHEDULER_ENABLED unset, want none", len(got))
+	}
+	if wait != nil {
+		t.Error("the scheduler returned a wait function with SCHEDULER_ENABLED unset, want nil")
 	}
 }
 
@@ -67,10 +70,14 @@ func TestSchedulerStartsWithTheVariable(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	got := startScheduler(ctx, schedulerPool(t), cfg, platform.SystemClock{}, logger, email.LogSender{})
-	want := []string{"recurring-scan-and-generate", "usage-lock-cutoff-scan", "fx-rates-weekly-sync"}
+	got, wait := startScheduler(ctx, schedulerPool(t), cfg, platform.SystemClock{}, logger, email.LogSender{})
+	if wait == nil {
+		t.Fatal("the scheduler started without a wait function")
+	}
+	want := []string{jobs.RecurringScanID, jobs.UsageLockScanID, jobs.HostingEnforcementID, jobs.FXRatesSyncID}
 	if len(got) != len(want) {
+		cancel()
+		wait()
 		t.Fatalf("the scheduler started %d jobs, want %d", len(got), len(want))
 	}
 	for i, job := range got {
@@ -78,15 +85,72 @@ func TestSchedulerStartsWithTheVariable(t *testing.T) {
 			t.Errorf("job %d is %q, want %q", i, job.ID, want[i])
 		}
 	}
+	// The hosting job is the integrations job: its id, its daily 04:00 UTC
+	// slot and its Python lock key.
+	hosting := got[2]
+	if hosting.ID != jobs.HostingEnforcementID {
+		t.Errorf("hosting job id = %q, want %q", hosting.ID, jobs.HostingEnforcementID)
+	}
+	if got := jobs.LockKey(hosting.ID); got != 1601569364 {
+		t.Errorf("LockKey(%q) = %d, want Python's 1601569364", hosting.ID, got)
+	}
+	now := time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)
+	if due := hosting.Due(now); !due.Equal(time.Date(2026, 11, 10, 4, 0, 0, 0, time.UTC)) {
+		t.Errorf("hosting job due at %s = %s, want 2026-11-10 04:00 UTC", now, due)
+	}
+	if hosting.Run == nil {
+		t.Error("the hosting job has no work")
+	}
+	cancel()
+	wait()
 }
 
-// The hosting enforcement is the job the integrations plan adds; its id and
-// slot are here already.
+// TestSchedulerWaitJoinsTheScheduler: serve waits for the scheduler's
+// goroutine to stop before it closes the database pool. The wait function
+// must therefore block until the context is cancelled and then return.
+func TestSchedulerWaitJoinsTheScheduler(t *testing.T) {
+	t.Parallel()
+	cfg, err := platform.ParseConfig(map[string]string{
+		"DATABASE_URL": "postgresql://u:p@h:5432/d", "SESSION_SECRET": "scheduler-test-secret-32-bytes-long",
+		"WEBHOOK_HMAC_SECRET": "a-real-webhook-secret", "EMAIL_WEBHOOK_TOKEN": "a-real-email-token",
+		"SCHEDULER_ENABLED": "true",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
+	ctx, cancel := context.WithCancel(t.Context())
+	_, wait := startScheduler(ctx, schedulerPool(t), cfg, platform.SystemClock{}, logger, email.LogSender{})
+	if wait == nil {
+		t.Fatal("the scheduler started without a wait function")
+	}
+	cancel()
+	done := make(chan struct{})
+	go func() { wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the wait did not return after the context was cancelled: serve must not close the pool before this")
+	}
+}
+
+// The hosting enforcement is wired into the scheduler now: its id is
+// Python's, its lock key is Python's, and its slot is daily 04:00 UTC.
 func TestTheHostingJobIsReadyForTheIntegrationsPlan(t *testing.T) {
 	t.Parallel()
 	job := jobs.HostingEnforcement(func(context.Context, time.Time) error { return nil })
+	if job.ID != jobs.HostingEnforcementID {
+		t.Errorf("the hosting job's id = %q, want %q", job.ID, jobs.HostingEnforcementID)
+	}
 	if job.ID != "hosting-overdue-enforcement" {
 		t.Errorf("the hosting job's id = %q", job.ID)
+	}
+	if got := jobs.LockKey(job.ID); got != 1601569364 {
+		t.Errorf("LockKey(%q) = %d, want Python's 1601569364", job.ID, got)
+	}
+	now := time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)
+	if due := job.Due(now); !due.Equal(time.Date(2026, 11, 10, 4, 0, 0, 0, time.UTC)) {
+		t.Errorf("hosting job due at %s = %s, want 2026-11-10 04:00 UTC", now, due)
 	}
 	if job.Due == nil || job.Run == nil {
 		t.Error("the hosting job has no slot or no work")

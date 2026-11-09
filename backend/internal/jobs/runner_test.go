@@ -858,6 +858,50 @@ func TestReportIsCalledForAFailedJob(t *testing.T) {
 	if !errors.Is(reported[0], failure) {
 		t.Errorf("reported = %v, want the job's error", reported[0])
 	}
+	if got := reported[0].Error(); strings.Count(got, "job usage-lock-cutoff-scan:") != 1 || !strings.HasPrefix(got, "job usage-lock-cutoff-scan:") {
+		t.Errorf("reported = %q, want a single job prefix", got)
+	}
+}
+
+// TestAPanickingJobsReportedErrorHasASingleJobPrefix: a panic recovered by
+// the runner is reported with one "job <id>:" prefix, not two.
+func TestAPanickingJobsReportedErrorHasASingleJobPrefix(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	const jobID = "usage-lock-cutoff-scan"
+	job := Job{
+		ID:  jobID,
+		Due: DailySlot(3),
+		Run: func(context.Context, time.Time) error { panic("the job exploded") },
+	}
+	var mu sync.Mutex
+	var reported []error
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	wait := start(ctx, pool, c, func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, err)
+	}, 10*time.Millisecond, job)
+	waitFor(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(reported) > 0
+	})
+	cancel()
+	wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reported) != 1 {
+		t.Fatalf("reported %d errors, want 1: %v", len(reported), reported)
+	}
+	if got := reported[0].Error(); strings.Count(got, "job "+jobID+":") != 1 || !strings.HasPrefix(got, "job "+jobID+":") {
+		t.Errorf("reported = %q, want a single job prefix", got)
+	}
+	if !strings.Contains(reported[0].Error(), "panic: the job exploded") {
+		t.Errorf("reported = %q, want the panic", reported[0].Error())
+	}
 }
 
 // TestSchedulerOffByDefault: the scheduler is off unless SCHEDULER_ENABLED

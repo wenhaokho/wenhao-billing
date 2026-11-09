@@ -62,11 +62,12 @@ type Job struct {
 // sees it); a failed job is recorded with its error and the slot is not run
 // again.
 //
-// Start returns at once; the jobs run until ctx ends. The caller that has
-// to know when they have stopped (a test) uses the wait function that
-// start returns.
-func Start(ctx context.Context, pool *pgxpool.Pool, clock platform.Clock, report func(error), jobs ...Job) {
-	start(ctx, pool, clock, report, TickInterval, jobs...)
+// Start returns at once; the jobs run until ctx ends. The returned wait
+// function blocks until the scheduler's goroutine has stopped. The caller
+// (serve) uses it to wait for the scheduler before it closes the database
+// pool.
+func Start(ctx context.Context, pool *pgxpool.Pool, clock platform.Clock, report func(error), jobs ...Job) func() {
+	return start(ctx, pool, clock, report, TickInterval, jobs...)
 }
 
 // start is Start with the tick interval the caller chooses; the tests use a
@@ -141,7 +142,9 @@ func (r *runner) loop(ctx context.Context, interval time.Duration, jobs []Job) {
 	}
 }
 
-// tickAll runs every job once, one after another.
+// tickAll runs every job once, one after another. It is the only place that
+// adds the "job <id>:" prefix to a tick's error: the tick and the job work
+// return errors without it, so the prefix never appears twice.
 func (r *runner) tickAll(ctx context.Context, jobs []Job) {
 	for _, job := range jobs {
 		if ctx.Err() != nil {
@@ -219,7 +222,7 @@ func (r *runner) tick(ctx context.Context, job Job) error {
 	key := LockKey(job.ID)
 	var locked bool
 	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&locked); err != nil {
-		return fmt.Errorf("job %s: lock: %w", job.ID, err)
+		return fmt.Errorf("lock: %w", err)
 	}
 	if !locked {
 		r.log().InfoContext(ctx, "job skipped: already running in another process", "job", job.ID)
@@ -254,7 +257,7 @@ func (r *runner) acquireLockConn(ctx context.Context, job Job) (*pgxpool.Conn, e
 	conn, err := r.pool.Acquire(acquireCtx)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("job %s: %w", job.ID, err)
+			return nil, err
 		}
 		r.log().WarnContext(ctx, "job skipped: no database connection in time",
 			"job", job.ID, "timeout", timeout)
@@ -281,7 +284,7 @@ func (r *runner) runSlot(ctx context.Context, job Job, slot, now time.Time, conn
 		// The slot is recorded and it finished: it ran already.
 		return nil
 	case err != nil && !errors.Is(err, pgx.ErrNoRows):
-		return fmt.Errorf("job %s: read slot %s: %w", job.ID, slot, err)
+		return fmt.Errorf("read slot %s: %w", slot, err)
 	}
 	// Either the slot is not recorded at all, or its row is abandoned
 	// (neither an end nor an error): the run that wrote it died (a killed
@@ -295,12 +298,12 @@ func (r *runner) runSlot(ctx context.Context, job Job, slot, now time.Time, conn
 			if err := q.FinishSlot(bookCtx, jobsdb.FinishSlotParams{
 				FinishedAt: pgxTimestamptz(now), Error: &reason, JobID: job.ID, Slot: slot,
 			}); err != nil {
-				return fmt.Errorf("job %s: record the skipped slot %s: %w", job.ID, slot, err)
+				return fmt.Errorf("record the skipped slot %s: %w", slot, err)
 			}
 		} else if err := q.SkipSlot(bookCtx, jobsdb.SkipSlotParams{
 			JobID: job.ID, Slot: slot, StartedAt: now, Error: &reason,
 		}); err != nil {
-			return fmt.Errorf("job %s: record the skipped slot %s: %w", job.ID, slot, err)
+			return fmt.Errorf("record the skipped slot %s: %w", slot, err)
 		}
 		r.log().InfoContext(ctx, "job skipped: the slot is too old",
 			"job", job.ID, "slot", slot, "now", now)
@@ -313,7 +316,7 @@ func (r *runner) runSlot(ctx context.Context, job Job, slot, now time.Time, conn
 		if err := q.RestartSlot(bookCtx, jobsdb.RestartSlotParams{
 			JobID: job.ID, Slot: slot, StartedAt: now,
 		}); err != nil {
-			return fmt.Errorf("job %s: restart the abandoned slot %s: %w", job.ID, slot, err)
+			return fmt.Errorf("restart the abandoned slot %s: %w", slot, err)
 		}
 	} else {
 		// The slot row is written before the job runs: a second runner of
@@ -323,7 +326,7 @@ func (r *runner) runSlot(ctx context.Context, job Job, slot, now time.Time, conn
 				// Another runner recorded the slot first.
 				return nil
 			}
-			return fmt.Errorf("job %s: record the slot %s: %w", job.ID, slot, err)
+			return fmt.Errorf("record the slot %s: %w", slot, err)
 		}
 	}
 	// A job without work (the hosting enforcement, whose work the
@@ -372,7 +375,7 @@ func (r *runner) runSlot(ctx context.Context, job Job, slot, now time.Time, conn
 func (r *runner) runJob(ctx context.Context, job Job, slot time.Time) (err error) {
 	defer func() {
 		if p := recover(); p != nil {
-			err = fmt.Errorf("job %s: panic: %v", job.ID, p)
+			err = fmt.Errorf("panic: %v", p)
 		}
 	}()
 	return job.Run(ctx, slot)
