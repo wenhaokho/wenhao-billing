@@ -1,5 +1,5 @@
 {
- "script": "import difflib, json\npairs = [\n [\"acme corp\", \"acme corp\"],\n [\"\", \"\"],\n [\"\", \"a\"],\n [\"a\", \"\"],\n [\"pt maju jaya\", \"pt maju jaya tbk\"],\n [\"acme\", \"amce\"],\n [\"abcabcabc\", \"cbacbacba\"],\n [\"aaaa\", \"aa\"],\n [\"aaaaaaaaaa\", \"aaaaabaaaa\"],\n [\"café\", \"cafe\"],\n [\"pay \\U0001F600 ltd\", \"pay \\U0001F601 ltd\"],\n [\"\\U0001F600\\U0001F600\", \"\\U0001F600\"],\n [\"x\" * 250 + \"abc\", \"x\" * 250 + \"abd\"],\n [(\"ab \" * 90) + \"zzz\", (\"ab \" * 80) + \"yyy\" + (\"ab \" * 15)],\n [\"the quick brown fox \" * 12, \"the quick brown fox jumps \" * 10],\n [(\"a\" * 150) + \"needle\" + (\"a\" * 150), (\"a\" * 100) + \"needle\" + (\"a\" * 200)],\n [\"a b a b \" * 30, \"b a b a \" * 31],\n [\"pt maju jaya sejahtera\", \"maju jaya sejahtera pt\"],\n [\"ABC Trading Pte Ltd\", \"ABC TRADING PTE. LTD.\"],\n [\"john smith\", \"smith john\"],\n [\"bank transfer from budi santoso\", \"budi santoso\"],\n [\"cv sinar abadi\", \"sinar abadi cv\"],\n [\"pt global teknologi indonesia\", \"global teknologi indonesia pt\"],\n [\"acme holdings\", \"acme holding\"],\n [\"pt bumi resources tbk\", \"pt bumi resource\"],\n [\"wenhao studio\", \"wen hao studio\"],\n [\"delta logistics sdn bhd\", \"delta logistic\"],\n [\"mr. andi wijaya\", \"andi wijaya\"],\n [\"pt sumber makmur\", \"ud sumber makmur\"],\n [\"star digital agency\", \"stardigital\"],\n [\"sari rasa restaurant\", \"sari rasa resto\"],\n [\"pt kreasi nusantara\", \"kreasi nusantara pt\"],\n [\"lim chong wei\", \"lim c w\"],\n [\"northwind traders\", \"southwind traders\"],\n [\"pt abc\", \"pt abd\"],\n [\"techno solutions pte ltd\", \"techno solution pte ltd\"],\n [\"maria gonzalez\", \"gonzalez maria\"],\n [\"tokopedia\", \"tokopedia official\"],\n [\"pt indo makmur jaya\", \"pt indo jaya makmur\"],\n [\"cafe\\u0301\", \"café\"],\n]\nout = [[a, b, repr(difflib.SequenceMatcher(None, a, b).ratio())] for a, b in pairs]\nprint(json.dumps(out, ensure_ascii=False))\n",
+ "script": "import difflib, json\npairs = [\n [\"acme corp\", \"acme corp\"],\n [\"\", \"\"],\n [\"\", \"a\"],\n [\"a\", \"\"],\n [\"pt maju jaya\", \"pt maju jaya tbk\"],\n [\"acme\", \"amce\"],\n [\"abcabcabc\", \"cbacbacba\"],\n [\"aaaa\", \"aa\"],\n [\"aaaaaaaaaa\", \"aaaaabaaaa\"],\n [\"café\", \"cafe\"],\n [\"pay \\U0001F600 ltd\", \"pay \\U0001F601 ltd\"],\n [\"\\U0001F600\\U0001F600\", \"\\U0001F600\"],\n [\"x\" * 250 + \"abc\", \"x\" * 250 + \"abd\"],\n [(\"ab \" * 90) + \"zzz\", (\"ab \" * 80) + \"yyy\" + (\"ab \" * 15)],\n [\"the quick brown fox \" * 12, \"the quick brown fox jumps \" * 10],\n [(\"a\" * 150) + \"needle\" + (\"a\" * 150), (\"a\" * 100) + \"needle\" + (\"a\" * 200)],\n [\"a b a b \" * 30, \"b a b a \" * 31],\n [\"pt maju jaya sejahtera\", \"maju jaya sejahtera pt\"],\n [\"ABC Trading Pte Ltd\", \"ABC TRADING PTE. LTD.\"],\n [\"john smith\", \"smith john\"],\n [\"bank transfer from budi santoso\", \"budi santoso\"],\n [\"cv sinar abadi\", \"sinar abadi cv\"],\n [\"pt global teknologi indonesia\", \"global teknologi indonesia pt\"],\n [\"acme holdings\", \"acme holding\"],\n [\"pt bumi resources tbk\", \"pt bumi resource\"],\n [\"wenhao studio\", \"wen hao studio\"],\n [\"delta logistics sdn bhd\", \"delta logistic\"],\n [\"mr. andi wijaya\", \"andi wijaya\"],\n [\"pt sumber makmur\", \"ud sumber makmur\"],\n [\"star digital agency\", \"stardigital\"],\n [\"sari rasa restaurant\", \"sari rasa resto\"],\n [\"pt kreasi nusantara\", \"kreasi nusantara pt\"],\n [\"lim chong wei\", \"lim c w\"],\n [\"northwind traders\", \"southwind traders\"],\n [\"pt abc\", \"pt abd\"],\n [\"techno solutions pte ltd\", \"techno solution pte ltd\"],\n [\"maria gonzalez\", \"gonzalez maria\"],\n [\"tokopedia\", \"tokopedia official\"],\n [\"pt indo makmur jaya\", \"pt indo jaya makmur\"],\n [\"cafe\\u0301\", \"café\"],\n]\nout = [[a, b, repr(difflib.SequenceMatcher(None, a, b).ratio())] for a, b in pairs]\nprint(json.dumps(out, ensure_ascii=False))\n\n# ---- second script (boundary goldens) ----\n# Boundary goldens for autojunk (deterministic search, seed 7).\nimport difflib, json, random\nrnd = random.Random(7)\nASCII = [chr(c) for c in range(33, 127)] + [\" \"] + [chr(c) for c in range(0xC0, 0x100)]\nCJK = [chr(0x4E00 + i) for i in range(300)]\ndef junked_x(a, b, x):\n    sm = difflib.SequenceMatcher(None, a, b, autojunk=False)\n    sm.b2j.pop(x, None)\n    return sm.ratio()\ndef make(n, count, pool, x):\n    others = [c for c in pool if c != x]\n    ntest = n // 100 + 1\n    cap = ntest  # others never popular\n    body = []\n    while len(body) < n - count:\n        c = rnd.choice(others)\n        if body.count(c) < cap:\n            body.append(c)\n    b = body + [x] * count\n    rnd.shuffle(b)\n    return b\ndef find(n, count, pool, must_differ):\n    x = pool[0]\n    for _ in range(4000):\n        b = make(n, count, pool, x)\n        # a: b with edits so x runs matter\n        a = list(b)\n        for _ in range(rnd.randrange(1, 6)):   # move blocks around so seeds matter\n            i = rnd.randrange(len(a)); j = rnd.randrange(i, min(len(a), i + 40)) + 1\n            blk = a[i:j]; del a[i:j]\n            at = rnd.randrange(len(a) + 1); a[at:at] = blk\n        a, bs = \"\".join(a), \"\".join(b)\n        r1 = difflib.SequenceMatcher(None, a, bs, autojunk=False).ratio()\n        r2 = junked_x(a, bs, x)\n        if (r1 != r2) == must_differ:\n            return a, bs\n    raise SystemExit(\"no case %r\" % ((n, count, must_differ),))\ncases = []\nfor n, count, pool in [(199, 2, ASCII), (199, 3, ASCII), (200, 3, ASCII), (200, 4, ASCII),\n                       (150, 3, CJK), (200, 3, CJK), (200, 4, CJK), (250, 4, CJK), (250, 3, CJK)]:\n    a, b = find(n, count, pool, True)\n    assert len(b) == n and b.count(pool[0]) == count\n    cases.append([a, b, repr(difflib.SequenceMatcher(None, a, b).ratio())])\nprint(json.dumps(cases, ensure_ascii=False))\n",
  "cases": [
   [
    "acme corp",
@@ -200,6 +200,51 @@
    "café",
    "café",
    "0.6666666666666666"
+  ],
+  [
+   "ëïDÏJjFÆØêOZVQ!ÛW#9ÐoUæ5Ôa(]f\"IÙgÖ3]×iekTß,%ÎHÿÉó$c~0`T>u÷Vâü~,ÕE88Wdn-\\Yl)=ÞKäíÐûà7Üpåø%vú\\îbÞeãÕðÃiß@&áèÈy5åïDKzGé<1.Ö49 3b}\"7tãCôÅ+ wmjHûè0_xoýRÂql`C;v÷ëîÝPkÃAöÙÅ!àÛYp4z-JéÔ>^2uó.'âÆqG/&ÌÉfE*×UPFc",
+   "ëïDÏJjFÆTß,%ÎHÿÉó$c~ØêOZVQ!ÛW#9ÐoUæ5Ô0`T>u÷Vâü~,ÕE88Wdn-\\Yl)=ÞKäíÐûà7Üpåø%va(]f\"IÙgÖ3]×iekú\\îb5åïDKzGé<1.Ö4_xoýRÂql`C;v÷ëîÝPkÃAöÙÅ!àÛYp4z-JéÔ>^2uó.'âÞeãÕðÃiß@&áèÈyÆqG/&ÌÉfE9 3b}\"7tãCôÅ+ wmjHûè0*×UPFc",
+   "0.6884422110552764"
+  ],
+  [
+   "g~UÍ/ÔKw\\ó{NÌ7ÄÜh9!Û!ÚHGîsQJæ(÷m0,*&rhÐü G8A}X'|u?É%s'ù4ZWU#Tzàî9\\ïãÈÎÿæd|Ncó3M=ÓÊÒñêÅÎÉíwìQLMDâJÐ0ëèñßåÃZïWtAÙøÊTÌ#×âôü&qÝFòFùIãÈ}>Øc\"þPÑÜ)?yoõo!ä;^çKÆ;ûuvYÏ(ø5 ÔÂ/kl`>IPqSÙ]3nßdÒýxíåä$]LÞC~ôDÚØÂúyY",
+   "g~UÍ/ÔKw\\ó{NÌ0ÈÎÿæd|Ncó3M=ÓÊÒñôDÚêÅÎÉíwì7ÄÜh9!Û!ÚHGîsQJæ(÷mQLMDâJÐ0ëèñßåÃZïWtAÙøÊTÌ#×âôü&qÝFòFùIãÈ}>Øc\"þPÑÜ)?yoõo!ä;^çKÆ;nßdÒýxíåä$]LÞ,*&rhÐü G8A}X'|u?É%s'ù4ZWU#Tzàî9\\ïãC~ØÂúûuvYÏ(ø5 ÔÂ/kl`>IPqSÙ]3yY",
+   "0.5979899497487438"
+  ],
+  [
+   "V[(ÂØÍGÀoZ%ÌÎÄ: ã>$øòáfs;sÝj\"AAöÌO^H'åWÓÛê3P*Udjmr$Á6ÉÀnþAfÚñ~íõ#VHÏéïXR81óxá0íÏvûÄ[f*EÓ^êLÄ2 b/^àô[÷dâïÜóWý(KD){ØãK><J1túqKr;:ØËRrFaJTøv!Ú(8!.4Y}ç6>îøT÷kQê~ÃcÖåÚgÎåyá%SíÀüâÝÉdN@|@;2EïiyE`QÏO@õDòl]!×L",
+   "V[(ÂØÍGÀoZ%ÌÎÄ: ã>$øòáfs;sÝj\"A:ØËRrFaJTøv!ê~ÃcÖåÚgÎåyá%SíÀüAöÌO^H'åWÓÛê3P*Udjmr$Á6ÉÀnþAfÚñ~íb/^àô[÷dâïÜóWý(KD){ØãK><J1túqKr;âÝÉdN@|@õ#VHÏéïXR81óxá0íÏvûÄ[f*EÓ^êLÄ2 ;2EïiyE`QÏO@õDòl]Ú(8!.4Y}ç6>îøT÷kQ!×L",
+   "0.585"
+  ],
+  [
+   "4ä[^ý(qx0=åEyl|'AJ>Ýït3#]*8äSCïßÅQ\"{U÷Ë(fÝwÌh!îËMÐkð@ôàq;éÕÍoB+âÉx×Ïö[âúÚ8øÄÚSÜàôþbëdä3OÀã!Æ~Äã^üÅÐ(i6ÿ,4j}ô\\|+Ñ_'e7øbYÇapzauO-ûâé/<ñÌmssÔù@!bÔL$éowøË !nYpêeÐLkam*ÑVÝ#70è9 Avk0ÅY/ÂEyÈFcGNÞñfeL[òãJc4È]",
+   "4ä[^ý(qx0=åEyl|'AJ>ÝpêeÐLkam*ÑVÝ# Adä3O{U÷Ë(fÝwÌhït3#]*8äSCïßÅQ\"@!bÔ70è9L$éowøË !nY!îËMÐkð@ôàq;éÕÍoB+âÉx×Ïö[âúÚ8øÄÚSÜàôþbëÇapzauO-ûâé/<ñÌmssÔùÀã!Æ~Äã^üÅÐ(i6ÿ,4ô\\|+Ñ_'e7øbYvk0ÅY/ÂEyÈj}FcGNÞñfeL[òãJc4È]",
+   "0.62"
+  ],
+  [
+   "仱串亪乨七乼享仴丳乄伞一乼乜伪亃们京亪乪一丬丢亝伖仇亏休仕乄亯乬丂丙亁仓丬丢乥乚丳仺伌代习亵之亭伛伙伄亶从両仩仜乥乌仵乿伜仜乘仰乚丿一亘乕亗亓伖企以临丐丩伩乩仢乤亂乖伝亭伈丮仦企亿两亯亀些丸乖予介伌伛丁乛乍仠为交伫业书亝伨仄乯丽伝丽丯丈伕伢亮严书专仵亟不丆五亠乨亙乛亱乣丯仓临乽与仹伄人乤仅亴交井乌乏",
+   "仱串亪乨七乼享仴乚丿一亘乕亗丢亝伖仇亏休仕乄亯乬丂丙亁仓丬丢乥乚丳仺伌代习亵之亭伛伙伄亶从両仩仜乥亓伖企以临丐丩伩乩仢乤亂乖伝亭伈丮仦企亿两亯亀些丸乖予介伌伛丁乛乍仠丳乄伞一乼乜伪亃们京亪乪一丬乌仵乿伜仜乘书亝伨仄乯丽伝丽丯丈伕伢亮严书专仵亟不丆五亠乨亙乛仰为交伫业亱乣丯仓临乽与仹伄人乤仅亴交井乌乏",
+   "0.8"
+  ],
+  [
+   "乹享伩仯亩乘乆伍丼亗伖伖乶伎伞仅両一仾互乱伎仪伞乭仁优伨亡京乱両仧乹仭仅乣仾一今丒亾乸丩仳丧乀亸丼严亄亪伥件乲伨伄乙亱亄丕业仜伏们乏乓且乲介仡仓令伊丯伙並伕亦丷份伇丐伫亦亱临万乣举仞仅仃乵乃了亱乩仯乫亐乘亴仈乃伋仍伅亢下仔万仁仚从仸亚乿传仗仸乵亗亾七东丏丂丞主乏亲仦仌两仗仝乬亯仿亻介一伨乤予亟伞仦亠仯乎亥伓丞乁互了伏乍亢丨享仳为丼以为们伌乙义乪伌伍乻亩伒乧伇乵伅亂乒也亢互丷仒乪亅主丒乫了仐争争习传",
+   "乹享伩乣仾一今丒亾乸丩仳丧乀亸丼严亄亪伥件乲伨伄乙亱亄仯亩乘乆伍丼亗伖伖乶伎伞仅両一仾互乱伎仪伞乭仁优伨亡京乱両仧乹仭仅丕业仜伏们乏乓且乲介仡仓乃了亱乩仯乫亐令伊丯伙並伕亦丷份伇丐伫亦亱临万乣举仞仅仃乵乘亴仈乃伋仍伅亢下仔万仁仚从仸亚乿传仗仸乵亗亾七东丏丂丞主乏亲仦仌两仗仝乬亯仿亻介一伨乤予亟伞仦亠仯乎亥伓丞乁互了伏乍亢丨享仳为丼以为们伌乙义乪伌伍乻亩伒乧伇乵伅亂乒也亢互丷仒乪亅主丒乫了仐争争习传",
+   "0.845"
+  ],
+  [
+   "乧仌乯乲乻仾亁乇乺伡仁乂仃亘一乭亊仟亿之于丐亢优乷伫乤伖亜仦伕丮乶乬丆井交乭会丠万丂丷人休丸乡乎付伦乥亍伟仺仜亻亽亖予丒伒丒仫伔乞伨万伅乀伅亟三乷丯伇亹一仆介久亳伀专享乲仇亏与乏乥乣乳伏伃乐丽乐仿仧仇亇仾仼丿仗丰伆乕仮伥仮乥乜亮亃仼伥伛乚亁丛丣伆亞亘亚仳仞乖亓乫丕亟丝仒仹亂中优乫仭仯乏乻一不仙乤乚乱丑乤伔亨丶仺丂他仹亓互乎仓丶京仴享丛乊于仢亜伞七仦亗乚仦仛一仔亝东伏丒伃仔仱乖丵伔仸丹亸优专乎休丌乀",
+   "乧仌乯乲乻仾亢优乷伫乤伖亜仦伕丮乶亁乇乺伡仁乂仃亘一乭亊仟亿之于丐乬丆井交乭会丠万丂丷人休丸乡乎付伦乣乳伏伃乐丽乐仿仧仇亇仾仼丿仗丰伆乕仮伥仮乥乜亮亃仼伥伛乚亁乥亍伟仺仜亻亽亖予丒伒丒仫伔乞伨万伅乀伅亟三乷丯伇亹一仆介久亳伀专享乲仇亏与乏乥丛丣伆亞亂中优乫亘亚仳仞乖亓乫丕亟丝仒仹仭仯乏乻一不仙乤乚乱丑乤伔亨丶仺丂他仹亓互乎仓丶京仴享丛乊于仢亜伞七仦亗乚仦仛一仔亝东仸丹亸优专乎休丌伏丒伃仔仱乖丵伔乀",
+   "0.66"
+  ],
+  [
+   "丆且伌伋众乛们丳些一亅东伦伒仚会丞伜七亹亁井伜伦伡仜仵仳亴乕任伄下举一亽丩仧乴乁乘五一仮丕乎乶仹乢亴仆丅丆丩丵亹予事丈亪交乗亅乩伝云丗亮从仿亠亃乽丵伕付优伪令仫仂丢亰亜乹中伀丣亓丞丩仁乁亯亲仲丳令乜乂仇丕亟仇亠乹亵仂们乿伒仍仅书仒丨伅乃优仗乳亰乞亦仝仜仼乮乚亦乼伅伖並乫乽予乼串世仿乁乱仕仮世万京东仁乆伋乽从亇乞乛丮任亭乀九亻乡三书不们乢丟丙仂仲亂仿乓专伎他仒伉仩了亍伃亞丏亃伂东仄专丽乔亇亖一伞京乻丨亲乙乵伈下丰伆乢乱丗丱仐乒丙云伉优亭亠伍亜世仕事亥仒亰伐伛且代伖伈仨乖亅亻亡丂乒乸串両伅令両仸丣亻",
+   "丆且伌伋众乜乂仇丕亟仇亠乛们丳些一亅东伦伒仚会丞伜七亹亁井伜伦五一仮丕乎乶仹乢亴仆丅丆丩丵亹予事丈亪交乗亅乩伝云丗亮从丩仁乁亯亲仲丳令乹伡仜仵仳亴乕任伄下举一亽丩仧乴乁乘亵仂们乿伒仍仅书仒丨伅乃优仗乳亰乞亦仝仜仼乮乚亦乼伅伖並乫乽予乼串世仿乁乱仕仮世万京东仁乆伋乽从亇乞乛丮仿亠亃乽丵伕付优伪令仫仂丢亰亜乹中伀丣亓丞任亭乀九亻乡三书不下丰伆乢乱丗丱仐乒丙云伉优亭亠伍亜世仕事亥仒亰伐伛且代伖伈仨乖亅亻们乢丟丙仂仲亂仿乓专伎他仒伉仩了亍伃亞丏亃伂东仄专丽乔亇亖一伞京乻丨亲乙乵伈亡丂乒乸串両伅令両仸丣亻",
+   "0.668"
+  ],
+  [
+   "什伓伦乴丸乂乹京业亲伊乭乀仛伇久丩井们丣之亝份伃亍乌乛乣丂休伞乢习仡乨亟众三仃仿亙亇丏丳丱亘亴予丢仵介仚仧下书丏仒个仏丆乑予乂丰丕仳亼丑丨个亩乳仑习丼伌伕与京仇伨伓专乚二乛仰伧仭丈串两亢乂仓丼不且代丧亡伩仢仍乚仨丫于仨专乮亚丂乪乯企仼亏个件乴乘亩亦乥亰亀伓乢伨亂丬三伤伨亟亗了伞乱亨乹丬仨亡丼一令伂伧伐伜七亖乧仃仂亢仳亥仌云了久亣仼伖三乌伩仢企亽且一义义仇争串交交一仅亓丌丰亠亰伋丒享份仔他五亡丝丕乷亹仪仆乫丠乏伞伣义丏両严乄丯伖件亰企伍乑互七仛亘仼东份仁丐人乸乑亗亄仹乃产伖亖代亪仺云乊仹仿丐亢乁人",
+   "什伓伦乴丸乂乹京业亲伊乭乀仛伇久丩井们丣之亝份伃亍乌乛乣丂个仏丆乑予乂丰丕仳亼丑丨个亩乳仑习丼伌伕与京乚二休伞乢习仡乨亟众三仃仿亙亇丏丳丱亘亴予丢仵介仚仧下书丏仒乛仰伧仭丈串仇伨伓专两亢乂仓丼不且代丧亡伩仢仍乚仨丫于仨专乮亚丂乪乯企仼亏个件乴乘亩亦乥亰亀伓乢伨亂丬三伤伨亟亗了伞乱亨乹丬仨亡丼一令伂伧伐伜七亖乧仃仂亢亽且一义义仇争串交交一仅亓丌丰亠亰伋丒享份仔他仛亘仼东份仁丐人乸仳亥仌云了久亣仼伖三乌伩仢企乑亗亄仹乃产伖亖代亪仺云五亡丝丕乷亹仪仆乫丠乏伞伣义丏両严乄丯伖件亰企伍乑互七乊仹仿丐亢乁人",
+   "0.748"
   ]
  ]
 }

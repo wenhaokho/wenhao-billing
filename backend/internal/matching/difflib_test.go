@@ -26,11 +26,11 @@ func TestRatioMatchesPython(t *testing.T) {
 	}
 	for _, c := range golden.Cases {
 		a, b, want := c[0], c[1], c[2]
-		name := a + "|" + b
+		name := []rune(a + "|" + b)
 		if len(name) > 40 {
 			name = name[:40]
 		}
-		t.Run(name, func(t *testing.T) {
+		t.Run(string(name), func(t *testing.T) {
 			t.Parallel()
 			if got := platform.PyFloatRepr(Ratio(a, b)); got != want {
 				t.Fatalf("Ratio(%q, %q) = %s, want %s", a, b, got, want)
