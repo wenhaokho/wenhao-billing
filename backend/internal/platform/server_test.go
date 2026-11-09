@@ -147,6 +147,7 @@ type patchOut struct {
 }
 
 func TestHealth(t *testing.T) {
+	t.Parallel()
 	rec := get(t, testServer(t), "/health")
 	if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != `{"status":"ok"}` {
 		t.Errorf("%d %s", rec.Code, rec.Body)
@@ -154,6 +155,7 @@ func TestHealth(t *testing.T) {
 }
 
 func TestErrorsAreProblemJSON(t *testing.T) {
+	t.Parallel()
 	rec := get(t, probeServer(t), "/fail")
 	want := `{"title":"Bad Request","status":400,"detail":"cannot send a voided invoice","code":"invoice_voided"}`
 	if rec.Code != 400 || rec.Header().Get("Content-Type") != "application/problem+json" || strings.TrimSpace(rec.Body.String()) != want {
@@ -162,6 +164,7 @@ func TestErrorsAreProblemJSON(t *testing.T) {
 }
 
 func TestErrorDetailIgnoresIndonesian(t *testing.T) {
+	t.Parallel()
 	rec := get(t, probeServer(t), "/fail", "Accept-Language", "id")
 	var b struct{ Detail string }
 	_ = json.Unmarshal(rec.Body.Bytes(), &b)
@@ -171,6 +174,7 @@ func TestErrorDetailIgnoresIndonesian(t *testing.T) {
 }
 
 func TestUnknownRouteIsProblem404(t *testing.T) {
+	t.Parallel()
 	rec := get(t, probeServer(t), "/nowhere", "Accept-Language", "id")
 	var b struct {
 		Status       int
@@ -183,6 +187,7 @@ func TestUnknownRouteIsProblem404(t *testing.T) {
 }
 
 func TestValidationIs422ProblemWithErrors(t *testing.T) {
+	t.Parallel()
 	rec := do(t, probeServer(t), http.MethodPost, "/create", `{}`)
 	var b struct {
 		Detail string
@@ -195,6 +200,7 @@ func TestValidationIs422ProblemWithErrors(t *testing.T) {
 }
 
 func TestPanicIsProblem500(t *testing.T) {
+	t.Parallel()
 	h := probeServer(t)
 	rec := get(t, h, "/boom")
 	var b struct {
@@ -213,6 +219,7 @@ func TestPanicIsProblem500(t *testing.T) {
 
 // The Python API ignored unknown body fields; the frontend still sends some.
 func TestUnknownBodyFieldsAreIgnored(t *testing.T) {
+	t.Parallel()
 	rec := do(t, probeServer(t), http.MethodPost, "/create", `{"name":"x","receipt":null}`)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"name":"x"`) {
 		t.Errorf("%d %s", rec.Code, rec.Body)
@@ -220,6 +227,7 @@ func TestUnknownBodyFieldsAreIgnored(t *testing.T) {
 }
 
 func TestNoSchemaMember(t *testing.T) {
+	t.Parallel()
 	h := probeServer(t)
 	rec := do(t, h, http.MethodPost, "/create", `{"name":"x"}`)
 	if rec.Code != 200 || strings.Contains(rec.Body.String(), "$schema") {
@@ -231,6 +239,7 @@ func TestNoSchemaMember(t *testing.T) {
 }
 
 func TestDocsAndOpenAPIKept(t *testing.T) {
+	t.Parallel()
 	h := probeServer(t)
 	for _, p := range []string{"/docs", "/openapi.json"} {
 		if rec := get(t, h, p); rec.Code != 200 {
@@ -240,6 +249,7 @@ func TestDocsAndOpenAPIKept(t *testing.T) {
 }
 
 func TestNoStoreOnApiPaths(t *testing.T) {
+	t.Parallel()
 	h := probeServer(t)
 	for path, want := range map[string]int{"/api/v1/x": 200, "/api/v1/nope": 404, "/oauth/token": 404, "/mcp": 404, "/.well-known/x": 404} {
 		rec := get(t, h, path)
@@ -253,12 +263,14 @@ func TestNoStoreOnApiPaths(t *testing.T) {
 }
 
 func TestSecurityHeaders(t *testing.T) {
+	t.Parallel()
 	if rec := get(t, probeServer(t), "/fail"); rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Error("no nosniff header")
 	}
 }
 
 func TestCorsAllowsConfiguredOriginWithCredentials(t *testing.T) {
+	t.Parallel()
 	h := probeServer(t, testOrigin)
 	rec := get(t, h, "/fail", "Origin", testOrigin)
 	if rec.Header().Get("Access-Control-Allow-Origin") != testOrigin || rec.Header().Get("Access-Control-Allow-Credentials") != "true" {
@@ -270,6 +282,7 @@ func TestCorsAllowsConfiguredOriginWithCredentials(t *testing.T) {
 }
 
 func TestCorsBlankOriginsAllowsNone(t *testing.T) {
+	t.Parallel()
 	rec := get(t, probeServer(t), "/fail", "Origin", testOrigin)
 	if rec.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Errorf("CORS headers: %v", rec.Header())
@@ -277,6 +290,7 @@ func TestCorsBlankOriginsAllowsNone(t *testing.T) {
 }
 
 func TestCorsAllowsSentryHeaders(t *testing.T) {
+	t.Parallel()
 	rec := do(t, probeServer(t, testOrigin), http.MethodOptions, "/api/v1/x", "",
 		"Origin", testOrigin, "Access-Control-Request-Method", "GET", "Access-Control-Request-Headers", "sentry-trace, baggage")
 	allow := strings.ToLower(rec.Header().Get("Access-Control-Allow-Headers"))
@@ -286,6 +300,7 @@ func TestCorsAllowsSentryHeaders(t *testing.T) {
 }
 
 func TestDecimalRequestAcceptsNumberThroughHuma(t *testing.T) {
+	t.Parallel()
 	h := probeServer(t)
 	rec := do(t, h, http.MethodPost, "/amounts", `{"amount":12.5,"rate":1.5,"maybe":null}`)
 	want := `{"amount":"12.5000","rate":"1.50000000","maybe":null}`
@@ -295,6 +310,7 @@ func TestDecimalRequestAcceptsNumberThroughHuma(t *testing.T) {
 }
 
 func TestDecimalRequestAcceptsStringThroughHuma(t *testing.T) {
+	t.Parallel()
 	h := probeServer(t)
 	rec := do(t, h, http.MethodPost, "/amounts", `{"amount":"12.5","rate":"1.5","maybe":"3"}`)
 	want := `{"amount":"12.5000","rate":"1.50000000","maybe":"3.0000"}`
@@ -313,6 +329,7 @@ func TestDecimalRequestAcceptsStringThroughHuma(t *testing.T) {
 }
 
 func TestOptionalPatchThroughHuma(t *testing.T) {
+	t.Parallel()
 	h := probeServer(t)
 	null := `"count":null,"label":null,"lines":`
 	for body, want := range map[string]string{

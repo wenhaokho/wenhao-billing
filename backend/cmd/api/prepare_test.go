@@ -16,6 +16,7 @@ import (
 // stop before goose touches it: running the baseline there would fail half way
 // or, worse, write next to production data.
 func TestServeRefusesUnadoptedDatabase(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	url := testkit.EmptyPostgresURL(t)
 	conn, err := pgx.Connect(ctx, url)
@@ -42,6 +43,7 @@ func TestServeRefusesUnadoptedDatabase(t *testing.T) {
 
 // A fresh database is migrated by serve's startup as before.
 func TestServeMigratesFreshDatabase(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	url := testkit.EmptyPostgresURL(t)
 	if err := prepareDatabase(ctx, url); err != nil {

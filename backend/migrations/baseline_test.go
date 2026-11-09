@@ -81,6 +81,7 @@ func diff(t *testing.T, side string, from, other []string) {
 // described by testdata/schema-snapshot.sql equals testdata/alembic-0028.schema.txt
 // line for line.
 func TestSchemaMatchesAlembic(t *testing.T) {
+	t.Parallel()
 	got := run(t, "schema-snapshot.sql")
 	exp := want(t, "alembic-0028.schema.txt")
 	if strings.Join(got, "\n") == strings.Join(exp, "\n") {
@@ -97,6 +98,7 @@ func TestSchemaMatchesAlembic(t *testing.T) {
 // (chart of accounts, FX gain/loss accounts, the business_profile singleton)
 // are the rows the baseline leaves.
 func TestSeedRowsMatchAlembic(t *testing.T) {
+	t.Parallel()
 	got := run(t, "rows-snapshot.sql")
 	exp := want(t, "alembic-0028.rows.txt")
 	if len(got) != len(exp) {

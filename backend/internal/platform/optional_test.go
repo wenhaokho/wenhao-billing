@@ -30,6 +30,7 @@ type relaxIn struct {
 }
 
 func TestRelaxReachesEmbeddedAndMapFields(t *testing.T) {
+	t.Parallel()
 	h, api := NewServer(Config{Environment: "test"}, Deps{})
 	huma.Register(api, huma.Operation{OperationID: "relax", Method: http.MethodPatch, Path: "/relax", Tags: []string{PublicTag}},
 		func(_ context.Context, _ *relaxIn) (*struct{}, error) { return nil, nil })
@@ -52,6 +53,7 @@ type relaxArrayIn struct {
 
 // A bare JSON array body reaches its items' fields too.
 func TestRelaxReachesArrayBodyItems(t *testing.T) {
+	t.Parallel()
 	h, api := NewServer(Config{Environment: "test"}, Deps{})
 	huma.Register(api, huma.Operation{OperationID: "relax-array", Method: http.MethodPut, Path: "/relax-array", Tags: []string{PublicTag}},
 		func(_ context.Context, _ *relaxArrayIn) (*struct{}, error) { return nil, nil })
@@ -76,6 +78,7 @@ type relaxPtrIn struct {
 }
 
 func TestRelaxReachesPointerEmbeddedFields(t *testing.T) {
+	t.Parallel()
 	h, api := NewServer(Config{Environment: "test"}, Deps{})
 	huma.Register(api, huma.Operation{OperationID: "relax-ptr", Method: http.MethodPatch, Path: "/relax-ptr", Tags: []string{PublicTag}},
 		func(_ context.Context, _ *relaxPtrIn) (*struct{}, error) { return nil, nil })

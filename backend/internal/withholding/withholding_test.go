@@ -20,6 +20,7 @@ func eq(t *testing.T, name string, got decimal.Decimal, want string) {
 }
 
 func TestPph23NoGrossUp(t *testing.T) {
+	t.Parallel()
 	r := Compute(d("10000000"), "IDR", "PPH23", ptr("2"), false)
 	eq(t, "total", r.Total, "10000000")
 	eq(t, "amount", r.Amount, "200000")
@@ -27,6 +28,7 @@ func TestPph23NoGrossUp(t *testing.T) {
 }
 
 func TestPph23GrossUp(t *testing.T) {
+	t.Parallel()
 	r := Compute(d("10000000"), "IDR", "PPH23", ptr("2"), true)
 	eq(t, "total", r.Total, "10204082")
 	eq(t, "amount", r.Amount, "204082")
@@ -34,29 +36,34 @@ func TestPph23GrossUp(t *testing.T) {
 }
 
 func TestPph21UsdGrossUpTwoDecimals(t *testing.T) {
+	t.Parallel()
 	r := Compute(d("1000"), "USD", "PPH21", ptr("2.5"), true)
 	eq(t, "total", r.Total, "1025.64")
 	eq(t, "amount", r.Amount, "25.64")
 }
 
 func TestNoneType(t *testing.T) {
+	t.Parallel()
 	r := Compute(d("500"), "USD", "NONE", nil, true)
 	eq(t, "total", r.Total, "500")
 	eq(t, "amount", r.Amount, "0")
 }
 
 func TestZeroBaseGrossUp(t *testing.T) {
+	t.Parallel()
 	r := Compute(d("0"), "IDR", "PPH23", ptr("2"), true)
 	eq(t, "total", r.Total, "0")
 	eq(t, "amount", r.Amount, "0")
 }
 
 func TestRoundHalfUp(t *testing.T) {
+	t.Parallel()
 	eq(t, "idr", platform.RoundWithholding(d("0.5"), "IDR"), "1")
 	eq(t, "usd", platform.RoundWithholding(d("1.005"), "USD"), "1.01")
 }
 
 func TestNormalizeDefaultsRate(t *testing.T) {
+	t.Parallel()
 	typ, rate, gu, err := Normalize("PPH21", nil, true)
 	if err != nil || typ != "PPH21" || rate == nil || !rate.Equal(d("2.5")) || !gu {
 		t.Fatalf("got %v %v %v %v", typ, show(rate), gu, err)
@@ -64,6 +71,7 @@ func TestNormalizeDefaultsRate(t *testing.T) {
 }
 
 func TestNormalizeNoneClears(t *testing.T) {
+	t.Parallel()
 	typ, rate, gu, err := Normalize("NONE", ptr("2"), true)
 	if err != nil || typ != "NONE" || rate != nil || gu {
 		t.Fatalf("got %v %v %v %v", typ, show(rate), gu, err)
@@ -71,6 +79,7 @@ func TestNormalizeNoneClears(t *testing.T) {
 }
 
 func TestNormalizeRejectsInvalid(t *testing.T) {
+	t.Parallel()
 	rateMsg := "Withholding tax rate must be greater than 0 and less than 100"
 	cases := []struct {
 		typ  string
@@ -90,15 +99,18 @@ func TestNormalizeRejectsInvalid(t *testing.T) {
 }
 
 func TestExpectedCash(t *testing.T) {
+	t.Parallel()
 	eq(t, "cash", ExpectedCash(d("1000"), d("20"), d("5")), "985")
 }
 
 func TestExpectedCashNeverNegative(t *testing.T) {
+	t.Parallel()
 	eq(t, "cash", ExpectedCash(d("10"), d("50"), d("0")), "0")
 }
 
 // Ties at each of Compute's two rounding call sites (half-up, not half-even).
 func TestComputeRoundsTiesHalfUp(t *testing.T) {
+	t.Parallel()
 	r := Compute(d("100.5"), "USD", "PPH23", ptr("1"), false)
 	eq(t, "usd amount (1.005 tie)", r.Amount, "1.01")
 	r = Compute(d("25"), "IDR", "PPH23", ptr("2"), false)

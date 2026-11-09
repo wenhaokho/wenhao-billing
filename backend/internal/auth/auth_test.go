@@ -180,6 +180,7 @@ func bodyOf(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 }
 
 func TestLoginSetsCookieAndReturnsUser(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	id := a.user(t, adminEmail, "admin")
 	rec := a.login(t, adminEmail, password, false)
@@ -206,6 +207,7 @@ func TestLoginSetsCookieAndReturnsUser(t *testing.T) {
 }
 
 func TestLoginRememberSetsThirtyDayCookie(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	rec := a.login(t, adminEmail, password, true)
@@ -216,6 +218,7 @@ func TestLoginRememberSetsThirtyDayCookie(t *testing.T) {
 
 // Ports test_login_defaults_to_no_remember: remember is optional.
 func TestLoginDefaultsToEightHours(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	rec := a.do(t, http.MethodPost, "/api/v1/auth/login", `{"email":"`+adminEmail+`","password":"`+password+`"}`)
@@ -231,6 +234,7 @@ func TestLoginDefaultsToEightHours(t *testing.T) {
 }
 
 func TestShortSessionExpiresAfterDefaultTTL(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	c := a.mustLogin(t, adminEmail, false)
@@ -242,6 +246,7 @@ func TestShortSessionExpiresAfterDefaultTTL(t *testing.T) {
 }
 
 func TestRememberSessionSurvivesShortTTL(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	c := a.mustLogin(t, adminEmail, true)
@@ -252,6 +257,7 @@ func TestRememberSessionSurvivesShortTTL(t *testing.T) {
 }
 
 func TestRememberSessionExpiresAfterRememberTTL(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	c := a.mustLogin(t, adminEmail, true)
@@ -269,6 +275,7 @@ func noSessionCookie(t *testing.T, rec *httptest.ResponseRecorder) {
 }
 
 func TestLoginWrongPasswordIs401InvalidCredentials(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	rec := a.login(t, adminEmail, "wrong-password", false)
@@ -277,6 +284,7 @@ func TestLoginWrongPasswordIs401InvalidCredentials(t *testing.T) {
 }
 
 func TestLoginUnknownEmailIs401InvalidCredentials(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	rec := a.login(t, "nobody@example.com", password, false)
 	wantError(t, rec, http.StatusUnauthorized, "invalid credentials")
@@ -286,6 +294,7 @@ func TestLoginUnknownEmailIs401InvalidCredentials(t *testing.T) {
 // Python stored bcrypt hashes; until set-password replaces one, signing in
 // with it is refused like a wrong password, never a 500.
 func TestLoginWithBcryptHashIsInvalidCredentials(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	id := a.user(t, adminEmail, "admin")
 	if _, err := a.pool.Exec(context.Background(), `UPDATE users SET password_hash = $2 WHERE user_id = $1`,
@@ -296,6 +305,7 @@ func TestLoginWithBcryptHashIsInvalidCredentials(t *testing.T) {
 }
 
 func TestLogoutClearsCookieAnd204(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	rec := a.do(t, http.MethodPost, "/api/v1/auth/logout", "")
 	if rec.Code != http.StatusNoContent {
@@ -307,6 +317,7 @@ func TestLogoutClearsCookieAnd204(t *testing.T) {
 }
 
 func TestMeReturnsUser(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	id := a.user(t, adminEmail, "admin")
 	if _, err := a.pool.Exec(context.Background(), `UPDATE users SET display_name = 'Wen' WHERE user_id = $1`, id); err != nil {
@@ -328,6 +339,7 @@ func (a app) changePassword(t *testing.T, cookie, current, next string) *httptes
 
 // Wrong current password is 400, not 401: the frontend signs out on any 401.
 func TestChangePasswordWrongCurrentIs400(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	c := a.mustLogin(t, adminEmail, false)
@@ -335,6 +347,7 @@ func TestChangePasswordWrongCurrentIs400(t *testing.T) {
 }
 
 func TestChangePasswordSameIs400(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	c := a.mustLogin(t, adminEmail, false)
@@ -342,6 +355,7 @@ func TestChangePasswordSameIs400(t *testing.T) {
 }
 
 func TestChangePasswordSignsOutOtherSessions(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	id := a.user(t, adminEmail, "admin")
 	mine := a.mustLogin(t, adminEmail, true)
@@ -395,6 +409,7 @@ func wantGeneric(t *testing.T, rec *httptest.ResponseRecorder) {
 }
 
 func TestForgotPasswordIsGenericForUnknownEmail(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wantGeneric(t, a.forgot(t, "nobody@example.com"))
 	if n := len(a.mail.messages()); n != 0 {
@@ -424,6 +439,7 @@ func (a app) forgotToken(t *testing.T) string {
 }
 
 func TestForgotPasswordStoresHashNotToken(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	id := a.user(t, adminEmail, "admin")
 	token := a.forgotToken(t)
@@ -467,6 +483,7 @@ func (a app) reset(t *testing.T, token, next string) *httptest.ResponseRecorder 
 }
 
 func TestResetPasswordConsumesToken(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	id := a.user(t, adminEmail, "admin")
 	before := a.mustLogin(t, adminEmail, false)
@@ -485,6 +502,7 @@ func TestResetPasswordConsumesToken(t *testing.T) {
 }
 
 func TestResetPasswordExpiredTokenIs400AndCleared(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	id := a.user(t, adminEmail, "admin")
 	token := a.forgotToken(t)
@@ -504,6 +522,7 @@ func TestResetPasswordExpiredTokenIs400AndCleared(t *testing.T) {
 }
 
 func TestPasswordLengthIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	c := a.mustLogin(t, adminEmail, false)
@@ -522,7 +541,9 @@ func TestPasswordLengthIs422(t *testing.T) {
 }
 
 // countArgon2 counts the argon2id verifications requests run (a non-argon2id
-// hash's error is not one) until the test ends.
+// hash's error is not one) until the test ends. It swaps the package's
+// verifyHash, so a test calling it must not call t.Parallel: Go runs such a
+// test while no parallel test of the package is running.
 func countArgon2(t *testing.T) *atomic.Int64 {
 	t.Helper()
 	n := &atomic.Int64{}
@@ -540,6 +561,7 @@ func countArgon2(t *testing.T) *atomic.Int64 {
 
 // Every refused login costs one argon2id verification, so its timing does
 // not tell an unknown email (or a bcrypt-era account) from a wrong password.
+// Not parallel: countArgon2 swaps verifyHash.
 func TestUnknownEmailStillVerifies(t *testing.T) {
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
@@ -564,7 +586,8 @@ func TestUnknownEmailStillVerifies(t *testing.T) {
 
 // argon2id costs 19 MiB a run, so at most two run at once however many
 // logins arrive together. The instrumented verifier holds each run for a
-// moment and records how many overlap.
+// moment and records how many overlap. Not parallel: it swaps verifyHash, and
+// another test's logins would take argonSlots and hide the overlap.
 func TestArgonConcurrencyIsBounded(t *testing.T) {
 	const capacity = 2
 	a := newApp(t)
@@ -607,6 +630,8 @@ func TestArgonConcurrencyIsBounded(t *testing.T) {
 }
 
 // A request waiting for an argon2id slot gives up when its context ends.
+// Not parallel: it fills the package's argonSlots, which would block every
+// other test's hashing.
 func TestArgonSlotWaitEndsWithContext(t *testing.T) {
 	for range cap(argonSlots) {
 		argonSlots <- struct{}{}
@@ -627,11 +652,14 @@ func TestArgonSlotWaitEndsWithContext(t *testing.T) {
 }
 
 // Two simultaneous resets with one token: exactly one succeeds. The hook
-// holds each request just after it has read the token's row until the other
-// has read it too (or 500 ms pass): with the row locked FOR UPDATE the second
-// cannot read it until the first commits, so the hold times out and the
-// second then finds the token spent. Without the lock both read it, both
-// pass the hold together and both would succeed.
+// holds the first request just after it has read the token's row until the
+// other has read it too, or is seen waiting on a row lock in this test's
+// database: with the row locked FOR UPDATE the second cannot read it until
+// the first commits, and then finds the token spent. Without the lock both
+// read it, both pass the hold together and both would succeed. Holding until
+// the second is seen blocked, not for a fixed time, keeps the test from
+// passing without the lock when the second request merely starts late.
+// Not parallel: it sets the package's testHookResetLocked.
 func TestResetTokenSingleUseUnderConcurrency(t *testing.T) {
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
@@ -642,10 +670,29 @@ func TestResetTokenSingleUseUnderConcurrency(t *testing.T) {
 	testHookResetLocked = func() {
 		if arrived.Add(1) == 2 {
 			close(both)
+			return
 		}
-		select {
-		case <-both:
-		case <-time.After(500 * time.Millisecond):
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			select {
+			case <-both:
+				return
+			default:
+			}
+			var waiting int
+			if err := a.pool.QueryRow(context.Background(),
+				`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting); err != nil {
+				t.Errorf("pg_stat_activity: %v", err)
+				return
+			}
+			if waiting > 0 {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Errorf("the second reset neither read the token nor waited on its row lock within 10 s")
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
 	t.Cleanup(func() { testHookResetLocked = nil })

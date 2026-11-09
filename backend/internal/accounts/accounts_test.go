@@ -53,6 +53,7 @@ func wantProblem(t *testing.T, rec *httptest.ResponseRecorder, status int, code,
 }
 
 func TestAccountsListOrderedByCodeAndFiltered(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	all := apitest.Decode[[]accounts.AccountOut](t, a.Do(t, http.MethodGet, path, nil), http.StatusOK)
 	if len(all) != seedCount {
@@ -87,6 +88,7 @@ func TestAccountsListOrderedByCodeAndFiltered(t *testing.T) {
 }
 
 func TestAccountsEmptyFilterIsArray(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	rec := a.Do(t, http.MethodGet, path+"?active=false", nil)
 	if rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
@@ -95,6 +97,7 @@ func TestAccountsEmptyFilterIsArray(t *testing.T) {
 }
 
 func TestAccountCreate201(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, map[string]any{"code": "6100", "name": "Software Subscriptions", "type": "EXPENSE"})
 	if got.AccountID <= seedCount || got.Code != "6100" || got.Name != "Software Subscriptions" || got.Type != "EXPENSE" || !got.Active {
@@ -124,12 +127,14 @@ func TestAccountCreate201(t *testing.T) {
 }
 
 func TestAccountCreateDuplicateCodeIs409(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	rec := a.Do(t, http.MethodPost, path, map[string]any{"code": "1000", "name": "Second Bank", "type": "ASSET"})
 	wantProblem(t, rec, http.StatusConflict, "account_code_exists", "account code already exists")
 }
 
 func TestAccountPatchDuplicateCodeIs409(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	rec := a.Do(t, http.MethodPatch, accountPath(2), map[string]any{"code": "1000"})
 	wantProblem(t, rec, http.StatusConflict, "account_code_exists", "account code already exists")
@@ -140,6 +145,7 @@ func TestAccountPatchDuplicateCodeIs409(t *testing.T) {
 }
 
 func TestAccountPatchPartial(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	before := create(t, a, map[string]any{"code": "6100", "name": "Software", "type": "EXPENSE", "active": false})
 	got := apitest.Decode[accounts.AccountOut](t, a.Do(t, http.MethodPatch, accountPath(before.AccountID), map[string]any{"name": "Software Subscriptions"}), http.StatusOK)
@@ -158,6 +164,7 @@ func TestAccountPatchPartial(t *testing.T) {
 }
 
 func TestAccountTypeOutsideEnumIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	for name, rec := range map[string]*httptest.ResponseRecorder{
 		"create": a.Do(t, http.MethodPost, path, map[string]any{"code": "6100", "name": "X", "type": "REVENUE"}),
@@ -210,6 +217,7 @@ func wantNullRefused(t *testing.T, rec *httptest.ResponseRecorder, fields ...str
 // Python answers 409 here (the NOT NULL violation is an IntegrityError); Go
 // refuses the null before any query (platform.NotNull), reporting every one.
 func TestAccountPatchNullCodeIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	for _, field := range []string{"code", "name", "type", "active"} {
 		wantNullRefused(t, a.Do(t, http.MethodPatch, accountPath(1), map[string]any{field: nil}), field)
@@ -223,6 +231,7 @@ func TestAccountPatchNullCodeIs422(t *testing.T) {
 }
 
 func TestAccountNotFound404(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	for _, method := range []string{http.MethodGet, http.MethodPatch, http.MethodDelete} {
 		var body any
@@ -235,6 +244,7 @@ func TestAccountNotFound404(t *testing.T) {
 }
 
 func TestAccountDeleteDeactivates(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := apitest.Decode[accounts.AccountOut](t, a.Do(t, http.MethodDelete, accountPath(1), nil), http.StatusOK)
 	want := accounts.AccountOut{AccountID: 1, Code: "1000", Name: "Operating Bank", Type: "ASSET", Active: false}
@@ -248,6 +258,7 @@ func TestAccountDeleteDeactivates(t *testing.T) {
 }
 
 func TestAccountsRequireAdmin(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	for _, req := range []struct {
 		method, path string
@@ -264,6 +275,7 @@ func TestAccountsRequireAdmin(t *testing.T) {
 
 // AccountTypes is Python's AccountType, and the request enum accepts each.
 func TestAccountTypesAreTheEnum(t *testing.T) {
+	t.Parallel()
 	want := []string{"ASSET", "LIABILITY", "EQUITY", "INCOME", "EXPENSE", "COGS"}
 	if !slices.Equal(accounts.AccountTypes, want) {
 		t.Errorf("%v", accounts.AccountTypes)
@@ -279,6 +291,7 @@ func TestAccountTypesAreTheEnum(t *testing.T) {
 // Every type field's enum, in requests and the response, is AccountTypes
 // exactly: same values, same order, nothing extra either way.
 func TestAccountTypeSchemasEnumIsAccountTypes(t *testing.T) {
+	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
 	accounts.Register(api, nil)
 	reg := api.OpenAPI().Components.Schemas

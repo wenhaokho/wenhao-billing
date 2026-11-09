@@ -76,6 +76,7 @@ func gooseTableExists(t *testing.T, pool *pgxpool.Pool) bool {
 }
 
 func TestAdoptThenMigrateAppliesOnlyNewMigrations(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	url := legacyDB(t)
 	pool := openPool(t, url)
@@ -113,6 +114,7 @@ func TestAdoptThenMigrateAppliesOnlyNewMigrations(t *testing.T) {
 }
 
 func TestAdoptRefusesWrongAlembicHead(t *testing.T) {
+	t.Parallel()
 	url := legacyDB(t)
 	exec(t, url, `UPDATE alembic_version SET version_num = '0027_previous_head'`)
 	pool := openPool(t, url)
@@ -131,6 +133,7 @@ func TestAdoptRefusesWrongAlembicHead(t *testing.T) {
 }
 
 func TestAdoptRefusesSchemaDrift(t *testing.T) {
+	t.Parallel()
 	url := legacyDB(t)
 	exec(t, url, `ALTER TABLE customers DROP COLUMN website`)
 	pool := openPool(t, url)
@@ -147,6 +150,7 @@ func TestAdoptRefusesSchemaDrift(t *testing.T) {
 }
 
 func TestAdoptRefusesAlreadyAdopted(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	pool := openPool(t, legacyDB(t))
 	if err := migrations.Adopt(ctx, pool); err != nil {
@@ -161,6 +165,7 @@ func TestAdoptRefusesAlreadyAdopted(t *testing.T) {
 }
 
 func TestCheckAdoptedRefusesAlembicDatabase(t *testing.T) {
+	t.Parallel()
 	err := migrations.CheckAdopted(context.Background(), openPool(t, legacyDB(t)))
 	if !errors.Is(err, migrations.ErrNotAdopted) {
 		t.Fatalf("CheckAdopted on an Alembic database: %v, want ErrNotAdopted", err)
@@ -179,6 +184,7 @@ const gooseVersionZero = `CREATE TABLE goose_db_version (
 // A goose table without the baseline next to Alembic's history is not an
 // adoption: goose would run the baseline over the Alembic schema.
 func TestCheckAdoptedRefusesGooseTableWithoutBaseline(t *testing.T) {
+	t.Parallel()
 	url := legacyDB(t)
 	exec(t, url, gooseVersionZero)
 	err := migrations.CheckAdopted(context.Background(), openPool(t, url))
@@ -189,6 +195,7 @@ func TestCheckAdoptedRefusesGooseTableWithoutBaseline(t *testing.T) {
 
 // Goose history holding only version 0 over tables goose did not create.
 func TestCheckAdoptedRefusesGooseVersionZeroOverExistingSchema(t *testing.T) {
+	t.Parallel()
 	url := testkit.EmptyPostgresURL(t)
 	exec(t, url, `CREATE TABLE customers (id bigint PRIMARY KEY);`+gooseVersionZero)
 	err := migrations.CheckAdopted(context.Background(), openPool(t, url))
@@ -202,6 +209,7 @@ func TestCheckAdoptedRefusesGooseVersionZeroOverExistingSchema(t *testing.T) {
 
 // Tables with neither history: nothing says what this database is.
 func TestCheckAdoptedRefusesUnknownSchema(t *testing.T) {
+	t.Parallel()
 	url := testkit.EmptyPostgresURL(t)
 	exec(t, url, `CREATE TABLE customers (id bigint PRIMARY KEY)`)
 	err := migrations.CheckAdopted(context.Background(), openPool(t, url))
@@ -214,12 +222,14 @@ func TestCheckAdoptedRefusesUnknownSchema(t *testing.T) {
 }
 
 func TestCheckAdoptedAcceptsFreshDatabase(t *testing.T) {
+	t.Parallel()
 	if err := migrations.CheckAdopted(context.Background(), openPool(t, testkit.EmptyPostgresURL(t))); err != nil {
 		t.Fatalf("CheckAdopted on an empty database: %v", err)
 	}
 }
 
 func TestCheckAdoptedAcceptsGooseDatabase(t *testing.T) {
+	t.Parallel()
 	if err := migrations.CheckAdopted(context.Background(), openPool(t, testkit.PostgresURL(t, migrations.FS))); err != nil {
 		t.Fatalf("CheckAdopted on a goose-migrated database: %v", err)
 	}

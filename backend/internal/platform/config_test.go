@@ -18,6 +18,7 @@ func baseVars(extra map[string]string) map[string]string {
 }
 
 func TestConfigReadsJSONCorsOrigins(t *testing.T) {
+	t.Parallel()
 	cfg, err := ParseConfig(baseVars(map[string]string{"CORS_ORIGINS": `["https://billing.wenhao.id"]`}))
 	if err != nil {
 		t.Fatal(err)
@@ -28,6 +29,7 @@ func TestConfigReadsJSONCorsOrigins(t *testing.T) {
 }
 
 func TestConfigReadsCommaCorsOrigins(t *testing.T) {
+	t.Parallel()
 	cfg, err := ParseConfig(baseVars(map[string]string{"CORS_ORIGINS": "http://a.test, http://b.test"}))
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +40,7 @@ func TestConfigReadsCommaCorsOrigins(t *testing.T) {
 }
 
 func TestConfigRewritesPsycopgURL(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"postgresql+psycopg://u:p@h:5432/d": "postgresql://u:p@h:5432/d",
 		"postgres://u:p@h:5432/d":           "postgresql://u:p@h:5432/d",
@@ -54,6 +57,7 @@ func TestConfigRewritesPsycopgURL(t *testing.T) {
 }
 
 func TestConfigRefusesShortSessionSecret(t *testing.T) {
+	t.Parallel()
 	_, err := ParseConfig(baseVars(map[string]string{"SESSION_SECRET": configSecret[:31]}))
 	if err == nil || !strings.Contains(err.Error(), "SESSION_SECRET") {
 		t.Errorf("err = %v, want one naming SESSION_SECRET", err)
@@ -61,6 +65,7 @@ func TestConfigRefusesShortSessionSecret(t *testing.T) {
 }
 
 func TestConfigRequiresDatabaseURL(t *testing.T) {
+	t.Parallel()
 	_, err := ParseConfig(map[string]string{"SESSION_SECRET": configSecret})
 	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL") {
 		t.Errorf("err = %v, want one naming DATABASE_URL", err)
@@ -68,6 +73,7 @@ func TestConfigRequiresDatabaseURL(t *testing.T) {
 }
 
 func TestConfigDefaults(t *testing.T) {
+	t.Parallel()
 	cfg, err := ParseConfig(baseVars(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -87,6 +93,7 @@ func TestConfigDefaults(t *testing.T) {
 }
 
 func TestConfigDefaultsToProduction(t *testing.T) {
+	t.Parallel()
 	cfg, err := ParseConfig(baseVars(nil))
 	if err != nil || !cfg.Production() {
 		t.Errorf("Production() = false without ENVIRONMENT (err %v)", err)
@@ -98,6 +105,7 @@ func TestConfigDefaultsToProduction(t *testing.T) {
 }
 
 func TestConfigEmptyCorsOriginsAllowsNone(t *testing.T) {
+	t.Parallel()
 	for _, v := range []string{"", "  ", "[]", `["", " "]`} {
 		cfg, err := ParseConfig(baseVars(map[string]string{"CORS_ORIGINS": v}))
 		if err != nil || len(cfg.CORSOrigins) != 0 {
@@ -107,6 +115,7 @@ func TestConfigEmptyCorsOriginsAllowsNone(t *testing.T) {
 }
 
 func TestConfigMalformedJSONCorsOriginsErrors(t *testing.T) {
+	t.Parallel()
 	_, err := ParseConfig(baseVars(map[string]string{"CORS_ORIGINS": `["https://a"`}))
 	if err == nil || !strings.Contains(err.Error(), "CORS_ORIGINS") {
 		t.Errorf("err = %v, want one naming CORS_ORIGINS", err)
