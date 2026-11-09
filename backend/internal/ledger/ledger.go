@@ -325,3 +325,20 @@ func insert(ctx context.Context, q *ledgerdb.Queries, e Entry) error {
 	}
 	return nil
 }
+
+// ActiveEntryFor returns the newest entry for the source that is neither
+// reversed nor itself a reversal, or false when there is none. A reversal
+// shares its original's source and has reversed_by_entry_id NULL, so that
+// test alone would pick it; the original's reversed_by_entry_id points at the
+// reversal, so an entry some other entry points at is a reversal and is
+// skipped.
+func ActiveEntryFor(ctx context.Context, tx pgx.Tx, sourceType string, sourceID uuid.UUID) (uuid.UUID, bool, error) {
+	id, err := ledgerdb.New(tx).ActiveEntryFor(ctx, ledgerdb.ActiveEntryForParams{SourceType: sourceType, SourceID: sourceID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, false, nil
+	}
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("ledger: active entry: %w", err)
+	}
+	return id, true, nil
+}

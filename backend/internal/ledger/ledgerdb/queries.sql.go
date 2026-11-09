@@ -43,6 +43,33 @@ func (q *Queries) AccountIDsByCode(ctx context.Context, codes []string) ([]Accou
 	return items, nil
 }
 
+const activeEntryFor = `-- name: ActiveEntryFor :one
+SELECT e.entry_id
+  FROM journal_entries e
+ WHERE e.source_type = $1
+   AND e.source_id = $2
+   AND e.reversed_by_entry_id IS NULL
+   AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id)
+ ORDER BY e.posted_at DESC, e.entry_id DESC
+ LIMIT 1
+`
+
+type ActiveEntryForParams struct {
+	SourceType string
+	SourceID   uuid.UUID
+}
+
+// The newest entry for a source that is neither reversed nor itself a reversal
+// (no entry's reversed_by_entry_id points at it). A reversal shares the
+// original's source and has reversed_by_entry_id NULL, so the NOT EXISTS is what
+// keeps it out.
+func (q *Queries) ActiveEntryFor(ctx context.Context, arg ActiveEntryForParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, activeEntryFor, arg.SourceType, arg.SourceID)
+	var entry_id uuid.UUID
+	err := row.Scan(&entry_id)
+	return entry_id, err
+}
+
 const entryLines = `-- name: EntryLines :many
 SELECT account_id, debit, credit, currency, base_amount_debit, base_amount_credit, fx_rate
   FROM journal_lines
