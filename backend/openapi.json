@@ -3114,6 +3114,39 @@
         },
         "type": "object"
       },
+      "InvoicesSummaryResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "avg_days_to_pay": {
+            "description": "Mean days from issue to payment over every CLEARED payment of a PAID invoice in the last 90 days; null when there is none.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "due_30d": {
+            "description": "Open balance per currency of invoices due from today to 30 days ahead, both inclusive, by currency.",
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "type": "array"
+          },
+          "overdue": {
+            "description": "Open balance per currency of invoices due before today, by currency.",
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "overdue",
+          "due_30d",
+          "avg_days_to_pay"
+        ],
+        "type": "object"
+      },
       "ItemCreate": {
         "additionalProperties": true,
         "properties": {
@@ -3815,6 +3848,103 @@
           "currency",
           "amount",
           "milestone_ref"
+        ],
+        "type": "object"
+      },
+      "MonthlyRevenueBucket": {
+        "additionalProperties": true,
+        "properties": {
+          "month": {
+            "description": "YYYY-MM.",
+            "type": "string"
+          },
+          "native_totals": {
+            "additionalProperties": {
+              "examples": [
+                "1500000.0000"
+              ],
+              "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+              "type": "string"
+            },
+            "description": "Invoiced amount in each invoice currency.",
+            "type": "object"
+          },
+          "native_unpaid_totals": {
+            "additionalProperties": {
+              "examples": [
+                "1500000.0000"
+              ],
+              "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+              "type": "string"
+            },
+            "description": "The part of native_totals still owed; a currency with nothing owed is left out.",
+            "type": "object"
+          },
+          "totals": {
+            "additionalProperties": {
+              "examples": [
+                "1500000.0000"
+              ],
+              "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+              "type": "string"
+            },
+            "description": "Invoiced amount in the base currency, per source currency, at today's rate. Currencies with no rate are left out.",
+            "type": "object"
+          },
+          "unpaid_totals": {
+            "additionalProperties": {
+              "examples": [
+                "1500000.0000"
+              ],
+              "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+              "type": "string"
+            },
+            "description": "The part of totals still owed, in the base currency; a currency with nothing owed is left out.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "month",
+          "totals",
+          "native_totals",
+          "unpaid_totals",
+          "native_unpaid_totals"
+        ],
+        "type": "object"
+      },
+      "MonthlyRevenueResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "base_currency": {
+            "type": "string"
+          },
+          "currencies": {
+            "description": "Sorted currencies that have a base total in some month.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "months": {
+            "description": "Twelve months, oldest first, ending with the current month.",
+            "items": {
+              "$ref": "#/components/schemas/MonthlyRevenueBucket"
+            },
+            "type": "array"
+          },
+          "unconverted": {
+            "description": "Sorted currencies with no FX rate to the base currency.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "base_currency",
+          "currencies",
+          "unconverted",
+          "months"
         ],
         "type": "object"
       },
@@ -11727,6 +11857,68 @@
           }
         },
         "summary": "Dashboard statistics, recent activity and upcoming invoices",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/api/v1/stats/invoices-summary": {
+      "get": {
+        "operationId": "stats-invoices-summary",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoicesSummaryResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Overdue and due-in-30-days totals and the average days to pay",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/api/v1/stats/revenue-monthly": {
+      "get": {
+        "operationId": "stats-revenue-monthly",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyRevenueResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Invoiced revenue by calendar month for the last 12 months",
         "tags": [
           "stats"
         ]
