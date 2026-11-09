@@ -226,7 +226,12 @@ func (s Sessions) read(ctx huma.Context) (userID uuid.UUID, epoch int, remember 
 	if err != nil {
 		return uuid.Nil, 0, false, errNoSession
 	}
-	claims, err := s.parse(c.Value)
+	return s.readToken(c.Value)
+}
+
+// readToken is read on the cookie's value.
+func (s Sessions) readToken(token string) (userID uuid.UUID, epoch int, remember bool, err error) {
+	claims, err := s.parse(token)
 	if errors.Is(err, jwt.ErrTokenExpired) {
 		return uuid.Nil, 0, false, errSessionExpired
 	}
@@ -242,6 +247,41 @@ func (s Sessions) read(ctx huma.Context) (userID uuid.UUID, epoch int, remember 
 	}
 	remember, _ = claims["remember"].(bool)
 	return userID, int(n), remember, nil
+}
+
+// ErrNoLiveSession is a request with no live session: no cookie, a token that
+// does not verify, one that has expired, or one signed at an older (or newer)
+// session epoch than its user's.
+var ErrNoLiveSession = errors.New("no live session")
+
+// RequestPrincipal is the user r's session cookie signs in, checked as an
+// Admin operation checks it (signature, expiry on the Clock, session epoch),
+// for plain handlers outside Huma (the MCP connector's OAuth pages). A
+// session whose user no longer exists is a Principal with an empty Role, so
+// a role check refuses it. The caller checks the role.
+func (s Sessions) RequestPrincipal(ctx context.Context, pool *pgxpool.Pool, r *http.Request) (Principal, error) {
+	c, err := r.Cookie(SessionCookie)
+	if err != nil {
+		return Principal{}, ErrNoLiveSession
+	}
+	userID, epoch, remember, err := s.readToken(c.Value)
+	if err != nil {
+		return Principal{}, ErrNoLiveSession
+	}
+	p := Principal{UserID: userID, Remember: remember}
+	var current int
+	err = pool.QueryRow(ctx, `SELECT email, role, session_epoch FROM users WHERE user_id = $1`, userID).
+		Scan(&p.Email, &p.Role, &current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Principal{UserID: userID}, nil
+	}
+	if err != nil {
+		return Principal{}, fmt.Errorf("session user: %w", err)
+	}
+	if epoch != current {
+		return Principal{}, ErrNoLiveSession
+	}
+	return p, nil
 }
 
 // expire clears the session cookie on the answer, as Python cleared the

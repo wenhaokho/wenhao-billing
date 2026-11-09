@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize MCP access</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 30rem; margin: 3rem auto; padding: 0 1rem; }
+  .card { border: 1px solid #d0d0d0; border-radius: 8px; padding: 1.5rem; }
+  .client { font-weight: 600; }
+  .scope { background: #f5f5f5; border-radius: 6px; padding: .75rem 1rem; margin: 1rem 0; }
+  button { font-size: 1rem; padding: .6rem 1.2rem; border-radius: 6px; border: 1px solid #888; cursor: pointer; }
+  button.approve { background: #1a7f37; color: #fff; border-color: #1a7f37; }
+  .actions { display: flex; gap: .75rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Authorize access</h1>
+    <p><span class="client">cli &lt;&amp;&gt; &quot;q&quot; &#x27;a&#x27;</span> is requesting access to your wenhao-billing account via the AI assistant (MCP).</p>
+    <div class="scope">
+      <strong>Scope:</strong> read and write access to your billing data
+      (customers, invoices, bills, reconciliation) on your behalf.
+    </div>
+    <p>Approve only if you initiated this connection.</p>
+    <form method="post" action="/oauth/authorize/consent">
+      <input type="hidden" name="response_type" value="code"><input type="hidden" name="client_id" value="CLIENT_ID"><input type="hidden" name="redirect_uri" value="http://localhost/cb"><input type="hidden" name="code_challenge" value="CHALLENGE"><input type="hidden" name="code_challenge_method" value="S256"><input type="hidden" name="state" value="x&quot;y&lt;z"><input type="hidden" name="csrf_token" value="CSRF_TOKEN">
+      <div class="actions">
+        <button type="submit" name="decision" value="approve" class="approve">Approve</button>
+        <button type="submit" name="decision" value="deny">Deny</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

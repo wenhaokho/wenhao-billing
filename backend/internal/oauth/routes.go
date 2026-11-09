@@ -7,6 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
 // Deps are what the OAuth routes need.
@@ -15,22 +17,48 @@ type Deps struct {
 	// PublicBaseURL is MCP_PUBLIC_BASE_URL, the origin the discovery
 	// documents name.
 	PublicBaseURL string
+	// AppBaseURL is APP_BASE_URL, the frontend origin whose /login the
+	// authorize step bounces an anonymous browser to.
+	AppBaseURL string
+	// Sessions reads the billing_session cookie on the authorize pages.
+	Sessions platform.Sessions
+	// Tokens mints the authorization codes.
+	Tokens *Tokens
+	Clock  platform.Clock
 }
 
 type handler struct {
-	pool *pgxpool.Pool
-	base string
+	pool     *pgxpool.Pool
+	base     string
+	appBase  string
+	sessions platform.Sessions
+	tokens   *Tokens
+	clock    platform.Clock
 }
 
-// Mount adds the discovery documents and the registration route at the root.
+// Mount adds the discovery documents, the registration route and the
+// authorize and consent pages at the root.
 // They are plain chi handlers, not Huma operations: Huma answers a bad body
 // in problem+json, and OAuth clients need {"error", "error_description"}.
 // The caller mounts them only when MCP_ENABLED.
 func Mount(r chi.Router, d Deps) {
-	h := handler{pool: d.Pool, base: strings.TrimRight(d.PublicBaseURL, "/")}
+	clock := d.Clock
+	if clock == nil {
+		clock = platform.SystemClock{}
+	}
+	sessions := d.Sessions
+	if sessions.Clock == nil {
+		sessions.Clock = clock
+	}
+	h := handler{
+		pool: d.Pool, base: strings.TrimRight(d.PublicBaseURL, "/"), appBase: strings.TrimRight(d.AppBaseURL, "/"),
+		sessions: sessions, tokens: d.Tokens, clock: clock,
+	}
 	r.Get("/.well-known/oauth-authorization-server", h.authorizationServer)
 	r.Get("/.well-known/oauth-protected-resource", h.protectedResource)
 	r.Post("/oauth/register", h.register)
+	r.Get("/oauth/authorize", h.authorize)
+	r.Post("/oauth/authorize/consent", h.consent)
 }
 
 // writeJSON writes v as a JSON body with status.

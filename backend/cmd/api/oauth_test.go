@@ -10,7 +10,7 @@ import (
 
 func send(t *testing.T, cfg platform.Config, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
-	handler, _ := platform.NewServer(cfg, platform.Deps{Root: oauthRoot(cfg, nil)})
+	handler, _ := platform.NewServer(cfg, platform.Deps{Root: oauthRoot(cfg, nil, platform.Sessions{}, nil)})
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 	return rec
@@ -38,6 +38,18 @@ func TestMcpDisabledHidesRoutes(t *testing.T) {
 		// Registration is hidden too: no route answers a POST.
 		if rec := send(t, platform.Config{MCPEnabled: false}, http.MethodPost, "/oauth/register"); rec.Code != http.StatusNotFound {
 			t.Errorf("MCP disabled: POST /oauth/register = %d, want 404", rec.Code)
+		}
+	})
+	t.Run("authorize", func(t *testing.T) {
+		t.Parallel()
+		for _, c := range []struct{ method, path string }{{http.MethodGet, "/oauth/authorize"}, {http.MethodPost, "/oauth/authorize/consent"}} {
+			if rec := send(t, platform.Config{MCPEnabled: false}, c.method, c.path); rec.Code != http.StatusNotFound {
+				t.Errorf("MCP disabled: %s %s = %d, want 404", c.method, c.path, rec.Code)
+			}
+			// Mounted when enabled: a bad request is the OAuth 400, not a 404.
+			if rec := send(t, platform.Config{MCPEnabled: true}, c.method, c.path); rec.Code != http.StatusBadRequest {
+				t.Errorf("MCP enabled: %s %s = %d, want 400", c.method, c.path, rec.Code)
+			}
 		}
 	})
 }

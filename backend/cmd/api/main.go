@@ -92,12 +92,16 @@ func register(api huma.API, f features) {
 
 // oauthRoot mounts the MCP connector's OAuth server at the root, only when
 // MCP_ENABLED (nil mounts nothing, and its paths answer 404).
-func oauthRoot(cfg platform.Config, pool *pgxpool.Pool) func(chi.Router) {
+func oauthRoot(cfg platform.Config, pool *pgxpool.Pool, sessions platform.Sessions, clock platform.Clock) func(chi.Router) {
 	if !cfg.MCPEnabled {
 		return nil
 	}
 	return func(r chi.Router) {
-		oauth.Mount(r, oauth.Deps{Pool: pool, PublicBaseURL: cfg.MCPPublicBaseURL})
+		oauth.Mount(r, oauth.Deps{
+			Pool: pool, PublicBaseURL: cfg.MCPPublicBaseURL, AppBaseURL: cfg.AppBaseURL,
+			Sessions: sessions, Clock: clock,
+			Tokens: oauth.NewTokens(cfg.MCPTokenSecret, cfg.MCPAccessTokenTTL, cfg.MCPRefreshTokenTTL),
+		})
 	}
 }
 
@@ -165,7 +169,7 @@ func serve() error {
 
 	clock := platform.SystemClock{}
 	sessions := platform.NewSessions(cfg)
-	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock, Root: oauthRoot(cfg, pool)})
+	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock, Root: oauthRoot(cfg, pool, sessions, clock)})
 	register(api, features{
 		Pool: pool, Sessions: sessions, Mail: mailSender(cfg, logger), Config: cfg, Clock: clock,
 		Logger:   logger,

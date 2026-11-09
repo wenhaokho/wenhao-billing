@@ -9,6 +9,23 @@ import (
 	"context"
 )
 
+const getOAuthClient = `-- name: GetOAuthClient :one
+SELECT client_name, redirect_uris FROM oauth_clients WHERE client_id = $1
+`
+
+type GetOAuthClientRow struct {
+	ClientName   *string
+	RedirectUris string
+}
+
+// The client an authorize request names: its label and registered URIs.
+func (q *Queries) GetOAuthClient(ctx context.Context, clientID string) (GetOAuthClientRow, error) {
+	row := q.db.QueryRow(ctx, getOAuthClient, clientID)
+	var i GetOAuthClientRow
+	err := row.Scan(&i.ClientName, &i.RedirectUris)
+	return i, err
+}
+
 const insertOAuthClient = `-- name: InsertOAuthClient :exec
 INSERT INTO oauth_clients (client_id, client_name, redirect_uris)
 VALUES ($1, $2, $3)
