@@ -55,7 +55,7 @@ type features struct {
 	Mail     email.Sender
 	Config   platform.Config
 	Clock    platform.Clock
-	// FXClient is the FX provider's HTTP client (cfg.FXProviderTimeout).
+	// FXClient is the FX provider's HTTP client (fx.NewClient).
 	FXClient *http.Client
 }
 
@@ -137,7 +137,7 @@ func serve() error {
 	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock})
 	register(api, features{
 		Pool: pool, Sessions: sessions, Mail: mailSender(cfg, logger), Config: cfg, Clock: clock,
-		FXClient: &http.Client{Timeout: cfg.FXProviderTimeout},
+		FXClient: fx.NewClient(cfg),
 	})
 
 	srv := &http.Server{

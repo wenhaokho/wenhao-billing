@@ -36,6 +36,9 @@ type frankfurter struct {
 	// syncs reach the database together.
 	gate chan struct{}
 	usd  int
+	// gateTimedOut records that a gated request gave up waiting for the
+	// second one, so the test can fail instead of passing unsynchronised.
+	gateTimedOut bool
 }
 
 func newFrankfurter(t *testing.T, answers map[string]answer) *frankfurter {
@@ -67,6 +70,9 @@ func (f *frankfurter) serve(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-gate:
 		case <-time.After(5 * time.Second):
+			f.mu.Lock()
+			f.gateTimedOut = true
+			f.mu.Unlock()
 		}
 	}
 	if !ok {
@@ -272,6 +278,45 @@ func TestSyncKeepsProviderLiteral(t *testing.T) {
 	wantSync(t, runSync(t, a), 0, 0, 1, "USD->IDR")
 }
 
+// A rate numeric(19,8) cannot hold, or one that is not positive, is a
+// provider error: nothing is written.
+func TestSyncInvalidRateIs502(t *testing.T) {
+	for _, literal := range []string{"0", "-1", "123456789012"} {
+		f := newFrankfurter(t, map[string]answer{"USD": quote("USD", literal, "2026-01-09")})
+		a := syncApp(t, f, "USD")
+		detail := "fx provider returned invalid rate for USD->IDR: " + literal
+		if p := wantProviderError(t, a, detail); p.Detail != detail {
+			t.Errorf("%s: detail %q, want %q", literal, p.Detail, detail)
+		}
+	}
+}
+
+// Redirects are not followed (httpx's default): a 3xx is a provider error
+// even when the target would answer.
+func TestSyncRedirectIs502(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/latest" {
+			http.Redirect(w, r, "/v1/moved?"+r.URL.RawQuery, http.StatusFound)
+			return
+		}
+		_, _ = w.Write([]byte(quote("USD", "16250.5", "2026-01-09").body))
+	}))
+	t.Cleanup(srv.Close)
+	a := newApp(t, fxConfig(srv.URL+"/v1", "USD"))
+	want := "fx provider request failed for USD->IDR: Redirect response '302 Found' for url '" +
+		srv.URL + "/v1/latest?base=USD&symbols=IDR'"
+	if p := wantProviderError(t, a, want); p.Detail != want {
+		t.Errorf("detail %q, want %q", p.Detail, want)
+	}
+}
+
+func TestNewClient(t *testing.T) {
+	c := fx.NewClient(fxConfig("http://provider.invalid"))
+	if c.Timeout != 5*time.Second || c.CheckRedirect == nil {
+		t.Errorf("timeout %s, CheckRedirect set %v", c.Timeout, c.CheckRedirect != nil)
+	}
+}
+
 func TestSyncConcurrentIsIdempotent(t *testing.T) {
 	f := newFrankfurter(t, map[string]answer{
 		"USD": quote("USD", "16250.5", "2026-01-09"),
@@ -290,6 +335,12 @@ func TestSyncConcurrentIsIdempotent(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	f.mu.Lock()
+	timedOut := f.gateTimedOut
+	f.mu.Unlock()
+	if timedOut {
+		t.Error("the two syncs never reached the provider together: the gate timed out")
+	}
 	created, updated := 0, 0
 	for _, rec := range recs {
 		r := apitest.Decode[syncResult](t, rec, http.StatusOK)

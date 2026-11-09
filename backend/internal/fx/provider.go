@@ -32,6 +32,17 @@ func providerErr(format string, args ...any) error {
 	return providerError{fmt.Sprintf(format, args...)}
 }
 
+// NewClient is the provider's HTTP client: cfg's timeout, and redirects not
+// followed (httpx's default), so a 3xx is a "Redirect response" error.
+func NewClient(cfg platform.Config) *http.Client {
+	return &http.Client{
+		Timeout: cfg.FXProviderTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 // fetched is one provider rate (Python's FetchedRate).
 type fetched struct {
 	from, to string
@@ -41,6 +52,9 @@ type fetched struct {
 
 // maxBody bounds what is read of one provider answer (a real one is ~100 bytes).
 const maxBody = 1 << 20
+
+// maxRate is the first value numeric(19,8) cannot hold (10^11).
+var maxRate = decimal.New(1, 11)
 
 // fetchLatest is Python's fetch_latest_rates: the latest published
 // source->target rate for each source currency, upper-cased, skipping the
@@ -94,7 +108,10 @@ func fetchPair(ctx context.Context, client *http.Client, timeout time.Duration, 
 		return fetched{}, false, providerErr("fx provider returned invalid date for %s: %s", pair, pyRepr(a.Date))
 	}
 	rate, err := decimal.NewFromString(string(value))
-	if err != nil {
+	// fx_rates.rate is numeric(19,8): Postgres rounds to 8 places and then
+	// holds at most 11 integer digits. A rate that is not positive, or does
+	// not fit, is the provider's fault: refused before anything is written.
+	if err != nil || rate.Round(8).Sign() <= 0 || rate.Round(8).Cmp(maxRate) >= 0 {
 		return fetched{}, false, providerErr("fx provider returned invalid rate for %s: %s", pair, value)
 	}
 	return fetched{from: src, to: target, rate: rate, asOf: asOf}, true, nil

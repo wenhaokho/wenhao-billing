@@ -149,7 +149,7 @@ func (r routes) latest(ctx context.Context, in *latestIn) (*rateBody, error) {
 	}
 	row, err := r.q.LatestRate(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, platform.Err(http.StatusNotFound, "fx_rate_not_found", "no rate found")
+		return nil, platform.Err(http.StatusNotFound, "fx_rate_none_on_or_before", "no rate found")
 	}
 	if err != nil {
 		return nil, err

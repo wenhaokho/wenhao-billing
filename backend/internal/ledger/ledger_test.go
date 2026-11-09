@@ -301,8 +301,21 @@ func TestRefusesCrossCurrencyZeroBalance(t *testing.T) {
 func TestRefusesNonPositiveAmount(t *testing.T) {
 	pool := newPool(t)
 	tx := begin(t, pool)
-	_, err := PostPaymentCleared(context.Background(), tx, base, cleared("0", "IDR"), invoice("IDR", "100"), dec("0"))
-	refused(t, tx, err, "journal line for account 1000 needs exactly one positive side (debit=0 credit=0)")
+	// A non-positive amount is a programming error (Python crashes), not a
+	// refusal: it must not be routed to manual review as ErrLedger is.
+	for _, amount := range []string{"0", "-5"} {
+		p := cleared(amount, "IDR")
+		_, err := PostPaymentCleared(context.Background(), tx, base, p, invoice("IDR", "100"), dec("0"))
+		if err == nil || errors.Is(err, ErrLedger) {
+			t.Fatalf("%s: err = %v, want a plain error (not ErrLedger)", amount, err)
+		}
+		if want := "ledger: payment " + p.ID.String() + " amount must be > 0 (got " + amount + ")"; err.Error() != want {
+			t.Errorf("text = %q, want %q", err.Error(), want)
+		}
+		if e, l := countRows(t, tx); e != 0 || l != 0 {
+			t.Errorf("%s: %d entries and %d lines written, want none", amount, e, l)
+		}
+	}
 }
 
 func TestRateMissingPassesThrough(t *testing.T) {

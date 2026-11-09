@@ -106,15 +106,16 @@ func TestGetRateUsesOnsOwnCalendarDate(t *testing.T) {
 	q, a := newQueries(t)
 	insertRate(t, a, "EUR", "17000", 1, 1)
 	insertRate(t, a, "EUR", "18000", 1, 10)
-	// 23:30 on 01-09 at +07:00 is 16:30 UTC the same day, but a zone that
-	// pushes it past midnight would pick 01-10: the date in on's own zone rules.
-	on := time.Date(2026, 1, 9, 23, 30, 0, 0, time.FixedZone("WIB", 7*3600))
+	// 03:00 on 01-10 at +07:00 is 20:00 on 01-09 in UTC: the date in on's
+	// own zone (01-10) rules, so the 01-10 rate applies; a UTC reading would
+	// pick the 01-01 rate.
+	on := time.Date(2026, 1, 10, 3, 0, 0, 0, time.FixedZone("WIB", 7*3600))
 	got, err := fx.GetRate(context.Background(), q, "EUR", on, "IDR")
-	if err != nil || !got.Equal(dec("17000")) {
-		t.Errorf("rate = %s, err = %v; want the 01-01 rate", got, err)
+	if err != nil || !got.Equal(dec("18000")) {
+		t.Errorf("rate = %s, err = %v; want the 01-10 rate", got, err)
 	}
 	_, err = fx.GetRate(context.Background(), q, "GBP", on, "IDR")
-	if want := "no fx rate for GBP->IDR on or before 2026-01-09"; err == nil || err.Error() != want {
+	if want := "no fx rate for GBP->IDR on or before 2026-01-10"; err == nil || err.Error() != want {
 		t.Errorf("err = %v, want %q", err, want)
 	}
 }

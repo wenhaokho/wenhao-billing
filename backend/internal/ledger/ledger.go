@@ -101,6 +101,12 @@ func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 	if withheld.IsNegative() {
 		return Entry{}, refuse("withheld tax cannot be negative (got %s)", pyStr(withheld))
 	}
+	// A payment that is not positive never reaches here from the API
+	// (validated gt=0); Python crashes on one. A programming error, not a
+	// refusal: a plain error, so it is never routed to manual review.
+	if !p.Amount.IsPositive() {
+		return Entry{}, fmt.Errorf("ledger: payment %s amount must be > 0 (got %s)", p.ID, pyStr(p.Amount))
+	}
 	q := ledgerdb.New(tx)
 	b, err := newBuilder(ctx, q, fxdb.New(tx), baseCurrency, p.Date)
 	if err != nil {

@@ -53,7 +53,7 @@ func fxConfig(baseURL string, currencies ...string) platform.Config {
 // newApp serves the FX routes with cfg, through a client with cfg's timeout.
 func newApp(t *testing.T, cfg platform.Config) *apitest.App {
 	t.Helper()
-	client := &http.Client{Timeout: cfg.FXProviderTimeout}
+	client := fx.NewClient(cfg)
 	return apitest.New(t, func(api huma.API, d apitest.Deps) { fx.Register(api, d.Pool, cfg, client) })
 }
 
@@ -263,7 +263,7 @@ func TestLatestRate(t *testing.T) {
 func TestLatestRateNotFound404(t *testing.T) {
 	a := newRoutesApp(t)
 	for _, q := range []string{"?from_currency=EUR", "?from_currency=USD&on_date=2025-12-31", "?from_currency=USD&to_currency=SGD"} {
-		wantProblem(t, a.Do(t, http.MethodGet, ratesPath+"/latest"+q, nil), http.StatusNotFound, "", "no rate found")
+		wantProblem(t, a.Do(t, http.MethodGet, ratesPath+"/latest"+q, nil), http.StatusNotFound, "fx_rate_none_on_or_before", "no rate found")
 	}
 }
 
@@ -275,12 +275,12 @@ func TestDeleteRate204ThenGone(t *testing.T) {
 		t.Fatalf("%d %q", rec.Code, rec.Body)
 	}
 	wantKeys(t, listRates(t, a, "?from_currency=EUR"))
-	wantProblem(t, a.Do(t, http.MethodDelete, fmt.Sprintf("%s/%d", ratesPath, r.RateID), nil), http.StatusNotFound, "", "rate not found")
+	wantProblem(t, a.Do(t, http.MethodDelete, fmt.Sprintf("%s/%d", ratesPath, r.RateID), nil), http.StatusNotFound, "fx_rate_not_found", "rate not found")
 }
 
 func TestDeleteUnknown404(t *testing.T) {
 	a := newRoutesApp(t)
-	wantProblem(t, a.Do(t, http.MethodDelete, ratesPath+"/999999", nil), http.StatusNotFound, "", "rate not found")
+	wantProblem(t, a.Do(t, http.MethodDelete, ratesPath+"/999999", nil), http.StatusNotFound, "fx_rate_not_found", "rate not found")
 	if rec := a.Do(t, http.MethodDelete, ratesPath+"/abc", nil); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("non-integer id: %d %s", rec.Code, rec.Body)
 	}

@@ -150,6 +150,16 @@ func TestConfigRefusesBadBaseCurrency(t *testing.T) {
 	}
 }
 
+// 0 would mean no timeout at all, so it is refused with the negatives.
+func TestConfigRefusesNonPositiveFXTimeout(t *testing.T) {
+	for _, bad := range []string{"0", "-1", "-0.5"} {
+		_, err := ParseConfig(baseVars(map[string]string{"FX_PROVIDER_TIMEOUT_SECONDS": bad}))
+		if err == nil || !strings.Contains(err.Error(), "FX_PROVIDER_TIMEOUT_SECONDS") {
+			t.Errorf("%q: err = %v, want one naming FX_PROVIDER_TIMEOUT_SECONDS", bad, err)
+		}
+	}
+}
+
 func TestConfigRefusesBadFXSyncCurrency(t *testing.T) {
 	for _, bad := range []string{"US", `["usd","eurx"]`, "usd,12"} {
 		_, err := ParseConfig(baseVars(map[string]string{"FX_SYNC_CURRENCIES": bad}))

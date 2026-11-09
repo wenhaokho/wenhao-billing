@@ -107,8 +107,8 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 			return Config{}, fmt.Errorf("FX_SYNC_CURRENCIES entry %q must be 3 letters", c)
 		}
 	}
-	if r.FXProviderSeconds < 0 {
-		return Config{}, fmt.Errorf("FX_PROVIDER_TIMEOUT_SECONDS must not be negative")
+	if r.FXProviderSeconds <= 0 { // 0 would mean no timeout at all
+		return Config{}, fmt.Errorf("FX_PROVIDER_TIMEOUT_SECONDS must be greater than 0")
 	}
 	return Config{
 		Environment:            r.Environment,
