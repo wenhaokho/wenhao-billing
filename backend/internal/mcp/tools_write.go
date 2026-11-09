@@ -509,11 +509,15 @@ func refuseDomain(err error) error {
 	return err
 }
 
-// writeErr is err of a write of the row rawID of kind: "no such row" is
-// Python's "<kind> <id> not found", the rest as refuseDomain.
-func writeErr(err error, kind, rawID string) error {
+// writeErr is err of a write of the row id of kind: "no such row" is
+// Python's "<kind> <id> not found", the rest as refuseDomain. The callers
+// pass the id as Python printed it: the canonical lowercase UUID where the
+// Python tool handed UUID(id) to its service (customer, item, vendor,
+// invoice, project, quotation), the raw argument where it formatted the
+// string (bill).
+func writeErr(err error, kind, id string) error {
 	if noRows(err) {
-		return Refuse("%s %s not found", kind, rawID)
+		return Refuse("%s %s not found", kind, id)
 	}
 	return refuseDomain(err)
 }
@@ -651,7 +655,7 @@ func registerWriteTools(s *mcp.Server, d Deps) {
 			}
 			out, err := items.Update(ctx, itemsdb.New(tx), id, upd)
 			if err != nil {
-				return Object{}, writeErr(err, "item", in.ItemID)
+				return Object{}, writeErr(err, "item", id.String())
 			}
 			return pick(out, itemDetailFields)
 		})
@@ -685,7 +689,7 @@ func registerWriteTools(s *mcp.Server, d Deps) {
 			}
 			out, err := vendors.Update(ctx, vendorsdb.New(tx), id, upd)
 			if err != nil {
-				return Object{}, writeErr(err, "vendor", in.VendorID)
+				return Object{}, writeErr(err, "vendor", id.String())
 			}
 			return pick(out, vendorDetailFields)
 		})
@@ -765,7 +769,7 @@ func registerWriteTools(s *mcp.Server, d Deps) {
 			}
 			out, err := customers.Update(ctx, customersdb.New(tx), id, upd)
 			if err != nil {
-				return Object{}, writeErr(err, "customer", in.CustomerID)
+				return Object{}, writeErr(err, "customer", id.String())
 			}
 			return pick(out, customerDetailFields)
 		})
@@ -811,7 +815,7 @@ func registerWriteTools(s *mcp.Server, d Deps) {
 			}
 			out, err := invoices.UpdateInvoice(ctx, tx, id, upd)
 			if err != nil {
-				return Object{}, writeErr(err, "invoice", in.InvoiceID)
+				return Object{}, writeErr(err, "invoice", id.String())
 			}
 			return pick(out, invoiceResultFields)
 		})
@@ -824,7 +828,7 @@ func registerWriteTools(s *mcp.Server, d Deps) {
 			}
 			out, err := invoices.FinalizeInvoice(ctx, tx, id)
 			if err != nil {
-				return Object{}, writeErr(err, "invoice", in.InvoiceID)
+				return Object{}, writeErr(err, "invoice", id.String())
 			}
 			return pick(out, invoiceResultFields)
 		})
@@ -837,7 +841,7 @@ func registerWriteTools(s *mcp.Server, d Deps) {
 			}
 			out, err := invoices.VoidInvoice(ctx, tx, id)
 			if err != nil {
-				return Object{}, writeErr(err, "invoice", in.InvoiceID)
+				return Object{}, writeErr(err, "invoice", id.String())
 			}
 			return pick(out, invoiceResultFields)
 		})
@@ -936,7 +940,7 @@ func registerWriteTools(s *mcp.Server, d Deps) {
 			}
 			out, err := projects.Update(ctx, projectsdb.New(tx), id, upd)
 			if err != nil {
-				return Object{}, writeErr(err, "project", in.ProjectID)
+				return Object{}, writeErr(err, "project", id.String())
 			}
 			return pick(out, projectDetailFields)
 		})
@@ -986,7 +990,7 @@ func registerWriteTools(s *mcp.Server, d Deps) {
 			}
 			out, err := quotations.UpdateQuotation(ctx, tx, id, upd)
 			if err != nil {
-				return Object{}, writeErr(err, "quotation", in.QuotationID)
+				return Object{}, writeErr(err, "quotation", id.String())
 			}
 			return pick(out, quotationDetailFields)
 		})

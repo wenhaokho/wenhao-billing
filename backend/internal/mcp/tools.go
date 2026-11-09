@@ -167,6 +167,8 @@ func isOpenObject(declared any) bool {
 //     reported.
 //   - After-commit hooks (afterCommit) run once the transaction committed,
 //     never after a refusal, an error or a panic, and never fail the result.
+//     A withoutTx tool commits its own work and registers a hook only after
+//     it, so its registered hooks run whatever it returns (not on a panic).
 //   - Any other error (driver, begin/commit, output marshalling) or a panic
 //     anywhere in the handler: the transaction rolls back, the cause is
 //     logged with slog (a panic with its stack) and reported with
@@ -281,15 +283,20 @@ func runTool[In, Out any](ctx context.Context, d Deps, cfg toolConfig, schema *j
 	hooks := &commitHooks{}
 	ctx = context.WithValue(ctx, commitHooksKey{}, hooks)
 	if cfg.noTx {
+		// A tool registered withoutTx commits its own work (trigger_recurring:
+		// TriggerAndSummarise) and registers a hook only once that work is
+		// committed, so a registered hook always stands for committed rows:
+		// it runs even when building the result fails afterwards (pick inside
+		// the body, or marshalOut here). A panic still runs none.
 		o, err := fn(ctx, nil, p, in)
-		if err != nil {
-			return nil, err
-		}
-		raw, err := marshalOut(o, schema)
-		if err != nil {
-			return nil, err
+		var raw json.RawMessage
+		if err == nil {
+			raw, err = marshalOut(o, schema)
 		}
 		hooks.run(ctx, cfg.name)
+		if err != nil {
+			return nil, err
+		}
 		return raw, nil
 	}
 	tx, err := d.Pool.Begin(ctx)

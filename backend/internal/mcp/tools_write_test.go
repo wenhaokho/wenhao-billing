@@ -707,6 +707,36 @@ func TestUpdateBillNotFoundReturnsError(t *testing.T) {
 	}
 }
 
+// The not-found sentence echoes the id as Python did: the tools that pass
+// UUID(id) to a service print the canonical lowercase form; update_bill
+// formats the argument string it was given.
+func TestNotFoundSentencesEchoTheIDAsPythonDid(t *testing.T) {
+	t.Parallel()
+	h := newWriteHarness(t)
+	id := uuid.New()
+	upper := strings.ToUpper(id.String())
+	notes := map[string]any{"notes": "x"}
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+		want string
+	}{
+		{"update_customer", map[string]any{"customer_id": upper, "changes": notes}, "customer " + id.String() + " not found"},
+		{"update_item", map[string]any{"item_id": upper, "changes": map[string]any{"active": false}}, "item " + id.String() + " not found"},
+		{"update_vendor", map[string]any{"vendor_id": upper, "changes": notes}, "vendor " + id.String() + " not found"},
+		{"update_invoice", map[string]any{"invoice_id": upper, "changes": notes}, "invoice " + id.String() + " not found"},
+		{"finalize_invoice", map[string]any{"invoice_id": upper}, "invoice " + id.String() + " not found"},
+		{"void_invoice", map[string]any{"invoice_id": upper}, "invoice " + id.String() + " not found"},
+		{"update_project", map[string]any{"project_id": upper, "changes": notes}, "project " + id.String() + " not found"},
+		{"update_quotation", map[string]any{"quotation_id": upper, "changes": notes}, "quotation " + id.String() + " not found"},
+		{"update_bill", map[string]any{"bill_id": upper, "changes": notes}, "bill " + upper + " not found"},
+	} {
+		if got := h.refused(t, tc.tool, tc.args); got != tc.want {
+			t.Errorf("%s: sentence %q, want %q", tc.tool, got, tc.want)
+		}
+	}
+}
+
 func TestUpdateBillRejectsUnknownFieldNames(t *testing.T) {
 	t.Parallel()
 	h := newWriteHarness(t)
@@ -913,6 +943,36 @@ func TestResolveFlaggedPaymentRefused(t *testing.T) {
 	}
 	if n := h.count(t, `SELECT count(*) FROM reconciliation_log WHERE payment_id = $1`, payment); n != 0 {
 		t.Fatalf("%d log rows", n)
+	}
+	h.paid.mu.Lock()
+	defer h.paid.mu.Unlock()
+	if len(h.paid.got) != 0 {
+		t.Fatalf("the hook ran %d time(s) for a refused call", len(h.paid.got))
+	}
+}
+
+// A DRAFT invoice is refused by the service (plan 7's refusal, inherited):
+// the payment stays in the queue, nothing is logged, the hook never runs.
+func TestResolveAgainstDraftInvoiceRefused(t *testing.T) {
+	t.Parallel()
+	h := newWriteHarness(t)
+	h.exec(t, `INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source) VALUES ('USD', 'IDR', 16000, '2026-01-01', 'TEST')`)
+	payment, invoice := h.recon(t, "USD", "500.0000", "PENDING_MANUAL_REVIEW", "USD", "500.0000")
+	h.exec(t, `UPDATE invoices SET status = 'DRAFT' WHERE invoice_id = $1`, invoice)
+	got := h.refused(t, "resolve_reconciliation_match", map[string]any{"payment_id": payment.String(), "invoice_id": invoice.String()})
+	if got != "cannot approve payment against DRAFT invoice" {
+		t.Fatalf("sentence %q", got)
+	}
+	if st := h.paymentStatus(t, payment); st != "PENDING_MANUAL_REVIEW" {
+		t.Fatalf("status %s", st)
+	}
+	if n := h.count(t, `SELECT count(*) FROM reconciliation_log WHERE payment_id = $1`, payment); n != 0 {
+		t.Fatalf("%d log rows", n)
+	}
+	h.paid.mu.Lock()
+	defer h.paid.mu.Unlock()
+	if len(h.paid.got) != 0 {
+		t.Fatalf("the hook ran %d time(s) for a refused call", len(h.paid.got))
 	}
 }
 
@@ -1200,6 +1260,45 @@ func TestAfterCommitHooks(t *testing.T) {
 	defer mu.Unlock()
 	if strings.Join(ran, ",") != "ok,after-panic" {
 		t.Fatalf("hooks ran %v, want ok then after-panic only", ran)
+	}
+}
+
+// unmarshalable is a tool output that json cannot encode: an injected
+// marshalOut failure.
+type unmarshalable struct {
+	C chan int `json:"c"`
+}
+
+// A withoutTx tool commits its own work before it registers a hook, so the
+// hook runs even when building the result fails afterwards: an output that
+// does not marshal, or an error from the body after the hook (a failed
+// pick). The client still gets the generic isError.
+func TestNoTxHooksRunWhenTheResultFails(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var ran []string
+	h := newFix1Harness(t, func(s *mcp.Server, d Deps) {
+		record := func(label string) func(context.Context) {
+			return func(context.Context) { mu.Lock(); ran = append(ran, label); mu.Unlock() }
+		}
+		addTool(s, d, &mcp.Tool{Name: "notx_bad_out", Description: "hooks"}, func(ctx context.Context, _ pgx.Tx, _ principalRef, _ fix1In) (unmarshalable, error) {
+			afterCommit(ctx, record("marshal"))
+			return unmarshalable{C: make(chan int)}, nil
+		}, withoutTx())
+		addTool(s, d, &mcp.Tool{Name: "notx_pick_fails", Description: "hooks"}, func(ctx context.Context, _ pgx.Tx, _ principalRef, _ fix1In) (Object, error) {
+			afterCommit(ctx, record("pick"))
+			return Object{}, fmt.Errorf("pick: no such field")
+		}, withoutTx())
+	})
+	for _, name := range []string{"notx_bad_out", "notx_pick_fails"} {
+		if res := h.callTool(t, name); !res.IsError {
+			t.Errorf("%s: not isError: %s", name, resultText(res))
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(ran, ",") != "marshal,pick" {
+		t.Fatalf("hooks ran %v, want marshal then pick", ran)
 	}
 }
 
