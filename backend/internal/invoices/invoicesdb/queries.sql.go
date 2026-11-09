@@ -1049,6 +1049,32 @@ func (q *Queries) ListUsageDrafts(ctx context.Context) ([]ListUsageDraftsRow, er
 	return items, nil
 }
 
+const listUserEmails = `-- name: ListUserEmails :many
+SELECT email FROM users ORDER BY created_at, email
+`
+
+// The digest's recipients: every user, no role or active filter
+// (draft_notifications.py user_emails).
+func (q *Queries) ListUserEmails(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listUserEmails)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		items = append(items, email)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockInvoiceNumbers = `-- name: LockInvoiceNumbers :exec
 SELECT pg_advisory_xact_lock(hashtextextended('invoice-number:' || $1::text, 0))
 `

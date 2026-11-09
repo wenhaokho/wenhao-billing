@@ -44,6 +44,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
@@ -76,8 +77,9 @@ func register(api huma.API, f features) {
 	customers.Register(api, f.Pool)
 	business.Register(api, f.Pool, f.Clock)
 	fx.Register(api, f.Pool, f.Config, f.FXClient)
-	// Drafts are logged until the email plan brings the real sender.
-	invoices.Register(api, f.Pool, f.Clock, invoices.LogNotifier{Logger: f.Logger})
+	invoices.Register(api, f.Pool, f.Clock, invoices.EmailNotifier{
+		Q: invoicesdb.New(f.Pool), Sender: f.Mail, AppBaseURL: f.Config.AppBaseURL, Logger: f.Logger,
+	})
 	quotations.Register(api, f.Pool, f.Clock)
 	bills.Register(api, f.Pool, f.Clock)
 	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: payments.NoHosting{}}, f.Config, f.Clock,
@@ -122,6 +124,18 @@ func mailSender(cfg platform.Config, logger *slog.Logger) email.LogSender {
 	return email.LogSender{Logger: logger, ShowBodies: cfg.LocalHTTP()}
 }
 
+// pickSender is Resend when RESEND_API_KEY is set, else the logging sender
+// (Python's send_email with no key and no SMTP host).
+func pickSender(cfg platform.Config, logger *slog.Logger) email.Sender {
+	if cfg.ResendAPIKey == "" {
+		return mailSender(cfg, logger)
+	}
+	return email.NewResendSender(email.ResendConfig{
+		APIKey: cfg.ResendAPIKey, FromEmail: cfg.ResendFromEmail, FromName: cfg.ResendFromName,
+		BaseURL: cfg.ResendBaseURL, ReplyTo: cfg.SMTPReplyTo, Timeout: cfg.ResendTimeout, Logger: logger,
+	}, &http.Client{})
+}
+
 func serve() error {
 	cfg, err := platform.LoadConfig()
 	if err != nil {
@@ -150,7 +164,7 @@ func serve() error {
 	sessions := platform.NewSessions(cfg)
 	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock})
 	register(api, features{
-		Pool: pool, Sessions: sessions, Mail: mailSender(cfg, logger), Config: cfg, Clock: clock,
+		Pool: pool, Sessions: sessions, Mail: pickSender(cfg, logger), Config: cfg, Clock: clock,
 		Logger:   logger,
 		FXClient: fx.NewClient(cfg),
 	})

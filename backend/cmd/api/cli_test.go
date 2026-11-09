@@ -153,3 +153,14 @@ func TestMailSenderShowsBodiesOnlyLocally(t *testing.T) {
 		}
 	}
 }
+
+// With RESEND_API_KEY the API sends through Resend; without it, mail is logged.
+func TestPickSenderResendOnlyWithAKey(t *testing.T) {
+	t.Parallel()
+	if _, ok := pickSender(platform.Config{}, nil).(email.LogSender); !ok {
+		t.Errorf("no key: sender is not the LogSender")
+	}
+	if _, ok := pickSender(platform.Config{ResendAPIKey: "re_x"}, nil).(email.LogSender); ok {
+		t.Errorf("with a key: sender is still the LogSender")
+	}
+}

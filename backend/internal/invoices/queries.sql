@@ -246,3 +246,8 @@ ORDER BY currency;
 SELECT * FROM invoices
 WHERE customer_id = $1
 ORDER BY issue_date DESC NULLS FIRST, created_at DESC, invoice_id DESC;
+
+-- name: ListUserEmails :many
+-- The digest's recipients: every user, no role or active filter
+-- (draft_notifications.py user_emails).
+SELECT email FROM users ORDER BY created_at, email;

@@ -230,3 +230,38 @@ func TestIntakeSecretsDefaultToPythonDevValues(t *testing.T) {
 		t.Errorf("defaults = %q, %q", cfg.WebhookHMACSecret, cfg.EmailWebhookToken)
 	}
 }
+
+// test_resend_settings_defaults
+func TestConfigResendDefaults(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ResendAPIKey != "" || cfg.ResendFromEmail != "noreply@wenhao.id" || cfg.ResendFromName != "Wenhao Dev Billing" ||
+		cfg.ResendBaseURL != "https://api.resend.com" || cfg.ResendTimeout != 15*time.Second || cfg.SMTPReplyTo != "wenhao.kho@gmail.com" {
+		t.Errorf("defaults = %+v", cfg)
+	}
+}
+
+// test_resend_api_key_from_env
+func TestConfigResendKeyFromEnv(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(map[string]string{
+		"RESEND_API_KEY": "re_test_123", "RESEND_TIMEOUT_SECONDS": "2.5", "SMTP_REPLY_TO": "",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ResendAPIKey != "re_test_123" || cfg.ResendTimeout != 2500*time.Millisecond || cfg.SMTPReplyTo != "" {
+		t.Errorf("config = %+v", cfg)
+	}
+}
+
+func TestConfigRefusesZeroResendTimeout(t *testing.T) {
+	t.Parallel()
+	_, err := ParseConfig(baseVars(map[string]string{"RESEND_TIMEOUT_SECONDS": "0"}))
+	if err == nil || !strings.Contains(err.Error(), "RESEND_TIMEOUT_SECONDS") {
+		t.Errorf("err = %v", err)
+	}
+}
