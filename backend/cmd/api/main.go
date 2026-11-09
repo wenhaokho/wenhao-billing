@@ -47,6 +47,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/jobs"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/projects"
@@ -172,11 +173,13 @@ func serve() error {
 	clock := platform.SystemClock{}
 	sessions := platform.NewSessions(cfg)
 	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock})
+	mail := pickSender(cfg, logger)
 	register(api, features{
-		Pool: pool, Sessions: sessions, Mail: pickSender(cfg, logger), Config: cfg, Clock: clock,
+		Pool: pool, Sessions: sessions, Mail: mail, Config: cfg, Clock: clock,
 		Logger:   logger,
 		FXClient: fx.NewClient(cfg),
 	})
+	startScheduler(ctx, pool, cfg, clock, logger, mail)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -197,6 +200,32 @@ func serve() error {
 		return err
 	}
 	return nil
+}
+
+// startScheduler starts the scheduled jobs, if they are on. The scheduler is
+// off unless SCHEDULER_ENABLED says otherwise (Go change 8): the Python
+// backend runs the jobs until the switch-over.
+//
+// The job list is built here, so a job whose work arrives later (the hosting
+// enforcement) is appended to it. It returns the jobs it started, nil when
+// the scheduler is off.
+func startScheduler(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config, clock platform.Clock, logger *slog.Logger, mail email.Sender) []jobs.Job {
+	if !cfg.SchedulerEnabled {
+		logger.Info("scheduler is off (SCHEDULER_ENABLED)")
+		return nil
+	}
+	jobList := []jobs.Job{
+		jobs.RecurringScan(pool, invoices.EmailNotifier{
+			Q: invoicesdb.New(pool), Sender: mail, AppBaseURL: cfg.AppBaseURL, Logger: logger,
+		}),
+		jobs.UsageLockScan(pool),
+		jobs.FXRatesSync(pool, cfg, fx.NewClient(cfg)),
+	}
+	jobs.Start(ctx, pool, clock, func(err error) {
+		logger.Error("scheduled job failed", "err", err)
+	}, jobList...)
+	logger.Info("scheduler started", "jobs", len(jobList))
+	return jobList
 }
 
 // prepareDatabase is serve's database step: refuse a database goose does not

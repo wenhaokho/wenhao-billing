@@ -40,6 +40,10 @@ type Config struct {
 	CloudflareAPIToken     string        // CLOUDFLARE_API_TOKEN: empty makes every Cloudflare call fail
 	CloudflareAPIBaseURL   string        // CLOUDFLARE_API_BASE_URL
 	CloudflareTimeout      time.Duration // CLOUDFLARE_TIMEOUT_SECONDS
+	// SchedulerEnabled runs the scheduled jobs. Python's default was true;
+	// Go's is false (Go change 8): the scheduler is off until the
+	// switch-over, so the Python backend keeps running the jobs.
+	SchedulerEnabled bool
 }
 
 // The development values of the two intake secrets, Python's defaults. They
@@ -77,6 +81,8 @@ type rawConfig struct {
 	CloudflareAPIToken     string  `env:"CLOUDFLARE_API_TOKEN"`
 	CloudflareAPIBaseURL   string  `env:"CLOUDFLARE_API_BASE_URL" envDefault:"https://api.cloudflare.com/client/v4"`
 	CloudflareSeconds      float64 `env:"CLOUDFLARE_TIMEOUT_SECONDS" envDefault:"15"` //nolint:forbidigo // not money: a timeout in seconds
+	// SchedulerEnabled is off unless it says otherwise (Go change 8).
+	SchedulerEnabled bool `env:"SCHEDULER_ENABLED" envDefault:"false"`
 }
 
 // LoadConfig reads the process environment.
@@ -188,6 +194,7 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 		CloudflareAPIToken:     strings.TrimSpace(r.CloudflareAPIToken),
 		CloudflareAPIBaseURL:   r.CloudflareAPIBaseURL,
 		CloudflareTimeout:      time.Duration(r.CloudflareSeconds * float64(time.Second)), //nolint:forbidigo // not money: a timeout
+		SchedulerEnabled:       r.SchedulerEnabled,
 	}, nil
 }
 

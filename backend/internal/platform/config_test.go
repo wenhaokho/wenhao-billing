@@ -232,6 +232,39 @@ func TestIntakeSecretsDefaultToPythonDevValues(t *testing.T) {
 }
 
 // test_resend_settings_defaults
+// TestConfigSchedulerIsOffByDefault: the scheduler is off unless
+// SCHEDULER_ENABLED says otherwise (Go change 8; Python's default was true).
+func TestConfigSchedulerIsOffByDefault(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SchedulerEnabled {
+		t.Error("the scheduler is on with SCHEDULER_ENABLED unset, want off")
+	}
+}
+
+// TestConfigSchedulerReadsTheVariable: SCHEDULER_ENABLED=true turns the
+// scheduler on.
+func TestConfigSchedulerReadsTheVariable(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(map[string]string{"SCHEDULER_ENABLED": "true"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SchedulerEnabled {
+		t.Error("the scheduler is off with SCHEDULER_ENABLED=true, want on")
+	}
+	cfg, err = ParseConfig(baseVars(map[string]string{"SCHEDULER_ENABLED": "false"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SchedulerEnabled {
+		t.Error("the scheduler is on with SCHEDULER_ENABLED=false, want off")
+	}
+}
+
 func TestConfigResendDefaults(t *testing.T) {
 	t.Parallel()
 	cfg, err := ParseConfig(baseVars(nil))
