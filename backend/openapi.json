@@ -116,6 +116,77 @@
         ],
         "type": "object"
       },
+      "BillingSummary": {
+        "additionalProperties": true,
+        "properties": {
+          "last_invoice_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_invoice_issue_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "milestone": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceOut"
+            },
+            "type": "array"
+          },
+          "paid_last_12_months": {
+            "description": "The cash of CLEARED payments dated in the last 365 days, by currency.",
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "type": "array"
+          },
+          "recurring": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceOut"
+            },
+            "type": "array"
+          },
+          "total_unpaid": {
+            "description": "The balance due of unpaid_invoices, DRAFT included, by currency.",
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "type": "array"
+          },
+          "unpaid_invoices": {
+            "description": "The DRAFT, OPEN, SENT and PARTIAL invoices, due date first (none last).",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceOut"
+            },
+            "type": "array"
+          },
+          "usage": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceOut"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "milestone",
+          "recurring",
+          "usage",
+          "unpaid_invoices",
+          "total_unpaid",
+          "paid_last_12_months",
+          "last_invoice_issue_date",
+          "last_invoice_id"
+        ],
+        "type": "object"
+      },
       "ChangePasswordRequest": {
         "additionalProperties": true,
         "properties": {
@@ -259,6 +330,60 @@
           "last_error",
           "created_at",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "CurrencyAmount": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "amount"
+        ],
+        "type": "object"
+      },
+      "CustomerBalanceRow": {
+        "additionalProperties": true,
+        "properties": {
+          "balance": {
+            "description": "The balance due of the OPEN, SENT and PARTIAL invoices (never templates).",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "overdue": {
+            "description": "The part of the balance on invoices due before today.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "currency",
+          "balance",
+          "overdue"
         ],
         "type": "object"
       },
@@ -1036,6 +1161,601 @@
         ],
         "type": "object"
       },
+      "InvoiceCreate": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "It must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_type": {
+            "enum": [
+              "PERCENT",
+              "AMOUNT"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "description": "At least 0, at most 4 decimal places; applies only with a discount_type.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "due_date": {
+            "description": "Null is the issue date plus the payment terms' days (Net N: N, on receipt: 0, otherwise 14).",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "footer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "internal_note": {
+            "description": "For the team only; never on the customer's PDF.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_number": {
+            "description": "Unique. On create, null or empty takes the next WH\u003cyear\u003e\u003cNNNN\u003e number.",
+            "maxLength": 50,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_type": {
+            "description": "Defaults to MILESTONE; empty is MILESTONE too.",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "issue_date": {
+            "description": "On create, null is today.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "description": "At least one.",
+            "items": {
+              "$ref": "#/components/schemas/LineItemIn"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "maxLength": 30,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "po_so_number": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "description": "It must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wht_gross_up": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "wht_rate": {
+            "description": "Percent, above 0 and below 100. Null takes the type's default (PPH21 2.5, PPH23 2).",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "wht_type": {
+            "description": "On create, null takes the customer's default.",
+            "enum": [
+              "NONE",
+              "PPH21",
+              "PPH23"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "currency"
+        ],
+        "type": "object"
+      },
+      "InvoiceOut": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "balance_due": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "billing_cycle_ref": {
+            "additionalProperties": true,
+            "description": "The schedule of a recurring template, the template and cycle of a generated invoice, the milestone reference, or the usage lock; null when unset.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "coverage_end": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coverage_start": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "due_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_cash": {
+            "description": "balance_due less the withholding not yet booked, never below zero.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "footer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "internal_note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_id": {
+            "type": "string"
+          },
+          "invoice_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_type": {
+            "type": "string"
+          },
+          "is_template": {
+            "type": "boolean"
+          },
+          "issue_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "items": {
+              "$ref": "#/components/schemas/LineItemOut"
+            },
+            "type": "array"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "po_so_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_quote_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "subtotal": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wht_amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "wht_base": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wht_booked": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "wht_gross_up": {
+            "type": "boolean"
+          },
+          "wht_rate": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wht_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id",
+          "customer_id",
+          "project_id",
+          "source_quote_id",
+          "invoice_type",
+          "invoice_number",
+          "po_so_number",
+          "currency",
+          "subtotal",
+          "discount_type",
+          "discount_value",
+          "wht_type",
+          "wht_rate",
+          "wht_gross_up",
+          "wht_base",
+          "wht_amount",
+          "wht_booked",
+          "amount",
+          "balance_due",
+          "status",
+          "billing_cycle_ref",
+          "issue_date",
+          "due_date",
+          "coverage_start",
+          "coverage_end",
+          "payment_terms",
+          "notes",
+          "footer",
+          "internal_note",
+          "is_template",
+          "created_at",
+          "line_items",
+          "expected_cash"
+        ],
+        "type": "object"
+      },
+      "InvoiceUpdate": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "It must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_type": {
+            "enum": [
+              "PERCENT",
+              "AMOUNT"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "description": "At least 0, at most 4 decimal places; applies only with a discount_type.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "due_date": {
+            "description": "Null is the issue date plus the payment terms' days (Net N: N, on receipt: 0, otherwise 14).",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "footer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "internal_note": {
+            "description": "For the team only; never on the customer's PDF.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_number": {
+            "description": "Unique. On create, null or empty takes the next WH\u003cyear\u003e\u003cNNNN\u003e number.",
+            "maxLength": 50,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_type": {
+            "maxLength": 20,
+            "type": "string"
+          },
+          "issue_date": {
+            "description": "On create, null is today.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "description": "A list replaces every line (an empty one leaves none); null or left out keeps them.",
+            "items": {
+              "$ref": "#/components/schemas/LineItemIn"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "maxLength": 30,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "po_so_number": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "description": "It must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wht_gross_up": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "wht_rate": {
+            "description": "Percent, above 0 and below 100. Null takes the type's default (PPH21 2.5, PPH23 2).",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "wht_type": {
+            "description": "On create, null takes the customer's default.",
+            "enum": [
+              "NONE",
+              "PPH21",
+              "PPH23"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "ItemCreate": {
         "additionalProperties": true,
         "properties": {
@@ -1490,6 +2210,114 @@
         },
         "type": "object"
       },
+      "LineItemIn": {
+        "additionalProperties": true,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "item_id": {
+            "description": "The catalogue item, if any; it must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "position": {
+            "description": "Lines are listed by position. Defaults to 0.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "quantity": {
+            "description": "At least 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "unit_price": {
+            "description": "At least 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        },
+        "required": [
+          "description",
+          "quantity",
+          "unit_price"
+        ],
+        "type": "object"
+      },
+      "LineItemOut": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_item_id": {
+            "type": "string"
+          },
+          "position": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "quantity": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "unit_price": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line_item_id",
+          "item_id",
+          "description",
+          "quantity",
+          "unit_price",
+          "amount",
+          "position"
+        ],
+        "type": "object"
+      },
       "LoginRequest": {
         "additionalProperties": true,
         "properties": {
@@ -1507,6 +2335,68 @@
         "required": [
           "email",
           "password"
+        ],
+        "type": "object"
+      },
+      "MilestoneInvoiceCreate": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "description": "Above 0, at most 4 decimal places.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "It must exist.",
+            "type": "string"
+          },
+          "due_in_days": {
+            "description": "Days from the issue date to the due date; may be negative. Defaults to 14.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "issue_date": {
+            "description": "Null is today.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "milestone_ref": {
+            "type": "string"
+          },
+          "project_id": {
+            "description": "It must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "customer_id",
+          "currency",
+          "amount",
+          "milestone_ref"
         ],
         "type": "object"
       },
@@ -1871,6 +2761,344 @@
         ],
         "type": "object"
       },
+      "RecurringSchedule": {
+        "additionalProperties": true,
+        "properties": {
+          "end_after_cycles": {
+            "description": "Required with AFTER_N; stored whenever sent.",
+            "format": "int64",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "end_date": {
+            "description": "Required with ON_DATE (the last day a cycle may start); stored whenever sent.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "end_mode": {
+            "description": "Defaults to NEVER.",
+            "enum": [
+              "NEVER",
+              "ON_DATE",
+              "AFTER_N"
+            ],
+            "type": "string"
+          },
+          "frequency": {
+            "enum": [
+              "DAILY",
+              "WEEKLY",
+              "MONTHLY",
+              "YEARLY"
+            ],
+            "type": "string"
+          },
+          "interval": {
+            "description": "Defaults to 1.",
+            "format": "int64",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "start_date": {
+            "description": "The first cycle's first day.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "frequency",
+          "start_date"
+        ],
+        "type": "object"
+      },
+      "RecurringTemplateAction": {
+        "additionalProperties": true,
+        "properties": {
+          "action": {
+            "description": "PAUSE, RESUME or END_NOW, in any case.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "RecurringTemplateCreate": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "It must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_type": {
+            "enum": [
+              "PERCENT",
+              "AMOUNT"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "description": "At least 0, at most 4 decimal places; applies only with a discount_type.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "footer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "internal_note": {
+            "description": "For the team only; never on the customer's PDF.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "description": "At least one.",
+            "items": {
+              "$ref": "#/components/schemas/LineItemIn"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "description": "May be empty.",
+            "maxLength": 30,
+            "type": "string"
+          },
+          "po_so_number": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "description": "It must exist.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/RecurringSchedule"
+          },
+          "wht_gross_up": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "wht_rate": {
+            "description": "Percent, above 0 and below 100. Null takes the type's default (PPH21 2.5, PPH23 2).",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "wht_type": {
+            "description": "On create, null takes the customer's default; on PUT, null or left out keeps the stored type.",
+            "enum": [
+              "NONE",
+              "PPH21",
+              "PPH23"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "currency",
+          "payment_terms",
+          "schedule"
+        ],
+        "type": "object"
+      },
+      "RecurringTemplateRow": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customer_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "end_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frequency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generated_count": {
+            "description": "Generated invoices that are not VOID.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "next_run_date": {
+            "description": "The cycle after the latest generated one (the first cycle when none was); null once the schedule has ended.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previous_issue_date": {
+            "description": "The cycle date of the generated invoice with the latest issue date (its issue date when it has no ISO cycle key).",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedule_description": {
+            "description": "\"Schedule not configured\" when the stored schedule does not parse.",
+            "type": "string"
+          },
+          "start_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "ACTIVE, PAUSED, ENDED (outranks PAUSED) or MISCONFIGURED.",
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "customer_id",
+          "customer_name",
+          "currency",
+          "amount",
+          "payment_terms",
+          "schedule_description",
+          "frequency",
+          "start_date",
+          "end_mode",
+          "next_run_date",
+          "previous_issue_date",
+          "generated_count",
+          "status"
+        ],
+        "type": "object"
+      },
+      "RecurringTrigger": {
+        "additionalProperties": true,
+        "properties": {
+          "cycle_key": {
+            "description": "The cycle's first day, YYYY-MM-DD; it must be a cycle start of the template's schedule.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cycle_key"
+        ],
+        "type": "object"
+      },
       "ResetPasswordRequest": {
         "additionalProperties": true,
         "properties": {
@@ -1923,6 +3151,38 @@
           "fetched",
           "pairs",
           "source"
+        ],
+        "type": "object"
+      },
+      "UsageLockRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "accrued_amount": {
+            "description": "The usage accrued for the period; not negative.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "cutoff_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "accrued_amount",
+          "cutoff_date"
         ],
         "type": "object"
       },
@@ -2208,6 +3468,19 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "VoidRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "reason": {
+            "description": "Required, and not stored.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
         "type": "object"
       }
     }
@@ -3408,6 +4681,40 @@
         ]
       }
     },
+    "/api/v1/customers/balances": {
+      "get": {
+        "operationId": "customers-balances",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CustomerBalanceRow"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open receivables per customer and currency, with the overdue part",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
     "/api/v1/customers/{customer_id}": {
       "delete": {
         "operationId": "customers-deactivate",
@@ -3594,6 +4901,1273 @@
         "summary": "Change a customer's fields",
         "tags": [
           "customers"
+        ]
+      }
+    },
+    "/api/v1/customers/{customer_id}/billing-summary": {
+      "get": {
+        "operationId": "customers-billing-summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingSummary"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "A customer's open invoices, totals owed and paid, and latest invoice",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/customers/{customer_id}/invoices": {
+      "get": {
+        "operationId": "customers-invoices",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InvoiceOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Every invoice of a customer (templates too), latest issue date first",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices": {
+      "get": {
+        "operationId": "invoices-list",
+        "parameters": [
+          {
+            "description": "Repeat for several (status=SENT\u0026status=PARTIAL).",
+            "explode": true,
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "description": "Repeat for several (status=SENT\u0026status=PARTIAL).",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "customer_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Empty lists every type.",
+            "explode": false,
+            "in": "query",
+            "name": "invoice_type",
+            "schema": {
+              "description": "Empty lists every type.",
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 200,
+              "format": "int32",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InvoiceOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List invoices (never templates), newest first",
+        "tags": [
+          "invoices"
+        ]
+      },
+      "post": {
+        "operationId": "invoices-create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Add a DRAFT invoice",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/awaiting-finalization": {
+      "get": {
+        "operationId": "invoices-awaiting-finalization",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InvoiceOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the DRAFT invoices (never templates), newest first",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/milestone": {
+      "post": {
+        "operationId": "invoices-create-milestone",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MilestoneInvoiceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Add a DRAFT milestone invoice (an amount, no lines)",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/recurring-template": {
+      "post": {
+        "operationId": "invoices-create-recurring-template",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecurringTemplateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Add a recurring template (a DRAFT RECURRING invoice with a schedule)",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/recurring-templates": {
+      "get": {
+        "operationId": "invoices-list-recurring-templates",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InvoiceOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the recurring templates, newest first",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/recurring-templates/rows": {
+      "get": {
+        "operationId": "invoices-recurring-template-rows",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RecurringTemplateRow"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The recurring templates with their schedule, next and previous cycle and status, newest first",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/recurring-templates/{template_id}": {
+      "get": {
+        "operationId": "invoices-get-recurring-template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "A recurring template",
+        "tags": [
+          "invoices"
+        ]
+      },
+      "patch": {
+        "operationId": "invoices-act-on-recurring-template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecurringTemplateAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Pause, resume or end a recurring template",
+        "tags": [
+          "invoices"
+        ]
+      },
+      "put": {
+        "operationId": "invoices-update-recurring-template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecurringTemplateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Replace a recurring template that has not ended (its pause is kept)",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/recurring/{template_id}/trigger": {
+      "post": {
+        "description": "Paused or ended templates are not refused. The team is notified of a new draft only.",
+        "operationId": "invoices-trigger-recurring-cycle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecurringTrigger"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Generate a recurring template's DRAFT for one cycle (the existing one when it was generated)",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/usage/{invoice_id}/lock": {
+      "post": {
+        "operationId": "invoices-lock-usage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageLockRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Freeze a DRAFT USAGE invoice at its accrued amount",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/{invoice_id}": {
+      "delete": {
+        "operationId": "invoices-delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Delete a DRAFT invoice and its lines",
+        "tags": [
+          "invoices"
+        ]
+      },
+      "get": {
+        "operationId": "invoices-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "An invoice or recurring template",
+        "tags": [
+          "invoices"
+        ]
+      },
+      "patch": {
+        "operationId": "invoices-update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Change a DRAFT invoice's fields and recompute its totals",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/{invoice_id}/finalize": {
+      "post": {
+        "operationId": "invoices-finalize",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Issue a DRAFT invoice (OPEN, or PAID when nothing is owed)",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/{invoice_id}/mark-paid": {
+      "post": {
+        "operationId": "invoices-mark-paid",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Settle an issued invoice with nothing outstanding to PAID",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/{invoice_id}/void": {
+      "post": {
+        "operationId": "invoices-void",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoidRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Void any invoice that is not PAID",
+        "tags": [
+          "invoices"
         ]
       }
     },

@@ -133,6 +133,31 @@ func TestPointerAndOptionalSchemasAcceptNull(t *testing.T) {
 	}
 }
 
+// listRow is only ever an item of a bare-array response body.
+type listRow struct {
+	Note  *string `json:"note"`
+	Price Dec4    `json:"price"`
+}
+
+type listOut struct{ Body []listRow }
+
+// A struct met only as the item of a bare-array response body is marked as
+// any response struct is: its pointers accept null, its decimals are strings.
+func TestBareArrayResponseItemsAreMarked(t *testing.T) {
+	t.Parallel()
+	_, api := NewServer(Config{Environment: "test"}, Deps{})
+	huma.Register(api, huma.Operation{OperationID: "list", Method: http.MethodGet, Path: "/list", Tags: []string{PublicTag}},
+		func(context.Context, *struct{}) (*listOut, error) { return &listOut{Body: []listRow{}}, nil })
+	reg := api.OpenAPI().Components.Schemas
+	row := reg.SchemaFromRef(reg.Schema(reflect.TypeFor[listRow](), true, "").Ref)
+	if !schemaAcceptsNull(t, row.Properties["note"]) {
+		t.Error("note does not accept null")
+	}
+	if p := row.Properties["price"]; p.Type != huma.TypeString || p.OneOf != nil {
+		t.Errorf("price is not a string: %+v", p)
+	}
+}
+
 // Nullable request fields keep their validation: null passes, and tagged,
 // decimal and nested errors are reported at their own fields.
 func TestNullableFieldsStillValidate(t *testing.T) {

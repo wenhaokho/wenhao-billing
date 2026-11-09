@@ -41,36 +41,36 @@ Totals: 107 under /api/v1, 7 OAuth and discovery, /mcp
 | GET | /api/v1/business-profile/payment-accounts | admin session | 200 | app/api/v1/routers/business_profile.py:63 | yes | business | ported |  |
 | PUT | /api/v1/business-profile/payment-accounts | admin session | 200 | app/api/v1/routers/business_profile.py:72 | yes | business | ported |  |
 | GET | /api/v1/customers | admin session | 200 | app/api/v1/routers/customers.py:41 | yes | customers | ported |  |
-| GET | /api/v1/customers/balances | admin session | 200 | app/api/v1/routers/customers.py:60 | yes |  | todo | moves to the invoices plan (returns InvoiceOut) |
+| GET | /api/v1/customers/balances | admin session | 200 | app/api/v1/routers/customers.py:60 | yes | invoices | ported |  |
 | POST | /api/v1/customers | admin session | 201 | app/api/v1/routers/customers.py:78 | yes | customers | ported |  |
 | GET | /api/v1/customers/{customer_id} | admin session | 200 | app/api/v1/routers/customers.py:93 | yes | customers | ported |  |
 | PATCH | /api/v1/customers/{customer_id} | admin session | 200 | app/api/v1/routers/customers.py:105 | yes | customers | ported |  |
 | DELETE | /api/v1/customers/{customer_id} | admin session | 200 | app/api/v1/routers/customers.py:123 | yes | customers | ported |  |
-| GET | /api/v1/customers/{customer_id}/billing-summary | admin session | 200 | app/api/v1/routers/customers.py:148 | yes |  | todo | moves to the invoices plan (returns InvoiceOut) |
-| GET | /api/v1/customers/{customer_id}/invoices | admin session | 200 | app/api/v1/routers/customers.py:205 | yes |  | todo | moves to the invoices plan (returns InvoiceOut) |
-| POST | /api/v1/invoices | admin session | 201 | app/api/v1/routers/invoices.py:55 | yes |  | todo |  |
-| POST | /api/v1/invoices/milestone | admin session | 201 | app/api/v1/routers/invoices.py:70 | no |  | todo |  |
-| POST | /api/v1/invoices/recurring-template | admin session | 201 | app/api/v1/routers/invoices.py:90 | yes |  | todo |  |
-| GET | /api/v1/invoices/recurring-templates | admin session | 200 | app/api/v1/routers/invoices.py:105 | no |  | todo |  |
-| GET | /api/v1/invoices/recurring-templates/rows | admin session | 200 | app/api/v1/routers/invoices.py:216 | yes |  | todo |  |
-| GET | /api/v1/invoices/recurring-templates/{template_id} | admin session | 200 | app/api/v1/routers/invoices.py:288 | yes |  | todo |  |
-| PUT | /api/v1/invoices/recurring-templates/{template_id} | admin session | 200 | app/api/v1/routers/invoices.py:300 | yes |  | todo |  |
-| PATCH | /api/v1/invoices/recurring-templates/{template_id} | admin session | 200 | app/api/v1/routers/invoices.py:325 | yes |  | todo |  |
-| POST | /api/v1/invoices/recurring/{template_id}/trigger | admin session | 200 | app/api/v1/routers/invoices.py:366 | no |  | todo |  |
-| POST | /api/v1/invoices/usage/{invoice_id}/lock | admin session | 200 | app/api/v1/routers/invoices.py:392 | no |  | todo |  |
-| GET | /api/v1/invoices/awaiting-finalization | admin session | 200 | app/api/v1/routers/invoices.py:412 | yes |  | todo |  |
-| GET | /api/v1/invoices | admin session | 200 | app/api/v1/routers/invoices.py:427 | yes |  | todo |  |
-| POST | /api/v1/invoices/{invoice_id}/finalize | admin session | 200 | app/api/v1/routers/invoices.py:454 | yes |  | todo |  |
-| POST | /api/v1/invoices/{invoice_id}/void | admin session | 200 | app/api/v1/routers/invoices.py:468 | yes |  | todo |  |
-| GET | /api/v1/invoices/{invoice_id} | admin session | 200 | app/api/v1/routers/invoices.py:483 | yes |  | todo |  |
-| PATCH | /api/v1/invoices/{invoice_id} | admin session | 200 | app/api/v1/routers/invoices.py:495 | yes |  | todo |  |
-| POST | /api/v1/invoices/{invoice_id}/record-payment | admin session | 201 | app/api/v1/routers/invoices.py:511 | yes |  | todo |  |
-| GET | /api/v1/invoices/{invoice_id}/payments | admin session | 200 | app/api/v1/routers/invoices.py:598 | yes |  | todo |  |
-| POST | /api/v1/invoices/{invoice_id}/mark-paid | admin session | 200 | app/api/v1/routers/invoices.py:617 | yes |  | todo |  |
-| POST | /api/v1/invoices/{invoice_id}/payments/{payment_id}/send-receipt | admin session | 200 | app/api/v1/routers/invoices.py:637 | yes |  | todo |  |
-| GET | /api/v1/invoices/{invoice_id}/pdf | admin session | 200 | app/api/v1/routers/invoices.py:700 | yes |  | todo |  |
-| POST | /api/v1/invoices/{invoice_id}/send | admin session | 200 | app/api/v1/routers/invoices.py:721 | yes |  | todo |  |
-| DELETE | /api/v1/invoices/{invoice_id} | admin session | 204 | app/api/v1/routers/invoices.py:782 | no |  | todo |  |
+| GET | /api/v1/customers/{customer_id}/billing-summary | admin session | 200 | app/api/v1/routers/customers.py:148 | yes | invoices | ported |  |
+| GET | /api/v1/customers/{customer_id}/invoices | admin session | 200 | app/api/v1/routers/customers.py:205 | yes | invoices | ported |  |
+| POST | /api/v1/invoices | admin session | 201 | app/api/v1/routers/invoices.py:55 | yes | invoices | ported |  |
+| POST | /api/v1/invoices/milestone | admin session | 201 | app/api/v1/routers/invoices.py:70 | no | invoices | ported |  |
+| POST | /api/v1/invoices/recurring-template | admin session | 201 | app/api/v1/routers/invoices.py:90 | yes | invoices | ported |  |
+| GET | /api/v1/invoices/recurring-templates | admin session | 200 | app/api/v1/routers/invoices.py:105 | no | invoices | ported |  |
+| GET | /api/v1/invoices/recurring-templates/rows | admin session | 200 | app/api/v1/routers/invoices.py:216 | yes | invoices | ported |  |
+| GET | /api/v1/invoices/recurring-templates/{template_id} | admin session | 200 | app/api/v1/routers/invoices.py:288 | yes | invoices | ported |  |
+| PUT | /api/v1/invoices/recurring-templates/{template_id} | admin session | 200 | app/api/v1/routers/invoices.py:300 | yes | invoices | ported |  |
+| PATCH | /api/v1/invoices/recurring-templates/{template_id} | admin session | 200 | app/api/v1/routers/invoices.py:325 | yes | invoices | ported |  |
+| POST | /api/v1/invoices/recurring/{template_id}/trigger | admin session | 200 | app/api/v1/routers/invoices.py:366 | no | invoices | ported |  |
+| POST | /api/v1/invoices/usage/{invoice_id}/lock | admin session | 200 | app/api/v1/routers/invoices.py:392 | no | invoices | ported |  |
+| GET | /api/v1/invoices/awaiting-finalization | admin session | 200 | app/api/v1/routers/invoices.py:412 | yes | invoices | ported |  |
+| GET | /api/v1/invoices | admin session | 200 | app/api/v1/routers/invoices.py:427 | yes | invoices | ported |  |
+| POST | /api/v1/invoices/{invoice_id}/finalize | admin session | 200 | app/api/v1/routers/invoices.py:454 | yes | invoices | ported |  |
+| POST | /api/v1/invoices/{invoice_id}/void | admin session | 200 | app/api/v1/routers/invoices.py:468 | yes | invoices | ported |  |
+| GET | /api/v1/invoices/{invoice_id} | admin session | 200 | app/api/v1/routers/invoices.py:483 | yes | invoices | ported |  |
+| PATCH | /api/v1/invoices/{invoice_id} | admin session | 200 | app/api/v1/routers/invoices.py:495 | yes | invoices | ported |  |
+| POST | /api/v1/invoices/{invoice_id}/record-payment | admin session | 201 | app/api/v1/routers/invoices.py:511 | yes |  | todo | payments plan |
+| GET | /api/v1/invoices/{invoice_id}/payments | admin session | 200 | app/api/v1/routers/invoices.py:598 | yes |  | todo | payments plan |
+| POST | /api/v1/invoices/{invoice_id}/mark-paid | admin session | 200 | app/api/v1/routers/invoices.py:617 | yes | invoices | ported |  |
+| POST | /api/v1/invoices/{invoice_id}/payments/{payment_id}/send-receipt | admin session | 200 | app/api/v1/routers/invoices.py:637 | yes |  | todo | payments plan |
+| GET | /api/v1/invoices/{invoice_id}/pdf | admin session | 200 | app/api/v1/routers/invoices.py:700 | yes |  | todo | documents plan |
+| POST | /api/v1/invoices/{invoice_id}/send | admin session | 200 | app/api/v1/routers/invoices.py:721 | yes |  | todo | documents plan |
+| DELETE | /api/v1/invoices/{invoice_id} | admin session | 204 | app/api/v1/routers/invoices.py:782 | no | invoices | ported |  |
 | GET | /api/v1/items | admin session | 200 | app/api/v1/routers/items.py:18 | yes | items | ported |  |
 | POST | /api/v1/items | admin session | 201 | app/api/v1/routers/items.py:36 | yes | items | ported |  |
 | GET | /api/v1/items/{item_id} | admin session | 200 | app/api/v1/routers/items.py:48 | yes | items | ported |  |

@@ -137,3 +137,35 @@ sql:
             go_type:
               type: string
               slice: true
+  - engine: postgresql
+    schema: migrations
+    queries: internal/invoices/queries.sql
+    gen:
+      go:
+        package: invoicesdb
+        out: internal/invoices/invoicesdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        # A YAML anchor cannot be merged into a list: this is go_overrides
+        # (keep the two in step) plus billing_cycle_ref, the stored JSON
+        # passed through as is (nil when NULL).
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: pg_catalog.numeric
+            go_type: github.com/shopspring/decimal.Decimal
+          - db_type: pg_catalog.numeric
+            nullable: true
+            go_type: github.com/shopspring/decimal.NullDecimal
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: pg_catalog.timestamp
+            go_type: time.Time
+          - db_type: pg_catalog.timestamp
+            nullable: true
+            go_type:
+              type: time.Time
+              pointer: true
+          - column: invoices.billing_cycle_ref
+            go_type: encoding/json.RawMessage

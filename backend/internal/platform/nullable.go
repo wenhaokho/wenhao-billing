@@ -119,6 +119,11 @@ func markNullable(reg huma.Registry, s *huma.Schema, t reflect.Type, response bo
 		t = t.Elem()
 	}
 	if t == nil {
+		// A bare-array body is inline, with no type to read; its items'
+		// $ref names theirs.
+		if s.Type == huma.TypeArray && s.Items != nil {
+			markNullable(reg, s.Items, nil, response, seen)
+		}
 		return
 	}
 	// A scalar has no fields to mark.

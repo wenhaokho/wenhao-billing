@@ -14,16 +14,16 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_auth_session.py | test_short_session_expires_after_default_ttl | auth.TestShortSessionExpiresAfterDefaultTTL | ported |  | Sessions.Issue always used RememberMaxAge: red (got 200, want 401 session expired) (internal/platform/principal.go, task 8 fix round) |
 | tests/integration/test_auth_session.py | test_remember_session_survives_short_ttl | auth.TestRememberSessionSurvivesShortTTL | ported |  | Remember branch used MaxAge (8 h): red (internal/platform/principal.go, task 8 fix round) |
 | tests/integration/test_auth_session.py | test_remember_session_expires_after_remember_ttl | auth.TestRememberSessionExpiresAfterRememberTTL | ported |  | Remember branch used 2 x RememberMaxAge: red (want 401 session expired) (internal/platform/principal.go, task 8 fix round) |
-| tests/integration/test_customer_balances.py | test_empty_db_returns_empty_list |  | todo |  |  |
-| tests/integration/test_customer_balances.py | test_customer_with_no_open_invoices_excluded |  | todo |  |  |
-| tests/integration/test_customer_balances.py | test_sent_invoice_not_yet_due_contributes_to_balance_only |  | todo |  |  |
-| tests/integration/test_customer_balances.py | test_sent_invoice_past_due_contributes_to_both_balance_and_overdue |  | todo |  |  |
-| tests/integration/test_customer_balances.py | test_partial_uses_balance_due_not_amount |  | todo |  |  |
-| tests/integration/test_customer_balances.py | test_sums_across_multiple_open_invoices_same_currency |  | todo |  |  |
-| tests/integration/test_customer_balances.py | test_draft_void_paid_template_all_excluded |  | todo |  |  |
-| tests/integration/test_customer_balances.py | test_zero_balance_rows_excluded |  | todo |  |  |
-| tests/integration/test_customer_balances.py | test_multiple_currencies_produce_separate_rows |  | todo |  |  |
-| tests/integration/test_customer_balances.py | test_multiple_customers_produce_separate_rows |  | todo |  |  |
+| tests/integration/test_customer_balances.py | test_empty_db_returns_empty_list | invoices.TestEmptyDBReturnsEmptyList | ported |  | — |
+| tests/integration/test_customer_balances.py | test_customer_with_no_open_invoices_excluded | invoices.TestCustomerWithNoOpenInvoicesExcluded | ported |  | Counted DRAFT in the balances query: TestCustomerWithNoOpenInvoicesExcluded red (task 8) |
+| tests/integration/test_customer_balances.py | test_sent_invoice_not_yet_due_contributes_to_balance_only | invoices.TestSentInvoiceNotYetDueContributesToBalanceOnly | ported |  | — |
+| tests/integration/test_customer_balances.py | test_sent_invoice_past_due_contributes_to_both_balance_and_overdue | invoices.TestSentInvoicePastDueContributesToBothBalanceAndOverdue | ported |  | — |
+| tests/integration/test_customer_balances.py | test_partial_uses_balance_due_not_amount | invoices.TestPartialUsesBalanceDueNotAmount | ported |  | — |
+| tests/integration/test_customer_balances.py | test_sums_across_multiple_open_invoices_same_currency | invoices.TestSumsAcrossMultipleOpenInvoicesSameCurrency | ported |  | — |
+| tests/integration/test_customer_balances.py | test_draft_void_paid_template_all_excluded | invoices.TestDraftVoidPaidTemplateAllExcluded | ported |  | Counted DRAFT in the balances query: TestDraftVoidPaidTemplateAllExcluded red (task 8) |
+| tests/integration/test_customer_balances.py | test_zero_balance_rows_excluded | invoices.TestZeroBalanceRowsExcluded | ported |  | — |
+| tests/integration/test_customer_balances.py | test_multiple_currencies_produce_separate_rows | invoices.TestMultipleCurrenciesProduceSeparateRows | ported |  | — |
+| tests/integration/test_customer_balances.py | test_multiple_customers_produce_separate_rows | invoices.TestMultipleCustomersProduceSeparateRows | ported |  | — |
 | tests/integration/test_customer_cc.py | test_customer_cc_lists_roundtrip | customers.TestCustomerCCListsRoundtrip | ported |  | — |
 | tests/integration/test_customer_cc.py | test_customer_cc_rejects_invalid_address | customers.TestCustomerCCRejectsInvalidAddress | ported |  | CC validation skipped: TestCustomerCCRejectsInvalidAddress red, 201 want 422 (task 6) |
 | tests/integration/test_customer_cc.py | test_send_receipt_multiple_cc_normalised |  | todo |  |  |
@@ -49,32 +49,32 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_dashboard_stats.py | test_dashboard_stats_includes_mrr_and_base_ar |  | todo |  |  |
 | tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_exposes_new_fields |  | todo |  |  |
 | tests/integration/test_hosting.py | test_hosting_item_creates_with_cloudflare_target | items.TestHostingItemCreatesWithCloudflareTarget | ported |  | — |
-| tests/integration/test_hosting.py | test_trigger_recurring_cycle_stamps_coverage_on_hosting_invoice |  | todo |  |  |
-| tests/integration/test_hosting.py | test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates |  | todo |  |  |
-| tests/integration/test_hosting.py | test_enforcement_suspend_failure_marks_provider_error |  | todo |  |  |
-| tests/integration/test_hosting.py | test_enforcement_is_idempotent_for_already_suspended_hosting_item |  | todo |  |  |
-| tests/integration/test_hosting.py | test_enforcement_ignores_non_overdue_invoice |  | todo |  |  |
-| tests/integration/test_invoice_internal_note.py | test_internal_note_round_trips_through_api |  | todo |  |  |
-| tests/integration/test_invoice_internal_note.py | test_internal_note_can_be_cleared |  | todo |  |  |
-| tests/integration/test_invoice_internal_note.py | test_internal_note_never_reaches_the_pdf |  | todo |  |  |
-| tests/integration/test_invoice_internal_note.py | test_template_internal_note_copies_to_generated_child |  | todo |  |  |
+| tests/integration/test_hosting.py | test_trigger_recurring_cycle_stamps_coverage_on_hosting_invoice | invoices.TestTriggerRecurringCycleStampsCoverageOnHostingInvoice | ported |  | — |
+| tests/integration/test_hosting.py | test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates |  | todo | hosting plan (enforcement and reconciliation) |  |
+| tests/integration/test_hosting.py | test_enforcement_suspend_failure_marks_provider_error |  | todo | hosting plan (enforcement) |  |
+| tests/integration/test_hosting.py | test_enforcement_is_idempotent_for_already_suspended_hosting_item |  | todo | hosting plan (enforcement) |  |
+| tests/integration/test_hosting.py | test_enforcement_ignores_non_overdue_invoice |  | todo | hosting plan (enforcement) |  |
+| tests/integration/test_invoice_internal_note.py | test_internal_note_round_trips_through_api | invoices.TestInternalNoteRoundTripsThroughApi | ported |  | — |
+| tests/integration/test_invoice_internal_note.py | test_internal_note_can_be_cleared | invoices.TestInternalNoteCanBeCleared | ported |  | — |
+| tests/integration/test_invoice_internal_note.py | test_internal_note_never_reaches_the_pdf |  | todo | documents plan (PDF) |  |
+| tests/integration/test_invoice_internal_note.py | test_template_internal_note_copies_to_generated_child | invoices.TestTemplateInternalNoteCopiesToGeneratedChild | ported |  | — |
 | tests/integration/test_invoice_payments_list.py | test_list_payments_newest_first |  | todo |  |  |
 | tests/integration/test_invoice_payments_list.py | test_list_payments_empty |  | todo |  |  |
 | tests/integration/test_invoice_payments_list.py | test_list_payments_unknown_invoice_404 |  | todo |  |  |
 | tests/integration/test_invoice_payments_list.py | test_list_payments_excludes_non_cleared |  | todo |  |  |
-| tests/integration/test_invoice_type_preserved.py | test_patch_without_invoice_type_keeps_it |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_create_invoice_gross_up_pph23 |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_create_invoice_inherits_customer_default |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_explicit_none_overrides_customer_default |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_discount_then_withholding |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_update_draft_recomputes_withholding |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_update_type_switch_resets_rate |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_recurring_cycle_uses_template_snapshot |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_quote_conversion_applies_customer_default |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_usage_lock_recomputes_from_snapshot |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_milestone_invoice_inherits_customer_default |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_update_template_gross_up_only_keeps_type_and_rate |  | todo |  |  |
-| tests/integration/test_invoice_withholding.py | test_create_invoice_rate_100_returns_400 |  | todo |  |  |
+| tests/integration/test_invoice_type_preserved.py | test_patch_without_invoice_type_keeps_it | invoices.TestPatchWithoutInvoiceTypeKeepsIt | ported |  | PATCH wrote `invoice_type` as MILESTONE when it was not sent: TestPatchWithoutInvoiceTypeKeepsIt/RECURRING and /USAGE red (task 3) |
+| tests/integration/test_invoice_withholding.py | test_create_invoice_gross_up_pph23 | invoices.TestCreateInvoiceGrossUpPph23 | ported |  | — |
+| tests/integration/test_invoice_withholding.py | test_create_invoice_inherits_customer_default | invoices.TestCreateInvoiceInheritsCustomerDefault | ported |  | — |
+| tests/integration/test_invoice_withholding.py | test_explicit_none_overrides_customer_default | invoices.TestExplicitNoneOverridesCustomerDefault | ported |  | — |
+| tests/integration/test_invoice_withholding.py | test_discount_then_withholding | invoices.TestDiscountThenWithholding | ported |  | — |
+| tests/integration/test_invoice_withholding.py | test_update_draft_recomputes_withholding | invoices.TestUpdateDraftRecomputesWithholding | ported |  | — |
+| tests/integration/test_invoice_withholding.py | test_update_type_switch_resets_rate | invoices.TestUpdateTypeSwitchResetsRate | ported |  | — |
+| tests/integration/test_invoice_withholding.py | test_recurring_cycle_uses_template_snapshot | invoices.TestRecurringCycleUsesTemplateSnapshot | ported |  | — |
+| tests/integration/test_invoice_withholding.py | test_quote_conversion_applies_customer_default |  | todo | quotations plan |  |
+| tests/integration/test_invoice_withholding.py | test_usage_lock_recomputes_from_snapshot | invoices.TestUsageLockRecomputesFromSnapshot | ported |  | — |
+| tests/integration/test_invoice_withholding.py | test_milestone_invoice_inherits_customer_default | invoices.TestMilestoneInvoiceInheritsCustomerDefault | ported |  | — |
+| tests/integration/test_invoice_withholding.py | test_update_template_gross_up_only_keeps_type_and_rate | invoices.TestUpdateTemplateGrossUpOnlyKeepsTypeAndRate | ported |  | — |
+| tests/integration/test_invoice_withholding.py | test_create_invoice_rate_100_returns_400 | invoices.TestCreateInvoiceRate100Returns400 | ported |  | — |
 | tests/integration/test_invoices_summary.py | test_empty_db_returns_zero_buckets_and_null_avg |  | todo |  |  |
 | tests/integration/test_invoices_summary.py | test_sent_invoice_past_due_appears_in_overdue |  | todo |  |  |
 | tests/integration/test_invoices_summary.py | test_partial_invoice_past_due_uses_balance_due_not_amount |  | todo |  |  |
@@ -309,33 +309,33 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_record_payment_withholding.py | test_send_invoice_body_without_wht_unchanged |  | todo |  |  |
 | tests/integration/test_record_payment_withholding.py | test_payment_reminder_quotes_expected_cash |  | todo |  |  |
 | tests/integration/test_record_payment_withholding.py | test_bill_payment_schema_still_requires_positive_amount |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_create_template_stores_schedule_in_billing_cycle_ref |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_create_template_persists_end_condition |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_create_template_rejects_inconsistent_end_condition |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_cycle_key_none_before_start |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_cycle_key_is_iso_cycle_start_monthly |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_cycle_key_weekly_interval_two |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_cycle_key_none_past_end_date |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_cycle_key_none_past_after_n |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_cycle_key_returns_none_if_config_missing |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_rows_previous_is_cycle_date_not_generation_date |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_rows_next_is_previous_cycle_plus_one_interval |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_trigger_rejects_year_month_cycle_key |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_trigger_rejects_off_cycle_date |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_trigger_accepts_valid_cycle_start |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_manual_trigger_notifies_users_once |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_find_cycle_invoice_none_before_trigger_then_found |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_fix_recurring_cycle_keys_plan_and_apply |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_rows_excludes_void_children |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_fix_script_ignores_void_and_fixes_live_key |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_end_now_ends_template_with_overdue_cycle |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_end_now_ends_template_that_never_generated |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_end_now_with_future_next_cycle_ends_yesterday |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_end_now_on_paused_template_shows_ended_not_paused |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_rows_ended_schedule_outranks_paused_flag |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_ended_template_rejects_edit |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_ended_template_rejects_pause_and_resume |  | todo |  |  |
-| tests/integration/test_recurring_scheduling.py | test_active_template_still_accepts_edit |  | todo |  |  |
+| tests/integration/test_recurring_scheduling.py | test_create_template_stores_schedule_in_billing_cycle_ref | invoices.TestCreateTemplateStoresScheduleInBillingCycleRef | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_create_template_persists_end_condition | invoices.TestCreateTemplatePersistsEndCondition | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_create_template_rejects_inconsistent_end_condition | invoices.TestCreateTemplateRejectsInconsistentEndCondition | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_cycle_key_none_before_start | invoices.TestCycleKeyNoneBeforeStart | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_cycle_key_is_iso_cycle_start_monthly | invoices.TestCycleKeyIsIsoCycleStartMonthly | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_cycle_key_weekly_interval_two | invoices.TestCycleKeyWeeklyIntervalTwo | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_cycle_key_none_past_end_date | invoices.TestCycleKeyNonePastEndDate | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_cycle_key_none_past_after_n | invoices.TestCycleKeyNonePastAfterN | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_cycle_key_returns_none_if_config_missing | invoices.TestCycleKeyReturnsNoneIfConfigMissing | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_rows_previous_is_cycle_date_not_generation_date | invoices.TestRowsPreviousIsCycleDateNotGenerationDate | ported |  | Took the latest child by `created_at DESC` before `issue_date`: TestRowsPreviousIsCycleDateNotGenerationDate red (task 5) |
+| tests/integration/test_recurring_scheduling.py | test_rows_next_is_previous_cycle_plus_one_interval | invoices.TestRowsNextIsPreviousCyclePlusOneInterval | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_trigger_rejects_year_month_cycle_key | invoices.TestTriggerRejectsYearMonthCycleKey | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_trigger_rejects_off_cycle_date | invoices.TestTriggerRejectsOffCycleDate | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_trigger_accepts_valid_cycle_start | invoices.TestTriggerAcceptsValidCycleStart | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_manual_trigger_notifies_users_once | invoices.TestManualTriggerNotifiesUsersOnce | ported |  | Notified on a replay as well as on a new child: TestManualTriggerNotifiesUsersOnce red (task 6) |
+| tests/integration/test_recurring_scheduling.py | test_find_cycle_invoice_none_before_trigger_then_found | invoices.TestFindCycleInvoiceNoneBeforeTriggerThenFound | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_fix_recurring_cycle_keys_plan_and_apply |  | todo | scripts plan (scripts/fix_recurring_cycle_keys) |  |
+| tests/integration/test_recurring_scheduling.py | test_rows_excludes_void_children | invoices.TestRowsExcludesVoidChildren | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_fix_script_ignores_void_and_fixes_live_key |  | todo | scripts plan (scripts/fix_recurring_cycle_keys) |  |
+| tests/integration/test_recurring_scheduling.py | test_end_now_ends_template_with_overdue_cycle | invoices.TestEndNowEndsTemplateWithOverdueCycle | ported |  | Dropped the `next_run - 1` cap in END_NOW: TestEndNowEndsTemplateWithOverdueCycle red (task 5) |
+| tests/integration/test_recurring_scheduling.py | test_end_now_ends_template_that_never_generated | invoices.TestEndNowEndsTemplateThatNeverGenerated | ported |  | Dropped the `next_run - 1` cap in END_NOW: TestEndNowEndsTemplateThatNeverGenerated red (task 5) |
+| tests/integration/test_recurring_scheduling.py | test_end_now_with_future_next_cycle_ends_yesterday | invoices.TestEndNowWithFutureNextCycleEndsYesterday | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_end_now_on_paused_template_shows_ended_not_paused | invoices.TestEndNowOnPausedTemplateShowsEndedNotPaused | ported |  | Dropped the `next_run - 1` cap in END_NOW: TestEndNowOnPausedTemplateShowsEndedNotPaused red (task 5) |
+| tests/integration/test_recurring_scheduling.py | test_rows_ended_schedule_outranks_paused_flag | invoices.TestRowsEndedScheduleOutranksPausedFlag | ported |  | — |
+| tests/integration/test_recurring_scheduling.py | test_ended_template_rejects_edit | invoices.TestEndedTemplateRejectsEdit | ported |  | Dropped the ended check on PUT (`if false && ended`): TestEndedTemplateRejectsEdit red (task 5); dropped the `next_run - 1` cap in END_NOW: red as well (task 5) |
+| tests/integration/test_recurring_scheduling.py | test_ended_template_rejects_pause_and_resume | invoices.TestEndedTemplateRejectsPauseAndResume | ported |  | Dropped the `next_run - 1` cap in END_NOW: TestEndedTemplateRejectsPauseAndResume red (task 5) |
+| tests/integration/test_recurring_scheduling.py | test_active_template_still_accepts_edit | invoices.TestActiveTemplateStillAcceptsEdit | ported |  | — |
 | tests/integration/test_revenue_monthly_base.py | test_labels_span_12_months_oldest_first |  | todo |  |  |
 | tests/integration/test_revenue_monthly_base.py | test_base_currency_uses_rate_one |  | todo |  |  |
 | tests/integration/test_revenue_monthly_base.py | test_foreign_currency_converted_via_seeded_rate |  | todo |  |  |
@@ -360,14 +360,14 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_upcoming_invoices.py | test_usage_locked_or_no_cutoff_skipped |  | todo |  |  |
 | tests/integration/test_upcoming_invoices.py | test_usage_non_draft_skipped |  | todo |  |  |
 | tests/integration/test_upcoming_invoices.py | test_mixed_sorted_by_date |  | todo |  |  |
-| tests/integration/test_zero_value_invoice.py | test_zero_value_draft_has_zero_totals |  | todo |  |  |
-| tests/integration/test_zero_value_invoice.py | test_finalize_zero_value_invoice_becomes_paid |  | todo |  |  |
-| tests/integration/test_zero_value_invoice.py | test_finalize_nonzero_invoice_becomes_open |  | todo |  |  |
-| tests/integration/test_zero_value_invoice.py | test_settle_zero_value_invoice_service |  | todo |  |  |
-| tests/integration/test_zero_value_invoice.py | test_settle_rejects_nonzero_balance |  | todo |  |  |
-| tests/integration/test_zero_value_invoice.py | test_settle_rejects_draft |  | todo |  |  |
-| tests/integration/test_zero_value_invoice.py | test_mark_paid_endpoint_settles_zero_value |  | todo |  |  |
-| tests/integration/test_zero_value_invoice.py | test_mark_paid_endpoint_rejects_nonzero_balance |  | todo |  |  |
+| tests/integration/test_zero_value_invoice.py | test_zero_value_draft_has_zero_totals | invoices.TestZeroValueDraftHasZeroTotals | ported |  | — |
+| tests/integration/test_zero_value_invoice.py | test_finalize_zero_value_invoice_becomes_paid | invoices.TestFinalizeZeroValueInvoiceBecomesPaid | ported |  | — |
+| tests/integration/test_zero_value_invoice.py | test_finalize_nonzero_invoice_becomes_open | invoices.TestFinalizeNonzeroInvoiceBecomesOpen | ported |  | — |
+| tests/integration/test_zero_value_invoice.py | test_settle_zero_value_invoice_service | invoices.TestSettleZeroValueInvoiceService | ported |  | — |
+| tests/integration/test_zero_value_invoice.py | test_settle_rejects_nonzero_balance | invoices.TestSettleRejectsNonzeroBalance | ported |  | — |
+| tests/integration/test_zero_value_invoice.py | test_settle_rejects_draft | invoices.TestSettleRejectsDraft | ported |  | — |
+| tests/integration/test_zero_value_invoice.py | test_mark_paid_endpoint_settles_zero_value | invoices.TestMarkPaidEndpointSettlesZeroValue | ported |  | — |
+| tests/integration/test_zero_value_invoice.py | test_mark_paid_endpoint_rejects_nonzero_balance | invoices.TestMarkPaidEndpointRejectsNonzeroBalance | ported |  | — |
 | tests/unit/test_customers_service.py | test_create_customer_sets_fields | customers.TestCreateCustomerSetsFields | ported |  | — |
 | tests/unit/test_customers_service.py | test_update_customer_edits_fields | customers.TestUpdateCustomerEditsFields | ported |  | — |
 | tests/unit/test_customers_service.py | test_update_customer_not_found_raises | customers.TestUpdateCustomerNotFound | ported |  | — |
@@ -469,50 +469,50 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_returns_pdf_bytes |  | todo |  |  |
 | tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_without_customer |  | todo |  |  |
 | tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_escapes_xml_special_chars_in_names |  | todo |  |  |
-| tests/unit/test_recurring_drafts_email.py | test_subject_counts_drafts |  | todo |  |  |
-| tests/unit/test_recurring_drafts_email.py | test_text_body_lists_draft_details |  | todo |  |  |
-| tests/unit/test_recurring_drafts_email.py | test_html_body_links_invoice_number |  | todo |  |  |
-| tests/unit/test_recurring_scanner.py | test_none_config_returns_none |  | todo |  |  |
-| tests/unit/test_recurring_scanner.py | test_malformed_config_returns_none |  | todo |  |  |
-| tests/unit/test_recurring_scanner.py | test_before_start_returns_none |  | todo |  |  |
-| tests/unit/test_recurring_scanner.py | test_monthly_returns_iso_cycle_start |  | todo |  |  |
-| tests/unit/test_recurring_scanner.py | test_weekly_interval_two |  | todo |  |  |
-| tests/unit/test_recurring_scanner.py | test_past_end_date_returns_none |  | todo |  |  |
-| tests/unit/test_recurring_scanner.py | test_paused_template_returns_none_even_when_cycle_is_due |  | todo |  |  |
-| tests/unit/test_recurring_scanner.py | test_past_after_n_returns_none |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_parse_minimal_monthly_schedule |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_parse_end_on_date |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_parse_end_after_n |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_parse_rejects_bad_frequency |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_parse_rejects_non_positive_interval |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_parse_rejects_missing_start_date |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_parse_rejects_end_on_date_without_end_date |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_parse_rejects_end_after_n_without_count |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_parse_rejects_none_config |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_returns_none_before_start_date |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_start_date_itself_is_cycle_zero |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_daily_every_day_advances_index |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_daily_interval_three_buckets_by_three_days |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_weekly_interval_one_advances_by_seven_days |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_weekly_interval_two_advances_every_fortnight |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_monthly_interval_one_basic |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_monthly_interval_three_quarterly |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_monthly_end_of_month_start_clamps_short_months |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_yearly_interval_one |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_end_on_date_inclusive_on_the_day |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_end_after_n_caps_by_index |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_cycle_key_is_iso_date_of_cycle_start |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_describe_monthly_basic |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_describe_monthly_interval |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_describe_weekly |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_describe_weekly_interval |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_describe_daily |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_describe_yearly |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_next_cycle_after_before_start_returns_start |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_next_cycle_after_on_current_returns_next |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_next_cycle_after_returns_none_past_end_date |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_next_cycle_after_returns_none_past_count_cap |  | todo |  |  |
-| tests/unit/test_recurring_schedule.py | test_paused_flag_roundtrips |  | todo |  |  |
+| tests/unit/test_recurring_drafts_email.py | test_subject_counts_drafts |  | todo | email plan (digest subject) |  |
+| tests/unit/test_recurring_drafts_email.py | test_text_body_lists_draft_details |  | todo | email plan (digest text body) |  |
+| tests/unit/test_recurring_drafts_email.py | test_html_body_links_invoice_number |  | todo | email plan (digest html body) |  |
+| tests/unit/test_recurring_scanner.py | test_none_config_returns_none | schedule.TestNoneConfigReturnsNone | ported |  | — |
+| tests/unit/test_recurring_scanner.py | test_malformed_config_returns_none | schedule.TestMalformedConfigReturnsNone | ported |  | — |
+| tests/unit/test_recurring_scanner.py | test_before_start_returns_none | schedule.TestBeforeStartReturnsNone | ported |  | — |
+| tests/unit/test_recurring_scanner.py | test_monthly_returns_iso_cycle_start | schedule.TestMonthlyReturnsISOCycleStart | ported |  | — |
+| tests/unit/test_recurring_scanner.py | test_weekly_interval_two | schedule.TestWeeklyIntervalTwo | ported |  | — |
+| tests/unit/test_recurring_scanner.py | test_past_end_date_returns_none | schedule.TestPastEndDateReturnsNone | ported |  | — |
+| tests/unit/test_recurring_scanner.py | test_paused_template_returns_none_even_when_cycle_is_due | schedule.TestPausedTemplateReturnsNoneEvenWhenCycleIsDue | ported |  | — |
+| tests/unit/test_recurring_scanner.py | test_past_after_n_returns_none | schedule.TestPastAfterNReturnsNone | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_parse_minimal_monthly_schedule | schedule.TestParseMinimalMonthlySchedule | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_parse_end_on_date | schedule.TestParseEndOnDate | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_parse_end_after_n | schedule.TestParseEndAfterN | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_parse_rejects_bad_frequency | schedule.TestParseRejectsBadFrequency | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_parse_rejects_non_positive_interval | schedule.TestParseRejectsNonPositiveInterval | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_parse_rejects_missing_start_date | schedule.TestParseRejectsMissingStartDate | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_parse_rejects_end_on_date_without_end_date | schedule.TestParseRejectsEndOnDateWithoutEndDate | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_parse_rejects_end_after_n_without_count | schedule.TestParseRejectsEndAfterNWithoutCount | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_parse_rejects_none_config | schedule.TestParseRejectsNoneConfig | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_returns_none_before_start_date | schedule.TestReturnsNoneBeforeStartDate | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_start_date_itself_is_cycle_zero | schedule.TestStartDateItselfIsCycleZero | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_daily_every_day_advances_index | schedule.TestDailyEveryDayAdvancesIndex | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_daily_interval_three_buckets_by_three_days | schedule.TestDailyIntervalThreeBucketsByThreeDays | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_weekly_interval_one_advances_by_seven_days | schedule.TestWeeklyIntervalOneAdvancesBySevenDays | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_weekly_interval_two_advances_every_fortnight | schedule.TestWeeklyIntervalTwoAdvancesEveryFortnight | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_monthly_interval_one_basic | schedule.TestMonthlyIntervalOneBasic | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_monthly_interval_three_quarterly | schedule.TestMonthlyIntervalThreeQuarterly | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_monthly_end_of_month_start_clamps_short_months | schedule.TestMonthlyEndOfMonthStartClampsShortMonths | ported |  | Computed monthly cycles from the previous cycle instead of the start date: TestMonthlyEndOfMonthStartClampsShortMonths red (task 1) |
+| tests/unit/test_recurring_schedule.py | test_yearly_interval_one | schedule.TestYearlyIntervalOne | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_end_on_date_inclusive_on_the_day | schedule.TestEndOnDateInclusiveOnTheDay | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_end_after_n_caps_by_index | schedule.TestEndAfterNCapsByIndex | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_cycle_key_is_iso_date_of_cycle_start | schedule.TestCycleKeyIsISODateOfCycleStart | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_describe_monthly_basic | schedule.TestDescribeMonthlyBasic | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_describe_monthly_interval | schedule.TestDescribeMonthlyInterval | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_describe_weekly | schedule.TestDescribeWeekly | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_describe_weekly_interval | schedule.TestDescribeWeeklyInterval | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_describe_daily | schedule.TestDescribeDaily | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_describe_yearly | schedule.TestDescribeYearly | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_next_cycle_after_before_start_returns_start | schedule.TestNextCycleAfterBeforeStartReturnsStart | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_next_cycle_after_on_current_returns_next | schedule.TestNextCycleAfterOnCurrentReturnsNext | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_next_cycle_after_returns_none_past_end_date | schedule.TestNextCycleAfterReturnsNonePastEndDate | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_next_cycle_after_returns_none_past_count_cap | schedule.TestNextCycleAfterReturnsNonePastCountCap | ported |  | — |
+| tests/unit/test_recurring_schedule.py | test_paused_flag_roundtrips | schedule.TestPausedFlagRoundtrips | ported |  | — |
 | tests/unit/test_sentry_disabled_in_tests.py | test_create_app_does_not_enable_sentry_under_pytest |  | todo |  |  |
 | tests/unit/test_vendors_service.py | test_create_vendor_sets_fields | vendors.TestCreateVendorSetsFields | ported |  | — |
 | tests/unit/test_vendors_service.py | test_update_vendor_edits_fields | vendors.TestUpdateVendorEditsFields | ported |  | Omitted `name` written as the zero value instead of `.Or(cur.Name)`: TestUpdateVendorEditsFields red (task 4) |
