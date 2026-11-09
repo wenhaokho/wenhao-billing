@@ -43,7 +43,7 @@ func (r routes) registerConvert(api huma.API, prefix string, tags []string) {
 }
 
 func (r routes) convert(ctx context.Context, in *convertIn) (*invoiceBody, error) {
-	today := todayUTC(r.clock)
+	today := platform.TodayUTC(r.clock)
 	var out invoices.InvoiceOut
 	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var err error
