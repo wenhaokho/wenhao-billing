@@ -29,7 +29,16 @@ type Config struct {
 	FXProviderBaseURL      string        // FX_PROVIDER_BASE_URL
 	FXProviderTimeout      time.Duration // FX_PROVIDER_TIMEOUT_SECONDS
 	FXSyncCurrencies       []string      // FX_SYNC_CURRENCIES: foreign currencies each sync pulls a base rate for
+	WebhookHMACSecret      string        // WEBHOOK_HMAC_SECRET: keys the HMAC of the payment webhook's body
+	EmailWebhookToken      string        // EMAIL_WEBHOOK_TOKEN: the token the inbound-email route requires
 }
+
+// The development values of the two intake secrets, Python's defaults. They
+// are public, so a production API refuses them.
+const (
+	devWebhookHMACSecret = "dev-webhook-secret-change-me" //nolint:gosec // the published development default, which production refuses
+	devEmailWebhookToken = "dev-email-token-change-me"    //nolint:gosec // the published development default, which production refuses
+)
 
 // rawConfig is the environment as written; Config holds it parsed.
 type rawConfig struct {
@@ -48,6 +57,8 @@ type rawConfig struct {
 	FXProviderBaseURL      string  `env:"FX_PROVIDER_BASE_URL" envDefault:"https://api.frankfurter.dev/v1"`
 	FXProviderSeconds      float64 `env:"FX_PROVIDER_TIMEOUT_SECONDS" envDefault:"15"` //nolint:forbidigo // not money: a timeout in seconds
 	FXSyncCurrencies       string  `env:"FX_SYNC_CURRENCIES" envDefault:"USD,SGD"`
+	WebhookHMACSecret      string  `env:"WEBHOOK_HMAC_SECRET" envDefault:"dev-webhook-secret-change-me"`
+	EmailWebhookToken      string  `env:"EMAIL_WEBHOOK_TOKEN" envDefault:"dev-email-token-change-me"`
 }
 
 // LoadConfig reads the process environment.
@@ -110,6 +121,15 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 	if r.FXProviderSeconds <= 0 { // 0 would mean no timeout at all
 		return Config{}, fmt.Errorf("FX_PROVIDER_TIMEOUT_SECONDS must be greater than 0")
 	}
+	// The defaults are published in the source: anyone could sign a payment.
+	if r.Environment == "production" {
+		if r.WebhookHMACSecret == "" || r.WebhookHMACSecret == devWebhookHMACSecret {
+			return Config{}, fmt.Errorf("WEBHOOK_HMAC_SECRET must be set to a secret of your own in production")
+		}
+		if r.EmailWebhookToken == "" || r.EmailWebhookToken == devEmailWebhookToken {
+			return Config{}, fmt.Errorf("EMAIL_WEBHOOK_TOKEN must be set to a secret of your own in production")
+		}
+	}
 	return Config{
 		Environment:            r.Environment,
 		DatabaseURL:            pgxURL(r.DatabaseURL),
@@ -126,6 +146,8 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 		FXProviderBaseURL:      r.FXProviderBaseURL,
 		FXProviderTimeout:      time.Duration(r.FXProviderSeconds * float64(time.Second)), //nolint:forbidigo // not money: a timeout
 		FXSyncCurrencies:       syncCurrencies,
+		WebhookHMACSecret:      r.WebhookHMACSecret,
+		EmailWebhookToken:      r.EmailWebhookToken,
 	}, nil
 }
 

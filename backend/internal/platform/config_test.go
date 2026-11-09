@@ -10,7 +10,10 @@ import (
 const configSecret = "0123456789abcdef0123456789abcdef" // 32 bytes
 
 func baseVars(extra map[string]string) map[string]string {
-	v := map[string]string{"DATABASE_URL": "postgresql://u:p@h:5432/d", "SESSION_SECRET": configSecret}
+	v := map[string]string{
+		"DATABASE_URL": "postgresql://u:p@h:5432/d", "SESSION_SECRET": configSecret,
+		"WEBHOOK_HMAC_SECRET": "a-real-webhook-secret", "EMAIL_WEBHOOK_TOKEN": "a-real-email-token",
+	}
 	for k, val := range extra {
 		v[k] = val
 	}
@@ -180,5 +183,47 @@ func TestConfigRefusesBadFXSyncCurrency(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "FX_SYNC_CURRENCIES") {
 			t.Errorf("%q: err = %v, want one naming FX_SYNC_CURRENCIES", bad, err)
 		}
+	}
+}
+
+func TestProductionRefusesDefaultIntakeSecrets(t *testing.T) {
+	t.Parallel()
+	const devSecret, devToken = "dev-webhook-secret-change-me", "dev-email-token-change-me"
+	for name, tc := range map[string]struct {
+		vars map[string]string
+		want string // the variable the error names; "" accepts
+	}{
+		"default secret":       {map[string]string{"WEBHOOK_HMAC_SECRET": devSecret}, "WEBHOOK_HMAC_SECRET"},
+		"empty secret":         {map[string]string{"WEBHOOK_HMAC_SECRET": ""}, "WEBHOOK_HMAC_SECRET"},
+		"default token":        {map[string]string{"EMAIL_WEBHOOK_TOKEN": devToken}, "EMAIL_WEBHOOK_TOKEN"},
+		"empty token":          {map[string]string{"EMAIL_WEBHOOK_TOKEN": ""}, "EMAIL_WEBHOOK_TOKEN"},
+		"explicit production":  {map[string]string{"ENVIRONMENT": "production", "WEBHOOK_HMAC_SECRET": devSecret}, "WEBHOOK_HMAC_SECRET"},
+		"real values":          {nil, ""},
+		"development defaults": {map[string]string{"ENVIRONMENT": "development", "WEBHOOK_HMAC_SECRET": devSecret, "EMAIL_WEBHOOK_TOKEN": devToken}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseConfig(baseVars(tc.vars))
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("err = %v, want none", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Errorf("err = %v, want one naming %s", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestIntakeSecretsDefaultToPythonDevValues(t *testing.T) {
+	t.Parallel()
+	vars := baseVars(map[string]string{"ENVIRONMENT": "development"})
+	delete(vars, "WEBHOOK_HMAC_SECRET")
+	delete(vars, "EMAIL_WEBHOOK_TOKEN")
+	cfg, err := ParseConfig(vars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WebhookHMACSecret != "dev-webhook-secret-change-me" || cfg.EmailWebhookToken != "dev-email-token-change-me" {
+		t.Errorf("defaults = %q, %q", cfg.WebhookHMACSecret, cfg.EmailWebhookToken)
 	}
 }
