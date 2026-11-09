@@ -219,6 +219,55 @@ func TestCodeSingleUse(t *testing.T) {
 	}
 }
 
+// respellings are the other base64url spellings of a token's last character:
+// a 43-character HS256 signature leaves the last character's two low bits
+// unused, so four characters decode to the same bytes.
+func respellings(token string) []string {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	i := strings.IndexByte(alphabet, token[len(token)-1])
+	var out []string
+	for low := range 4 {
+		if j := i&^3 | low; j != i {
+			out = append(out, token[:len(token)-1]+string(alphabet[j]))
+		}
+	}
+	return out
+}
+
+// A code respelled in its signature's unused bits is not a new code: strict
+// base64url decoding refuses it, before and after the real code is spent.
+// Access and refresh tokens are refused the same way.
+func TestCodeSignatureRespellingRefused(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, "test")
+	cid := a.register(t, "cli")
+	id := uuid.New()
+	code := a.mintCode(id, cid, verifier)
+	alts := respellings(code)
+	if len(alts) != 3 {
+		t.Fatalf("respellings = %v, want 3", alts)
+	}
+	const refused = "invalid authorization code: Invalid token"
+	for _, alt := range alts {
+		wantOAuthError(t, a.token(codeForm(alt, cid, verifier)), http.StatusBadRequest, "invalid_grant", refused)
+	}
+	access, refresh := a.wantPair(t, a.token(codeForm(code, cid, verifier)), id)
+	for _, alt := range alts {
+		wantOAuthError(t, a.token(codeForm(alt, cid, verifier)), http.StatusBadRequest, "invalid_grant", refused)
+	}
+	if n := a.count(t, `SELECT count(*) FROM oauth_refresh_tokens`); n != 1 {
+		t.Fatalf("%d refresh tokens stored, want 1", n)
+	}
+	for _, alt := range respellings(access) {
+		if _, err := a.tokens.VerifyAccess(alt, a.now); err == nil || err.Error() != "Invalid token" {
+			t.Fatalf("respelled access token: err = %v, want Invalid token", err)
+		}
+	}
+	for _, alt := range respellings(refresh) {
+		wantOAuthError(t, a.token(refreshForm(alt, cid)), http.StatusBadRequest, "invalid_grant", "invalid refresh token: Invalid token")
+	}
+}
+
 // race posts form from n goroutines released together and returns the
 // responses.
 func (a authApp) race(n int, path string, form url.Values) []*httptest.ResponseRecorder {
@@ -423,6 +472,7 @@ func TestUnsupportedGrantType(t *testing.T) {
 		"unsupported_grant_type", "unsupported grant_type: client_credentials")
 	// Go change 9: Python answered FastAPI's 422.
 	wantOAuthError(t, a.token(url.Values{"code": {"x"}}), http.StatusBadRequest, "invalid_request", "missing form field: grant_type")
+	wantOAuthError(t, a.token(url.Values{"grant_type": {""}, "code": {"x"}}), http.StatusBadRequest, "invalid_request", "missing form field: grant_type")
 }
 
 // The authorization_code grant's refusals in Python's order. None of them
@@ -522,7 +572,7 @@ func TestRevokeAlways200(t *testing.T) {
 	id := uuid.New()
 	_, refresh := a.wantPair(t, a.token(codeForm(a.mintCode(id, cid, verifier), cid, verifier)), id)
 	unstored, _ := a.tokens.MintRefresh(id, a.now)
-	for _, tok := range []string{"garbage", "", unstored, refresh, refresh} {
+	for _, tok := range []string{"garbage", unstored, refresh, refresh} {
 		wantEmptyObject(t, a.revoke(tok))
 	}
 	if n := a.count(t, `SELECT count(*) FROM oauth_refresh_tokens WHERE NOT revoked`); n != 0 {
@@ -532,15 +582,17 @@ func TestRevokeAlways200(t *testing.T) {
 	wantEmptyObject(t, a.postForm("/oauth/revoke", url.Values{"token": {"x"}, "token_type_hint": {"refresh_token"}, "client_id": {cid}}))
 	// Go change 9: a missing token is an OAuth 400, not FastAPI's 422.
 	wantOAuthError(t, a.postForm("/oauth/revoke", url.Values{}), http.StatusBadRequest, "invalid_request", "missing form field: token")
+	wantOAuthError(t, a.revoke(""), http.StatusBadRequest, "invalid_request", "missing form field: token")
 }
 
-// Spent-code rows past their expiry are pruned on a token request.
+// Spent-code rows more than five minutes past their expiry (the grace for
+// clock skew between replicas) are pruned on a token request.
 func TestSpentCodesPruned(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, "test")
 	if _, err := a.pool.Exec(t.Context(),
-		`INSERT INTO oauth_spent_codes (code_hash, expires_at) VALUES ('old', $1), ('boundary', $2), ('live', $3)`,
-		a.now.Add(-time.Second), a.now, a.now.Add(time.Minute)); err != nil {
+		`INSERT INTO oauth_spent_codes (code_hash, expires_at) VALUES ('old', $1), ('grace', $2), ('recent', $3), ('live', $4)`,
+		a.now.Add(-5*time.Minute-time.Second), a.now.Add(-5*time.Minute), a.now.Add(-time.Second), a.now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	wantOAuthError(t, a.token(url.Values{"grant_type": {"password"}}), http.StatusBadRequest,
@@ -560,7 +612,7 @@ func TestSpentCodesPruned(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(left, ",") != "boundary,live" {
-		t.Fatalf("spent codes left = %v, want [boundary live]", left)
+	if strings.Join(left, ",") != "grace,live,recent" {
+		t.Fatalf("spent codes left = %v, want [grace live recent]", left)
 	}
 }

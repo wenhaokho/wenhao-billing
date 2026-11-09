@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/url"
@@ -17,6 +16,9 @@ import (
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/oauth/oauthdb"
 )
+
+// spentCodeGrace is how long past its expiry a spent code's row is kept.
+const spentCodeGrace = 5 * time.Minute
 
 // tokenResponse is Python's _token_response body, keys in its order.
 type tokenResponse struct {
@@ -42,8 +44,10 @@ func (h handler) token(w http.ResponseWriter, r *http.Request) {
 	}
 	now := h.clock.Now()
 	// Spent codes past their expiry can never verify again, so their rows go;
-	// the expires_at index keeps this cheap on every request.
-	if err := oauthdb.New(h.pool).PruneSpentCodes(r.Context(), now); err != nil {
+	// the expires_at index keeps this cheap on every request. The grace
+	// period covers clock skew between replicas: a row is only dropped once
+	// every replica's clock has the code expired.
+	if err := oauthdb.New(h.pool).PruneSpentCodes(r.Context(), now.Add(-spentCodeGrace)); err != nil {
 		panic(err)
 	}
 	switch grant := value(form, "grant_type"); grant {
@@ -93,7 +97,7 @@ func (h handler) codeGrant(w http.ResponseWriter, r *http.Request, form url.Valu
 		oauthError(w, http.StatusBadRequest, "invalid_request", "client_id is required")
 		return
 	}
-	claims, exp, err := h.tokens.verifyCode(code, now)
+	claims, spent, err := h.tokens.verifyCode(code, now)
 	if err != nil {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "invalid authorization code: "+err.Error())
 		return
@@ -119,11 +123,10 @@ func (h handler) codeGrant(w http.ResponseWriter, r *http.Request, form url.Valu
 
 	// Go change 1: the code is spent and the pair stored in one transaction,
 	// so of two exchanges of one code exactly one gets a pair.
-	sum := sha256.Sum256([]byte(code))
 	var resp *tokenResponse
 	err = db.InTx(r.Context(), h.pool, func(tx pgx.Tx) error {
 		q := oauthdb.New(tx)
-		_, err := q.SpendCode(r.Context(), oauthdb.SpendCodeParams{CodeHash: hex.EncodeToString(sum[:]), ExpiresAt: exp})
+		_, err := q.SpendCode(r.Context(), oauthdb.SpendCodeParams{CodeHash: spent.id, ExpiresAt: spent.exp})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil // already spent
 		}

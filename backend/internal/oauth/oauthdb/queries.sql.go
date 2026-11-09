@@ -65,9 +65,10 @@ const pruneSpentCodes = `-- name: PruneSpentCodes :exec
 DELETE FROM oauth_spent_codes WHERE expires_at < $1
 `
 
-// Spent codes past their expiry can no longer verify, so their rows go.
-func (q *Queries) PruneSpentCodes(ctx context.Context, now time.Time) error {
-	_, err := q.db.Exec(ctx, pruneSpentCodes, now)
+// Spent codes past their expiry can no longer verify, so their rows go;
+// cutoff is now less a grace period for clock skew.
+func (q *Queries) PruneSpentCodes(ctx context.Context, cutoff time.Time) error {
+	_, err := q.db.Exec(ctx, pruneSpentCodes, cutoff)
 	return err
 }
 

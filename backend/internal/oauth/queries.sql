@@ -10,8 +10,9 @@ VALUES (@client_id, @client_name, @redirect_uris);
 SELECT client_name, redirect_uris FROM oauth_clients WHERE client_id = @client_id;
 
 -- name: PruneSpentCodes :exec
--- Spent codes past their expiry can no longer verify, so their rows go.
-DELETE FROM oauth_spent_codes WHERE expires_at < @now;
+-- Spent codes past their expiry can no longer verify, so their rows go;
+-- cutoff is now less a grace period for clock skew.
+DELETE FROM oauth_spent_codes WHERE expires_at < @cutoff;
 
 -- name: SpendCode :one
 -- Records an exchanged code. No row back means the code was already spent:

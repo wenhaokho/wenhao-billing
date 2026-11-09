@@ -7,6 +7,8 @@ package oauth
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -154,7 +156,7 @@ func (t *Tokens) decode(token string, now time.Time) (jwt.MapClaims, error) {
 	// Only HS256 is accepted: "none" and every other algorithm are refused
 	// before any key is touched.
 	var unverified jwt.MapClaims
-	parsed, _, err := jwt.NewParser().ParseUnverified(token, &unverified)
+	parsed, _, err := jwt.NewParser(jwt.WithStrictDecoding()).ParseUnverified(token, &unverified)
 	if err != nil {
 		return nil, tokErr("Invalid token")
 	}
@@ -166,6 +168,7 @@ func (t *Tokens) decode(token string, now time.Time) (jwt.MapClaims, error) {
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 		jwt.WithoutClaimsValidation(),
 		jwt.WithJSONNumber(),
+		jwt.WithStrictDecoding(),
 	).ParseWithClaims(token, claims, func(*jwt.Token) (any, error) { return t.secret, nil })
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenSignatureInvalid) {
@@ -252,21 +255,46 @@ func (t *Tokens) VerifyCode(token string, now time.Time) (CodeClaims, error) {
 	return c, err
 }
 
-// verifyCode is VerifyCode plus the code's expiry, which the token endpoint
-// keeps with the spent code so its row outlives the code.
-func (t *Tokens) verifyCode(token string, now time.Time) (CodeClaims, time.Time, error) {
+// spentKey identifies an exchanged code for oauth_spent_codes: a canonical
+// id and the code's expiry, so the row outlives the code.
+type spentKey struct {
+	id  string
+	exp time.Time
+}
+
+// codeID is the hex SHA-256 of a token's decoded signature bytes, the same
+// for every base64url spelling of them.
+func codeID(token string) (string, error) {
+	sig, err := base64.RawURLEncoding.DecodeString(token[strings.LastIndexByte(token, '.')+1:])
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(sig)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// verifyCode is VerifyCode plus the code's spent key. The id is the SHA-256
+// of the decoded signature bytes, not of the token text: base64url has
+// several spellings of the same bytes (the unused low bits of the last
+// character), and decoding folds them together. Strict decoding refuses the
+// other spellings anyway; keying on bytes keeps single use even without it.
+func (t *Tokens) verifyCode(token string, now time.Time) (CodeClaims, spentKey, error) {
 	c, err := t.decode(token, now)
 	if err != nil {
-		return CodeClaims{}, time.Time{}, err
+		return CodeClaims{}, spentKey{}, err
 	}
 	if str(c, "typ") != typCode {
-		return CodeClaims{}, time.Time{}, tokErr("not an authorization code")
+		return CodeClaims{}, spentKey{}, tokErr("not an authorization code")
 	}
 	sub, err := subject(c)
 	if err != nil {
-		return CodeClaims{}, time.Time{}, err
+		return CodeClaims{}, spentKey{}, err
+	}
+	id, err := codeID(token)
+	if err != nil {
+		return CodeClaims{}, spentKey{}, tokErr("Invalid token") // unreachable: decode verified it
 	}
 	exp, _ := numeric(c["exp"]) // decode has checked it is there
 	return CodeClaims{UserID: sub, ClientID: str(c, "client_id"), RedirectURI: str(c, "redirect_uri"), CodeChallenge: str(c, "code_challenge")},
-		time.Unix(exp, 0).UTC(), nil
+		spentKey{id: id, exp: time.Unix(exp, 0).UTC()}, nil
 }

@@ -210,8 +210,10 @@ func (h handler) csrfCookie(maxAge time.Duration) auth.CookieSpec {
 }
 
 // readForm parses a POSTed form body (never the query string) and checks the
-// required fields are present. A bad body or a missing field is answered
-// 400 invalid_request and ok is false.
+// required fields are present and not empty (FastAPI's Form(...) also took an
+// empty value as missing). Only application/x-www-form-urlencoded is read,
+// not multipart. A bad body or a missing field is answered 400
+// invalid_request and ok is false.
 func readForm(w http.ResponseWriter, r *http.Request, required ...string) (url.Values, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBody)
 	if err := r.ParseForm(); err != nil {
@@ -220,7 +222,7 @@ func readForm(w http.ResponseWriter, r *http.Request, required ...string) (url.V
 	}
 	form := r.PostForm
 	for _, f := range required {
-		if _, ok := last(form, f); !ok {
+		if v, _ := last(form, f); v == "" {
 			// Go change 9: Python answered FastAPI's 422.
 			oauthError(w, http.StatusBadRequest, "invalid_request", "missing form field: "+f)
 			return nil, false

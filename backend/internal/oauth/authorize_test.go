@@ -3,6 +3,7 @@ package oauth_test
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -584,15 +585,18 @@ func TestAuthorizeValidationErrorsInOrder(t *testing.T) {
 			for k, v := range q {
 				form[k] = v
 			}
-			// The consent form requires the fields to be present; an empty
-			// value reaches the shared validation.
+			// The consent form requires the fields to be present and not
+			// empty (FastAPI's Form(...)): the first absent one, in the
+			// form's order, is refused before the shared validation runs.
+			status, code, desc := c.status, c.code, c.desc
 			for _, k := range []string{"response_type", "client_id", "redirect_uri", "code_challenge"} {
-				if !form.Has(k) {
-					form.Set(k, "")
+				if form.Get(k) == "" {
+					status, code, desc = 400, "invalid_request", "missing form field: "+k
+					break
 				}
 			}
 			rec := a.post(form, session, cookie)
-			wantOAuthError(t, rec, c.status, c.code, c.desc)
+			wantOAuthError(t, rec, status, code, desc)
 			noLocation(t, rec)
 		})
 	}
@@ -606,7 +610,8 @@ func TestAuthorizeValidationErrorsInOrder(t *testing.T) {
 	})
 }
 
-// Go change 9: a consent POST missing a required field is an OAuth 400, not
+// Go change 9: a consent POST missing a required field, or sending it empty
+// (FastAPI's Form(...) took an empty value as missing), is an OAuth 400, not
 // FastAPI's 422.
 func TestConsentMissingFieldIsOauth400(t *testing.T) {
 	t.Parallel()
@@ -614,15 +619,21 @@ func TestConsentMissingFieldIsOauth400(t *testing.T) {
 	cid := a.register(t, "cli")
 	_, session := a.user(t, "admin")
 	for _, field := range []string{"response_type", "client_id", "redirect_uri", "code_challenge", "decision"} {
-		t.Run(field, func(t *testing.T) {
-			t.Parallel()
-			token, cookie := a.consentPage(t, session, authorizeParams(cid, "").Encode())
-			form := consentForm(cid, token, "", "approve")
-			form.Del(field)
-			rec := a.post(form, session, cookie)
-			wantOAuthError(t, rec, http.StatusBadRequest, "invalid_request", "missing form field: "+field)
-			noLocation(t, rec)
-		})
+		for _, empty := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s empty=%t", field, empty), func(t *testing.T) {
+				t.Parallel()
+				token, cookie := a.consentPage(t, session, authorizeParams(cid, "").Encode())
+				form := consentForm(cid, token, "", "approve")
+				if empty {
+					form.Set(field, "")
+				} else {
+					form.Del(field)
+				}
+				rec := a.post(form, session, cookie)
+				wantOAuthError(t, rec, http.StatusBadRequest, "invalid_request", "missing form field: "+field)
+				noLocation(t, rec)
+			})
+		}
 	}
 }
 
