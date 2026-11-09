@@ -152,12 +152,16 @@ func TestResendErrorResponseFailsAndLogsTheBody(t *testing.T) {
 // retry repeats it, and any change to what is sent changes it.
 func TestIdempotencyKeyStableAndBodyBound(t *testing.T) {
 	t.Parallel()
-	base := Message{To: "a@example.com", Cc: []string{"c@example.com"}, Subject: "Invoice", Text: "body", HTML: "<p>body</p>"}
-	key := IdempotencyKey("doc-1", base)
+	t0 := time.Date(2026, 1, 15, 9, 0, 0, 0, time.UTC)
+	base := Message{
+		To: "a@example.com", Cc: []string{"c@example.com"}, Subject: "Invoice", Text: "body", HTML: "<p>body</p>",
+		Attachments: []Attachment{{Filename: "a.pdf", ContentType: "application/pdf", Content: []byte("%PDF-1")}},
+	}
+	key := IdempotencyKey("doc-1", base, t0)
 	if !strings.HasPrefix(key, "doc-1:") {
 		t.Errorf("key %q does not start with the document id", key)
 	}
-	if again := IdempotencyKey("doc-1", base); again != key {
+	if again := IdempotencyKey("doc-1", base, t0); again != key {
 		t.Errorf("same message, keys %q and %q", key, again)
 	}
 	variants := map[string]Message{
@@ -166,14 +170,35 @@ func TestIdempotencyKeyStableAndBodyBound(t *testing.T) {
 		"subject": {To: base.To, Cc: base.Cc, Subject: "Invoice 2", Text: base.Text, HTML: base.HTML},
 		"text":    {To: base.To, Cc: base.Cc, Subject: base.Subject, Text: "body 2", HTML: base.HTML},
 		"html":    {To: base.To, Cc: base.Cc, Subject: base.Subject, Text: base.Text, HTML: "<p>x</p>"},
+		"attachment bytes": {
+			To: base.To, Cc: base.Cc, Subject: base.Subject, Text: base.Text, HTML: base.HTML,
+			Attachments: []Attachment{{Filename: "a.pdf", ContentType: "application/pdf", Content: []byte("%PDF-2")}},
+		},
+		"attachment name": {
+			To: base.To, Cc: base.Cc, Subject: base.Subject, Text: base.Text, HTML: base.HTML,
+			Attachments: []Attachment{{Filename: "b.pdf", ContentType: "application/pdf", Content: []byte("%PDF-1")}},
+		},
+		"attachment type": {
+			To: base.To, Cc: base.Cc, Subject: base.Subject, Text: base.Text, HTML: base.HTML,
+			Attachments: []Attachment{{Filename: "a.pdf", ContentType: "application/x-pdf", Content: []byte("%PDF-1")}},
+		},
+		"no attachment": {To: base.To, Cc: base.Cc, Subject: base.Subject, Text: base.Text, HTML: base.HTML},
 	}
 	for name, m := range variants {
-		if IdempotencyKey("doc-1", m) == key {
+		if IdempotencyKey("doc-1", m, t0) == key {
 			t.Errorf("changing %s kept the key", name)
 		}
 	}
-	if IdempotencyKey("doc-2", base) == key {
+	if IdempotencyKey("doc-2", base, t0) == key {
 		t.Errorf("another document kept the key")
+	}
+
+	// Inside the 10-minute window the key repeats; a later window changes it.
+	if got := IdempotencyKey("doc-1", base, t0.Add(9*time.Minute)); got != key {
+		t.Errorf("9 minutes later the key changed: %q", got)
+	}
+	if got := IdempotencyKey("doc-1", base, t0.Add(11*time.Minute)); got == key {
+		t.Errorf("11 minutes later the key stayed %q", got)
 	}
 
 	// The sender sends it as the Idempotency-Key header.

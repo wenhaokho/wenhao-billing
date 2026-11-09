@@ -86,7 +86,7 @@ func register(api huma.API, f features) {
 	})
 	quotations.Register(api, f.Pool, f.Clock)
 	quotations.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
-	invoices.RegisterDocuments(api, f.Pool, f.Mail)
+	invoices.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
 	bills.Register(api, f.Pool, f.Clock)
 	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: hosting.Restorer{
 		Pool: f.Pool, Client: hosting.NewClient(f.Config), Logger: f.Logger,
@@ -138,6 +138,9 @@ func mailSender(cfg platform.Config, logger *slog.Logger) email.LogSender {
 // (Python's send_email with no key and no SMTP host).
 func pickSender(cfg platform.Config, logger *slog.Logger) email.Sender {
 	if cfg.ResendAPIKey == "" {
+		if !cfg.LocalHTTP() && logger != nil {
+			logger.Warn("RESEND_API_KEY is empty: mail is logged, not sent", "environment", cfg.Environment)
+		}
 		return mailSender(cfg, logger)
 	}
 	return email.NewResendSender(email.ResendConfig{

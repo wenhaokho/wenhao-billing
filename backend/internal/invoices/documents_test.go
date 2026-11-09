@@ -39,7 +39,7 @@ func newDocAppWith(t *testing.T, mail func(d apitest.Deps) email.Sender) *apites
 	t.Helper()
 	return apitest.New(t, func(api huma.API, d apitest.Deps) {
 		Register(api, d.Pool, d.Clock, nil)
-		RegisterDocuments(api, d.Pool, mail(d))
+		RegisterDocuments(api, d.Pool, d.Clock, mail(d))
 	})
 }
 
@@ -172,8 +172,15 @@ func TestSendInvoiceBodyWithoutWHTUnchanged(t *testing.T) {
 		m.Attachments[0].ContentType != "application/pdf" || !strings.HasPrefix(string(m.Attachments[0].Content), "%PDF-") {
 		t.Errorf("attachments %+v", m.Attachments)
 	}
-	if want := "11111111-2222-3333-4444-555555555555:b700c637eced12e9e3fb0e259124bc4c5ad98f7226ca6b258cd6a83a84ebdf4c"; m.IdempotencyKey != want {
+	// The key is the document id, the 10-minute window of the clock and a
+	// hash of everything sent, the PDF included.
+	plain := m
+	plain.IdempotencyKey = ""
+	if want := email.IdempotencyKey("11111111-2222-3333-4444-555555555555", plain, app.Clock.Now()); m.IdempotencyKey != want {
 		t.Errorf("idempotency key %q, want %q", m.IdempotencyKey, want)
+	}
+	if !strings.HasPrefix(m.IdempotencyKey, "11111111-2222-3333-4444-555555555555:") {
+		t.Errorf("idempotency key %q lacks the document id", m.IdempotencyKey)
 	}
 }
 

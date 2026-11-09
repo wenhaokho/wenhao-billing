@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -163,4 +164,28 @@ func TestPickSenderResendOnlyWithAKey(t *testing.T) {
 	if _, ok := pickSender(platform.Config{ResendAPIKey: "re_x"}, nil).(email.LogSender); ok {
 		t.Errorf("with a key: sender is still the LogSender")
 	}
+}
+
+// An empty RESEND_API_KEY outside development and test logs one Warn; a local
+// environment or a key stays quiet.
+func TestPickSenderWarnsOnceWithoutAKeyInProduction(t *testing.T) {
+	t.Parallel()
+	for env, want := range map[string]int{"production": 1, "staging": 1, "development": 0, "test": 0} {
+		t.Run(env, func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			pickSender(platform.Config{Environment: env}, slog.New(slog.NewTextHandler(&buf, nil)))
+			if got := strings.Count(buf.String(), "mail is logged, not sent"); got != want {
+				t.Errorf("%d warnings, want %d: %q", got, want, buf.String())
+			}
+		})
+	}
+	t.Run("with a key", func(t *testing.T) {
+		t.Parallel()
+		var buf bytes.Buffer
+		pickSender(platform.Config{Environment: "production", ResendAPIKey: "re_x"}, slog.New(slog.NewTextHandler(&buf, nil)))
+		if buf.Len() != 0 {
+			t.Errorf("logged %q", buf.String())
+		}
+	})
 }

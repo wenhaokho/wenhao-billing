@@ -4,6 +4,7 @@ github.com/LOQATO/gokit/apierr
 github.com/LOQATO/gokit/auth
 github.com/LOQATO/gokit/db
 github.com/LOQATO/gokit/i18n
+github.com/LOQATO/gokit/i18n/i18ntest
 github.com/LOQATO/gokit/money
 github.com/LOQATO/gokit/observe
 github.com/LOQATO/gokit/testkit

@@ -178,7 +178,9 @@ func TestQuotationSendBodyAndLastSentAt(t *testing.T) {
 				!strings.HasPrefix(string(m.Attachments[0].Content), "%PDF-") {
 				t.Errorf("attachments %+v", m.Attachments)
 			}
-			if want := "11111111-2222-3333-4444-666666666666:412c02f7f301aa4b2b5010e2918c9971679cb7482ef1e858543a7758c14c6170"; m.IdempotencyKey != want {
+			plain := m
+			plain.IdempotencyKey = ""
+			if want := email.IdempotencyKey("11111111-2222-3333-4444-666666666666", plain, a.Clock.Now()); m.IdempotencyKey != want {
 				t.Errorf("idempotency key %q, want %q", m.IdempotencyKey, want)
 			}
 		})

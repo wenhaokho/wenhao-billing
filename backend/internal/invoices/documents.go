@@ -22,17 +22,18 @@ import (
 
 // documents are the routes that render an invoice as a PDF and mail it.
 type documents struct {
-	pool *pgxpool.Pool
-	mail email.Sender
+	pool  *pgxpool.Pool
+	mail  email.Sender
+	clock platform.Clock
 }
 
 // RegisterDocuments adds GET .../pdf and POST .../send; both are admin-only.
 // A nil mail logs each message (email.LogSender).
-func RegisterDocuments(api huma.API, pool *pgxpool.Pool, mail email.Sender) {
+func RegisterDocuments(api huma.API, pool *pgxpool.Pool, clock platform.Clock, mail email.Sender) {
 	if mail == nil {
 		mail = email.LogSender{}
 	}
-	d := documents{pool: pool, mail: mail}
+	d := documents{pool: pool, mail: mail, clock: clock}
 	const prefix = "/api/v1/invoices/{invoice_id}"
 	tags := []string{"invoices"}
 	huma.Register(api, platform.Admin(huma.Operation{
@@ -186,7 +187,7 @@ func (d documents) send(ctx context.Context, in *sendIn) (*invoiceBody, error) {
 			Filename: pdfFilename(inv.InvoiceNumber, in.InvoiceID), ContentType: "application/pdf", Content: pdfBytes,
 		}},
 	}
-	msg.IdempotencyKey = email.IdempotencyKey(in.InvoiceID.String(), msg)
+	msg.IdempotencyKey = email.IdempotencyKey(in.InvoiceID.String(), msg, d.clock.Now())
 	if err := d.mail.Send(ctx, msg); err != nil {
 		return nil, platform.Err(http.StatusBadGateway, "invoice_send_failed", "failed to send invoice email")
 	}

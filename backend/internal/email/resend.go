@@ -44,11 +44,14 @@ func NewResendSender(cfg ResendConfig, client *http.Client) Sender {
 	return resendSender{cfg: cfg, client: client}
 }
 
-// IdempotencyKey is the document id and a SHA-256 over the recipients, the
-// subject and the bodies: a retry of the same send repeats the key, while an
-// edited body or another recipient gets a new one. Fields are length-prefixed
-// so no two different messages hash alike.
-func IdempotencyKey(documentID string, m Message) string {
+// IdempotencyKey is the document id, a SHA-256 over everything sent (the
+// recipients, the subject, the bodies and every attachment's filename, content
+// type and bytes) and the 10-minute UTC window of now. A retry of an identical
+// send inside the window repeats the key, so Resend delivers it once; a changed
+// message, or the same one in a later window, gets a new key and goes out
+// (Resend keeps keys for 24 hours). Fields are length-prefixed so no two
+// different messages hash alike.
+func IdempotencyKey(documentID string, m Message, now time.Time) string {
 	h := sha256.New()
 	put := func(s string) {
 		var n [8]byte
@@ -63,8 +66,17 @@ func IdempotencyKey(documentID string, m Message) string {
 	put(m.Subject)
 	put(m.Text)
 	put(m.HTML)
-	return documentID + ":" + hex.EncodeToString(h.Sum(nil))
+	for _, a := range m.Attachments {
+		put(a.Filename)
+		put(a.ContentType)
+		put(string(a.Content))
+	}
+	bucket := now.UTC().Unix() / int64(IdempotencyWindow/time.Second)
+	return fmt.Sprintf("%s:%d:%s", documentID, bucket, hex.EncodeToString(h.Sum(nil)))
 }
+
+// IdempotencyWindow is how long an identical send is deduplicated.
+const IdempotencyWindow = 10 * time.Minute
 
 func (s resendSender) Send(ctx context.Context, m Message) error {
 	logger := s.cfg.Logger

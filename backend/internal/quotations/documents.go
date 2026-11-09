@@ -180,7 +180,7 @@ func (d documents) send(ctx context.Context, in *sendIn) (*quotationBody, error)
 			Filename: pdfFilename(q.QuotationNumber, in.QuotationID), ContentType: "application/pdf", Content: pdfBytes,
 		}},
 	}
-	msg.IdempotencyKey = email.IdempotencyKey(in.QuotationID.String(), msg)
+	msg.IdempotencyKey = email.IdempotencyKey(in.QuotationID.String(), msg, d.clock.Now())
 	if err := d.mail.Send(ctx, msg); err != nil {
 		return nil, platform.Err(http.StatusBadGateway, "quotation_send_failed", "failed to send quotation email")
 	}
