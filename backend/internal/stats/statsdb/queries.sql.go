@@ -86,6 +86,69 @@ func (q *Queries) CountSent(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const daysToPay = `-- name: DaysToPay :one
+SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+  FROM payments p
+  JOIN invoices i ON i.invoice_id = p.invoice_id
+ WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
+   AND p.status = 'CLEARED' AND p.payment_date >= $1::date
+`
+
+type DaysToPayRow struct {
+	TotalDays int64
+	Payments  int64
+}
+
+// Whole days from issue to payment, summed and counted per CLEARED payment of
+// a PAID invoice paid on or after since (an invoice paid twice counts twice;
+// no upper bound; a negative delta counts).
+func (q *Queries) DaysToPay(ctx context.Context, since pgtype.Date) (DaysToPayRow, error) {
+	row := q.db.QueryRow(ctx, daysToPay, since)
+	var i DaysToPayRow
+	err := row.Scan(&i.TotalDays, &i.Payments)
+	return i, err
+}
+
+const dueWithinByCurrency = `-- name: DueWithinByCurrency :many
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date >= $1::date AND due_date <= $2::date
+ GROUP BY currency
+ ORDER BY currency
+`
+
+type DueWithinByCurrencyParams struct {
+	Today pgtype.Date
+	Until pgtype.Date
+}
+
+type DueWithinByCurrencyRow struct {
+	Currency string
+	Amount   decimal.Decimal
+}
+
+// The open-AR rule with a due date from today to until, both inclusive.
+func (q *Queries) DueWithinByCurrency(ctx context.Context, arg DueWithinByCurrencyParams) ([]DueWithinByCurrencyRow, error) {
+	rows, err := q.db.Query(ctx, dueWithinByCurrency, arg.Today, arg.Until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DueWithinByCurrencyRow
+	for rows.Next() {
+		var i DueWithinByCurrencyRow
+		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecurringTemplates = `-- name: ListRecurringTemplates :many
 SELECT invoice_id, currency, amount, billing_cycle_ref FROM invoices
  WHERE invoice_type = 'RECURRING' AND is_template = true
@@ -216,6 +279,53 @@ func (q *Queries) ListUpcomingUsage(ctx context.Context) ([]ListUpcomingUsageRow
 	return items, nil
 }
 
+const monthlyRevenue = `-- name: MonthlyRevenue :many
+SELECT to_char(issue_date, 'YYYY-MM')::text AS month, currency,
+       COALESCE(SUM(amount), 0)::numeric AS amount,
+       COALESCE(SUM(balance_due), 0)::numeric AS unpaid
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL', 'PAID')
+   AND issue_date IS NOT NULL AND issue_date >= $1::date
+   AND is_template = false
+ GROUP BY 1, currency
+ ORDER BY 1, currency
+`
+
+type MonthlyRevenueRow struct {
+	Month    string
+	Currency string
+	Amount   decimal.Decimal
+	Unpaid   decimal.Decimal
+}
+
+// Invoiced revenue per issue month and currency from the window's first day
+// on: OPEN, SENT, PARTIAL and PAID, never a template. No upper bound (future
+// months are dropped by the caller), as in Python.
+func (q *Queries) MonthlyRevenue(ctx context.Context, windowStart pgtype.Date) ([]MonthlyRevenueRow, error) {
+	rows, err := q.db.Query(ctx, monthlyRevenue, windowStart)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MonthlyRevenueRow
+	for rows.Next() {
+		var i MonthlyRevenueRow
+		if err := rows.Scan(
+			&i.Month,
+			&i.Currency,
+			&i.Amount,
+			&i.Unpaid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const openARByCurrency = `-- name: OpenARByCurrency :many
 SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
   FROM invoices
@@ -273,6 +383,42 @@ func (q *Queries) OpenQuotationPipeline(ctx context.Context) ([]OpenQuotationPip
 	var items []OpenQuotationPipelineRow
 	for rows.Next() {
 		var i OpenQuotationPipelineRow
+		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const overdueByCurrency = `-- name: OverdueByCurrency :many
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date < $1::date
+ GROUP BY currency
+ ORDER BY currency
+`
+
+type OverdueByCurrencyRow struct {
+	Currency string
+	Amount   decimal.Decimal
+}
+
+// The open-AR rule (OPEN, SENT, PARTIAL, no template, positive balance) with
+// a due date before today.
+func (q *Queries) OverdueByCurrency(ctx context.Context, today pgtype.Date) ([]OverdueByCurrencyRow, error) {
+	rows, err := q.db.Query(ctx, overdueByCurrency, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OverdueByCurrencyRow
+	for rows.Next() {
+		var i OverdueByCurrencyRow
 		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
 			return nil, err
 		}

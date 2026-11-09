@@ -75,3 +75,46 @@ SELECT l.log_id, l.payment_id, l.action, l.reasons, l.actor_user_id, l.created_a
   LEFT JOIN users u ON u.user_id = l.actor_user_id
  ORDER BY l.created_at DESC, l.log_id DESC
  LIMIT 10;
+
+-- name: MonthlyRevenue :many
+-- Invoiced revenue per issue month and currency from the window's first day
+-- on: OPEN, SENT, PARTIAL and PAID, never a template. No upper bound (future
+-- months are dropped by the caller), as in Python.
+SELECT to_char(issue_date, 'YYYY-MM')::text AS month, currency,
+       COALESCE(SUM(amount), 0)::numeric AS amount,
+       COALESCE(SUM(balance_due), 0)::numeric AS unpaid
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL', 'PAID')
+   AND issue_date IS NOT NULL AND issue_date >= @window_start::date
+   AND is_template = false
+ GROUP BY 1, currency
+ ORDER BY 1, currency;
+
+-- name: OverdueByCurrency :many
+-- The open-AR rule (OPEN, SENT, PARTIAL, no template, positive balance) with
+-- a due date before today.
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date < @today::date
+ GROUP BY currency
+ ORDER BY currency;
+
+-- name: DueWithinByCurrency :many
+-- The open-AR rule with a due date from today to until, both inclusive.
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date >= @today::date AND due_date <= @until::date
+ GROUP BY currency
+ ORDER BY currency;
+
+-- name: DaysToPay :one
+-- Whole days from issue to payment, summed and counted per CLEARED payment of
+-- a PAID invoice paid on or after since (an invoice paid twice counts twice;
+-- no upper bound; a negative delta counts).
+SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+  FROM payments p
+  JOIN invoices i ON i.invoice_id = p.invoice_id
+ WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
+   AND p.status = 'CLEARED' AND p.payment_date >= @since::date;
