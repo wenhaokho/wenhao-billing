@@ -79,3 +79,31 @@ SELECT EXISTS (SELECT 1 FROM invoices WHERE invoice_id = $1);
 SELECT * FROM payments
  WHERE invoice_id = $1 AND status = 'CLEARED'
  ORDER BY payment_date DESC, created_at DESC, payment_id DESC;
+
+-- name: ListAwaitingReview :many
+-- Python ordered by created_at DESC only; the key breaks a tie.
+SELECT * FROM payments
+ WHERE status = 'PENDING_MANUAL_REVIEW'
+ ORDER BY created_at DESC, payment_id DESC;
+
+-- name: PaymentLog :many
+SELECT * FROM reconciliation_log
+ WHERE payment_id = $1
+ ORDER BY created_at ASC, log_id ASC;
+
+-- name: AuditLog :many
+-- The log joined to its payment and actor. payer is a substring already
+-- escaped for LIKE (\, % and _ with a backslash). from_date starts at its
+-- midnight and to_date runs to the end of its day. Python had no tie-break.
+SELECT l.log_id, l.payment_id, l.action, l.reasons, l.actor_user_id, l.created_at,
+       p.payer_name, p.amount, p.currency, p.invoice_id, p.intake_source,
+       u.email AS actor_email
+  FROM reconciliation_log l
+  LEFT JOIN payments p ON p.payment_id = l.payment_id
+  LEFT JOIN users u ON u.user_id = l.actor_user_id
+ WHERE (sqlc.narg(action)::text IS NULL OR l.action = sqlc.narg(action)::text)
+   AND (sqlc.narg(payer)::text IS NULL OR p.payer_name ILIKE '%' || sqlc.narg(payer)::text || '%' ESCAPE '\')
+   AND (sqlc.narg(from_date)::date IS NULL OR l.created_at >= sqlc.narg(from_date)::date)
+   AND (sqlc.narg(to_date)::date IS NULL OR l.created_at < sqlc.narg(to_date)::date + 1)
+ ORDER BY l.created_at DESC, l.log_id DESC
+ LIMIT sqlc.arg(row_limit);

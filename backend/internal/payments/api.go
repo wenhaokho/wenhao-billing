@@ -61,6 +61,7 @@ func PaymentOutFrom(p paymentsdb.Payment) PaymentOut {
 func Register(api huma.API, pool *pgxpool.Pool, svc Service) {
 	r := routes{pool: pool, q: paymentsdb.New(pool), svc: svc}
 	r.registerInvoice(api)
+	r.registerRecon(api)
 }
 
 type routes struct {

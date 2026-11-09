@@ -7,11 +7,92 @@ package paymentsdb
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
+
+const auditLog = `-- name: AuditLog :many
+SELECT l.log_id, l.payment_id, l.action, l.reasons, l.actor_user_id, l.created_at,
+       p.payer_name, p.amount, p.currency, p.invoice_id, p.intake_source,
+       u.email AS actor_email
+  FROM reconciliation_log l
+  LEFT JOIN payments p ON p.payment_id = l.payment_id
+  LEFT JOIN users u ON u.user_id = l.actor_user_id
+ WHERE ($1::text IS NULL OR l.action = $1::text)
+   AND ($2::text IS NULL OR p.payer_name ILIKE '%' || $2::text || '%' ESCAPE '\')
+   AND ($3::date IS NULL OR l.created_at >= $3::date)
+   AND ($4::date IS NULL OR l.created_at < $4::date + 1)
+ ORDER BY l.created_at DESC, l.log_id DESC
+ LIMIT $5
+`
+
+type AuditLogParams struct {
+	Action   *string
+	Payer    *string
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+	RowLimit int32
+}
+
+type AuditLogRow struct {
+	LogID        uuid.UUID
+	PaymentID    uuid.UUID
+	Action       string
+	Reasons      []string
+	ActorUserID  pgtype.UUID
+	CreatedAt    *time.Time
+	PayerName    *string
+	Amount       decimal.NullDecimal
+	Currency     *string
+	InvoiceID    pgtype.UUID
+	IntakeSource *string
+	ActorEmail   *string
+}
+
+// The log joined to its payment and actor. payer is a substring already
+// escaped for LIKE (\, % and _ with a backslash). from_date starts at its
+// midnight and to_date runs to the end of its day. Python had no tie-break.
+func (q *Queries) AuditLog(ctx context.Context, arg AuditLogParams) ([]AuditLogRow, error) {
+	rows, err := q.db.Query(ctx, auditLog,
+		arg.Action,
+		arg.Payer,
+		arg.FromDate,
+		arg.ToDate,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditLogRow
+	for rows.Next() {
+		var i AuditLogRow
+		if err := rows.Scan(
+			&i.LogID,
+			&i.PaymentID,
+			&i.Action,
+			&i.Reasons,
+			&i.ActorUserID,
+			&i.CreatedAt,
+			&i.PayerName,
+			&i.Amount,
+			&i.Currency,
+			&i.InvoiceID,
+			&i.IntakeSource,
+			&i.ActorEmail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const getPayment = `-- name: GetPayment :one
 SELECT payment_id, invoice_id, customer_id, amount, currency, payer_name, payer_reference, payment_date, intake_source, external_ref, status, adjustment_type, confidence_score, created_at, wht_amount FROM payments WHERE payment_id = $1
@@ -195,6 +276,49 @@ func (q *Queries) InvoiceExists(ctx context.Context, invoiceID uuid.UUID) (bool,
 	return exists, err
 }
 
+const listAwaitingReview = `-- name: ListAwaitingReview :many
+SELECT payment_id, invoice_id, customer_id, amount, currency, payer_name, payer_reference, payment_date, intake_source, external_ref, status, adjustment_type, confidence_score, created_at, wht_amount FROM payments
+ WHERE status = 'PENDING_MANUAL_REVIEW'
+ ORDER BY created_at DESC, payment_id DESC
+`
+
+// Python ordered by created_at DESC only; the key breaks a tie.
+func (q *Queries) ListAwaitingReview(ctx context.Context) ([]Payment, error) {
+	rows, err := q.db.Query(ctx, listAwaitingReview)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Payment
+	for rows.Next() {
+		var i Payment
+		if err := rows.Scan(
+			&i.PaymentID,
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.Amount,
+			&i.Currency,
+			&i.PayerName,
+			&i.PayerReference,
+			&i.PaymentDate,
+			&i.IntakeSource,
+			&i.ExternalRef,
+			&i.Status,
+			&i.AdjustmentType,
+			&i.ConfidenceScore,
+			&i.CreatedAt,
+			&i.WhtAmount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvoicePayments = `-- name: ListInvoicePayments :many
 SELECT payment_id, invoice_id, customer_id, amount, currency, payer_name, payer_reference, payment_date, intake_source, external_ref, status, adjustment_type, confidence_score, created_at, wht_amount FROM payments
  WHERE invoice_id = $1 AND status = 'CLEARED'
@@ -360,6 +484,39 @@ func (q *Queries) OpenCandidates(ctx context.Context, currency string) ([]OpenCa
 			&i.WhtBooked,
 			&i.IssueDate,
 			&i.DueDate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const paymentLog = `-- name: PaymentLog :many
+SELECT log_id, payment_id, action, reasons, actor_user_id, created_at FROM reconciliation_log
+ WHERE payment_id = $1
+ ORDER BY created_at ASC, log_id ASC
+`
+
+func (q *Queries) PaymentLog(ctx context.Context, paymentID uuid.UUID) ([]ReconciliationLog, error) {
+	rows, err := q.db.Query(ctx, paymentLog, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReconciliationLog
+	for rows.Next() {
+		var i ReconciliationLog
+		if err := rows.Scan(
+			&i.LogID,
+			&i.PaymentID,
+			&i.Action,
+			&i.Reasons,
+			&i.ActorUserID,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
