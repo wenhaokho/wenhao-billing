@@ -5,13 +5,10 @@ package projects
 
 import (
 	"strings"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/projects/projectsdb"
@@ -87,8 +84,6 @@ type ProjectUpdate struct {
 // wording, as Huma's own for the value as sent).
 const (
 	blankSentence    = "String should have at least 1 character"
-	codeLongSentence = "String should have at most 40 characters"
-	curLongSentence  = "String should have at most 3 characters"
 	negativeSentence = "Input should be greater than or equal to 0"
 )
 
@@ -97,28 +92,18 @@ const (
 // the length before normalising and so stored "" for a blank code and failed
 // on a long one with a 500; both are 422s at code here (port note).
 func normCode(s string) (string, error) {
-	c := upper(strings.TrimSpace(s))
+	c, err := platform.PyUpperAtMost("code", strings.TrimSpace(s), 40)
+	if err != nil {
+		return "", err
+	}
 	if c == "" {
 		return "", platform.FieldError("code", blankSentence)
-	}
-	if utf8.RuneCountInString(c) > 40 {
-		return "", platform.FieldError("code", codeLongSentence)
 	}
 	return c, nil
 }
 
 // normCurrency is the stored currency: upper-cased, and still three characters.
-func normCurrency(s string) (string, error) {
-	c := upper(s)
-	if utf8.RuneCountInString(c) > 3 {
-		return "", platform.FieldError("currency", curLongSentence)
-	}
-	return c, nil
-}
-
-// upper is Python's str.upper (full case mapping), not strings.ToUpper's
-// one-rune-to-one-rune mapping.
-func upper(s string) string { return cases.Upper(language.Und).String(s) }
+func normCurrency(s string) (string, error) { return platform.PyUpperAtMost("currency", s, 3) }
 
 // contractValue is the budget as stored: nil, or 0 or more.
 func contractValue(f platform.Optional[platform.Dec4], cur decimal.NullDecimal) (decimal.NullDecimal, error) {

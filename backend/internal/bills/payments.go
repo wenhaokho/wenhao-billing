@@ -5,12 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
@@ -98,17 +96,17 @@ func (a *paymentAmount) UnmarshalJSON(b []byte) error {
 func (a paymentAmount) python() string {
 	d := a.Decimal()
 	if strings.HasPrefix(a.raw, `"`) || !strings.ContainsAny(a.raw, ".eE") {
-		return pythonDecimal(d)
+		return platform.PyDecimalStr(d)
 	}
 	f, err := strconv.ParseFloat(a.raw, 64)
 	if err != nil {
-		return pythonDecimal(d) // unreachable: Dec4 parsed the same text
+		return platform.PyDecimalStr(d) // unreachable: Dec4 parsed the same text
 	}
-	r, err := decimal.NewFromString(pythonFloat(f))
+	r, err := decimal.NewFromString(platform.PyFloatRepr(f))
 	if err != nil {
-		return pythonDecimal(d) // unreachable: a finite repr parses
+		return platform.PyDecimalStr(d) // unreachable: a finite repr parses
 	}
-	return pythonDecimal(r)
+	return platform.PyDecimalStr(r)
 }
 
 // recordPayment is Python's record_bill_payment (bills.py:83-116) in tx,
@@ -175,37 +173,6 @@ func voidBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, reason string) (Bill
 	return get(ctx, q, id)
 }
 
-// pythonDecimal is str(d) of Python's Decimal (to_sci_string) for the
-// coefficient and exponent d was parsed with; shopspring keeps both as the
-// literal wrote them, as Python's Decimal does: "600.00" stays 600.00, and
-// 6e2 is 6E+2.
-func pythonDecimal(d decimal.Decimal) string {
-	sign, coef := "", d.Coefficient()
-	if coef.Sign() < 0 {
-		sign = "-"
-		coef.Neg(coef)
-	}
-	digits, exp := coef.String(), int(d.Exponent())
-	left := exp + len(digits)
-	dot := 1
-	if exp <= 0 && left > -6 {
-		dot = left
-	}
-	var s string
-	switch {
-	case dot <= 0:
-		s = "0." + strings.Repeat("0", -dot) + digits
-	case dot >= len(digits):
-		s = digits + strings.Repeat("0", dot-len(digits))
-	default:
-		s = digits[:dot] + "." + digits[dot:]
-	}
-	if left != dot {
-		s += fmt.Sprintf("E%+d", left-dot)
-	}
-	return sign + s
-}
-
 // pythonText is the JSON value raw as Python's f-string prints what
 // json.loads makes of it, and whether Python finds it truthy. A string is
 // itself; null, booleans, numbers, lists and objects are Python's repr of
@@ -239,7 +206,7 @@ func pythonValue(dec *json.Decoder, quoted bool) (string, bool, error) {
 		return "False", false, nil
 	case string:
 		if quoted {
-			return pythonRepr(v), v != "", nil
+			return platform.PyRepr(v), v != "", nil
 		}
 		return v, v != "", nil
 	case json.Number:
@@ -294,7 +261,7 @@ func pythonDict(dec *json.Decoder) (string, bool, error) {
 	}
 	items := make([]string, 0, len(keys))
 	for _, k := range keys {
-		items = append(items, pythonRepr(k)+": "+values[k])
+		items = append(items, platform.PyRepr(k)+": "+values[k])
 	}
 	return "{" + strings.Join(items, ", ") + "}", len(keys) > 0, nil
 }
@@ -315,58 +282,5 @@ func pythonNumber(lit string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	return pythonFloat(f), f != 0, nil
-}
-
-// pythonFloat is Python's repr of a finite f: the shortest round-trip
-// digits, fixed notation (with ".0" when whole) for 1e-4 <= |f| < 1e16 and
-// zero, otherwise exponent notation ("1e+16", "1.5e-05": Go's 'e' format
-// also writes at least two exponent digits).
-func pythonFloat(f float64) string { //nolint:forbidigo // not money: Python's repr of a JSON number
-	if a := math.Abs(f); a != 0 && (a < 1e-4 || a >= 1e16) {
-		return strconv.FormatFloat(f, 'e', -1, 64)
-	}
-	s := strconv.FormatFloat(f, 'f', -1, 64)
-	if !strings.Contains(s, ".") {
-		s += ".0"
-	}
-	return s
-}
-
-// pythonRepr is Python's repr of s: single quotes unless s holds a single
-// quote and no double quote; backslash, the quote, \t, \n and \r escaped;
-// other non-printable characters (Go's unicode.IsPrint standing in for
-// str.isprintable) as \xNN, \uNNNN or \UNNNNNNNN.
-func pythonRepr(s string) string {
-	quote := '\''
-	if strings.ContainsRune(s, '\'') && !strings.ContainsRune(s, '"') {
-		quote = '"'
-	}
-	var b strings.Builder
-	b.WriteRune(quote)
-	for _, r := range s {
-		switch {
-		case r == quote || r == '\\':
-			b.WriteRune('\\')
-			b.WriteRune(r)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case r < ' ' || r == 0x7f:
-			fmt.Fprintf(&b, `\x%02x`, r)
-		case r < 0x7f || unicode.IsPrint(r):
-			b.WriteRune(r)
-		case r <= 0xff:
-			fmt.Fprintf(&b, `\x%02x`, r)
-		case r <= 0xffff:
-			fmt.Fprintf(&b, `\u%04x`, r)
-		default:
-			fmt.Fprintf(&b, `\U%08x`, r)
-		}
-	}
-	b.WriteRune(quote)
-	return b.String()
+	return platform.PyFloatRepr(f), f != 0, nil
 }
