@@ -246,3 +246,13 @@ ORDER BY currency;
 SELECT * FROM invoices
 WHERE customer_id = $1
 ORDER BY issue_date DESC NULLS FIRST, created_at DESC, invoice_id DESC;
+
+-- name: ListUserEmails :many
+-- The digest's recipients: every user, no role or active filter
+-- (draft_notifications.py user_emails).
+SELECT email FROM users ORDER BY created_at, email;
+
+-- name: MarkInvoiceSent :exec
+-- Sending: a DRAFT or OPEN invoice becomes SENT (no finalize); any other
+-- status stays as it is.
+UPDATE invoices SET status = 'SENT' WHERE invoice_id = @invoice_id AND status IN ('DRAFT', 'OPEN');

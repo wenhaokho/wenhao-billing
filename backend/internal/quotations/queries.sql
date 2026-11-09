@@ -83,3 +83,9 @@ WHERE quotation_id = @quotation_id;
 -- name: SetQuotationStatus :exec
 -- Decline and void: the status alone.
 UPDATE quotations SET status = @status WHERE quotation_id = @quotation_id;
+
+-- name: MarkQuotationSentOnSend :exec
+-- Sending: a DRAFT quotation becomes SENT, any other status stays; last_sent_at
+-- is stamped whatever the status.
+UPDATE quotations SET status = CASE WHEN status = 'DRAFT' THEN 'SENT' ELSE status END, last_sent_at = @last_sent_at
+WHERE quotation_id = @quotation_id;

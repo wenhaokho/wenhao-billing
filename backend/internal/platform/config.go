@@ -31,6 +31,19 @@ type Config struct {
 	FXSyncCurrencies       []string      // FX_SYNC_CURRENCIES: foreign currencies each sync pulls a base rate for
 	WebhookHMACSecret      string        // WEBHOOK_HMAC_SECRET: keys the HMAC of the payment webhook's body
 	EmailWebhookToken      string        // EMAIL_WEBHOOK_TOKEN: the token the inbound-email route requires
+	ResendAPIKey           string        // RESEND_API_KEY: empty logs mail instead of sending it
+	ResendFromEmail        string        // RESEND_FROM_EMAIL
+	ResendFromName         string        // RESEND_FROM_NAME
+	ResendBaseURL          string        // RESEND_BASE_URL
+	ResendTimeout          time.Duration // RESEND_TIMEOUT_SECONDS
+	SMTPReplyTo            string        // SMTP_REPLY_TO: the Reply-To of every mail; empty sends none
+	CloudflareAPIToken     string        // CLOUDFLARE_API_TOKEN: empty makes every Cloudflare call fail
+	CloudflareAPIBaseURL   string        // CLOUDFLARE_API_BASE_URL
+	CloudflareTimeout      time.Duration // CLOUDFLARE_TIMEOUT_SECONDS
+	// SchedulerEnabled runs the scheduled jobs. Python's default was true;
+	// Go's is false (Go change 8): the scheduler is off until the
+	// switch-over, so the Python backend keeps running the jobs.
+	SchedulerEnabled bool
 }
 
 // The development values of the two intake secrets, Python's defaults. They
@@ -59,6 +72,17 @@ type rawConfig struct {
 	FXSyncCurrencies       string  `env:"FX_SYNC_CURRENCIES" envDefault:"USD,SGD"`
 	WebhookHMACSecret      string  `env:"WEBHOOK_HMAC_SECRET" envDefault:"dev-webhook-secret-change-me"`
 	EmailWebhookToken      string  `env:"EMAIL_WEBHOOK_TOKEN" envDefault:"dev-email-token-change-me"`
+	ResendAPIKey           string  `env:"RESEND_API_KEY"`
+	ResendFromEmail        string  `env:"RESEND_FROM_EMAIL" envDefault:"noreply@wenhao.id"`
+	ResendFromName         string  `env:"RESEND_FROM_NAME" envDefault:"Wenhao Dev Billing"`
+	ResendBaseURL          string  `env:"RESEND_BASE_URL" envDefault:"https://api.resend.com"`
+	ResendSeconds          float64 `env:"RESEND_TIMEOUT_SECONDS" envDefault:"15"` //nolint:forbidigo // not money: a timeout in seconds
+	SMTPReplyTo            string  `env:"SMTP_REPLY_TO"`
+	CloudflareAPIToken     string  `env:"CLOUDFLARE_API_TOKEN"`
+	CloudflareAPIBaseURL   string  `env:"CLOUDFLARE_API_BASE_URL" envDefault:"https://api.cloudflare.com/client/v4"`
+	CloudflareSeconds      float64 `env:"CLOUDFLARE_TIMEOUT_SECONDS" envDefault:"15"` //nolint:forbidigo // not money: a timeout in seconds
+	// SchedulerEnabled is off unless it says otherwise (Go change 8).
+	SchedulerEnabled bool `env:"SCHEDULER_ENABLED" envDefault:"false"`
 }
 
 // LoadConfig reads the process environment.
@@ -102,6 +126,12 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 			return Config{}, err
 		}
 	}
+	// A blank SMTP_REPLY_TO means "no Reply-To" (Python's falsy check), while
+	// unset means the default.
+	replyTo := "wenhao.kho@gmail.com"
+	if isSet("SMTP_REPLY_TO") {
+		replyTo = strings.TrimSpace(r.SMTPReplyTo)
+	}
 	base := "IDR"
 	if isSet("BASE_CURRENCY") {
 		base = strings.ToUpper(strings.TrimSpace(r.BaseCurrency))
@@ -120,6 +150,12 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 	}
 	if r.FXProviderSeconds <= 0 { // 0 would mean no timeout at all
 		return Config{}, fmt.Errorf("FX_PROVIDER_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if r.ResendSeconds <= 0 { // 0 would mean no timeout at all
+		return Config{}, fmt.Errorf("RESEND_TIMEOUT_SECONDS must be greater than 0")
+	}
+	if r.CloudflareSeconds <= 0 { // 0 would mean no timeout at all
+		return Config{}, fmt.Errorf("CLOUDFLARE_TIMEOUT_SECONDS must be greater than 0")
 	}
 	// The defaults are published in the source: anyone could sign a payment, so
 	// only a local environment (as Config.LocalHTTP) may keep them.
@@ -149,6 +185,16 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 		FXSyncCurrencies:       syncCurrencies,
 		WebhookHMACSecret:      r.WebhookHMACSecret,
 		EmailWebhookToken:      r.EmailWebhookToken,
+		ResendAPIKey:           strings.TrimSpace(r.ResendAPIKey),
+		ResendFromEmail:        r.ResendFromEmail,
+		ResendFromName:         r.ResendFromName,
+		ResendBaseURL:          r.ResendBaseURL,
+		ResendTimeout:          time.Duration(r.ResendSeconds * float64(time.Second)), //nolint:forbidigo // not money: a timeout
+		SMTPReplyTo:            replyTo,
+		CloudflareAPIToken:     strings.TrimSpace(r.CloudflareAPIToken),
+		CloudflareAPIBaseURL:   r.CloudflareAPIBaseURL,
+		CloudflareTimeout:      time.Duration(r.CloudflareSeconds * float64(time.Second)), //nolint:forbidigo // not money: a timeout
+		SchedulerEnabled:       r.SchedulerEnabled,
 	}, nil
 }
 

@@ -50,13 +50,13 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_exposes_new_fields | stats.TestDashboardEndpointExposesNewFields | ported |  | — |
 | tests/integration/test_hosting.py | test_hosting_item_creates_with_cloudflare_target | items.TestHostingItemCreatesWithCloudflareTarget | ported |  | — |
 | tests/integration/test_hosting.py | test_trigger_recurring_cycle_stamps_coverage_on_hosting_invoice | invoices.TestTriggerRecurringCycleStampsCoverageOnHostingInvoice | ported |  | — |
-| tests/integration/test_hosting.py | test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates |  | todo | hosting plan (plan 9: enforcement and reconciliation restore) |  |
-| tests/integration/test_hosting.py | test_enforcement_suspend_failure_marks_provider_error |  | todo | hosting plan (enforcement) |  |
-| tests/integration/test_hosting.py | test_enforcement_is_idempotent_for_already_suspended_hosting_item |  | todo | hosting plan (enforcement) |  |
-| tests/integration/test_hosting.py | test_enforcement_ignores_non_overdue_invoice |  | todo | hosting plan (enforcement) |  |
+| tests/integration/test_hosting.py | test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates | hosting.TestHostingEnforcementSuspendsAndReconciliationRestoreReactivates | ported |  | Cloudflare called inside the payment transaction: this test and TestPaymentSucceedsWhenCloudflareDown red (task 5) |
+| tests/integration/test_hosting.py | test_enforcement_suspend_failure_marks_provider_error | hosting.TestEnforcementSuspendFailureMarksProviderError | ported |  | — |
+| tests/integration/test_hosting.py | test_enforcement_is_idempotent_for_already_suspended_hosting_item | hosting.TestEnforcementIsIdempotentForAlreadySuspendedHostingItem | ported |  | — |
+| tests/integration/test_hosting.py | test_enforcement_ignores_non_overdue_invoice | hosting.TestEnforcementIgnoresNonOverdueInvoice | ported |  | Inclusive grace comparison: the "grace ends today" subtest red (task 5) |
 | tests/integration/test_invoice_internal_note.py | test_internal_note_round_trips_through_api | invoices.TestInternalNoteRoundTripsThroughApi | ported |  | — |
 | tests/integration/test_invoice_internal_note.py | test_internal_note_can_be_cleared | invoices.TestInternalNoteCanBeCleared | ported |  | — |
-| tests/integration/test_invoice_internal_note.py | test_internal_note_never_reaches_the_pdf |  | todo | documents plan (PDF) |  |
+| tests/integration/test_invoice_internal_note.py | test_internal_note_never_reaches_the_pdf | pdf.TestInternalNoteNeverReachesThePDF | ported |  | — |
 | tests/integration/test_invoice_internal_note.py | test_template_internal_note_copies_to_generated_child | invoices.TestTemplateInternalNoteCopiesToGeneratedChild | ported |  | — |
 | tests/integration/test_invoice_payments_list.py | test_list_payments_newest_first | payments.TestListPaymentsNewestFirst | ported |  | — |
 | tests/integration/test_invoice_payments_list.py | test_list_payments_empty | payments.TestListPaymentsEmpty | ported |  | — |
@@ -112,15 +112,15 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_mcp_gated_delete.py | test_delete_customer_preview_does_not_deactivate |  | todo |  |  |
 | tests/integration/test_mcp_gated_delete.py | test_delete_customer_previews_then_deactivates |  | todo |  |  |
 | tests/integration/test_mcp_gated_delete.py | test_delete_customer_tampered_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_first_call_returns_preview_and_sends_nothing |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_second_call_with_token_sends |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_tampered_token_refuses |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_draft_invoice_promoted_to_sent_after_send |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_void_invoice_refuses |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_no_recipient_refuses |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_reminder_first_call_returns_preview_and_sends_nothing |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_reminder_second_call_with_token_sends |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_reminder_tampered_token_refuses |  | todo |  |  |
+| tests/integration/test_mcp_gated_email.py | test_first_call_returns_preview_and_sends_nothing |  | todo | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_second_call_with_token_sends |  | todo | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_tampered_token_refuses |  | todo | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_draft_invoice_promoted_to_sent_after_send |  | todo | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_void_invoice_refuses |  | todo | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_no_recipient_refuses |  | todo | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_reminder_first_call_returns_preview_and_sends_nothing |  | todo | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_reminder_second_call_with_token_sends |  | todo | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_reminder_tampered_token_refuses |  | todo | mcp plan (plan 10: gated email) |  |
 | tests/integration/test_mcp_oauth.py | test_access_token_roundtrip |  | todo |  |  |
 | tests/integration/test_mcp_oauth.py | test_expired_access_token_rejected |  | todo |  |  |
 | tests/integration/test_mcp_oauth.py | test_tampered_token_rejected |  | todo |  |  |
@@ -278,10 +278,10 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_payment_accounts_api.py | test_reject_duplicate_currency | business.TestRejectDuplicateCurrency | ported |  | — |
 | tests/integration/test_payment_accounts_api.py | test_reject_two_defaults | business.TestRejectTwoDefaults | ported |  | — |
 | tests/integration/test_payment_accounts_api.py | test_reject_unsupported_currency | business.TestRejectUnsupportedCurrency | ported |  | — |
-| tests/integration/test_pdf_engine.py | test_html_to_pdf_returns_pdf_bytes |  | todo |  |  |
-| tests/integration/test_pdf_engine.py | test_fetcher_refuses_non_embedded_urls |  | todo |  |  |
-| tests/integration/test_pdf_engine.py | test_fetcher_allows_data_uris |  | todo |  |  |
-| tests/integration/test_pdf_engine.py | test_external_reference_is_skipped_not_fatal |  | todo |  |  |
+| tests/integration/test_pdf_engine.py | test_html_to_pdf_returns_pdf_bytes |  | not ported | WeasyPrint URL fetcher; Maroto never fetches from content, intent kept by pdf.TestOnlyLogoUrlIsFetched |  |
+| tests/integration/test_pdf_engine.py | test_fetcher_refuses_non_embedded_urls |  | not ported | WeasyPrint URL fetcher; Maroto never fetches from content, intent kept by pdf.TestOnlyLogoUrlIsFetched |  |
+| tests/integration/test_pdf_engine.py | test_fetcher_allows_data_uris |  | not ported | WeasyPrint URL fetcher; Maroto never fetches from content, intent kept by pdf.TestOnlyLogoUrlIsFetched |  |
+| tests/integration/test_pdf_engine.py | test_external_reference_is_skipped_not_fatal |  | not ported | WeasyPrint URL fetcher; Maroto never fetches from content, intent kept by pdf.TestOnlyLogoUrlIsFetched |  |
 | tests/integration/test_reconciliation_pipeline.py | test_cleared_payment_posts_exactly_one_balanced_entry | payments.TestClearedPaymentPostsExactlyOneBalancedEntry | ported |  | — |
 | tests/integration/test_reconciliation_pipeline.py | test_amount_mismatch_holds_and_posts_no_journal | payments.TestAmountMismatchHoldsAndPostsNoJournal | ported |  | — |
 | tests/integration/test_reconciliation_pipeline.py | test_currency_mismatch_holds_regardless_of_amount | payments.TestCurrencyMismatchHoldsRegardlessOfAmount | ported |  | — |
@@ -305,8 +305,8 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_record_payment_withholding.py | test_withheld_above_remaining_after_partial_400 | payments.TestWithheldAboveRemainingAfterPartialIs400 | ported |  | Dropped the withheld-above-outstanding check: TestWithheldAboveRemainingAfterPartialIs400 red (task 6) |
 | tests/integration/test_record_payment_withholding.py | test_pph_only_payment_settles_stuck_partial | payments.TestPphOnlyPaymentSettlesStuckPartial | ported |  | — |
 | tests/integration/test_record_payment_withholding.py | test_zero_amount_and_zero_withheld_400 | payments.TestZeroAmountAndZeroWithheldIs400 | ported |  | — |
-| tests/integration/test_record_payment_withholding.py | test_send_invoice_body_quotes_amount_to_transfer |  | todo | documents plan (plan 9: invoice send email) |  |
-| tests/integration/test_record_payment_withholding.py | test_send_invoice_body_without_wht_unchanged |  | todo | documents plan (plan 9: invoice send email) |  |
+| tests/integration/test_record_payment_withholding.py | test_send_invoice_body_quotes_amount_to_transfer | invoices.TestSendInvoiceBodyQuotesAmountToTransfer | ported |  | — |
+| tests/integration/test_record_payment_withholding.py | test_send_invoice_body_without_wht_unchanged | invoices.TestSendInvoiceBodyWithoutWHTUnchanged | ported |  | No idempotency key: TestSendInvoiceBodyWithoutWHTUnchanged red (plan 9 task 4) |
 | tests/integration/test_record_payment_withholding.py | test_payment_reminder_quotes_expected_cash |  | todo | mcp plan (plan 10: payment reminder) |  |
 | tests/integration/test_record_payment_withholding.py | test_bill_payment_schema_still_requires_positive_amount |  | todo | bills schema (plan 6 area, not plan 7) |  |
 | tests/integration/test_recurring_scheduling.py | test_create_template_stores_schedule_in_billing_cycle_ref | invoices.TestCreateTemplateStoresScheduleInBillingCycleRef | ported |  | — |
@@ -371,27 +371,27 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_customers_service.py | test_create_customer_sets_fields | customers.TestCreateCustomerSetsFields | ported |  | — |
 | tests/unit/test_customers_service.py | test_update_customer_edits_fields | customers.TestUpdateCustomerEditsFields | ported |  | — |
 | tests/unit/test_customers_service.py | test_update_customer_not_found_raises | customers.TestUpdateCustomerNotFound | ported |  | — |
-| tests/unit/test_email_resend.py | test_resend_settings_defaults |  | todo |  |  |
-| tests/unit/test_email_resend.py | test_resend_api_key_from_env |  | todo |  |  |
-| tests/unit/test_email_resend.py | test_resend_used_when_key_set_and_smtp_untouched |  | todo |  |  |
-| tests/unit/test_email_resend.py | test_resend_payload_includes_html_cc_and_attachments |  | todo |  |  |
-| tests/unit/test_email_resend.py | test_resend_payload_splits_multiple_cc |  | todo |  |  |
-| tests/unit/test_email_resend.py | test_resend_raises_on_error_response |  | todo |  |  |
-| tests/unit/test_email_resend.py | test_logging_fallback_when_nothing_configured |  | todo |  |  |
-| tests/unit/test_email_resend.py | test_resend_error_body_is_logged |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_discount_percent_computes_monetary_amount |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_discount_percent_handles_fractional_rate |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_discount_amount_type_is_the_value_itself |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_discount_absent_returns_none |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_fmt_pct_trims_trailing_zeros |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_fmt_num_groups_thousands |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_render_full_invoice_produces_pdf |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_render_without_customer_or_business |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_render_without_discount |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_render_invoice_pdf_escapes_xml_special_chars_in_names |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_notes_fall_back_to_business_default_when_invoice_has_none |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_render_wht_invoice_hero_is_amount_to_transfer |  | todo |  |  |
-| tests/unit/test_invoice_pdf.py | test_render_no_wht_invoice_hero_is_balance_due |  | todo |  |  |
+| tests/unit/test_email_resend.py | test_resend_settings_defaults | platform.TestConfigResendDefaults | ported |  | — |
+| tests/unit/test_email_resend.py | test_resend_api_key_from_env | platform.TestConfigResendKeyFromEnv | ported |  | — |
+| tests/unit/test_email_resend.py | test_resend_used_when_key_set_and_smtp_untouched | email.TestResendPostsTheMinimalPayload | ported | SMTP half is moot, Go has no SMTP sender | Drop reply_to: TestResendPostsTheMinimalPayload red (plan 9 task 1) |
+| tests/unit/test_email_resend.py | test_resend_payload_includes_html_cc_and_attachments | email.TestResendPayloadIncludesHTMLCcAndAttachments | ported |  | — |
+| tests/unit/test_email_resend.py | test_resend_payload_splits_multiple_cc | platform.TestParseCcEmails | ported | Message.Cc is already a list, split is ParseCcEmails | — |
+| tests/unit/test_email_resend.py | test_resend_raises_on_error_response | email.TestResendErrorResponseFailsAndLogsTheBody | ported |  | Status check raised to 500: TestResendErrorResponseFailsAndLogsTheBody and TestResendStatusBelow400Succeeds red (plan 9 task 1 fix) |
+| tests/unit/test_email_resend.py | test_logging_fallback_when_nothing_configured | main.TestPickSenderResendOnlyWithAKey | ported |  | — |
+| tests/unit/test_email_resend.py | test_resend_error_body_is_logged | email.TestResendErrorResponseFailsAndLogsTheBody | ported |  | Status check raised to 500: TestResendErrorResponseFailsAndLogsTheBody red (plan 9 task 1 fix) |
+| tests/unit/test_invoice_pdf.py | test_discount_percent_computes_monetary_amount | pdf.TestDiscountAmount | ported |  | PERCENT and AMOUNT branches swapped: TestDiscountAmount red (plan 9 task 2) |
+| tests/unit/test_invoice_pdf.py | test_discount_percent_handles_fractional_rate | pdf.TestDiscountAmount | ported |  | as above |
+| tests/unit/test_invoice_pdf.py | test_discount_amount_type_is_the_value_itself | pdf.TestDiscountAmount | ported |  | as above |
+| tests/unit/test_invoice_pdf.py | test_discount_absent_returns_none | pdf.TestDiscountAmount | ported |  | — |
+| tests/unit/test_invoice_pdf.py | test_fmt_pct_trims_trailing_zeros | pdf.TestFmtPctTrimsTrailingZeros | ported |  | — |
+| tests/unit/test_invoice_pdf.py | test_fmt_num_groups_thousands | pdf.TestFmtNumGroupsThousands | ported |  | Round half-up in the formatter: TestFmtNumGroupsThousands red, 2.51 want 2.50 (plan 9 task 2) |
+| tests/unit/test_invoice_pdf.py | test_render_full_invoice_produces_pdf | pdf.TestRenderFullInvoiceProducesPDF | ported | Go asserts on Maroto PDF text, not reportlab bytes | — |
+| tests/unit/test_invoice_pdf.py | test_render_without_customer_or_business | pdf.TestRenderWithoutCustomerOrBusiness | ported | Go asserts on Maroto PDF text, not reportlab bytes | — |
+| tests/unit/test_invoice_pdf.py | test_render_without_discount | pdf.TestRenderWithoutDiscount | ported | Go asserts on Maroto PDF text, not reportlab bytes | — |
+| tests/unit/test_invoice_pdf.py | test_render_invoice_pdf_escapes_xml_special_chars_in_names | pdf.TestRenderInvoicePDFEscapesXMLSpecialCharsInNames | ported | Go asserts every field round-trips intact in extracted text | — |
+| tests/unit/test_invoice_pdf.py | test_notes_fall_back_to_business_default_when_invoice_has_none | pdf.TestNotesFallBackToBusinessDefaultWhenInvoiceHasNone | ported | Go asserts on render data and extracted text, not spied Paragraph texts | — |
+| tests/unit/test_invoice_pdf.py | test_render_wht_invoice_hero_is_amount_to_transfer | pdf.TestRenderWHTInvoiceHeroIsAmountToTransfer | ported | Go asserts the HTML design hero, not reportlab strings | — |
+| tests/unit/test_invoice_pdf.py | test_render_no_wht_invoice_hero_is_balance_due | pdf.TestRenderNoWHTInvoiceHeroIsTotalDue | ported | Go hero is Total Due, Python reportlab BALANCE DUE | — |
 | tests/unit/test_items_service.py | test_create_item_basic | items.TestCreateItemBasic | ported |  | — |
 | tests/unit/test_items_service.py | test_create_hosting_item_sets_active_status_and_normalizes | items.TestCreateHostingItemSetsActiveStatusAndNormalizes | ported |  | `record_type` not upper-cased: TestCreateHostingItemSetsActiveStatusAndNormalizes red (task 5) |
 | tests/unit/test_items_service.py | test_update_item_not_found_raises | items.TestUpdateItemNotFound | ported |  | — |
@@ -415,63 +415,63 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_mcp_confirm.py | test_rejects_wrong_action |  | todo |  |  |
 | tests/unit/test_mcp_confirm.py | test_rejects_mutated_payload |  | todo |  |  |
 | tests/unit/test_mcp_confirm.py | test_rejects_expired |  | todo |  |  |
-| tests/unit/test_pdf_assets.py | test_font_face_css_embeds_all_families |  | todo |  |  |
-| tests/unit/test_pdf_assets.py | test_default_logo_is_data_uri |  | todo |  |  |
-| tests/unit/test_pdf_config.py | test_pdf_settings_defaults |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_status_badge_class_maps_known_and_unknown |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_context_discount_and_paid |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_context_no_payments_omits_paid_and_total |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_context_gross_up_rows |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_context_wht_without_gross_up |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_context_wht_with_partial_payment |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_context_paid_gross_up_excludes_booked_wht |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_context_partial_gross_up_excludes_booked_wht |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_context_no_wht_unchanged |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_quotation_context_total_hero |  | todo | documents plan |  |
-| tests/unit/test_pdf_context.py | test_both_builders_share_key_set |  | todo | documents plan |  |
-| tests/unit/test_pdf_context.py | test_quotation_notes_fall_back_to_business_default |  | todo | documents plan |  |
-| tests/unit/test_pdf_context.py | test_resolve_payment_instructions_matches_currency |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_resolve_payment_instructions_falls_back_to_default |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_resolve_payment_instructions_none_when_empty |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_context_selects_default_when_currency_unmatched |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_bill_to_joins_customer_email_and_phone |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_bill_to_phone_only_when_no_email |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_bill_to_email_only_when_no_phone |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_receipt_received_from_includes_customer_phone |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_context_omits_block_when_no_accounts |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_from_block_shows_npwp_when_withholding |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_from_block_omits_npwp_without_withholding |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_invoice_from_block_omits_npwp_when_unset |  | todo |  |  |
-| tests/unit/test_pdf_facade.py | test_falls_back_to_reportlab_on_engine_error |  | todo |  |  |
-| tests/unit/test_pdf_facade.py | test_engine_reportlab_skips_html |  | todo |  |  |
-| tests/unit/test_pdf_facade.py | test_html_path_used_on_success |  | todo |  |  |
-| tests/unit/test_pdf_logo.py | test_passthrough_data_uri |  | todo |  |  |
-| tests/unit/test_pdf_logo.py | test_none_business_uses_default |  | todo |  |  |
-| tests/unit/test_pdf_logo.py | test_blank_logo_uses_default |  | todo |  |  |
-| tests/unit/test_pdf_logo.py | test_http_fetch_success |  | todo |  |  |
-| tests/unit/test_pdf_logo.py | test_http_fetch_failure_falls_back_to_default |  | todo |  |  |
-| tests/unit/test_pdf_logo.py | test_http_fetch_non_image_mime_falls_back_to_png |  | todo |  |  |
-| tests/unit/test_pdf_render_html.py | test_invoice_html_is_self_contained_and_populated |  | todo |  |  |
-| tests/unit/test_pdf_render_html.py | test_quotation_html_renders_total |  | todo | documents plan |  |
-| tests/unit/test_pdf_render_html.py | test_invoice_html_puts_npwp_in_payment_panel_when_withholding |  | todo |  |  |
-| tests/unit/test_pdf_wiring.py | test_routers_use_facade |  | todo | documents plan |  |
+| tests/unit/test_pdf_assets.py | test_font_face_css_embeds_all_families | pdf.TestFontsEmbedAllFamilies | ported | Go asserts the three TTF families register, not font-face CSS | — |
+| tests/unit/test_pdf_assets.py | test_default_logo_is_data_uri | pdf.TestDefaultLogoIsPNG | ported | Go default logo bytes embedded, PNG | — |
+| tests/unit/test_pdf_config.py | test_pdf_settings_defaults |  | not ported | PDF_ENGINE is gone |  |
+| tests/unit/test_pdf_context.py | test_status_badge_class_maps_known_and_unknown | pdf.TestStatusBadgeAndLabel | ported |  | — |
+| tests/unit/test_pdf_context.py | test_invoice_context_discount_and_paid | pdf.TestInvoiceDocumentDiscountAndPaid | ported | the document also carries the footer and PO/SO (Go change 10); logo and font CSS are task 3 | PERCENT/AMOUNT swapped: red, Discount (5%) −5.00 want −582.00 (plan 9 task 2) |
+| tests/unit/test_pdf_context.py | test_invoice_context_no_payments_omits_paid_and_total | pdf.TestInvoiceDocumentNoPaymentsOmitsPaidAndTotal | ported |  | Total row shown with nothing paid and no withholding: red, rows [... Total Paid] (plan 9 task 2) |
+| tests/unit/test_pdf_context.py | test_invoice_context_gross_up_rows | pdf.TestInvoiceDocumentGrossUpRows | ported |  | — |
+| tests/unit/test_pdf_context.py | test_invoice_context_wht_without_gross_up | pdf.TestInvoiceDocumentWHTWithoutGrossUp | ported |  | — |
+| tests/unit/test_pdf_context.py | test_invoice_context_wht_with_partial_payment | pdf.TestInvoiceDocumentWHTWithPartialPayment | ported |  | — |
+| tests/unit/test_pdf_context.py | test_invoice_context_paid_gross_up_excludes_booked_wht | pdf.TestInvoiceDocumentPaidGrossUpExcludesBookedWHT | ported |  | — |
+| tests/unit/test_pdf_context.py | test_invoice_context_partial_gross_up_excludes_booked_wht | pdf.TestInvoiceDocumentPartialGrossUpExcludesBookedWHT | ported |  | — |
+| tests/unit/test_pdf_context.py | test_invoice_context_no_wht_unchanged | pdf.TestInvoiceDocumentNoWHTUnchanged | ported |  | — |
+| tests/unit/test_pdf_context.py | test_quotation_context_total_hero | pdf.TestQuotationDocumentTotalHero | ported | quotation also shows terms, PO/SO and footer (Go change 10) | — |
+| tests/unit/test_pdf_context.py | test_both_builders_share_key_set | pdf.TestBothBuildersFillTheSameFields | ported | Go has one Document struct: the test checks both builders fill the same fields | — |
+| tests/unit/test_pdf_context.py | test_quotation_notes_fall_back_to_business_default | pdf.TestQuotationNotesFallBackToBusinessDefault | ported |  | — |
+| tests/unit/test_pdf_context.py | test_resolve_payment_instructions_matches_currency | pdf.TestResolvePaymentInstructions | ported |  | — |
+| tests/unit/test_pdf_context.py | test_resolve_payment_instructions_falls_back_to_default | pdf.TestResolvePaymentInstructions | ported |  | default-account fallback removed: red (plan 9 task 2) |
+| tests/unit/test_pdf_context.py | test_resolve_payment_instructions_none_when_empty | pdf.TestResolvePaymentInstructions | ported |  | — |
+| tests/unit/test_pdf_context.py | test_invoice_context_selects_default_when_currency_unmatched | pdf.TestInvoiceDocumentSelectsDefaultWhenCurrencyUnmatched | ported |  | default-account fallback removed: red (plan 9 task 2) |
+| tests/unit/test_pdf_context.py | test_bill_to_joins_customer_email_and_phone | pdf.TestBillToJoinsCustomerEmailAndPhone | ported |  | — |
+| tests/unit/test_pdf_context.py | test_bill_to_phone_only_when_no_email | pdf.TestBillToJoinsCustomerEmailAndPhone | ported |  | — |
+| tests/unit/test_pdf_context.py | test_bill_to_email_only_when_no_phone | pdf.TestBillToJoinsCustomerEmailAndPhone | ported |  | — |
+| tests/unit/test_pdf_context.py | test_receipt_received_from_includes_customer_phone | pdf.TestReceiptReceivedFromIncludesCustomerPhone | ported |  | — |
+| tests/unit/test_pdf_context.py | test_invoice_context_omits_block_when_no_accounts | pdf.TestInvoiceDocumentOmitsBlockWhenNoAccounts | ported |  | — |
+| tests/unit/test_pdf_context.py | test_invoice_from_block_shows_npwp_when_withholding | pdf.TestInvoiceFromBlockShowsNPWPWhenWithholding | ported |  | — |
+| tests/unit/test_pdf_context.py | test_invoice_from_block_omits_npwp_without_withholding | pdf.TestInvoiceFromBlockOmitsNPWPWithoutWithholding | ported |  | NPWP shown without withholding: red (plan 9 task 2) |
+| tests/unit/test_pdf_context.py | test_invoice_from_block_omits_npwp_when_unset | pdf.TestInvoiceFromBlockOmitsNPWPWhenUnset | ported |  | — |
+| tests/unit/test_pdf_facade.py | test_falls_back_to_reportlab_on_engine_error |  | not ported | One renderer, no HTML engine and no fallback |  |
+| tests/unit/test_pdf_facade.py | test_engine_reportlab_skips_html |  | not ported | One renderer, no HTML engine and no fallback |  |
+| tests/unit/test_pdf_facade.py | test_html_path_used_on_success |  | not ported | One renderer, no HTML engine and no fallback |  |
+| tests/unit/test_pdf_logo.py | test_passthrough_data_uri | pdf.TestPassthroughDataURI | ported | Go decodes a valid PNG data URI, AAAA alone falls back (Go change 5) | — |
+| tests/unit/test_pdf_logo.py | test_none_business_uses_default | pdf.TestNoneBusinessUsesDefault | ported |  | — |
+| tests/unit/test_pdf_logo.py | test_blank_logo_uses_default | pdf.TestBlankLogoUsesDefault | ported |  | — |
+| tests/unit/test_pdf_logo.py | test_http_fetch_success | pdf.TestHTTPFetchSuccess | ported |  | — |
+| tests/unit/test_pdf_logo.py | test_http_fetch_failure_falls_back_to_default | pdf.TestHTTPFetchFailureFallsBackToDefault | ported |  | — |
+| tests/unit/test_pdf_logo.py | test_http_fetch_non_image_mime_falls_back_to_png | pdf.TestHTTPFetchNonImageFallsBackToDefault | ported | Go falls back to the default logo, not to PNG bytes (Go change 5) | — |
+| tests/unit/test_pdf_render_html.py | test_invoice_html_is_self_contained_and_populated | pdf.TestInvoiceIsSelfContainedAndPopulated | ported | Go asserts on extracted PDF text and embedded TTF fonts, not HTML | — |
+| tests/unit/test_pdf_render_html.py | test_quotation_html_renders_total | pdf.TestQuotationRendersTotal | ported | Go asserts on extracted PDF text | — |
+| tests/unit/test_pdf_render_html.py | test_invoice_html_puts_npwp_in_payment_panel_when_withholding | pdf.TestInvoicePutsNPWPInPaymentPanelWhenWithholding | ported | Go asserts page order, not HTML | — |
+| tests/unit/test_pdf_wiring.py | test_routers_use_facade |  | not ported | Python import wiring, Go route tests cover it |  |
 | tests/unit/test_projects_service.py | test_create_project_normalizes_code_and_currency | projects.TestCreateProjectNormalizesCodeAndCurrency | ported |  | — |
 | tests/unit/test_projects_service.py | test_create_project_duplicate_code_raises_and_leaves_one_row | projects.TestCreateProjectDuplicateCodeRaisesAndLeavesOneRow | ported |  | — |
 | tests/unit/test_projects_service.py | test_update_project_edits_and_normalizes | projects.TestUpdateProjectEditsAndNormalizes | ported |  | — |
 | tests/unit/test_projects_service.py | test_update_project_not_found_raises | projects.TestUpdateProjectNotFound | ported |  | — |
-| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_returns_pdf_bytes |  | todo | documents plan |  |
-| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_without_customer |  | todo | documents plan |  |
-| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_escapes_xml_special_chars_in_names |  | todo | documents plan |  |
-| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_escapes_xml_special_chars_in_free_text |  | todo | documents plan |  |
+| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_returns_pdf_bytes | pdf.TestRenderQuotationPDFReturnsPDFBytes | ported | Go asserts on Maroto PDF text | — |
+| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_without_customer | pdf.TestRenderQuotationPDFWithoutCustomer | ported | Go asserts on Maroto PDF text | — |
+| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_escapes_xml_special_chars_in_names | pdf.TestRenderQuotationPDFEscapesXMLSpecialCharsInNames | ported | Go asserts every field round-trips intact in extracted text | — |
+| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_escapes_xml_special_chars_in_free_text | pdf.TestRenderQuotationPDFEscapesXMLSpecialCharsInFreeText | ported | Go asserts every field round-trips intact in extracted text | — |
 | tests/unit/test_receipt_pdf.py | test_receipt_reference_shape | payments.TestReceiptReferenceShape | ported |  | — |
 | tests/unit/test_receipt_pdf.py | test_balance_note_partial_payment_shows_remaining | payments.TestBalanceNotePartialPaymentShowsRemaining | ported |  | — |
 | tests/unit/test_receipt_pdf.py | test_balance_note_full_payment_says_paid_in_full | payments.TestBalanceNoteFullPaymentSaysPaidInFull | ported |  | — |
-| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_returns_pdf_bytes |  | todo | documents plan (plan 9: receipt PDF) |  |
-| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_without_customer |  | todo | documents plan (plan 9: receipt PDF) |  |
-| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_escapes_xml_special_chars_in_names |  | todo | documents plan (plan 9: receipt PDF) |  |
-| tests/unit/test_recurring_drafts_email.py | test_subject_counts_drafts |  | todo | email plan (digest subject) |  |
-| tests/unit/test_recurring_drafts_email.py | test_text_body_lists_draft_details |  | todo | email plan (digest text body) |  |
-| tests/unit/test_recurring_drafts_email.py | test_html_body_links_invoice_number |  | todo | email plan (digest html body) |  |
+| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_returns_pdf_bytes | pdf.TestRenderReceiptPDFReturnsPDFBytes | ported | Go asserts on Maroto PDF text | — |
+| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_without_customer | pdf.TestRenderReceiptPDFWithoutCustomer | ported | Go asserts on Maroto PDF text | — |
+| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_escapes_xml_special_chars_in_names | pdf.TestRenderReceiptPDFEscapesXMLSpecialCharsInNames | ported | Go asserts every field round-trips intact in extracted text | — |
+| tests/unit/test_recurring_drafts_email.py | test_subject_counts_drafts | invoices.TestDigestSubjectCountsDrafts | ported |  | — |
+| tests/unit/test_recurring_drafts_email.py | test_text_body_lists_draft_details | invoices.TestDigestTextListsDraftDetails | ported | Go amount is FormatAmount, not Python raw formatting (Go change 3) | — |
+| tests/unit/test_recurring_drafts_email.py | test_html_body_links_invoice_number | invoices.TestDigestHTMLLinksInvoiceNumber | ported | Go escapes HTML, Python did not (Go change 7) | — |
 | tests/unit/test_recurring_scanner.py | test_none_config_returns_none | schedule.TestNoneConfigReturnsNone | ported |  | — |
 | tests/unit/test_recurring_scanner.py | test_malformed_config_returns_none | schedule.TestMalformedConfigReturnsNone | ported |  | — |
 | tests/unit/test_recurring_scanner.py | test_before_start_returns_none | schedule.TestBeforeStartReturnsNone | ported |  | — |

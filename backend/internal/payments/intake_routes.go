@@ -17,6 +17,7 @@ import (
 
 	"github.com/LOQATO/gokit/db"
 
+	"github.com/wenhaokho/wenhao-billing/backend/internal/payments/paymentsdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
@@ -210,20 +211,18 @@ func intakeError(err error) error {
 // 409 with duplicate as its sentence: the violation aborts the transaction,
 // which is rolled back.
 func (r routes) intake(ctx context.Context, payload IntakePayload, duplicate string) (*paymentBody, error) {
-	var out PaymentOut
+	var p paymentsdb.Payment
 	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
-		p, err := r.svc.ProcessIncoming(ctx, tx, payload)
+		var err error
+		p, err = r.svc.ProcessIncoming(ctx, tx, payload)
 		if errors.Is(err, ErrDuplicate) {
 			return clientRefuse(http.StatusConflict, "duplicate_payment", "%s", duplicate)
 		}
-		if err != nil {
-			return err
-		}
-		out = PaymentOutFrom(p)
-		return nil
+		return err
 	})
 	if err != nil {
 		return nil, clientError(err)
 	}
-	return &paymentBody{Body: out}, nil
+	r.svc.AfterCommit(ctx, p)
+	return &paymentBody{Body: PaymentOutFrom(p)}, nil
 }

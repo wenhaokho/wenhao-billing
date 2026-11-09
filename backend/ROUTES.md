@@ -68,8 +68,8 @@ Totals: 107 under /api/v1, 7 OAuth and discovery, /mcp
 | GET | /api/v1/invoices/{invoice_id}/payments | admin session | 200 | app/api/v1/routers/invoices.py:598 | yes | payments | ported |  |
 | POST | /api/v1/invoices/{invoice_id}/mark-paid | admin session | 200 | app/api/v1/routers/invoices.py:617 | yes | invoices | ported |  |
 | POST | /api/v1/invoices/{invoice_id}/payments/{payment_id}/send-receipt | admin session | 200 | app/api/v1/routers/invoices.py:637 | yes | payments | ported |  |
-| GET | /api/v1/invoices/{invoice_id}/pdf | admin session | 200 | app/api/v1/routers/invoices.py:700 | yes |  | todo | documents plan |
-| POST | /api/v1/invoices/{invoice_id}/send | admin session | 200 | app/api/v1/routers/invoices.py:721 | yes |  | todo | documents plan |
+| GET | /api/v1/invoices/{invoice_id}/pdf | admin session | 200 | app/api/v1/routers/invoices.py:700 | yes | invoices | ported |  |
+| POST | /api/v1/invoices/{invoice_id}/send | admin session | 200 | app/api/v1/routers/invoices.py:721 | yes | invoices | ported |  |
 | DELETE | /api/v1/invoices/{invoice_id} | admin session | 204 | app/api/v1/routers/invoices.py:782 | no | invoices | ported |  |
 | GET | /api/v1/items | admin session | 200 | app/api/v1/routers/items.py:18 | yes | items | ported |  |
 | POST | /api/v1/items | admin session | 201 | app/api/v1/routers/items.py:36 | yes | items | ported |  |
@@ -94,8 +94,8 @@ Totals: 107 under /api/v1, 7 OAuth and discovery, /mcp
 | POST | /api/v1/quotations/{quotation_id}/accept | admin session | 200 | app/api/v1/routers/quotations.py:124 | yes | quotations | ported |  |
 | POST | /api/v1/quotations/{quotation_id}/decline | admin session | 200 | app/api/v1/routers/quotations.py:139 | yes | quotations | ported |  |
 | POST | /api/v1/quotations/{quotation_id}/void | admin session | 200 | app/api/v1/routers/quotations.py:153 | yes | quotations | ported |  |
-| GET | /api/v1/quotations/{quotation_id}/pdf | admin session | 200 | app/api/v1/routers/quotations.py:167 | yes |  | todo | documents plan |
-| POST | /api/v1/quotations/{quotation_id}/send | admin session | 200 | app/api/v1/routers/quotations.py:187 | yes |  | todo | documents plan |
+| GET | /api/v1/quotations/{quotation_id}/pdf | admin session | 200 | app/api/v1/routers/quotations.py:167 | yes | quotations | ported |  |
+| POST | /api/v1/quotations/{quotation_id}/send | admin session | 200 | app/api/v1/routers/quotations.py:187 | yes | quotations | ported |  |
 | POST | /api/v1/quotations/{quotation_id}/convert-to-invoice | admin session | 201 | app/api/v1/routers/quotations.py:247 | yes | quotations | ported |  |
 | GET | /api/v1/payments/audit-log | admin session | 200 | app/api/v1/routers/recon.py:21 | yes | payments | ported |  |
 | GET | /api/v1/payments/awaiting-review | admin session | 200 | app/api/v1/routers/recon.py:80 | yes | payments | ported |  |

@@ -230,3 +230,110 @@ func TestIntakeSecretsDefaultToPythonDevValues(t *testing.T) {
 		t.Errorf("defaults = %q, %q", cfg.WebhookHMACSecret, cfg.EmailWebhookToken)
 	}
 }
+
+// test_resend_settings_defaults
+// TestConfigSchedulerIsOffByDefault: the scheduler is off unless
+// SCHEDULER_ENABLED says otherwise (Go change 8; Python's default was true).
+func TestConfigSchedulerIsOffByDefault(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SchedulerEnabled {
+		t.Error("the scheduler is on with SCHEDULER_ENABLED unset, want off")
+	}
+}
+
+// TestConfigSchedulerReadsTheVariable: SCHEDULER_ENABLED=true turns the
+// scheduler on.
+func TestConfigSchedulerReadsTheVariable(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(map[string]string{"SCHEDULER_ENABLED": "true"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SchedulerEnabled {
+		t.Error("the scheduler is off with SCHEDULER_ENABLED=true, want on")
+	}
+	cfg, err = ParseConfig(baseVars(map[string]string{"SCHEDULER_ENABLED": "false"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SchedulerEnabled {
+		t.Error("the scheduler is on with SCHEDULER_ENABLED=false, want off")
+	}
+}
+
+func TestConfigResendDefaults(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ResendAPIKey != "" || cfg.ResendFromEmail != "noreply@wenhao.id" || cfg.ResendFromName != "Wenhao Dev Billing" ||
+		cfg.ResendBaseURL != "https://api.resend.com" || cfg.ResendTimeout != 15*time.Second || cfg.SMTPReplyTo != "wenhao.kho@gmail.com" {
+		t.Errorf("defaults = %+v", cfg)
+	}
+}
+
+// test_resend_api_key_from_env
+func TestConfigResendKeyFromEnv(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(map[string]string{
+		"RESEND_API_KEY": "re_test_123", "RESEND_TIMEOUT_SECONDS": "2.5", "SMTP_REPLY_TO": "",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ResendAPIKey != "re_test_123" || cfg.ResendTimeout != 2500*time.Millisecond || cfg.SMTPReplyTo != "" {
+		t.Errorf("config = %+v", cfg)
+	}
+}
+
+func TestConfigRefusesZeroResendTimeout(t *testing.T) {
+	t.Parallel()
+	_, err := ParseConfig(baseVars(map[string]string{"RESEND_TIMEOUT_SECONDS": "0"}))
+	if err == nil || !strings.Contains(err.Error(), "RESEND_TIMEOUT_SECONDS") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestConfigTrimsResendKey(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(map[string]string{"RESEND_API_KEY": "  re_x \n"}))
+	if err != nil || cfg.ResendAPIKey != "re_x" {
+		t.Errorf("key = %q, err %v", cfg.ResendAPIKey, err)
+	}
+}
+
+// Python's cloudflare settings (app/config.py:65-67).
+func TestConfigCloudflareDefaults(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloudflareAPIToken != "" || cfg.CloudflareAPIBaseURL != "https://api.cloudflare.com/client/v4" || cfg.CloudflareTimeout != 15*time.Second {
+		t.Errorf("defaults = %q %q %v", cfg.CloudflareAPIToken, cfg.CloudflareAPIBaseURL, cfg.CloudflareTimeout)
+	}
+	cfg, err = ParseConfig(baseVars(map[string]string{
+		"CLOUDFLARE_API_TOKEN": " cf-token\n", "CLOUDFLARE_API_BASE_URL": "http://cf.test/v4", "CLOUDFLARE_TIMEOUT_SECONDS": "2.5",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloudflareAPIToken != "cf-token" || cfg.CloudflareAPIBaseURL != "http://cf.test/v4" || cfg.CloudflareTimeout != 2500*time.Millisecond {
+		t.Errorf("set = %q %q %v", cfg.CloudflareAPIToken, cfg.CloudflareAPIBaseURL, cfg.CloudflareTimeout)
+	}
+}
+
+func TestConfigRefusesNonPositiveCloudflareTimeout(t *testing.T) {
+	t.Parallel()
+	for _, bad := range []string{"0", "-1"} {
+		_, err := ParseConfig(baseVars(map[string]string{"CLOUDFLARE_TIMEOUT_SECONDS": bad}))
+		if err == nil || !strings.Contains(err.Error(), "CLOUDFLARE_TIMEOUT_SECONDS") {
+			t.Errorf("%q: err = %v", bad, err)
+		}
+	}
+}

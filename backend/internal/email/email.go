@@ -12,10 +12,13 @@ import (
 
 // Message is one email, with a plain-text and an HTML body. Cc is a list of
 // copied addresses and Attachments the files sent with it; either may be nil.
+// IdempotencyKey, when set, is sent to Resend so a retried send of the same
+// document is delivered once (see IdempotencyKey).
 type Message struct {
 	To, Subject, Text, HTML string
 	Cc                      []string
 	Attachments             []Attachment
+	IdempotencyKey          string
 }
 
 // Attachment is a file sent with a Message.
