@@ -37,6 +37,10 @@ type Config struct {
 	ResendBaseURL          string        // RESEND_BASE_URL
 	ResendTimeout          time.Duration // RESEND_TIMEOUT_SECONDS
 	SMTPReplyTo            string        // SMTP_REPLY_TO: the Reply-To of every mail; empty sends none
+	// SchedulerEnabled runs the scheduled jobs. Python's default was true;
+	// Go's is false (Go change 8): the scheduler is off until the
+	// switch-over, so the Python backend keeps running the jobs.
+	SchedulerEnabled bool
 }
 
 // The development values of the two intake secrets, Python's defaults. They
@@ -71,6 +75,8 @@ type rawConfig struct {
 	ResendBaseURL          string  `env:"RESEND_BASE_URL" envDefault:"https://api.resend.com"`
 	ResendSeconds          float64 `env:"RESEND_TIMEOUT_SECONDS" envDefault:"15"` //nolint:forbidigo // not money: a timeout in seconds
 	SMTPReplyTo            string  `env:"SMTP_REPLY_TO"`
+	// SchedulerEnabled is off unless it says otherwise (Go change 8).
+	SchedulerEnabled bool `env:"SCHEDULER_ENABLED" envDefault:"false"`
 }
 
 // LoadConfig reads the process environment.
@@ -176,6 +182,7 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 		ResendBaseURL:          r.ResendBaseURL,
 		ResendTimeout:          time.Duration(r.ResendSeconds * float64(time.Second)), //nolint:forbidigo // not money: a timeout
 		SMTPReplyTo:            replyTo,
+		SchedulerEnabled:       r.SchedulerEnabled,
 	}, nil
 }
 

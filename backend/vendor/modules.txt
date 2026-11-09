@@ -7,6 +7,7 @@ github.com/LOQATO/gokit/i18n
 github.com/LOQATO/gokit/i18n/i18ntest
 github.com/LOQATO/gokit/money
 github.com/LOQATO/gokit/observe
+github.com/LOQATO/gokit/sched
 github.com/LOQATO/gokit/testkit
 # github.com/alexedwards/argon2id v1.0.0
 ## explicit; go 1.12

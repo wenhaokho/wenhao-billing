@@ -3,6 +3,7 @@ package migrations_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -95,8 +96,8 @@ func TestAdoptThenMigrateAppliesOnlyNewMigrations(t *testing.T) {
 		t.Fatalf("Migrate after Adopt: %v", err)
 	}
 
-	if got := scalar[int64](t, pool, `SELECT max(version_id) FROM goose_db_version WHERE is_applied`); got != 3 {
-		t.Errorf("goose version %d, want 3", got)
+	if got, want := scalar[int64](t, pool, `SELECT max(version_id) FROM goose_db_version WHERE is_applied`), int64(lastVersion(t)); got != want {
+		t.Errorf("goose version %d, want %d", got, want)
 	}
 	if got := scalar[int64](t, pool, `SELECT count(*) FROM goose_db_version WHERE version_id = 1`); got != 1 {
 		t.Errorf("version 1 recorded %d times, want once (the baseline must not run)", got)
@@ -108,9 +109,37 @@ func TestAdoptThenMigrateAppliesOnlyNewMigrations(t *testing.T) {
 	if !scalar[bool](t, pool, `SELECT to_regclass('public.login_attempts') IS NOT NULL`) {
 		t.Error("login_attempts is missing")
 	}
+	if !scalar[bool](t, pool, `SELECT to_regclass('public.scheduled_job_runs') IS NOT NULL`) {
+		t.Error("scheduled_job_runs is missing")
+	}
 	if got := scalar[int64](t, pool, `SELECT count(*) FROM chart_of_accounts`); got != accounts {
 		t.Errorf("%d chart of accounts rows after migrating, want %d (seed rows duplicated)", got, accounts)
 	}
+}
+
+// lastVersion is the number of the last migration, so a new migration does
+// not break the version check.
+func lastVersion(t *testing.T) int {
+	t.Helper()
+	entries, err := migrations.FS.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := 0
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".sql") {
+			continue
+		}
+		var n int
+		if _, err := fmt.Sscanf(name, "%d_", &n); err != nil {
+			t.Fatalf("migration %q does not start with a number", name)
+		}
+		if n > last {
+			last = n
+		}
+	}
+	return last
 }
 
 func TestAdoptRefusesWrongAlembicHead(t *testing.T) {
