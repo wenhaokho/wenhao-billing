@@ -402,20 +402,76 @@ func TestToolOutputSchemaFailureRollsBack(t *testing.T) {
 }
 
 // TestIsCancellation: a cancelled or timed-out call is the caller going
-// away, not a fault: it is not reported, even wrapped.
+// away, not a fault: it is not reported, even wrapped. The request's context
+// decides: a Canceled or DeadlineExceeded error while the request is still
+// live (an upstream timeout) is a fault.
 func TestIsCancellation(t *testing.T) {
 	t.Parallel()
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	live := context.Background()
 	for _, c := range []struct {
+		name string
+		ctx  context.Context
 		err  error
 		want bool
 	}{
-		{context.Canceled, true},
-		{fmt.Errorf("begin: %w", context.DeadlineExceeded), true},
-		{errors.New("boom"), false},
+		{"canceled, request gone", gone, context.Canceled, true},
+		{"wrapped deadline, request gone", gone, fmt.Errorf("begin: %w", context.DeadlineExceeded), true},
+		{"canceled error, request live", live, context.Canceled, false},
+		{"wrapped deadline error, request live", live, fmt.Errorf("query: %w", context.DeadlineExceeded), false},
+		{"other error, request gone", gone, errors.New("boom"), false},
+		{"other error, request live", live, errors.New("boom"), false},
 	} {
-		if got := isCancellation(c.err); got != c.want {
-			t.Errorf("isCancellation(%v) = %v, want %v", c.err, got, c.want)
+		if got := isCancellation(c.ctx, c.err); got != c.want {
+			t.Errorf("%s: isCancellation = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// TestRefusalFromWrappedToolIsGenericError: a tool that declares the
+// {"result": ...} schema must never refuse, because {"error": msg} would not
+// conform to it. If one does, it is a bug: the client gets the generic
+// isError answer, not the refusal, and the write rolls back.
+func TestRefusalFromWrappedToolIsGenericError(t *testing.T) {
+	t.Parallel()
+	h := newFix1Harness(t, func(s *mcp.Server, d Deps) {
+		addTool(s, d, &mcp.Tool{Name: "wrapped_refuses", Description: "refuses though it must not"}, func(ctx context.Context, tx pgx.Tx, _ principalRef, _ fix1In) (fix1Out, error) {
+			if _, err := tx.Exec(ctx, `INSERT INTO users (user_id, email, password_hash, role) VALUES ($1, 'wrapped-refusal@example.com', 'x', 'admin')`, uuid.New()); err != nil {
+				return fix1Out{}, err
+			}
+			return fix1Out{}, Refuse("secret domain detail")
+		}, withOutSchema())
+	})
+	res := h.callTool(t, "wrapped_refuses")
+	if !res.IsError || res.StructuredContent != nil {
+		t.Fatalf("IsError=%v structured=%v, want the generic isError answer", res.IsError, res.StructuredContent)
+	}
+	if text := strings.TrimSpace(resultText(res)); text != errUnexpected {
+		t.Fatalf("text %q, want %q (the refusal's text must not reach the client)", text, errUnexpected)
+	}
+	var n int
+	if err := h.pool.QueryRow(t.Context(), `SELECT count(*) FROM users WHERE email='wrapped-refusal@example.com'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("the refusing tool left %d row(s) behind", n)
+	}
+}
+
+// TestBadArgIsErrorResultWithSentence: a list tool's bad argument is an
+// isError result whose text is the sentence (as Python's raise), with no
+// structured content.
+func TestBadArgIsErrorResultWithSentence(t *testing.T) {
+	t.Parallel()
+	h := newFix1Harness(t, func(s *mcp.Server, d Deps) {
+		addTool(s, d, &mcp.Tool{Name: "bad_arg", Description: "rejects its argument"}, func(context.Context, pgx.Tx, principalRef, fix1In) (fix1Out, error) {
+			return fix1Out{}, BadArg("invalid vendor_id: %s is not a valid UUID", "x")
+		}, withOutSchema())
+	})
+	res := h.callTool(t, "bad_arg")
+	if !res.IsError || res.StructuredContent != nil || strings.TrimSpace(resultText(res)) != "invalid vendor_id: x is not a valid UUID" {
+		t.Fatalf("IsError=%v text=%q structured=%v", res.IsError, resultText(res), res.StructuredContent)
 	}
 }
 

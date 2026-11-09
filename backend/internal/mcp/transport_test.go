@@ -392,8 +392,8 @@ func TestPingShapeMatchesPython(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Tools) != 1 || list.Tools[0].Name != "ping" {
-		t.Fatalf("tools %v, want [ping]", list.Tools)
+	if len(list.Tools) == 0 || list.Tools[0].Name != "ping" {
+		t.Fatalf("tools %v, want ping first (Python's order)", list.Tools)
 	}
 	if list.Tools[0].Description != "Health check \u2014 returns 'pong'." {
 		t.Fatalf("ping description %q", list.Tools[0].Description)

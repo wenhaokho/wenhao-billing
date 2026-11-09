@@ -93,10 +93,12 @@ SELECT * FROM payments
  ORDER BY payment_date DESC, created_at DESC, payment_id DESC;
 
 -- name: ListAwaitingReview :many
--- Python ordered by created_at DESC only; the key breaks a tie.
+-- Python ordered by created_at DESC only; the key breaks a tie. A null
+-- row_limit lists them all (the route); the MCP queue tool caps it.
 SELECT * FROM payments
  WHERE status = 'PENDING_MANUAL_REVIEW'
- ORDER BY created_at DESC, payment_id DESC;
+ ORDER BY created_at DESC, payment_id DESC
+ LIMIT sqlc.narg(row_limit);
 
 -- name: PaymentLog :many
 SELECT * FROM reconciliation_log

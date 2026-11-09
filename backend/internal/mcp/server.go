@@ -7,6 +7,7 @@ package mcp
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -34,7 +35,7 @@ type Deps struct {
 type pingIn struct{}
 
 type pingOut struct {
-	Result string `json:"result" jsonschema:"the pong result"`
+	Result string `json:"result"`
 }
 
 // pingTool is registered withoutTx: a health check must not touch the
@@ -50,7 +51,45 @@ func pingTool(context.Context, pgx.Tx, principalRef, pingIn) (pingOut, error) {
 // schema (as Python wraps it; ping never refuses) and runs withoutTx, so it
 // never touches d.Pool.
 func registerPing(s *mcp.Server, d Deps) {
-	addTool(s, d, &mcp.Tool{Name: "ping", Description: "Health check \u2014 returns 'pong'."}, pingTool, withoutTx(), withOutSchema())
+	addTool(s, d, &mcp.Tool{Name: "ping", Description: "Health check \u2014 returns 'pong'.", InputSchema: inputSchema(inNoArgs)}, pingTool, withoutTx(), withOutSchema())
+}
+
+// toolOrder is Python's tools/list order (FastMCP lists tools in
+// registration order: ping, then each tools module in import order, then
+// each module's source order). The SDK lists by name, so orderTools puts the
+// list back in this order; a tool missing from it sorts last, by name.
+var toolOrder = []string{
+	"ping", "delete_invoice", "delete_bill", "delete_customer", "send_invoice_email", "send_payment_reminder",
+	"list_bills", "get_bill", "list_items", "list_vendors", "resolve_vendor", "list_customers", "get_customer",
+	"resolve_customer", "list_invoices", "get_invoice", "get_business_profile", "get_stats", "list_projects",
+	"get_project", "list_quotations", "get_quotation", "get_reconciliation_queue", "create_bill", "update_bill",
+	"create_item", "update_item", "create_vendor", "update_vendor", "create_customer", "update_customer",
+	"create_invoice", "update_invoice", "finalize_invoice", "void_invoice", "create_recurring_template",
+	"trigger_recurring", "create_project", "update_project", "create_quotation", "update_quotation",
+	"resolve_reconciliation_match",
+}
+
+// orderTools is receiving middleware that sorts a tools/list result into
+// toolOrder.
+func orderTools(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		res, err := next(ctx, method, req)
+		if list, ok := res.(*mcp.ListToolsResult); ok && err == nil {
+			rank := func(name string) int {
+				if i := slices.Index(toolOrder, name); i >= 0 {
+					return i
+				}
+				return len(toolOrder)
+			}
+			slices.SortStableFunc(list.Tools, func(a, b *mcp.Tool) int {
+				if c := rank(a.Name) - rank(b.Name); c != 0 {
+					return c
+				}
+				return strings.Compare(a.Name, b.Name)
+			})
+		}
+		return res, err
+	}
 }
 
 // bearer wraps a handler with the SDK's bearer-token middleware: the
@@ -72,9 +111,12 @@ func NewHandler(deps Deps) http.Handler {
 	if clock == nil {
 		clock = platform.SystemClock{}
 	}
+	deps.Clock = clock
 	tokens := oauth.NewTokens(deps.Cfg.MCPTokenSecret, deps.Cfg.MCPAccessTokenTTL, deps.Cfg.MCPRefreshTokenTTL)
 	server := mcp.NewServer(&mcp.Implementation{Name: "wenhao-billing", Version: "1.0.0"}, nil)
+	server.AddReceivingMiddleware(orderTools)
 	registerPing(server, deps)
+	registerReadTools(server, deps)
 	stream := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, DisableLocalhostProtection: true},

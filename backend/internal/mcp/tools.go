@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime/debug"
+	"slices"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/jackc/pgx/v5"
@@ -42,6 +43,22 @@ func Refuse(format string, args ...any) error {
 	return &Refusal{Msg: fmt.Sprintf(format, args...)}
 }
 
+// ArgError is a bad argument to a tool that cannot answer {"error": msg}
+// because its declared outputSchema is not the open object: the list tools,
+// which Python wraps as {"result": [...]}. Python raises for a bad argument
+// there and FastMCP answers an isError result, so the helper does the same,
+// with msg as its text: no structured content, logged at warn level and not
+// reported (it is the client's mistake, not a fault). A tool with the open
+// object returns Refuse instead.
+type ArgError struct{ Msg string }
+
+func (a *ArgError) Error() string { return a.Msg }
+
+// BadArg is the error a list tool returns for a bad argument.
+func BadArg(format string, args ...any) error {
+	return &ArgError{Msg: fmt.Sprintf(format, args...)}
+}
+
 // toolFn is the body of a tool: it runs as the given principal, inside the
 // transaction the helper opened (nil for a tool registered withoutTx), and
 // returns the tool's output.
@@ -63,8 +80,37 @@ func withoutTx() toolOption { return func(c *toolConfig) { c.noTx = true } }
 // withOutSchema declares Out's own schema (derived from the struct) as the
 // tool's outputSchema instead of the open object. Only for the tools Python
 // wraps as {"result": ...} (ping, list and string returns): they never
-// refuse, and a refusal's {"error": msg} would not conform to it.
+// refuse, and a refusal's {"error": msg} would not conform to it, so the
+// helper turns a Refusal from such a tool into the generic unexpected error
+// (a bug, logged and reported). The derived schema is shaped as FastMCP
+// writes the wrapper: no additionalProperties on the wrapper object, nullable
+// properties (Go's nil slices) declared plain, and the
+// "x-fastmcp-wrap-result" marker its clients use to unwrap the result. An
+// Object field is an open object, as Python's list[dict] items are.
 func withOutSchema() toolOption { return func(c *toolConfig) { c.outSchema = true } }
+
+// wrapSchema is the outputSchema FastMCP declares for a tool returning rt
+// wrapped as {"result": ...}.
+func wrapSchema(rt reflect.Type) (*jsonschema.Schema, error) {
+	schema, err := jsonschema.ForType(rt, &jsonschema.ForOptions{
+		TypeSchemas: map[reflect.Type]*jsonschema.Schema{reflect.TypeFor[Object](): openObjectSchema()},
+	})
+	if err != nil {
+		return nil, err
+	}
+	schema.AdditionalProperties = nil
+	for _, p := range schema.Properties {
+		if len(p.Types) == 2 && slices.Contains(p.Types, "null") {
+			p.Type = p.Types[0]
+			if p.Type == "null" {
+				p.Type = p.Types[1]
+			}
+			p.Types = nil
+		}
+	}
+	schema.Extra = map[string]any{"x-fastmcp-wrap-result": true}
+	return schema, nil
+}
 
 // openObjectSchema is what Python's dict-returning tools declare:
 // {"type":"object","additionalProperties":true}. Both a tool's output and a
@@ -74,9 +120,23 @@ func openObjectSchema() *jsonschema.Schema {
 }
 
 // isCancellation reports whether err is the caller going away rather than a
-// fault: it is still logged and answered generically, but not reported.
-func isCancellation(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+// fault: it is still logged and answered generically, but not reported. The
+// request's own context decides: a Canceled or DeadlineExceeded that
+// surfaces while the request is still live (a database or upstream timeout)
+// is a fault.
+func isCancellation(ctx context.Context, err error) bool {
+	return (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && ctx.Err() != nil
+}
+
+// isOpenObject reports whether a declared outputSchema is Python's open
+// object, the only schema a refusal's {"error": msg} conforms to.
+func isOpenObject(declared any) bool {
+	a, err := json.Marshal(declared)
+	if err != nil {
+		return false
+	}
+	b, _ := json.Marshal(openObjectSchema())
+	return bytes.Equal(a, b)
 }
 
 // addTool registers one tool on the server and returns the handler it
@@ -90,10 +150,15 @@ func isCancellation(err error) bool {
 //     marshal or schema failure is an unexpected error and rolls back), then
 //     the transaction commits and the result carries Out as structured
 //     content plus its JSON as a text block. Out must be a struct.
-//   - Refusal (the body returns an error matching *Refusal, see Refuse):
-//     the transaction rolls back and the result is NOT isError: its
+//   - Refusal (the body returns an error matching *Refusal, see Refuse),
+//     from a tool that declares the open object (below): the transaction
+//     rolls back and the result is NOT isError: its
 //     structured content is exactly {"error": msg} and its one text block
-//     is that object's compact JSON, as FastMCP answers a tool's dict.
+//     is that object's compact JSON, as FastMCP answers a tool's dict. A
+//     Refusal from a tool that declares any other schema (a withOutSchema
+//     tool: it must never refuse) is a bug and counts as any other error.
+//   - Bad argument to such a list tool (BadArg): an isError result whose text
+//     is the sentence, as Python's raise: not reported.
 //   - Any other error (driver, begin/commit, output marshalling) or a panic
 //     anywhere in the handler: the transaction rolls back, the cause is
 //     logged with slog (a panic with its stack) and reported with
@@ -109,8 +174,10 @@ func isCancellation(err error) bool {
 // {"result": ...} declares Out's own schema with withOutSchema() and must
 // never refuse; a tool may also set tool.OutputSchema itself.
 //
-// The tool is registered with the SDK as Out = any, so an isError or
-// refusal result never makes the SDK marshal and validate a zero Out.
+// The tool is registered with the SDK as Out = any, and the handler builds
+// every result itself, so an isError or refusal result never makes the SDK
+// marshal and validate a zero Out, and the SDK does not re-encode the output
+// (which would sort its keys).
 func addTool[In, Out any](s *mcp.Server, d Deps, tool *mcp.Tool, fn toolFn[In, Out], opts ...toolOption) mcp.ToolHandlerFor[In, any] {
 	var cfg toolConfig
 	for _, o := range opts {
@@ -124,7 +191,7 @@ func addTool[In, Out any](s *mcp.Server, d Deps, tool *mcp.Tool, fn toolFn[In, O
 	switch {
 	case t.OutputSchema != nil:
 	case cfg.outSchema:
-		schema, err := jsonschema.ForType(rt, &jsonschema.ForOptions{})
+		schema, err := wrapSchema(rt)
 		if err != nil {
 			panic(fmt.Sprintf("addTool: tool %q: output schema: %v", tool.Name, err))
 		}
@@ -136,6 +203,8 @@ func addTool[In, Out any](s *mcp.Server, d Deps, tool *mcp.Tool, fn toolFn[In, O
 	if err != nil {
 		panic(fmt.Sprintf("addTool: tool %q: output schema: %v", tool.Name, err))
 	}
+	// Only the open object admits a refusal's {"error": msg}.
+	canRefuse := isOpenObject(t.OutputSchema)
 
 	handler := func(ctx context.Context, _ *mcp.CallToolRequest, in In) (res *mcp.CallToolResult, out any, err error) {
 		// First, so a panic anywhere below (principal lookup, begin, the
@@ -157,16 +226,34 @@ func addTool[In, Out any](s *mcp.Server, d Deps, tool *mcp.Tool, fn toolFn[In, O
 		raw, err := runTool(ctx, d, cfg, outSchema, p, in, fn)
 		if err != nil {
 			var ref *Refusal
-			if errors.As(err, &ref) {
+			var arg *ArgError
+			switch {
+			case errors.As(err, &ref) && canRefuse:
 				return refusalResult(ref.Msg), nil, nil
+			case errors.As(err, &arg):
+				logger(ctx).WarnContext(ctx, "mcp tool bad argument", "tool", t.Name, "msg", arg.Msg)
+				res := &mcp.CallToolResult{}
+				res.SetError(errors.New(arg.Msg))
+				return res, nil, nil
+			case ref != nil:
+				// A refusal from a tool whose schema cannot carry it is a bug:
+				// the client gets the generic error and the cause is reported.
+				err = fmt.Errorf("tool %s refused (%s) but its outputSchema is not the open object: %w", t.Name, ref.Msg, err)
 			}
 			logger(ctx).ErrorContext(ctx, "mcp tool failed", "tool", t.Name, "err", err)
-			if !isCancellation(err) {
+			if !isCancellation(ctx, err) {
 				observe.Report(fmt.Errorf("mcp tool %s: %w", t.Name, err), map[string]string{"component": "mcp"})
 			}
 			return unexpectedResult(), nil, nil
 		}
-		return nil, raw, nil
+		// The result is built here, with no Out for the SDK: it would decode
+		// the validated output into a map and write it back with its keys
+		// sorted, losing the order the tool built them in (Python's dict
+		// order). The output was already validated against the schema.
+		return &mcp.CallToolResult{
+			StructuredContent: raw,
+			Content:           []mcp.Content{&mcp.TextContent{Text: string(raw)}},
+		}, nil, nil
 	}
 	mcp.AddTool(s, &t, handler)
 	return handler

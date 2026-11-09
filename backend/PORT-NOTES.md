@@ -581,3 +581,16 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Python: MRR divides in the 28-significant-digit decimal context and quantizes each currency's sum half-even (`app/services/stats.py:108-137`); products above 28 digits would round before `quantize`, and a quantized value above 10^24 raises (a 500) (`app/services/fx.py:72`, `accounting.py:494`).
     Go: `DivRound(x, 28)` per template (28 decimal places, not 28 significant digits), then `RoundHalfEven4` on the per-currency sum (`stats.TestMRRWeeklyTimes52Over12`, `stats.TestMRRWeeklyAndTie`); products are exact. At `numeric(19,4)` times `numeric(19,8)` sizes the two cannot differ except for a sum landing exactly on a four-place tie.
     After the switch: none.
+
+111. **MCP read tools: ordered lists, clamped `limit`, escaped name filters, and a bad id on a list tool.**
+    Python: `list_*` order by one key with no tie-break, `limit` is `min(limit, 500)` with no lower bound (a negative one is a Postgres error), the name filter is `ILIKE '%{query}%'` with `%` and `_` unescaped, and `resolve_vendor` / `resolve_customer` take ten matches with no `ORDER BY`. A bad id raises in every read tool (an `isError` result).
+    Go: every list ends with the id tie-break (named lists by `name, id`, the others newest first with `id` descending); `limit` is clamped to 0..500 (negative is an empty list, `TestListLimitIsClamped`); the name filter escapes `\`, `%` and `_` through `platform.LikeEscape` (`TestListToolsTieBreakAndEscape`), and `resolve_*` order by `name, id`. A bad id in a `get_*` tool is `{"error": "invalid <arg>: <value> is not a valid UUID"}` (Go change 11). A bad id in a list tool stays an `isError` result carrying that sentence, as in Python: those tools declare the `{"result": [...]}` schema, which an `{"error"}` object would not satisfy (`TestBadIDArguments`). An empty `invoice_type`, `vendor_id` or `customer_id` and an empty `status` list are no filter.
+    After the switch: none; clients that sent a negative `limit` get `[]` instead of an error.
+
+112. **MCP `get_business_profile` reads row id 1 and answers `{}` when it is missing.**
+    Python: `select(BusinessProfile)` takes the first row (`app/mcp/tools/read_misc.py:41`). Go: row `id = 1`, the singleton the rest of the app uses (`TestGetBusinessProfileMissingRowIsEmpty`). `updated_at` prints as Python's naive `isoformat()` (no zone), not the HTTP routes' `Z` form.
+    After the switch: none.
+
+113. **MCP `tools/list` is reordered; result key order is kept; output schemas carry `x-fastmcp-wrap-result`.**
+    Python: FastMCP lists tools in registration order and writes a dict result with its keys in insertion order. Go: the SDK lists by name and re-encodes a validated result with sorted keys, so the server sorts `tools/list` into Python's order (`toolOrder`, `TestToolsListMatchesPython`) and builds each result itself so the keys keep the order of the field lists (`TestReadResultKeysAndOrder`). The eight list tools' and `ping`'s output schema is Python's `{"result": ...}` wrapper with the `x-fastmcp-wrap-result` marker, so a FastMCP client unwraps `.data`. A refusal from a tool declaring that wrapper is a bug and answers the generic `isError`.
+    After the switch: none.

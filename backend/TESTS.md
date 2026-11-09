@@ -145,51 +145,51 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_mcp_oauth.py | test_token_rejects_wrong_pkce_verifier |  | todo |  |  |
 | tests/integration/test_mcp_oauth.py | test_token_requires_client_id |  | todo |  |  |
 | tests/integration/test_mcp_oauth.py | test_refresh_reuse_revokes_successor_family |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_resolve_unique_match |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_resolve_ambiguous_returns_candidates |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_resolve_no_match_returns_empty_candidates |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_list_customers_filters_by_name_substring |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_list_customers_no_query_returns_all |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_get_customer_found |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_get_customer_not_found_returns_empty_dict |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_excludes_templates |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_status |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_customer_id |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_invoice_type |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_limit_clamped_to_500 |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_returns_money_as_decimal_strings |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_get_invoice_found |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_get_invoice_not_found_returns_empty_dict |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_get_and_list_invoices_include_withholding_fields |  | todo |  |  |
-| tests/integration/test_mcp_read_misc.py | test_get_business_profile_returns_dict |  | todo |  |  |
-| tests/integration/test_mcp_read_misc.py | test_get_business_profile_omits_inline_logo |  | todo |  |  |
-| tests/integration/test_mcp_read_misc.py | test_get_business_profile_keeps_regular_logo_url |  | todo |  |  |
-| tests/integration/test_mcp_read_misc.py | test_get_stats_returns_dict_with_expected_keys |  | todo | stats plan |  |
-| tests/integration/test_mcp_read_misc.py | test_get_stats_renders_money_as_exact_decimal_strings |  | todo | stats plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_bills_returns_list |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_status |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_vendor_id |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_bill_found |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_bill_not_found_returns_empty_dict |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_quotations_returns_list |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_status |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_customer_id |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_quotation_found |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_quotation_not_found_returns_empty_dict |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_projects_returns_list |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_projects_filters_by_customer_id |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_project_found |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_project_not_found_returns_empty_dict |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_items_returns_list |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_items_filters_by_query |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_vendors_returns_list |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_vendors_filters_by_query |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_unique_match |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_ambiguous_returns_candidates |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_no_match_returns_empty_candidates |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_returns_list |  | todo | mcp plan (plan 10) |  |
-| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_excludes_other_statuses |  | todo | mcp plan (plan 10) |  |
-| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_respects_limit |  | todo | mcp plan (plan 10) |  |
+| tests/integration/test_mcp_read_customers.py | test_resolve_unique_match | mcp.TestResolveCustomerUniqueMatch | ported |  |  |
+| tests/integration/test_mcp_read_customers.py | test_resolve_ambiguous_returns_candidates | mcp.TestResolveCustomerAmbiguousReturnsCandidates | ported |  |  |
+| tests/integration/test_mcp_read_customers.py | test_resolve_no_match_returns_empty_candidates | mcp.TestResolveCustomerNoMatchReturnsEmptyCandidates | ported |  |  |
+| tests/integration/test_mcp_read_customers.py | test_list_customers_filters_by_name_substring | mcp.TestListCustomersFiltersByNameSubstring | ported |  | Dropped platform.LikeEscape on the name filter: TestListToolsTieBreakAndEscape red (query "100%" matched 100% Co and 100X Co) (task 8) |
+| tests/integration/test_mcp_read_customers.py | test_list_customers_no_query_returns_all | mcp.TestListCustomersNoQueryReturnsAll | ported |  |  |
+| tests/integration/test_mcp_read_customers.py | test_get_customer_found | mcp.TestGetCustomerFound | ported |  |  |
+| tests/integration/test_mcp_read_customers.py | test_get_customer_not_found_returns_empty_dict | mcp.TestGetCustomerNotFoundReturnsEmptyDict | ported |  |  |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_excludes_templates | mcp.TestListInvoicesExcludesTemplates | ported |  | Dropped `ExcludeTemplates: true` in list_invoices: TestListInvoicesExcludesTemplates red (task 8) |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_status | mcp.TestListInvoicesFiltersByStatus | ported |  |  |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_customer_id | mcp.TestListInvoicesFiltersByCustomerID | ported |  |  |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_invoice_type | mcp.TestListInvoicesFiltersByInvoiceType | ported |  |  |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_limit_clamped_to_500 | mcp.TestListInvoicesLimitClampedTo500 and mcp.TestListLimitIsClamped | ported |  | Dropped the min(limit, 500) clamp: TestListLimitIsClamped red (limit 10000 returned 501 rows, want 500) (task 8) |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_returns_money_as_decimal_strings | mcp.TestListInvoicesReturnsMoneyAsDecimalStrings | ported |  |  |
+| tests/integration/test_mcp_read_invoices.py | test_get_invoice_found | mcp.TestGetInvoiceFound | ported |  |  |
+| tests/integration/test_mcp_read_invoices.py | test_get_invoice_not_found_returns_empty_dict | mcp.TestGetInvoiceNotFoundReturnsEmptyDict | ported |  |  |
+| tests/integration/test_mcp_read_invoices.py | test_get_and_list_invoices_include_withholding_fields | mcp.TestGetAndListInvoicesIncludeWithholdingFields | ported |  |  |
+| tests/integration/test_mcp_read_misc.py | test_get_business_profile_returns_dict | mcp.TestGetBusinessProfileReturnsDict | ported |  |  |
+| tests/integration/test_mcp_read_misc.py | test_get_business_profile_omits_inline_logo | mcp.TestGetBusinessProfileOmitsInlineLogo | ported |  |  |
+| tests/integration/test_mcp_read_misc.py | test_get_business_profile_keeps_regular_logo_url | mcp.TestGetBusinessProfileKeepsRegularLogoURL | ported |  |  |
+| tests/integration/test_mcp_read_misc.py | test_get_stats_returns_dict_with_expected_keys | mcp.TestGetStatsReturnsDictWithExpectedKeys | ported |  |  |
+| tests/integration/test_mcp_read_misc.py | test_get_stats_renders_money_as_exact_decimal_strings | mcp.TestGetStatsRendersMoneyAsExactDecimalStrings | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_bills_returns_list | mcp.TestListBillsReturnsList | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_status | mcp.TestListBillsFiltersByStatus | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_vendor_id | mcp.TestListBillsFiltersByVendorID | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_get_bill_found | mcp.TestGetBillFound | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_get_bill_not_found_returns_empty_dict | mcp.TestGetBillNotFoundReturnsEmptyDict | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_quotations_returns_list | mcp.TestListQuotationsReturnsList | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_status | mcp.TestListQuotationsFiltersByStatus | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_customer_id | mcp.TestListQuotationsFiltersByCustomerID | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_get_quotation_found | mcp.TestGetQuotationFound | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_get_quotation_not_found_returns_empty_dict | mcp.TestGetQuotationNotFoundReturnsEmptyDict | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_projects_returns_list | mcp.TestListProjectsReturnsList | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_projects_filters_by_customer_id | mcp.TestListProjectsFiltersByCustomerID | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_get_project_found | mcp.TestGetProjectFound | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_get_project_not_found_returns_empty_dict | mcp.TestGetProjectNotFoundReturnsEmptyDict | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_items_returns_list | mcp.TestListItemsReturnsList | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_items_filters_by_query | mcp.TestListItemsFiltersByQuery | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_vendors_returns_list | mcp.TestListVendorsReturnsList | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_list_vendors_filters_by_query | mcp.TestListVendorsFiltersByQuery | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_unique_match | mcp.TestResolveVendorUniqueMatch | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_ambiguous_returns_candidates | mcp.TestResolveVendorAmbiguousReturnsCandidates | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_no_match_returns_empty_candidates | mcp.TestResolveVendorNoMatchReturnsEmptyCandidates | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_returns_list | mcp.TestGetReconciliationQueueReturnsList | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_excludes_other_statuses | mcp.TestGetReconciliationQueueExcludesOtherStatuses | ported |  |  |
+| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_respects_limit | mcp.TestGetReconciliationQueueRespectsLimit | ported |  |  |
 | tests/integration/test_mcp_server.py | test_tool_session_uses_injected_factory |  | todo |  |  |
 | tests/integration/test_mcp_server.py | test_mcp_app_importable |  | todo |  |  |
 | tests/integration/test_mcp_server.py | test_tool_session_without_mcp_tool_db_fails_loud |  | todo |  |  |
