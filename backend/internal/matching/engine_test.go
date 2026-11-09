@@ -268,11 +268,11 @@ func TestTwoExactCandidatesHold(t *testing.T) {
 	if r.AmountMismatch || r.CurrencyMismatch || r.AdjustmentType != AdjNone {
 		t.Fatalf("got %+v", r)
 	}
-	if len(r.Reasons) != 1 || r.Reasons[0] != "ambiguous match: 2 open invoices clear equally" {
+	if len(r.Reasons) != 1 || r.Reasons[0] != "ambiguous match: 2 open invoices match exactly" {
 		t.Fatalf("reasons %q", r.Reasons)
 	}
 	three := match(incoming(nil), later, earlier, candidate(nil))
-	if last := three.Reasons[len(three.Reasons)-1]; last != "ambiguous match: 3 open invoices clear equally" {
+	if last := three.Reasons[len(three.Reasons)-1]; last != "ambiguous match: 3 open invoices match exactly" {
 		t.Fatalf("reasons %q", three.Reasons)
 	}
 }
@@ -288,24 +288,64 @@ func TestOneExactAmongInexactStillClears(t *testing.T) {
 
 func TestTieOrderDeterministic(t *testing.T) {
 	t.Parallel()
-	a := candidate(func(c *Candidate) { c.InvoiceID = uuid.MustParse("00000000-0000-0000-0000-00000000000a") })
-	b := candidate(func(c *Candidate) { c.InvoiceID = uuid.MustParse("00000000-0000-0000-0000-00000000000b") })
-	noDue := candidate(func(c *Candidate) {
-		c.InvoiceID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
-		c.DueDate = nil
-		c.IssueDate = day(2026, 4, 10)
-	})
-	cases := [][]Candidate{{a, b, noDue}, {noDue, b, a}, {b, noDue, a}, {a, noDue, b}}
-	for _, cs := range cases {
+	// All three score exactly 90.0000 (date proximity 0), none clears, so the
+	// order alone picks the attached one: due date ascending, none last, then id.
+	far := func(id string, due *time.Time) Candidate {
+		return candidate(func(c *Candidate) {
+			c.InvoiceID = uuid.MustParse(id)
+			c.IssueDate, c.DueDate = day(2026, 1, 1), due
+		})
+	}
+	a := far("00000000-0000-0000-0000-00000000000a", day(2026, 1, 20))
+	b := far("00000000-0000-0000-0000-00000000000b", day(2026, 1, 20))
+	noDue := far("00000000-0000-0000-0000-000000000001", nil)
+	for _, c := range []Candidate{a, b, noDue} {
+		if s := Score(incoming(nil), c); platform.PyDecimalStr(s) != "90.0000" {
+			t.Fatalf("setup: score %s", s)
+		}
+	}
+	perms := [][]Candidate{{a, b, noDue}, {noDue, b, a}, {b, noDue, a}, {a, noDue, b}, {noDue, a, b}, {b, a, noDue}}
+	for _, cs := range perms {
 		r := Match(incoming(nil), cs)
 		if r.Invoice == nil || r.Invoice.InvoiceID != a.InvoiceID {
 			t.Fatalf("attached %v, want %v (same due date: lowest id; nil due last)", r.Invoice.InvoiceID, a.InvoiceID)
 		}
 	}
 	// A nil due date sorts after a dated one even with the lowest id.
-	r := Match(incoming(nil), []Candidate{noDue, b})
-	if r.Invoice.InvoiceID != b.InvoiceID {
+	if r := Match(incoming(nil), []Candidate{noDue, b}); r.Invoice.InvoiceID != b.InvoiceID {
 		t.Fatalf("attached %v, want the dated one", r.Invoice.InvoiceID)
+	}
+}
+
+func TestSameCustomerSecondExactInvoiceHolds(t *testing.T) {
+	t.Parallel()
+	cust := uuid.New()
+	same := func(c *Candidate) { c.CustomerID = cust }
+	first := candidate(same)
+	// The second identical invoice is far outside the date window: it scores 90,
+	// below the clear threshold, yet the same payer owes both.
+	second := candidate(func(c *Candidate) {
+		same(c)
+		c.IssueDate, c.DueDate = day(2025, 1, 1), day(2025, 1, 20)
+	})
+	r := match(incoming(nil), first, second)
+	if r.Status != StatusPending || r.Invoice == nil || r.Invoice.InvoiceID != first.InvoiceID {
+		t.Fatalf("got %+v", r)
+	}
+	if len(r.Reasons) != 1 || r.Reasons[0] != "ambiguous match: 2 open invoices match exactly" {
+		t.Fatalf("reasons %q", r.Reasons)
+	}
+}
+
+func TestOtherCustomerExactLowScoreDoesNotHold(t *testing.T) {
+	t.Parallel()
+	other := candidate(func(c *Candidate) {
+		c.CustomerName = "Totally Different Name Ltd"
+		c.IssueDate, c.DueDate = day(2025, 1, 1), day(2025, 1, 20)
+	})
+	r := match(incoming(nil), candidate(nil), other)
+	if r.Status != StatusCleared {
+		t.Fatalf("got %s: %v", r.Status, r.Reasons)
 	}
 }
 

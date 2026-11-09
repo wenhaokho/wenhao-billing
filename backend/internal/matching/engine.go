@@ -43,8 +43,6 @@ var (
 	weightCurrency = decimal.NewFromInt(20)
 	weightPayer    = decimal.NewFromInt(20)
 	weightDate     = decimal.NewFromInt(10)
-
-	lowerCase = cases.Lower(language.Und)
 )
 
 // Incoming is a payment to match. PayerReference is carried but not scored.
@@ -106,7 +104,9 @@ func pyStrip(s string) string {
 // normalize is Python's s.lower().strip(): lower first, then strip. The
 // x/text lower-casing follows Unicode's full mapping, as str.lower does
 // (final sigma, U+0130).
-func normalize(s string) string { return pyStrip(lowerCase.String(s)) }
+func normalize(s string) string {
+	return pyStrip(cases.Lower(language.Und).String(s)) // a Caser is not goroutine-safe
+}
 
 // payerSimilarity is the best difflib ratio over the customer name and its
 // aliases, as the shortest-repr decimal Python's Decimal(str(float)) makes.
@@ -229,16 +229,22 @@ func Match(p Incoming, cands []Candidate) Result {
 			platform.PyDecimalStr(confidence), platform.PyDecimalStr(AutoClearThreshold)))
 	}
 
-	// More than one candidate that would clear is ambiguous: a human picks.
-	clearing := 0
-	for _, s := range open {
-		if IsExactMatch(p, s.c) && !s.score.LessThan(AutoClearThreshold) {
-			clearing++
+	// A payment that would clear is held when the choice is not unique: more
+	// than one exact candidate scores 95 or more, or another exact candidate
+	// belongs to the best's own customer (two identical open invoices, so the
+	// date alone must not pick one). n counts them, the best included.
+	ambiguous := false
+	if IsExactMatch(p, best) && !belowThreshold {
+		n := 0
+		for _, s := range open {
+			if IsExactMatch(p, s.c) && (!s.score.LessThan(AutoClearThreshold) || s.c.CustomerID == best.CustomerID) {
+				n++
+			}
 		}
-	}
-	ambiguous := clearing > 1
-	if ambiguous {
-		reasons = append(reasons, fmt.Sprintf("ambiguous match: %d open invoices clear equally", clearing))
+		if n > 1 {
+			ambiguous = true
+			reasons = append(reasons, fmt.Sprintf("ambiguous match: %d open invoices match exactly", n))
+		}
 	}
 
 	if !IsExactMatch(p, best) || belowThreshold || ambiguous {
