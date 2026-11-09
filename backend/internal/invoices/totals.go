@@ -94,8 +94,13 @@ func errDueOutOfRange() error { return refuse("due_date_out_of_range", "due date
 
 // addDays is day + days, refused when it leaves 0001-01-01..9999-12-31.
 func addDays(day time.Time, days int) (time.Time, error) {
-	// In days, so huge values never reach time arithmetic.
-	if days > int(maxDate.Sub(day).Hours()/24) || days < -int(day.Sub(minDate).Hours()/24) {
+	// Whole days from Unix seconds: time.Duration saturates at about 292
+	// years, so Sub cannot measure the distance to either end. Comparing in
+	// days also keeps huge values away from time arithmetic.
+	const secondsPerDay = 24 * 60 * 60
+	up := (maxDate.Unix() - day.Unix()) / secondsPerDay
+	down := (day.Unix() - minDate.Unix()) / secondsPerDay
+	if int64(days) > up || int64(days) < -down {
 		return time.Time{}, errDueOutOfRange()
 	}
 	return day.AddDate(0, 0, days), nil

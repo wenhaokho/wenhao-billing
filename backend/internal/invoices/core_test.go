@@ -101,7 +101,7 @@ func get(t *testing.T, a *apitest.App, id uuid.UUID) InvoiceOut {
 	return apitest.Decode[InvoiceOut](t, a.Do(t, http.MethodGet, invoicePath(id), nil), http.StatusOK)
 }
 
-// wantDec checks a decimal's value (any scale); want "" means null.
+// wantDec4 checks a decimal's value (any scale); want "" means null.
 func wantDec4(t *testing.T, name string, got *platform.Dec4, want string) {
 	t.Helper()
 	switch {
@@ -379,9 +379,19 @@ func TestDueDateOutOfRangeIs400(t *testing.T) {
 		wantProblem(t, a.Do(t, http.MethodPost, invoicesPath, map[string]any{"currency": "IDR", "payment_terms": terms, "line_items": []any{lineBody("1")}}),
 			http.StatusBadRequest, "due_date_out_of_range", sentence, "", "")
 	}
+	c := insertCustomer(t, a.Pool, "NONE", "", false)
 	wantProblem(t, a.Do(t, http.MethodPost, invoicesPath+"/milestone", map[string]any{
-		"customer_id": insertCustomer(t, a.Pool, "NONE", "", false), "currency": "IDR", "amount": 1, "milestone_ref": "M", "due_in_days": 9999999,
+		"customer_id": c, "currency": "IDR", "amount": 1, "milestone_ref": "M", "due_in_days": 9999999,
 	}), http.StatusBadRequest, "due_date_out_of_range", sentence, "", "")
+	// Centuries away but in range: accepted, as Python does.
+	far := post(t, a, map[string]any{"currency": "IDR", "payment_terms": "Net 110000", "issue_date": "2026-01-15", "line_items": []any{lineBody("1")}})
+	wantDate(t, "Net 110000 due_date", far.DueDate, time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC).AddDate(0, 0, 110000).Format(time.DateOnly))
+	for _, days := range []int{200000, -200000} {
+		out := apitest.Decode[InvoiceOut](t, a.Do(t, http.MethodPost, invoicesPath+"/milestone", map[string]any{
+			"customer_id": c, "currency": "IDR", "amount": 1, "milestone_ref": "M", "issue_date": "2026-01-15", "due_in_days": days,
+		}), http.StatusCreated)
+		wantDate(t, "milestone due_date", out.DueDate, time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC).AddDate(0, 0, days).Format(time.DateOnly))
+	}
 	// PATCH fills a missing due date from the terms, refused the same way.
 	out := post(t, a, map[string]any{"currency": "IDR", "line_items": []any{lineBody("1")}})
 	wantProblem(t, a.Do(t, http.MethodPatch, invoicePath(out.InvoiceID), map[string]any{"due_date": nil, "payment_terms": "Net 99999999"}),
@@ -458,7 +468,7 @@ func TestCreateOverlongPaymentTermsIs422(t *testing.T) {
 		http.StatusUnprocessableEntity, "", invalid, "", "")
 }
 
-// listed creates an invoice through SQL-free routes and stamps its
+// listed creates an invoice through the API and stamps its
 // created_at, so the list order is known.
 func listed(t *testing.T, a *apitest.App, body map[string]any, created string) uuid.UUID {
 	t.Helper()
@@ -717,19 +727,39 @@ func TestMilestoneCreate(t *testing.T) {
 // with their routes (Task 5), /customers/balances with the customer views.
 func TestLiteralPathsNotSwallowed(t *testing.T) {
 	t.Parallel()
-	a := newApp(t)
-	c := insertCustomer(t, a.Pool, "NONE", "", false)
-	apitest.Decode[InvoiceOut](t, a.Do(t, http.MethodPost, invoicesPath+"/milestone", map[string]any{
-		"customer_id": c, "currency": "USD", "amount": 1, "milestone_ref": "M",
-	}), http.StatusCreated)
-	if got := listIDs(t, a, "/awaiting-finalization"); len(got) != 1 {
-		t.Errorf("awaiting-finalization = %v", got)
-	}
+	t.Run("milestone", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		c := insertCustomer(t, a.Pool, "NONE", "", false)
+		out := apitest.Decode[InvoiceOut](t, a.Do(t, http.MethodPost, invoicesPath+"/milestone", map[string]any{
+			"customer_id": c, "currency": "USD", "amount": 1, "milestone_ref": "M",
+		}), http.StatusCreated)
+		if string(out.BillingCycleRef) != `{"milestone_ref":"M"}` {
+			t.Errorf("not the milestone handler: %+v", out)
+		}
+	})
+	t.Run("awaiting-finalization", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		draft := post(t, a, map[string]any{"currency": "IDR", "line_items": []any{lineBody("1")}})
+		wantIDs(t, "awaiting-finalization", listIDs(t, a, "/awaiting-finalization"), draft.InvoiceID)
+	})
 }
 
 func TestInvoiceRoutesRequireAdmin(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
+	// A signed-in staff user: authenticated, but not an admin.
+	staffID := uuid.New()
+	if _, err := a.Pool.Exec(t.Context(), `INSERT INTO users (user_id, email, password_hash, role) VALUES ($1, 'staff@example.com', 'placeholder: never signs in', 'staff')`, staffID); err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := a.Sessions.Issue(staffID, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staff := *a
+	staff.Cookie = platform.SessionCookie + "=" + token
 	id := uuid.New()
 	for _, c := range []struct{ method, p string }{
 		{http.MethodPost, invoicesPath},
@@ -740,6 +770,7 @@ func TestInvoiceRoutesRequireAdmin(t *testing.T) {
 		{http.MethodPatch, invoicePath(id)},
 	} {
 		wantProblem(t, a.Anon(t, c.method, c.p, map[string]any{}), http.StatusUnauthorized, "", "not authenticated", "", "")
+		wantProblem(t, staff.Do(t, c.method, c.p, map[string]any{}), http.StatusForbidden, "", "admin required", "", "")
 	}
 }
 
