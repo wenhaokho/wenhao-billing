@@ -36,13 +36,13 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_customer_wht_defaults.py | test_patch_without_wht_fields_keeps_stored | customers.TestPatchWithoutWhtFieldsKeepsStored | ported |  | — |
 | tests/integration/test_customer_wht_defaults.py | test_patch_partial_wht_merges_with_stored | customers.TestPatchPartialWhtMergesWithStored | ported |  | Normalize skipped on PATCH (raw overlay of the sent withholding values): TestPatchPartialWhtMergesWithStored red (task 6) |
 | tests/integration/test_customer_wht_defaults.py | test_patch_type_switch_uses_new_default_rate | customers.TestPatchTypeSwitchUsesNewDefaultRate | ported |  | Stored rate kept on a type switch: TestPatchTypeSwitchUsesNewDefaultRate red (task 6) |
-| tests/integration/test_dashboard_stats.py | test_empty_db_returns_zero_counts_and_no_currency_rows |  | todo |  |  |
+| tests/integration/test_dashboard_stats.py | test_empty_db_returns_zero_counts_and_no_currency_rows |  | todo | stats plan |  |
 | tests/integration/test_dashboard_stats.py | test_counts_reflect_invoice_and_customer_state |  | todo |  |  |
 | tests/integration/test_dashboard_stats.py | test_open_ar_by_currency_sums_sent_and_partial_only |  | todo |  |  |
-| tests/integration/test_dashboard_stats.py | test_open_quotation_pipeline_sums_sent_and_accepted_only_sorted_desc |  | todo |  |  |
+| tests/integration/test_dashboard_stats.py | test_open_quotation_pipeline_sums_sent_and_accepted_only_sorted_desc |  | todo | stats plan |  |
 | tests/integration/test_dashboard_stats.py | test_auto_cleared_last_30d_counts_only_cleared_payments |  | todo |  |  |
 | tests/integration/test_dashboard_stats.py | test_awaiting_review_count_counts_pending_manual_review_payments |  | todo |  |  |
-| tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_matches_service_function |  | todo |  |  |
+| tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_matches_service_function |  | todo | stats plan |  |
 | tests/integration/test_dashboard_stats.py | test_recent_activity_includes_payment_invoice_and_actor_details |  | todo |  |  |
 | tests/integration/test_dashboard_stats.py | test_recent_activity_details_empty_for_unmatched_system_payment |  | todo |  |  |
 | tests/integration/test_dashboard_stats.py | test_draft_count_excludes_recurring_templates |  | todo |  |  |
@@ -70,7 +70,7 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_invoice_withholding.py | test_update_draft_recomputes_withholding | invoices.TestUpdateDraftRecomputesWithholding | ported |  | — |
 | tests/integration/test_invoice_withholding.py | test_update_type_switch_resets_rate | invoices.TestUpdateTypeSwitchResetsRate | ported |  | — |
 | tests/integration/test_invoice_withholding.py | test_recurring_cycle_uses_template_snapshot | invoices.TestRecurringCycleUsesTemplateSnapshot | ported |  | — |
-| tests/integration/test_invoice_withholding.py | test_quote_conversion_applies_customer_default |  | todo | quotations plan |  |
+| tests/integration/test_invoice_withholding.py | test_quote_conversion_applies_customer_default | quotations.TestQuoteConversionAppliesCustomerDefault | ported |  | — |
 | tests/integration/test_invoice_withholding.py | test_usage_lock_recomputes_from_snapshot | invoices.TestUsageLockRecomputesFromSnapshot | ported |  | — |
 | tests/integration/test_invoice_withholding.py | test_milestone_invoice_inherits_customer_default | invoices.TestMilestoneInvoiceInheritsCustomerDefault | ported |  | — |
 | tests/integration/test_invoice_withholding.py | test_update_template_gross_up_only_keeps_type_and_rate | invoices.TestUpdateTemplateGrossUpOnlyKeepsTypeAndRate | ported |  | — |
@@ -105,10 +105,10 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_mcp_gated_delete.py | test_delete_invoice_previews_then_deletes |  | todo |  |  |
 | tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_invoice_errors |  | todo |  |  |
 | tests/integration/test_mcp_gated_delete.py | test_delete_invoice_tampered_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_bill_preview_does_not_delete |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_bill_previews_then_deletes |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_bill_errors |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_bill_tampered_token_rejected |  | todo |  |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_bill_preview_does_not_delete |  | todo | mcp plan |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_bill_previews_then_deletes |  | todo | mcp plan |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_bill_errors |  | todo | mcp plan |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_bill_tampered_token_rejected |  | todo | mcp plan |  |
 | tests/integration/test_mcp_gated_delete.py | test_delete_customer_preview_does_not_deactivate |  | todo |  |  |
 | tests/integration/test_mcp_gated_delete.py | test_delete_customer_previews_then_deactivates |  | todo |  |  |
 | tests/integration/test_mcp_gated_delete.py | test_delete_customer_tampered_token_rejected |  | todo |  |  |
@@ -164,22 +164,22 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_mcp_read_misc.py | test_get_business_profile_returns_dict |  | todo |  |  |
 | tests/integration/test_mcp_read_misc.py | test_get_business_profile_omits_inline_logo |  | todo |  |  |
 | tests/integration/test_mcp_read_misc.py | test_get_business_profile_keeps_regular_logo_url |  | todo |  |  |
-| tests/integration/test_mcp_read_misc.py | test_get_stats_returns_dict_with_expected_keys |  | todo |  |  |
-| tests/integration/test_mcp_read_misc.py | test_get_stats_renders_money_as_exact_decimal_strings |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_bills_returns_list |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_status |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_vendor_id |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_bill_found |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_bill_not_found_returns_empty_dict |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_quotations_returns_list |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_status |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_customer_id |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_quotation_found |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_quotation_not_found_returns_empty_dict |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_projects_returns_list |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_projects_filters_by_customer_id |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_project_found |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_project_not_found_returns_empty_dict |  | todo |  |  |
+| tests/integration/test_mcp_read_misc.py | test_get_stats_returns_dict_with_expected_keys |  | todo | stats plan |  |
+| tests/integration/test_mcp_read_misc.py | test_get_stats_renders_money_as_exact_decimal_strings |  | todo | stats plan |  |
+| tests/integration/test_mcp_reads_all.py | test_list_bills_returns_list |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_status |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_vendor_id |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_get_bill_found |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_get_bill_not_found_returns_empty_dict |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_list_quotations_returns_list |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_status |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_customer_id |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_get_quotation_found |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_get_quotation_not_found_returns_empty_dict |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_list_projects_returns_list |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_list_projects_filters_by_customer_id |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_get_project_found |  | todo | mcp plan |  |
+| tests/integration/test_mcp_reads_all.py | test_get_project_not_found_returns_empty_dict |  | todo | mcp plan |  |
 | tests/integration/test_mcp_reads_all.py | test_list_items_returns_list |  | todo |  |  |
 | tests/integration/test_mcp_reads_all.py | test_list_items_filters_by_query |  | todo |  |  |
 | tests/integration/test_mcp_reads_all.py | test_list_vendors_returns_list |  | todo |  |  |
@@ -222,11 +222,11 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_mcp_writes_all.py | test_create_customer_echoes_back_contact_and_address |  | todo |  |  |
 | tests/integration/test_mcp_writes_all.py | test_update_customer_rejects_unknown_field_names |  | todo |  |  |
 | tests/integration/test_mcp_writes_all.py | test_update_customer_writes_address_fields |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_project_normalizes_code_and_currency |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_project_duplicate_code_returns_error_and_persists_only_one |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_project_edits_fields |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_project_rejects_unknown_field_names |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_project_echoes_notes |  | todo |  |  |
+| tests/integration/test_mcp_writes_all.py | test_create_project_normalizes_code_and_currency |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_create_project_duplicate_code_returns_error_and_persists_only_one |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_update_project_edits_fields |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_update_project_rejects_unknown_field_names |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_create_project_echoes_notes |  | todo | mcp plan |  |
 | tests/integration/test_mcp_writes_all.py | test_create_item_sets_fields |  | todo |  |  |
 | tests/integration/test_mcp_writes_all.py | test_update_item_edits_fields |  | todo |  |  |
 | tests/integration/test_mcp_writes_all.py | test_update_item_not_found_returns_error |  | todo |  |  |
@@ -240,17 +240,17 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_mcp_writes_all.py | test_update_vendor_rejects_unknown_field_names |  | todo |  |  |
 | tests/integration/test_mcp_writes_all.py | test_create_item_duplicate_sku_returns_error |  | todo |  |  |
 | tests/integration/test_mcp_writes_all.py | test_create_vendor_integrity_error_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_bill_makes_draft |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_bill_edits_open_bill |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_bill_not_found_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_bill_rejects_unknown_field_names |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_bill_unknown_field_check_precedes_not_found |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_bill_echoes_notes |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_quotation_makes_draft |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_quotation_edits_draft |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_quotation_without_line_items_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_quotation_rejects_unknown_field_names |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_quotation_echoes_notes |  | todo |  |  |
+| tests/integration/test_mcp_writes_all.py | test_create_bill_makes_draft |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_update_bill_edits_open_bill |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_update_bill_not_found_returns_error |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_update_bill_rejects_unknown_field_names |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_update_bill_unknown_field_check_precedes_not_found |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_update_bill_echoes_notes |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_create_quotation_makes_draft |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_update_quotation_edits_draft |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_create_quotation_without_line_items_returns_error |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_update_quotation_rejects_unknown_field_names |  | todo | mcp plan |  |
+| tests/integration/test_mcp_writes_all.py | test_update_quotation_echoes_notes |  | todo | mcp plan |  |
 | tests/integration/test_mcp_writes_all.py | test_update_invoice_rejects_unknown_field_names |  | todo |  |  |
 | tests/integration/test_mcp_writes_all.py | test_update_invoice_echoes_notes |  | todo |  |  |
 | tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_exact_match_clears |  | todo |  |  |
@@ -427,9 +427,9 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_pdf_context.py | test_invoice_context_paid_gross_up_excludes_booked_wht |  | todo |  |  |
 | tests/unit/test_pdf_context.py | test_invoice_context_partial_gross_up_excludes_booked_wht |  | todo |  |  |
 | tests/unit/test_pdf_context.py | test_invoice_context_no_wht_unchanged |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_quotation_context_total_hero |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_both_builders_share_key_set |  | todo |  |  |
-| tests/unit/test_pdf_context.py | test_quotation_notes_fall_back_to_business_default |  | todo |  |  |
+| tests/unit/test_pdf_context.py | test_quotation_context_total_hero |  | todo | documents plan |  |
+| tests/unit/test_pdf_context.py | test_both_builders_share_key_set |  | todo | documents plan |  |
+| tests/unit/test_pdf_context.py | test_quotation_notes_fall_back_to_business_default |  | todo | documents plan |  |
 | tests/unit/test_pdf_context.py | test_resolve_payment_instructions_matches_currency |  | todo |  |  |
 | tests/unit/test_pdf_context.py | test_resolve_payment_instructions_falls_back_to_default |  | todo |  |  |
 | tests/unit/test_pdf_context.py | test_resolve_payment_instructions_none_when_empty |  | todo |  |  |
@@ -452,17 +452,17 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_pdf_logo.py | test_http_fetch_failure_falls_back_to_default |  | todo |  |  |
 | tests/unit/test_pdf_logo.py | test_http_fetch_non_image_mime_falls_back_to_png |  | todo |  |  |
 | tests/unit/test_pdf_render_html.py | test_invoice_html_is_self_contained_and_populated |  | todo |  |  |
-| tests/unit/test_pdf_render_html.py | test_quotation_html_renders_total |  | todo |  |  |
+| tests/unit/test_pdf_render_html.py | test_quotation_html_renders_total |  | todo | documents plan |  |
 | tests/unit/test_pdf_render_html.py | test_invoice_html_puts_npwp_in_payment_panel_when_withholding |  | todo |  |  |
-| tests/unit/test_pdf_wiring.py | test_routers_use_facade |  | todo |  |  |
-| tests/unit/test_projects_service.py | test_create_project_normalizes_code_and_currency |  | todo |  |  |
-| tests/unit/test_projects_service.py | test_create_project_duplicate_code_raises_and_leaves_one_row |  | todo |  |  |
-| tests/unit/test_projects_service.py | test_update_project_edits_and_normalizes |  | todo |  |  |
-| tests/unit/test_projects_service.py | test_update_project_not_found_raises |  | todo |  |  |
-| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_returns_pdf_bytes |  | todo |  |  |
-| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_without_customer |  | todo |  |  |
-| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_escapes_xml_special_chars_in_names |  | todo |  |  |
-| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_escapes_xml_special_chars_in_free_text |  | todo |  |  |
+| tests/unit/test_pdf_wiring.py | test_routers_use_facade |  | todo | documents plan |  |
+| tests/unit/test_projects_service.py | test_create_project_normalizes_code_and_currency | projects.TestCreateProjectNormalizesCodeAndCurrency | ported |  | — |
+| tests/unit/test_projects_service.py | test_create_project_duplicate_code_raises_and_leaves_one_row | projects.TestCreateProjectDuplicateCodeRaisesAndLeavesOneRow | ported |  | — |
+| tests/unit/test_projects_service.py | test_update_project_edits_and_normalizes | projects.TestUpdateProjectEditsAndNormalizes | ported |  | — |
+| tests/unit/test_projects_service.py | test_update_project_not_found_raises | projects.TestUpdateProjectNotFound | ported |  | — |
+| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_returns_pdf_bytes |  | todo | documents plan |  |
+| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_without_customer |  | todo | documents plan |  |
+| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_escapes_xml_special_chars_in_names |  | todo | documents plan |  |
+| tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_escapes_xml_special_chars_in_free_text |  | todo | documents plan |  |
 | tests/unit/test_receipt_pdf.py | test_receipt_reference_shape |  | todo |  |  |
 | tests/unit/test_receipt_pdf.py | test_balance_note_partial_payment_shows_remaining |  | todo |  |  |
 | tests/unit/test_receipt_pdf.py | test_balance_note_full_payment_says_paid_in_full |  | todo |  |  |

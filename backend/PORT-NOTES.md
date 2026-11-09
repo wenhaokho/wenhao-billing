@@ -289,3 +289,123 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Python: both are `int` with `ge=1` and no upper bound (`app/schemas/invoice.py:101`, `:105`); a huge `interval` is stored, and the cycle arithmetic later leaves the date range (`app/services/recurring_schedule.py:109-130`: `date(...)` raises ValueError past year 9999, `date.fromordinal` OverflowError for an int too large for C), a 500 on the rows view or the trigger and a failed scan run.
     Go (a change): both are 422 above 1000 on template create and PUT (`invoices.TestTemplateScheduleCountsAtMost1000`); 1000 is accepted. A stored config beyond that (hand-edited) is still read.
     After the switch: none.
+
+56. **Quotation numbers are handed out under a lock, and a duplicate is a 409 (a change).**
+    Python: `generate_quotation_number` scans every `Q<year>%` number with no lock, takes the highest all-digit tail (`str.isdigit`, which also accepts Unicode digits that `int()` then trips over) and adds one; the year is the server's local `date.today()` (`backend-python/app/services/quoting.py:73-89`, `:87`). Two creates racing read the same maximum, and the second hits the unique constraint at flush with an unhandled IntegrityError, a 500 (`:118`, `:141`). The same gap as note 34 for invoices.
+    Go: `quotations.NextQuotationNumber` takes `pg_advisory_xact_lock` keyed `quotation-number:<year>` (UTC year of the clock), reads only ASCII-digit tails, and ignores invoice numbers (`quotations.TestNextQuotationNumberConcurrent`, `quotations.TestCreateConcurrentNumbersAreConsecutive`, `quotations.TestNextQuotationNumberIgnoresInvoiceNumbers`). A number that already exists (client-supplied, or set by PATCH) answers 409 `quotation_number_exists` `quotation number already exists` (`quotations.TestCreateDuplicateNumberIs409`).
+    After the switch: none.
+
+57. **Converting a quotation makes one invoice, however many requests race (a change).**
+    Python: `convert_to_invoice` reads the quotation with a plain `db.get` and no lock (`app/services/quoting.py:274`); two concurrent converts both see DRAFT, SENT or ACCEPTED, both build an invoice, and the quotation ends pointing at one of them while the other is orphaned.
+    Go: the quotation row is read `FOR UPDATE` first, then the invoice number lock is taken (lock order: quotation row, then number), so the second request waits, sees INVOICED and gets Python's 400 `cannot convert a INVOICED quotation to invoice` (`quotations.TestConvertConcurrentMakesOneInvoice`, `quotations.TestConvertTwiceIs400`). The sentence keeps Python's grammar (`a INVOICED`) for each refused status (`quotations.TestConvertRefusedStatuses`).
+    After the switch: none.
+
+58. **Bill payments and voids read the bill under a row lock (a change).**
+    Python: `record_bill_payment` reads the bill with `db.get`, compares and writes the balance with no lock, so two payments racing both pass the balance check and one is lost (`app/api/v1/routers/bills.py:95-116`); `void` reads it the same way (`:126-136`).
+    Go: both routes read the bill `FOR UPDATE` in one transaction. Of two payments of 600 against 1000 one is 200 and the other is 400 `amount 600 exceeds balance due 400.0000` (`bills.TestRecordPaymentConcurrentNeverOverpays`).
+    After the switch: none.
+
+59. **Requests that Python answered with a 500 are client errors (a change, quotations and bills).**
+    Python: an unknown `customer_id`, `project_id` or `item_id` on a quotation, or an unknown `vendor_id`, `project_id`, `item_id` or `expense_account_id` on a bill, fails at flush with a foreign-key IntegrityError that no route catches (`app/services/quoting.py:122-141`, `app/services/billing_ap.py:46-63`, `:65-80`); strings longer than their column (quotation `quotation_number` 50, `po_so_number` 100, `payment_terms` 30, `accepted_by` 255; bill `bill_number` and `po_number` 100, `payment_terms` 30) are DataErrors; an explicit `null` for a NOT NULL column on PATCH (quotation `customer_id` and `currency`, bill `vendor_id` and `currency`) is an IntegrityError (`quoting.py:173-174`, `billing_ap.py:88-92`); `GET /quotations?limit=-1` is a Postgres error (`app/api/v1/routers/quotations.py:54-58`); a default `valid_until` of `issue_date + 30 days` past 9999-12-31 raises OverflowError (`quoting.py:120`).
+    Go: an unknown reference is 422 at the field; a string longer than its column is 422 (`maxLength` from the DDL); a NOT NULL `null` is 422; `limit` below 1 is 422 (`limit=0` was an empty list in Python); the `valid_until` overflow is 400 `valid_until_out_of_range` `valid until is out of range` (`quotations.TestCreateUnknownCustomerIs422`, `quotations.TestCreateFieldValidationIs422`, `quotations.TestListFiltersOrderLimit`, `quotations.TestCreateValidUntilOutOfRangeIs400`, `bills.TestCreateUnknownVendorIs422`, `bills.TestCreateUnknownExpenseAccountIs422`, `bills.TestCreateRefusesBadFields`, `bills.TestPatchNullVendorIs422`, `bills.TestPatchUnknownReferencesAre422`). A convert whose due date leaves the calendar (issue date near 9999-12-31, or terms such as `Net 99999999999999999999`) is 400 `due_date_out_of_range` where `quoting.py:316` raised OverflowError (`quotations.TestConvertDueDateOutOfRangeIs400`). A create with `line_items: null` is 400 `line_items_required` on quotations where Python answered 422 (`quotations.TestCreateRequiresLineItems`).
+    After the switch: none.
+
+60. **Projects: only a duplicate code is "project code already exists" (a change).**
+    Python: `create_project` and `update_project` turn every IntegrityError into the code sentence (`app/services/projects.py:39-43`, `:58-62`). An unknown `customer_id` on create answers 400 `project code 'X' already exists`; on PATCH, an unknown customer or an explicit `null` for `code`, `name`, `currency`, `status`, `active` or `customer_id` (a NotNullViolation) answers 400 `project code already exists`.
+    Go: only `projects_code_key` (and its index) maps to the code sentence (`projects.TestCreateProjectDuplicateCodeRaisesAndLeavesOneRow`, `projects.TestPatchDuplicateCodeIs400`); an unknown customer is 422 at `customer_id` and a NOT NULL `null` is 422 (`projects.TestCreateUnknownCustomerIs422`, `projects.TestPatchNullForNotNullColumnIs422`, `projects.TestPatchNullNameIs422`). The create sentence still prints the code as Python's `repr` does, with double quotes when the code holds a `'`.
+    After the switch: none.
+
+61. **Project code and currency are normalised after validation; over-long results are 422.**
+    Python: `code` and `name` pass `min_length=1` and `max_length` as sent, then `create_project` strips and upper-cases the code and strips the name (`app/services/projects.py:29-31`); `"   "` passes validation and is stored as `""`, and `str.upper` can lengthen (`"ß"` to `"SS"`), so a 40-character code or a 3-character currency can overflow its column after validation, a DataError and a 500. PATCH strips and upper-cases `code`, upper-cases `currency` and does not strip `name` (`:51-57`).
+    Go: the normalised value is checked again: a blank code is 422 at `code` and an upper-cased code over 40 or currency over 3 is 422 (`projects.TestBlankCodeIs422`, `projects.TestNormalisedCodeAndCurrencyOverflowIs422`); upper-casing uses full case mapping (`golang.org/x/text/cases`) so `"ß"` becomes `"SS"` as in Python; PATCH leaves `name` as sent (`projects.TestUpdateProjectEditsAndNormalizes`). Go trims with `strings.TrimSpace`, which does not strip U+001C to U+001F as Python's `str.strip` does.
+    After the switch: none.
+
+62. **Deleting a project also counts the quotations that reference it (a change).**
+    Python: the delete counts invoices (every status, templates included) and bills (VOID included) and ignores quotations; a project referenced only by a quotation passes the check and fails at commit on `quotations_project_id_fkey`, a 500 (`app/api/v1/routers/projects.py:101-112`). Count and delete take no lock.
+    Go: the project is read `FOR UPDATE`, quotations are counted with the invoices and bills, and the answer is the same 400 `cannot delete: project is referenced by N invoice(s)/bill(s)`, so N includes quotations while the sentence keeps Python's wording (`projects.TestDeleteProjectReferencedByQuotationIs400`, `projects.TestDeleteProjectReferencedByInvoicesAndBills`).
+    After the switch: reword to name quotations, or stop counting VOID documents and templates.
+
+63. **The project summary adds up amounts in any currency and prints `"0"` only in Python.**
+    Python: `SUM(amount)` and `SUM(balance_due)` run over every OPEN, SENT, PARTIAL or PAID invoice (templates included) and `SUM(amount)` over every OPEN, PARTIAL or PAID bill, in any currency; `contract_remaining` subtracts that mixed sum from a project-currency value; `paid_total` is invoiced minus outstanding, so withheld tax and mark-paid write-offs count as paid (`app/api/v1/routers/projects.py:126-161`). The sums are `Decimal` values never read back through a column, so an empty project prints `"0"` where every stored amount prints four places.
+    Go: kept, with four places everywhere (`projects.TestSummaryMixesCurrencies`, `projects.TestSummaryTotals`, `projects.TestSummaryContractRemainingCanBeNegative`); the `"0"` against `"0.0000"` difference is an allowed one for `compare` (`projects.TestSummaryEmptyProject`).
+    After the switch: sum per currency, or convert through the ledger's rates.
+
+64. **A quotation can be converted from DRAFT or SENT, and its payment terms beat `due_in_days`.**
+    Python: `convert_to_invoice` refuses only INVOICED, VOID and DECLINED, so DRAFT, SENT, ACCEPTED and EXPIRED convert and `accepted_at` and `accepted_by` stay null (`app/services/quoting.py:277-282`); a non-empty `payment_terms` replaces `due_in_days`, an unparseable one meaning 14 days (`:284-287`); the customer's default withholding is the only source and is computed on the stored quotation amount (`:289-295`); the invoice number's year is today's, not the issue date's (`:301`).
+    Go: kept (`quotations.TestConvertFromDraftSentAcceptedExpired`, `quotations.TestConvertTermsOverrideDueInDays`, `quotations.TestConvertFieldMapping`, `quotations.TestQuoteConversionAppliesCustomerDefault`, `quotations.TestConvertInvalidCustomerWithholdingIs400`); "today" is the UTC date of the clock, and the invoice number is allocated under the invoice number lock after the quotation row (note 57).
+    After the switch: require ACCEPTED (or record the acceptance on convert), and let an explicit `due_in_days` win.
+
+65. **EXPIRED is never set and `valid_until` is never enforced.**
+    Python: the status exists in the schema and the docstring (`app/schemas/quotation.py:12`, `app/models/quotation.py:19`) but nothing sets it, and accept, decline and convert never look at `valid_until`. A row set to EXPIRED by hand can be converted or voided but not edited (`app/services/quoting.py:151-154`, `:277`).
+    Go: kept, with EXPIRED behaving as above (`quotations.TestConvertFromDraftSentAcceptedExpired`, `quotations.TestPatchNonEditableIs400`, `quotations.TestVoidFromEveryStatusButInvoiced`).
+    After the switch: a job that expires SENT quotations past `valid_until`, and a refusal to accept an expired one.
+
+66. **Voiding a quotation is permissive, and a DRAFT can be accepted without being sent.**
+    Python: `void_quotation` refuses only INVOICED, so a VOID quotation can be voided again and an ACCEPTED or DECLINED one can be voided, with no reason (`app/services/quoting.py:243-251`); mark-sent, accept and decline run from DRAFT or SENT (`:209`, `:223`, `:236`).
+    Go: kept (`quotations.TestVoidFromEveryStatusButInvoiced`, `quotations.TestVoidInvoicedIs400`, `quotations.TestMarkSentFromDraftAndSent`, `quotations.TestMarkSentFromAcceptedIs400`, `quotations.TestAcceptRefusals`, `quotations.TestDeclineFromSent`).
+    After the switch: close the state machine (no void of ACCEPTED, no accept of DRAFT) and take a reason.
+
+67. **Quotation PATCH: `null` clears the number, `line_items: []` leaves an empty quotation, `""` is stored.**
+    Python: PATCH copies every sent field with `setattr`, so `quotation_number: null` (what the form sends when the field is blank) sets it to null and `""` is stored as `""`, where create would have generated one; a second `""` collides on the unique constraint, a 500 (`app/services/quoting.py:159-174`). `line_items: []` is accepted and replaces the lines with none (`:176-183`), leaving a 0-amount quotation that convert later refuses with `quotation has no line items to convert`. A PATCH that nulls `valid_until` or `issue_date` does not re-default them. Totals are recomputed on every PATCH, including a discount-only one.
+    Go: kept, except that the second `""` is the 409 of note 56 (`quotations.TestPatchNullNumberClears`, `quotations.TestPatchEmptyLinesAccepted`, `quotations.TestPatchRepricesOnDiscountOnly`, `quotations.TestConvertUnknownOrEmptyIs400`).
+    After the switch: generate a number when it is cleared, and refuse an empty `line_items`.
+
+68. **A missing quotation is 400 on writes and 404 on read; bills and projects are 404 everywhere.**
+    Python: every quotation service function raises `QuotingError("quotation <id> not found")`, which the router turns into 400 (`app/services/quoting.py:150`, `:208`, `:222`, `:235`, `:246`, `:256`, `:276`; `app/api/v1/routers/quotations.py:132-133`), while `GET /quotations/{id}` answers 404 `quotation not found` (`:76`). Bill and project routes look the row up first and answer 404 `bill not found` or `project not found` (`app/api/v1/routers/bills.py:97`, `app/api/v1/routers/projects.py:26-30`). Same split as note 39.
+    Go: kept (`quotations.TestGetQuotation404`, `quotations.TestLifecycleUnknownIs400`, `quotations.TestPatchUnknownIs400`, `bills.TestGetBill404`, `bills.TestPatchUnknownBillIs404`, `bills.TestBillPaymentRoutes404`, `projects.TestUpdateProjectNotFound`).
+    After the switch: 404 on every write too.
+
+69. **A bill's `status` can be written through PATCH, and that is the only way to open one.**
+    Python: `BillUpdate.status` is any of DRAFT, OPEN, PARTIAL, PAID or VOID and `update_bill` copies it (`app/schemas/bill.py:63`, `app/services/billing_ap.py:85-92`): DRAFT or OPEN can jump to PAID with no payment, to VOID without the void note, and OPEN back to DRAFT (which re-baselines `balance_due` on the next line edit). Nothing else opens a bill; the frontend never sends `status` and has no open action, so a bill made in the UI stays DRAFT and the record-payment button never shows. Only the MCP tools open one.
+    Go: kept (`bills.TestPatchStatusOpensBill`, `bills.TestPatchPaidIs400`); a PAID or VOID bill cannot be edited.
+    After the switch: an explicit open action, and a status machine that refuses a jump to PAID.
+
+70. **Editing an OPEN bill's lines leaves `balance_due` alone; a discount-only edit does not reprice.**
+    Python: `_apply_totals` recomputes `subtotal` and `amount` but re-baselines `balance_due` only while the bill is DRAFT (`app/services/billing_ap.py:27-42`), so on an OPEN or PARTIAL bill `balance_due` can end above or below `amount`; `update_bill` calls it only when `line_items` is sent (`:94-112`), so changing `discount_type` or `discount_value` alone stores the new discount and keeps the old totals.
+    Go: kept (`bills.TestPatchOpenBillLinesKeepsBalance`, `bills.TestPatchDraftLinesRebaselinesBalance`, `bills.TestPatchLineItemsOmittedNullAndEmpty`).
+    After the switch: recompute totals on every edit and reject an edit that would drop `amount` below what is paid.
+
+71. **Bill totals round half-even, unlike quotations and invoices.**
+    Python: each line is `quantize(0.0001)` under the context's ROUND_HALF_EVEN, the subtotal is the sum of the rounded lines, a PERCENT total is `subtotal * (1 - pct/100)` unrounded and clamped at zero before the final quantize, and a line's position is `ln.position or idx`, so an explicit position 0 becomes its index (`app/services/billing_ap.py:23-38`, `:71`, `:105`). Quotations and invoices round half-up per line and total.
+    Go: kept, with the rounding per call site (`bills.TestBillLinesRoundHalfEven`, `bills.TestBillSubtotalSumsRoundedLines`, `bills.TestBillPercentDiscount`, `bills.TestBillDiscountedAmountRoundsHalfEven`, `bills.TestBillPositionZeroBecomesIndex`).
+    After the switch: one rounding rule for every document.
+
+72. **A bill can be created with no lines, no dates and a repeated number.**
+    Python: `create_bill` accepts an empty `line_items` and makes a 0-amount DRAFT; `issue_date` and `due_date` are not defaulted, `payment_terms` is stored and never parsed, and `bill_number` is not unique (`app/services/billing_ap.py:45-81`; `bill_number` is a plain `varchar(100)` in `backend/migrations/00001_baseline.sql:30`). A `line_items: null` on create is a 422 in Python and the same as no lines in Go.
+    Go: kept (`bills.TestCreateBillWithoutLines`, `bills.TestCreateBillSetsFieldsAndTotals`).
+    After the switch: require a line, derive `due_date` from the terms, and make `(vendor_id, bill_number)` unique.
+
+73. **Bill record-payment records nothing but a balance, and echoes the amount as Python printed it.**
+    Python: no payment row and no journal entry (note 8); `payment_date`, `payer_name`, `payer_reference` and `notes` are validated and dropped; the status is 200, where an invoice's record-payment is 201 (`app/api/v1/routers/bills.py:84-116`, `app/schemas/payment.py:50-56`). The overpayment sentence prints `Decimal(payload.amount)`; because FastAPI hands pydantic a JSON number as a float, `600.00` prints `600.0`, `6e2` prints `600.0` and `1.5e3` prints `1500.0`, while a JSON string prints as sent (`"600.00"` stays `600.00`, `"6e2"` becomes `6E+2`) and an integer prints its digits.
+    Go: the same three printing rules (`bills.TestRecordPaymentOverpaymentIs400`); `payment_date` is required and discarded (`bills.TestRecordPaymentValidation`); nothing is posted (`bills.TestRecordPaymentWritesNoJournal`); an exact payment ends PAID with balance 0 (`bills.TestRecordPaymentExactBalancePays`). Go compares and subtracts the exact decimal, where Python's float step rounds a JSON number with more than 17 significant digits first, so such an amount can differ in its last places.
+    After the switch: post the payment to the ledger and keep a payment row, as the invoice side does.
+
+74. **Bill void: any JSON `reason`, a leading newline, PARTIAL bills voidable; there is no REST bill delete.**
+    Python: the body is an untyped required `dict`; `reason` is `(payload or {}).get("reason") or "no reason given"` and is formatted with an f-string, so a number, list or object is written as Python prints it (`{'a': 1}`); the note is appended to `notes` with a leading newline even when `notes` is null; a PARTIAL bill is voided with its balance zeroed, PAID and VOID are refused (`app/api/v1/routers/bills.py:119-136`, `app/services/billing_ap.py:118-125`). The frontend never calls it. Only the MCP tools delete a bill (DRAFT only).
+    Go: kept, including Python's `repr` for strings inside a container and its truthiness rules (`bills.TestVoidAppendsNote`, `bills.TestVoidReasonNonString`, `bills.TestVoidPaidIs400`). Three differences nobody will meet: a `reason` number outside float range (`1e999`) is Huma's 400 where Python printed `inf`; a lone surrogate escape (`"\ud800"`) becomes U+FFFD where Python kept it and then failed to write (a 500); `unicode.IsPrint` stands in for `str.isprintable`, which can differ across Unicode versions.
+    After the switch: type the body, require a reason, and add the delete route when the MCP plan needs it.
+
+75. **A required body that has no required field: accept, convert and bill void.**
+    Python: `AcceptQuotationRequest`, `ConvertToInvoiceRequest` and the bill void `dict` are required bodies (`app/api/v1/routers/quotations.py:123-131`, `:247-255`, `app/api/v1/routers/bills.py:119-123`) although every field is optional; a request with no body is 422. The frontend sends `{accepted_by: null}` and `{}`.
+    Go: a JSON `null` body is 422, and a request with no body at all is Huma's own 400 `request body is required`, the same as the invoice void precedent (`quotations.TestAcceptRequiresBody`, `quotations.TestConvertRequiresBody`, `bills.TestVoidRequiresBody`); `due_in_days: null` is 422 as in Python.
+    After the switch: make the body optional on all three.
+
+76. **Quotation timestamps lose their offset in Python and gain a `Z` in Go.**
+    Python: `last_sent_at` and `accepted_at` are `datetime.utcnow()`, a naive instant, while `created_at` is the database's `CURRENT_TIMESTAMP`; both are serialised without an offset (`app/services/quoting.py:212`, `:226`).
+    Go: the clock's UTC instant, serialised with `Z` (`quotations.TestLifecycleTimestampsAreUTC`). An allowed difference for `compare`; a client that read the Python string as local time was already off by the server's offset.
+    After the switch: none.
+
+77. **Currency case differs by feature.**
+    Python: projects and bills upper-case the currency (`app/services/projects.py:31`, `:55`; `app/services/billing_ap.py:51`, `:91`); quotations and invoices store it as sent (`app/services/quoting.py:127`), so a lower-case quotation converts into a lower-case invoice. `"ß"` upper-cases to `"SS"` in Python and overflows a bill's `varchar(3)` (a 500).
+    Go: kept per feature (`bills.TestCreateUppercasesCurrency`, `projects.TestCreateProjectNormalizesCodeAndCurrency`, `quotations.TestConvertFieldMapping`); bills use `strings.ToUpper`, which leaves `"ß"` alone, so no overflow is possible there, while projects use full case mapping (note 61).
+    After the switch: one currency rule, upper-case and checked against the ledger's currencies (as note 52).
+
+78. **The project, bill and project-invoice lists have no limit; the quotation list is capped at 500.**
+    Python: `GET /projects`, `GET /bills` and `GET /projects/{id}/invoices` return every row, newest first, with no `limit` (`app/api/v1/routers/projects.py:59`, `:176`, `app/api/v1/routers/bills.py:44`); `GET /quotations` has `limit` (default 200, at most 500) (`app/api/v1/routers/quotations.py:54-58`). Rows with equal `created_at` come back in no fixed order, and so do lines with equal `position`.
+    Go: kept, with the tie-breaks `<pk> DESC` on the lists and `line_item_id` on lines, and `[]` for an empty list (`projects.TestListFiltersAndOrder`, `bills.TestListFiltersAndOrder`, `bills.TestListEmptyIsArray`, `projects.TestProjectInvoicesExcludeTemplatesAndOrder`, `quotations.TestListFiltersOrderLimit`).
+    After the switch: add `limit` or paging to the three open lists.
+
+79. **A quotation, invoice or bill may point at another customer's project, or one in another currency.**
+    Python: nothing compares the project's customer or currency with the document's (`app/services/quoting.py:122-138`, `app/services/billing_ap.py:46-61`); only the frontend filters the project picker by customer. The summary of note 63 then adds the mismatch up.
+    Go: kept; no test pins the absence of the check.
+    After the switch: refuse a project of another customer, and warn on a currency mismatch.
