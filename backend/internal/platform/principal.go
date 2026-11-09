@@ -37,6 +37,9 @@ type Principal struct {
 	// Remember is whether the session was signed in with "keep me logged
 	// in"; a re-issued cookie (after a password change) keeps it.
 	Remember bool
+	// Epoch is the session epoch the session was signed at (the user's
+	// current one); the OAuth consent form binds its CSRF token to it.
+	Epoch int
 }
 
 type principalKey struct{}
@@ -186,24 +189,18 @@ func authenticate(api huma.API, pool *pgxpool.Pool, s Sessions) func(huma.Contex
 			refuse(ctx, http.StatusUnauthorized, notAuthenticated)
 			return
 		}
-		p := Principal{UserID: userID, Remember: remember}
-		var current int
-		err = pool.QueryRow(ctx.Context(), `SELECT email, role, session_epoch FROM users WHERE user_id = $1`, userID).
-			Scan(&p.Email, &p.Role, &current)
-		if errors.Is(err, pgx.ErrNoRows) {
+		p, err := sessionUser(ctx.Context(), pool, userID, epoch, remember)
+		if errors.Is(err, errUnknownUser) {
 			refuse(ctx, http.StatusForbidden, adminRequired)
+			return
+		}
+		if errors.Is(err, errStaleEpoch) {
+			s.expire(ctx)
+			refuse(ctx, http.StatusUnauthorized, sessionExpired)
 			return
 		}
 		if err != nil {
 			_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "", err)
-			return
-		}
-		// A session older than the user's epoch was signed out (password
-		// change, sign out everywhere). A newer one is never issued
-		// legitimately (a deleted-then-recreated user): epochs must match.
-		if epoch != current {
-			s.expire(ctx)
-			refuse(ctx, http.StatusUnauthorized, sessionExpired)
 			return
 		}
 		if p.Role != "admin" {
@@ -217,7 +214,31 @@ func authenticate(api huma.API, pool *pgxpool.Pool, s Sessions) func(huma.Contex
 var (
 	errNoSession      = errors.New("no session")
 	errSessionExpired = errors.New("session expired")
+	errUnknownUser    = errors.New("session user does not exist")
+	errStaleEpoch     = errors.New("session epoch is not the user's")
 )
+
+// sessionUser loads the user a verified session token names and checks its
+// epoch, for the Admin middleware and RequestPrincipal alike. A session older
+// than the user's epoch was signed out (password change, sign out
+// everywhere); a newer one is never issued legitimately (a deleted-then-
+// recreated user): epochs must match.
+func sessionUser(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, epoch int, remember bool) (Principal, error) {
+	p := Principal{UserID: userID, Remember: remember, Epoch: epoch}
+	var current int
+	err := pool.QueryRow(ctx, `SELECT email, role, session_epoch FROM users WHERE user_id = $1`, userID).
+		Scan(&p.Email, &p.Role, &current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Principal{}, errUnknownUser
+	}
+	if err != nil {
+		return Principal{}, fmt.Errorf("session user: %w", err)
+	}
+	if epoch != current {
+		return Principal{}, errStaleEpoch
+	}
+	return p, nil
+}
 
 // read is the user, epoch and remember flag the request's session cookie
 // names.
@@ -268,20 +289,14 @@ func (s Sessions) RequestPrincipal(ctx context.Context, pool *pgxpool.Pool, r *h
 	if err != nil {
 		return Principal{}, ErrNoLiveSession
 	}
-	p := Principal{UserID: userID, Remember: remember}
-	var current int
-	err = pool.QueryRow(ctx, `SELECT email, role, session_epoch FROM users WHERE user_id = $1`, userID).
-		Scan(&p.Email, &p.Role, &current)
-	if errors.Is(err, pgx.ErrNoRows) {
+	p, err := sessionUser(ctx, pool, userID, epoch, remember)
+	switch {
+	case errors.Is(err, errUnknownUser):
 		return Principal{UserID: userID}, nil
-	}
-	if err != nil {
-		return Principal{}, fmt.Errorf("session user: %w", err)
-	}
-	if epoch != current {
+	case errors.Is(err, errStaleEpoch):
 		return Principal{}, ErrNoLiveSession
 	}
-	return p, nil
+	return p, err
 }
 
 // expire clears the session cookie on the answer, as Python cleared the

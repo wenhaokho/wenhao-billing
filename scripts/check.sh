@@ -47,6 +47,12 @@ echo "== frontend build"
 docker run --rm -v "$root/frontend:/app" -v wenhao-billing_check_node_modules:/app/node_modules -w /app \
   node:22-alpine sh -c "npm ci --no-audit --no-fund && npm run build"
 
+echo "== frontend return_to check"
+# The frontend has no test runner; the MCP login bounce's return_to guard is
+# checked by a plain node script on the same image.
+docker run --rm -v "$root/frontend:/app" -w /app \
+  node:22-alpine node --experimental-strip-types --no-warnings src/router/returnTo.check.mjs
+
 echo "== go"
 bash backend/dev lint
 bash backend/dev generated

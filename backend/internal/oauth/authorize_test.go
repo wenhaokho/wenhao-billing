@@ -132,8 +132,16 @@ func (a authApp) get(query string, cookies ...*http.Cookie) *httptest.ResponseRe
 }
 
 func (a authApp) post(form url.Values, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	return a.postWith(form, nil, cookies...)
+}
+
+// postWith posts the consent form with extra request headers.
+func (a authApp) postWith(form url.Values, headers map[string]string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize/consent", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
@@ -150,6 +158,9 @@ func consentForm(cid, csrf, state, decision string) url.Values {
 }
 
 var csrfInPage = regexp.MustCompile(`name="csrf_token" value="([^"]+)"`)
+
+// csrfShape is a bound CSRF token: token_urlsafe(32) nonce, a dot, hex HMAC-SHA256.
+var csrfShape = regexp.MustCompile(`^[A-Za-z0-9_-]{43}\.[0-9a-f]{64}$`)
 
 // consentPage GETs the consent page as the session's user and returns the
 // form's CSRF token and the oauth_csrf cookie.
@@ -280,8 +291,8 @@ func TestAuthorizeGetRendersConsentAndMintsNoCode(t *testing.T) {
 		t.Fatal("the GET minted a code")
 	}
 	m := csrfInPage.FindStringSubmatch(body)
-	if m == nil || len(m[1]) != 43 {
-		t.Fatalf("csrf token %v, want 43 url-safe characters", m)
+	if m == nil || !csrfShape.MatchString(m[1]) {
+		t.Fatalf("csrf token %v, want a 43-character nonce and its hex HMAC", m)
 	}
 	golden, err := os.ReadFile("testdata/consent_page.golden.html")
 	if err != nil {
@@ -660,5 +671,79 @@ func wantCleared(t *testing.T, rec *httptest.ResponseRecorder) {
 	c := responseCookie(t, rec, csrfCookie)
 	if c.Value != "" || c.MaxAge >= 0 || c.Path != "/oauth/" {
 		t.Fatalf("csrf cookie not cleared: %s", c.String())
+	}
+}
+
+// The CSRF token is bound to the session it was issued to: a cookie and form
+// pair the server did not mint for this user and epoch is refused, so a
+// sibling subdomain that plants oauth_csrf cannot approve its own client.
+func TestConsentCsrfBoundToSession(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, "test")
+	cid := a.register(t, "cli")
+	_, alice := a.user(t, "admin")
+	_, bob := a.user(t, "admin")
+	bobToken, bobCookie := a.consentPage(t, bob, authorizeParams(cid, "").Encode())
+	forged := strings.Repeat("A", 43) + "." + strings.Repeat("0", 64)
+	cases := map[string]struct{ token, cookie string }{
+		"forged pair":          {forged, forged},
+		"bare nonce pair":      {strings.Repeat("A", 43), strings.Repeat("A", 43)},
+		"another user's token": {bobToken, bobCookie.Value},
+		"nonce swapped":        {"B" + bobToken[1:], "B" + bobToken[1:]},
+		"mac of another nonce": {strings.Repeat("A", 43) + bobToken[43:], strings.Repeat("A", 43) + bobToken[43:]},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rec := a.post(consentForm(cid, c.token, "", "approve"), alice, &http.Cookie{Name: csrfCookie, Value: c.cookie})
+			wantOAuthError(t, rec, http.StatusBadRequest, "invalid_request", "invalid or missing CSRF token")
+			noLocation(t, rec)
+		})
+	}
+	t.Run("own token", func(t *testing.T) {
+		t.Parallel()
+		token, cookie := a.consentPage(t, alice, authorizeParams(cid, "").Encode())
+		if rec := a.post(consentForm(cid, token, "", "approve"), alice, cookie); rec.Code != http.StatusFound {
+			t.Fatalf("status = %d, want 302; body %s", rec.Code, rec.Body)
+		}
+	})
+}
+
+// A consent POST sent by another origin is refused even with a good token;
+// Origin is checked when present, else Sec-Fetch-Site.
+func TestConsentRefusesCrossOrigin(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, "test")
+	cid := a.register(t, "cli")
+	_, session := a.user(t, "admin")
+	token, cookie := a.consentPage(t, session, authorizeParams(cid, "").Encode())
+	// httptest requests are for Host example.com.
+	for name, c := range map[string]struct {
+		headers map[string]string
+		ok      bool
+	}{
+		"cross origin":           {map[string]string{"Origin": "https://evil.example.com"}, false},
+		"sibling subdomain":      {map[string]string{"Origin": "https://sub.example.com"}, false},
+		"null origin":            {map[string]string{"Origin": "null"}, false},
+		"origin wins over fetch": {map[string]string{"Origin": "https://evil.example.com", "Sec-Fetch-Site": "same-origin"}, false},
+		"fetch cross-site":       {map[string]string{"Sec-Fetch-Site": "cross-site"}, false},
+		"fetch same-site":        {map[string]string{"Sec-Fetch-Site": "same-site"}, false},
+		"same origin":            {map[string]string{"Origin": "http://example.com"}, true},
+		"same host behind tls":   {map[string]string{"Origin": "https://example.com"}, true},
+		"fetch same-origin":      {map[string]string{"Sec-Fetch-Site": "same-origin"}, true},
+		"neither header":         {nil, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rec := a.postWith(consentForm(cid, token, "", "approve"), c.headers, session, cookie)
+			if c.ok {
+				if rec.Code != http.StatusFound {
+					t.Fatalf("status = %d, want 302; body %s", rec.Code, rec.Body)
+				}
+				return
+			}
+			wantOAuthError(t, rec, http.StatusBadRequest, "invalid_request", "invalid or missing CSRF token")
+			noLocation(t, rec)
+		})
 	}
 }

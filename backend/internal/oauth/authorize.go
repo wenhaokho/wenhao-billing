@@ -1,10 +1,13 @@
 package oauth
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	_ "embed" // the consent page
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -128,7 +131,7 @@ func (h handler) authorize(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	_, live, admin := h.adminSession(r)
+	user, live, admin := h.adminSession(r)
 	if !live {
 		// Go change 3: return_to is this path and query, not an absolute
 		// URL, so the frontend's same-origin check holds behind the proxy.
@@ -148,7 +151,8 @@ func (h handler) authorize(w http.ResponseWriter, r *http.Request) {
 	if _, err := rand.Read(b[:]); err != nil {
 		panic(fmt.Sprintf("oauth: random csrf token: %v", err))
 	}
-	token := base64.RawURLEncoding.EncodeToString(b[:]) // 43 characters, as secrets.token_urlsafe(32)
+	nonce := base64.RawURLEncoding.EncodeToString(b[:]) // 43 characters, as secrets.token_urlsafe(32)
+	token := nonce + "." + h.tokens.csrfMAC(nonce, user)
 	auth.SetCookie(w, h.csrfCookie(csrfTTL), token)
 
 	var state *string
@@ -158,6 +162,47 @@ func (h handler) authorize(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(consentPage(label, token, p, state)))
+}
+
+// csrfMAC binds a CSRF nonce to the session it was issued to: hex
+// HMAC-SHA256 under MCP_TOKEN_SECRET of the nonce, the user and the session
+// epoch. Python kept the token in its signed server-side session; a plain
+// double-submit cookie could be planted by a sibling subdomain (same site,
+// so the Lax session cookie still rides along), so the token proves it was
+// minted by this server for this session instead.
+func (t *Tokens) csrfMAC(nonce string, p platform.Principal) string {
+	m := hmac.New(sha256.New, t.secret)
+	_, _ = fmt.Fprintf(m, "oauth-csrf\x00%s\x00%s\x00%d", nonce, p.UserID, p.Epoch)
+	return hex.EncodeToString(m.Sum(nil))
+}
+
+// validCSRF reports whether the cookie and the form carry the same token and
+// that token was minted for this session (constant-time compares).
+func (t *Tokens) validCSRF(cookie, posted string, p platform.Principal) bool {
+	if cookie == "" || posted == "" || subtle.ConstantTimeCompare([]byte(cookie), []byte(posted)) != 1 {
+		return false
+	}
+	nonce, mac, ok := strings.Cut(posted, ".")
+	if !ok || nonce == "" {
+		return false
+	}
+	return hmac.Equal([]byte(mac), []byte(t.csrfMAC(nonce, p)))
+}
+
+// sameOrigin refuses a consent POST another origin sent. A browser sends
+// Origin on a form POST: it must name this host (the scheme is not compared:
+// behind the TLS-terminating proxy the API sees plain http). Without Origin,
+// Sec-Fetch-Site must be same-origin when present; with neither, the bound
+// CSRF token is the only check.
+func sameOrigin(r *http.Request) bool {
+	if o := r.Header.Get("Origin"); o != "" {
+		u, err := url.Parse(o)
+		return err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host)
+	}
+	if s := r.Header.Get("Sec-Fetch-Site"); s != "" {
+		return s == "same-origin"
+	}
+	return true
 }
 
 func (h handler) csrfCookie(maxAge time.Duration) auth.CookieSpec {
@@ -196,8 +241,7 @@ func (h handler) consent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	posted, _ := last(form, "csrf_token")
-	if cookie == nil || cookie.Value == "" || posted == "" ||
-		subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(posted)) != 1 {
+	if !sameOrigin(r) || cookie == nil || !h.tokens.validCSRF(cookie.Value, posted, user) {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "invalid or missing CSRF token")
 		return
 	}
