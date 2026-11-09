@@ -280,6 +280,27 @@ func TestSlotRecordedBeforeTheJobRuns(t *testing.T) {
 	}
 }
 
+// TestAJobWithoutWorkIsRecordedAndDoesNothing: the hosting enforcement's
+// work does not exist yet (the integrations plan brings it), so the job is
+// recorded and does nothing rather than panicking.
+func TestAJobWithoutWorkIsRecordedAndDoesNothing(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	job := Job{ID: "hosting-overdue-enforcement", Due: DailySlot(4)}
+	r := newRunner(pool, c, func(error) {})
+	if err := r.tick(context.Background(), job); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	got := slots(t, pool, job.ID)
+	if len(got) != 1 {
+		t.Fatalf("recorded runs = %d, want 1", len(got))
+	}
+	if got[0].FinishedAt == nil {
+		t.Error("finished_at is not set")
+	}
+}
+
 // logCapture collects the log lines the runner writes.
 type logCapture struct {
 	mu    sync.Mutex

@@ -179,7 +179,14 @@ func (r *runner) runSlot(ctx context.Context, job Job, slot, now time.Time) erro
 		}
 		return fmt.Errorf("job %s: record the slot %s: %w", job.ID, slot, err)
 	}
-	runErr := job.Run(ctx, slot)
+	// A job without work (the hosting enforcement, whose work the
+	// integrations plan brings) is recorded and does nothing.
+	var runErr error
+	if job.Run != nil {
+		runErr = job.Run(ctx, slot)
+	} else {
+		r.log().InfoContext(ctx, "job has no work yet", "job", job.ID, "slot", slot)
+	}
 	finished := r.clock.Now().UTC()
 	var errText *string
 	if runErr != nil {
