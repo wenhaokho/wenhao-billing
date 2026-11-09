@@ -544,3 +544,20 @@ func TestTriggerWaitsForATemplatePatch(t *testing.T) {
 		t.Error("the trigger did not wait for the PATCH")
 	}
 }
+
+// TestPatchTemplateViaInvoiceRouteWaitsForTrigger: the generic
+// PATCH /invoices/{id} edits a template too (port note 43), so it takes the
+// template's advisory lock first, as the template PUT does: a trigger that
+// starts while one holds its transaction waits for it.
+func TestPatchTemplateViaInvoiceRouteWaitsForTrigger(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	tpl := mkTemplate(t, a, monthly("2026-01-01"))
+	_, waited := triggerDuring(t, a, tpl.InvoiceID, func(tx pgx.Tx) error {
+		_, err := updateInvoice(t.Context(), tx, tpl.InvoiceID, InvoiceUpdate{}) // an empty PATCH body
+		return err
+	})
+	if !waited {
+		t.Error("the trigger did not wait for the generic PATCH")
+	}
+}

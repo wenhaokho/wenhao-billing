@@ -588,6 +588,72 @@ func (q *Queries) ListInvoices(ctx context.Context, arg ListInvoicesParams) ([]I
 	return items, nil
 }
 
+const listInvoicesBy = `-- name: ListInvoicesBy :many
+SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
+WHERE ($1::uuid IS NULL OR project_id = $1::uuid)
+  AND (NOT $2::boolean OR is_template = false)
+ORDER BY created_at DESC, invoice_id DESC
+`
+
+type ListInvoicesByParams struct {
+	ProjectID        pgtype.UUID
+	ExcludeTemplates bool
+}
+
+// ListBy's loader (the project routes): optionally one project's, optionally
+// without templates; ListInvoices' order.
+func (q *Queries) ListInvoicesBy(ctx context.Context, arg ListInvoicesByParams) ([]Invoice, error) {
+	rows, err := q.db.Query(ctx, listInvoicesBy, arg.ProjectID, arg.ExcludeTemplates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.InvoiceType,
+			&i.Currency,
+			&i.Amount,
+			&i.BalanceDue,
+			&i.Status,
+			&i.BillingCycleRef,
+			&i.IssueDate,
+			&i.DueDate,
+			&i.CreatedAt,
+			&i.InvoiceNumber,
+			&i.PoSoNumber,
+			&i.Subtotal,
+			&i.DiscountType,
+			&i.DiscountValue,
+			&i.Notes,
+			&i.Footer,
+			&i.PaymentTerms,
+			&i.IsTemplate,
+			&i.ProjectID,
+			&i.SourceQuoteID,
+			&i.CoverageStart,
+			&i.CoverageEnd,
+			&i.InternalNote,
+			&i.WhtType,
+			&i.WhtRate,
+			&i.WhtGrossUp,
+			&i.WhtBase,
+			&i.WhtAmount,
+			&i.WhtBooked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvoicesOfCustomer = `-- name: ListInvoicesOfCustomer :many
 SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
 WHERE customer_id = $1

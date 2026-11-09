@@ -26,6 +26,25 @@ func Get(ctx context.Context, q *invoicesdb.Queries, id uuid.UUID) (InvoiceOut, 
 	return invoiceOut(inv, lines)
 }
 
+// ListFilter narrows ListBy; the zero value lists every invoice and template.
+type ListFilter struct {
+	ProjectID        *uuid.UUID
+	ExcludeTemplates bool
+}
+
+// ListBy is the invoices matching f, rendered as the list route renders
+// them (lines loaded in one query, expected_cash computed), newest first
+// with the id breaking ties, never nil.
+func ListBy(ctx context.Context, q *invoicesdb.Queries, f ListFilter) ([]InvoiceOut, error) {
+	invs, err := q.ListInvoicesBy(ctx, invoicesdb.ListInvoicesByParams{
+		ProjectID: pgUUID(f.ProjectID), ExcludeTemplates: f.ExcludeTemplates,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return list(ctx, q, invs)
+}
+
 // invoiceOut renders a stored invoice and its lines (in position,
 // line_item_id order).
 func invoiceOut(inv invoicesdb.Invoice, lines []invoicesdb.InvoiceLineItem) (InvoiceOut, error) {

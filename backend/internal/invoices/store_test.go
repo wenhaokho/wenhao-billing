@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"slices"
 	"testing"
 
@@ -150,5 +151,69 @@ func TestGetMissingIsNoRows(t *testing.T) {
 	a := newApp(t)
 	if _, err := Get(t.Context(), invoicesdb.New(a.Pool), uuid.New()); !errors.Is(err, pgx.ErrNoRows) {
 		t.Errorf("err = %v, want pgx.ErrNoRows", err)
+	}
+}
+
+// TestListByProject: the loader the project routes use lists a project's
+// invoices as the list route renders them: newest first, lines present,
+// templates left out on request, an empty (never nil) list for no match.
+func TestListByProject(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := insertCustomer(t, a.Pool, "NONE", "", false)
+	project, other := uuid.New(), uuid.New()
+	for _, p := range []uuid.UUID{project, other} {
+		if _, err := a.Pool.Exec(t.Context(), `INSERT INTO projects (project_id, customer_id, code, name, currency) VALUES ($1, $2, $3, 'P', 'IDR')`, p, c, p.String()[:8]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := post(t, a, createBody(c, "100", map[string]any{"project_id": project}))
+	second := post(t, a, createBody(c, "200", map[string]any{"project_id": project}))
+	post(t, a, createBody(c, "300", map[string]any{"project_id": other}))
+	post(t, a, createBody(c, "400", nil))
+	tplBody := templateBody(c, monthly("2026-01-01"))
+	tplBody["project_id"] = project
+	tpl := apitest.Decode[InvoiceOut](t, a.Do(t, http.MethodPost, invoicesPath+"/recurring-template", tplBody), http.StatusCreated)
+
+	q := invoicesdb.New(a.Pool)
+	ids := func(out []InvoiceOut) []uuid.UUID {
+		got := []uuid.UUID{}
+		for _, o := range out {
+			got = append(got, o.InvoiceID)
+		}
+		return got
+	}
+
+	out, err := ListBy(t.Context(), q, ListFilter{ProjectID: &project, ExcludeTemplates: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := ids(out), []uuid.UUID{second.InvoiceID, first.InvoiceID}; !slices.Equal(got, want) {
+		t.Fatalf("ids = %v, want %v (newest first, no template)", got, want)
+	}
+	for _, o := range out {
+		if len(o.LineItems) != 1 {
+			t.Errorf("invoice %s has %d lines, want 1", o.InvoiceID, len(o.LineItems))
+		}
+	}
+	if want := get(t, a, second.InvoiceID); !out[0].Amount.Decimal().Equal(want.Amount.Decimal()) || !out[0].ExpectedCash.Decimal().Equal(want.ExpectedCash.Decimal()) {
+		t.Errorf("amount/expected_cash = %s/%s, the route renders %s/%s", out[0].Amount.Decimal(), out[0].ExpectedCash.Decimal(), want.Amount.Decimal(), want.ExpectedCash.Decimal())
+	}
+
+	out, err = ListBy(t.Context(), q, ListFilter{ProjectID: &project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := ids(out), []uuid.UUID{tpl.InvoiceID, second.InvoiceID, first.InvoiceID}; !slices.Equal(got, want) {
+		t.Fatalf("with templates: ids = %v, want %v", got, want)
+	}
+
+	none := uuid.New()
+	out, err = ListBy(t.Context(), q, ListFilter{ProjectID: &none, ExcludeTemplates: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out == nil || len(out) != 0 {
+		t.Errorf("no match = %#v, want an empty non-nil list", out)
 	}
 }
