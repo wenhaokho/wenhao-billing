@@ -724,7 +724,8 @@ func TestMilestoneCreate(t *testing.T) {
 
 // TestLiteralPathsNotSwallowed: the literal paths reach their own handlers,
 // never {invoice_id} (nor /recurring-templates/rows {template_id}).
-// /customers/balances comes with the customer views.
+// /customers/balances is TestBalancesNotSwallowedByCustomerID (it needs the
+// customers routes beside it).
 func TestLiteralPathsNotSwallowed(t *testing.T) {
 	t.Parallel()
 	t.Run("milestone", func(t *testing.T) {

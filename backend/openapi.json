@@ -116,6 +116,77 @@
         ],
         "type": "object"
       },
+      "BillingSummary": {
+        "additionalProperties": true,
+        "properties": {
+          "last_invoice_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_invoice_issue_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "milestone": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceOut"
+            },
+            "type": "array"
+          },
+          "paid_last_12_months": {
+            "description": "The cash of CLEARED payments dated in the last 365 days, by currency.",
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "type": "array"
+          },
+          "recurring": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceOut"
+            },
+            "type": "array"
+          },
+          "total_unpaid": {
+            "description": "The balance due of unpaid_invoices, DRAFT included, by currency.",
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "type": "array"
+          },
+          "unpaid_invoices": {
+            "description": "The DRAFT, OPEN, SENT and PARTIAL invoices, due date first (none last).",
+            "items": {
+              "$ref": "#/components/schemas/InvoiceOut"
+            },
+            "type": "array"
+          },
+          "usage": {
+            "items": {
+              "$ref": "#/components/schemas/InvoiceOut"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "milestone",
+          "recurring",
+          "usage",
+          "unpaid_invoices",
+          "total_unpaid",
+          "paid_last_12_months",
+          "last_invoice_issue_date",
+          "last_invoice_id"
+        ],
+        "type": "object"
+      },
       "ChangePasswordRequest": {
         "additionalProperties": true,
         "properties": {
@@ -259,6 +330,60 @@
           "last_error",
           "created_at",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "CurrencyAmount": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "amount"
+        ],
+        "type": "object"
+      },
+      "CustomerBalanceRow": {
+        "additionalProperties": true,
+        "properties": {
+          "balance": {
+            "description": "The balance due of the OPEN, SENT and PARTIAL invoices (never templates).",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "overdue": {
+            "description": "The part of the balance on invoices due before today.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "currency",
+          "balance",
+          "overdue"
         ],
         "type": "object"
       },
@@ -4554,6 +4679,40 @@
         ]
       }
     },
+    "/api/v1/customers/balances": {
+      "get": {
+        "operationId": "customers-balances",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CustomerBalanceRow"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open receivables per customer and currency, with the overdue part",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
     "/api/v1/customers/{customer_id}": {
       "delete": {
         "operationId": "customers-deactivate",
@@ -4740,6 +4899,131 @@
         "summary": "Change a customer's fields",
         "tags": [
           "customers"
+        ]
+      }
+    },
+    "/api/v1/customers/{customer_id}/billing-summary": {
+      "get": {
+        "operationId": "customers-billing-summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingSummary"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "A customer's open invoices, totals owed and paid, and latest invoice",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/customers/{customer_id}/invoices": {
+      "get": {
+        "operationId": "customers-invoices",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InvoiceOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Every invoice of a customer (templates too), latest issue date first",
+        "tags": [
+          "invoices"
         ]
       }
     },

@@ -189,3 +189,50 @@ WHERE invoice_id = @invoice_id;
 SELECT invoice_id, billing_cycle_ref FROM invoices
 WHERE invoice_type = 'USAGE' AND status = 'DRAFT'
 ORDER BY created_at, invoice_id;
+
+-- name: ListCustomerBalances :many
+-- Open AR per (customer, currency) with the overdue part split out
+-- (stats.py:401-434): OPEN, SENT and PARTIAL, never templates, nothing at
+-- zero. Python has no ORDER BY; this one is customer, currency.
+SELECT customer_id, currency,
+       SUM(balance_due)::numeric AS balance,
+       SUM(CASE WHEN due_date < @today::date THEN balance_due ELSE 0 END)::numeric AS overdue
+FROM invoices
+WHERE status IN ('OPEN', 'SENT', 'PARTIAL')
+  AND is_template = false
+  AND balance_due > 0
+  AND customer_id IS NOT NULL
+GROUP BY customer_id, currency
+ORDER BY customer_id, currency;
+
+-- name: ListOpenInvoicesOfCustomer :many
+-- The billing summary's open invoices (customers.py:157-164): DRAFT, OPEN,
+-- SENT and PARTIAL, templates included, due date ascending (NULLs last), then
+-- creation.
+SELECT * FROM invoices
+WHERE customer_id = @customer_id AND status IN ('DRAFT', 'OPEN', 'SENT', 'PARTIAL')
+ORDER BY due_date ASC, created_at ASC, invoice_id ASC;
+
+-- name: GetLatestInvoiceOfCustomer :one
+-- customers.py:165-170: the latest issue date (a NULL one first, as Postgres
+-- orders Python's DESC), then the newest.
+SELECT invoice_id, issue_date FROM invoices
+WHERE customer_id = $1
+ORDER BY issue_date DESC NULLS FIRST, created_at DESC, invoice_id DESC
+LIMIT 1;
+
+-- name: SumClearedPaymentsSince :many
+-- customers.py:172-198: the cash (amount, never the withholding) of the
+-- customer's CLEARED payments dated on or after since, per currency.
+SELECT currency, SUM(amount)::numeric AS amount
+FROM payments
+WHERE customer_id = $1 AND status = 'CLEARED' AND payment_date >= @since::date
+GROUP BY currency
+ORDER BY currency;
+
+-- name: ListInvoicesOfCustomer :many
+-- customers.py:204-219: every invoice of the customer, templates included,
+-- latest issue date first (NULLs first), no limit.
+SELECT * FROM invoices
+WHERE customer_id = $1
+ORDER BY issue_date DESC NULLS FIRST, created_at DESC, invoice_id DESC;

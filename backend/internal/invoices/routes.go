@@ -121,6 +121,8 @@ func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, notify Dra
 		Description: "Paused or ended templates are not refused. The team is notified of a new draft only.",
 		Errors:      []int{http.StatusBadRequest},
 	}), r.trigger)
+
+	registerCustomerViews(api, r)
 }
 
 // clientError is err as the client reads it: an ErrInvoicing refusal is a

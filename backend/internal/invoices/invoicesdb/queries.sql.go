@@ -203,6 +203,27 @@ func (q *Queries) GetInvoiceForUpdate(ctx context.Context, invoiceID uuid.UUID) 
 	return i, err
 }
 
+const getLatestInvoiceOfCustomer = `-- name: GetLatestInvoiceOfCustomer :one
+SELECT invoice_id, issue_date FROM invoices
+WHERE customer_id = $1
+ORDER BY issue_date DESC NULLS FIRST, created_at DESC, invoice_id DESC
+LIMIT 1
+`
+
+type GetLatestInvoiceOfCustomerRow struct {
+	InvoiceID uuid.UUID
+	IssueDate pgtype.Date
+}
+
+// customers.py:165-170: the latest issue date (a NULL one first, as Postgres
+// orders Python's DESC), then the newest.
+func (q *Queries) GetLatestInvoiceOfCustomer(ctx context.Context, customerID pgtype.UUID) (GetLatestInvoiceOfCustomerRow, error) {
+	row := q.db.QueryRow(ctx, getLatestInvoiceOfCustomer, customerID)
+	var i GetLatestInvoiceOfCustomerRow
+	err := row.Scan(&i.InvoiceID, &i.IssueDate)
+	return i, err
+}
+
 const insertInvoice = `-- name: InsertInvoice :exec
 INSERT INTO invoices (
     invoice_id, customer_id, project_id, invoice_type, invoice_number, po_so_number, currency,
@@ -382,6 +403,54 @@ func (q *Queries) ListAwaitingFinalization(ctx context.Context) ([]Invoice, erro
 	return items, nil
 }
 
+const listCustomerBalances = `-- name: ListCustomerBalances :many
+SELECT customer_id, currency,
+       SUM(balance_due)::numeric AS balance,
+       SUM(CASE WHEN due_date < $1::date THEN balance_due ELSE 0 END)::numeric AS overdue
+FROM invoices
+WHERE status IN ('OPEN', 'SENT', 'PARTIAL')
+  AND is_template = false
+  AND balance_due > 0
+  AND customer_id IS NOT NULL
+GROUP BY customer_id, currency
+ORDER BY customer_id, currency
+`
+
+type ListCustomerBalancesRow struct {
+	CustomerID pgtype.UUID
+	Currency   string
+	Balance    decimal.Decimal
+	Overdue    decimal.Decimal
+}
+
+// Open AR per (customer, currency) with the overdue part split out
+// (stats.py:401-434): OPEN, SENT and PARTIAL, never templates, nothing at
+// zero. Python has no ORDER BY; this one is customer, currency.
+func (q *Queries) ListCustomerBalances(ctx context.Context, today pgtype.Date) ([]ListCustomerBalancesRow, error) {
+	rows, err := q.db.Query(ctx, listCustomerBalances, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCustomerBalancesRow
+	for rows.Next() {
+		var i ListCustomerBalancesRow
+		if err := rows.Scan(
+			&i.CustomerID,
+			&i.Currency,
+			&i.Balance,
+			&i.Overdue,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvoiceLines = `-- name: ListInvoiceLines :many
 SELECT line_item_id, invoice_id, item_id, position, description, quantity, unit_price, amount, created_at FROM invoice_line_items WHERE invoice_id = $1 ORDER BY position, line_item_id
 `
@@ -519,6 +588,66 @@ func (q *Queries) ListInvoices(ctx context.Context, arg ListInvoicesParams) ([]I
 	return items, nil
 }
 
+const listInvoicesOfCustomer = `-- name: ListInvoicesOfCustomer :many
+SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
+WHERE customer_id = $1
+ORDER BY issue_date DESC NULLS FIRST, created_at DESC, invoice_id DESC
+`
+
+// customers.py:204-219: every invoice of the customer, templates included,
+// latest issue date first (NULLs first), no limit.
+func (q *Queries) ListInvoicesOfCustomer(ctx context.Context, customerID pgtype.UUID) ([]Invoice, error) {
+	rows, err := q.db.Query(ctx, listInvoicesOfCustomer, customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.InvoiceType,
+			&i.Currency,
+			&i.Amount,
+			&i.BalanceDue,
+			&i.Status,
+			&i.BillingCycleRef,
+			&i.IssueDate,
+			&i.DueDate,
+			&i.CreatedAt,
+			&i.InvoiceNumber,
+			&i.PoSoNumber,
+			&i.Subtotal,
+			&i.DiscountType,
+			&i.DiscountValue,
+			&i.Notes,
+			&i.Footer,
+			&i.PaymentTerms,
+			&i.IsTemplate,
+			&i.ProjectID,
+			&i.SourceQuoteID,
+			&i.CoverageStart,
+			&i.CoverageEnd,
+			&i.InternalNote,
+			&i.WhtType,
+			&i.WhtRate,
+			&i.WhtGrossUp,
+			&i.WhtBase,
+			&i.WhtAmount,
+			&i.WhtBooked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestTemplateChildren = `-- name: ListLatestTemplateChildren :many
 SELECT DISTINCT ON (c.template_invoice_id)
     c.template_invoice_id::text AS template_invoice_id,
@@ -603,6 +732,67 @@ func (q *Queries) ListLinesOfInvoices(ctx context.Context, invoiceIds []uuid.UUI
 			&i.UnitPrice,
 			&i.Amount,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenInvoicesOfCustomer = `-- name: ListOpenInvoicesOfCustomer :many
+SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
+WHERE customer_id = $1 AND status IN ('DRAFT', 'OPEN', 'SENT', 'PARTIAL')
+ORDER BY due_date ASC, created_at ASC, invoice_id ASC
+`
+
+// The billing summary's open invoices (customers.py:157-164): DRAFT, OPEN,
+// SENT and PARTIAL, templates included, due date ascending (NULLs last), then
+// creation.
+func (q *Queries) ListOpenInvoicesOfCustomer(ctx context.Context, customerID pgtype.UUID) ([]Invoice, error) {
+	rows, err := q.db.Query(ctx, listOpenInvoicesOfCustomer, customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.InvoiceType,
+			&i.Currency,
+			&i.Amount,
+			&i.BalanceDue,
+			&i.Status,
+			&i.BillingCycleRef,
+			&i.IssueDate,
+			&i.DueDate,
+			&i.CreatedAt,
+			&i.InvoiceNumber,
+			&i.PoSoNumber,
+			&i.Subtotal,
+			&i.DiscountType,
+			&i.DiscountValue,
+			&i.Notes,
+			&i.Footer,
+			&i.PaymentTerms,
+			&i.IsTemplate,
+			&i.ProjectID,
+			&i.SourceQuoteID,
+			&i.CoverageStart,
+			&i.CoverageEnd,
+			&i.InternalNote,
+			&i.WhtType,
+			&i.WhtRate,
+			&i.WhtGrossUp,
+			&i.WhtBase,
+			&i.WhtAmount,
+			&i.WhtBooked,
 		); err != nil {
 			return nil, err
 		}
@@ -881,6 +1071,46 @@ type SetInvoiceStatusParams struct {
 func (q *Queries) SetInvoiceStatus(ctx context.Context, arg SetInvoiceStatusParams) error {
 	_, err := q.db.Exec(ctx, setInvoiceStatus, arg.Status, arg.BalanceDue, arg.InvoiceID)
 	return err
+}
+
+const sumClearedPaymentsSince = `-- name: SumClearedPaymentsSince :many
+SELECT currency, SUM(amount)::numeric AS amount
+FROM payments
+WHERE customer_id = $1 AND status = 'CLEARED' AND payment_date >= $2::date
+GROUP BY currency
+ORDER BY currency
+`
+
+type SumClearedPaymentsSinceParams struct {
+	CustomerID pgtype.UUID
+	Since      pgtype.Date
+}
+
+type SumClearedPaymentsSinceRow struct {
+	Currency string
+	Amount   decimal.Decimal
+}
+
+// customers.py:172-198: the cash (amount, never the withholding) of the
+// customer's CLEARED payments dated on or after since, per currency.
+func (q *Queries) SumClearedPaymentsSince(ctx context.Context, arg SumClearedPaymentsSinceParams) ([]SumClearedPaymentsSinceRow, error) {
+	rows, err := q.db.Query(ctx, sumClearedPaymentsSince, arg.CustomerID, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SumClearedPaymentsSinceRow
+	for rows.Next() {
+		var i SumClearedPaymentsSinceRow
+		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateInvoice = `-- name: UpdateInvoice :exec
