@@ -481,3 +481,23 @@ func TestRestoreWaitsForAllOpenInvoices(t *testing.T) {
 		t.Errorf("calls %v", e.cf.ops())
 	}
 }
+
+// A Restorer with a nil Client fails like a missing token instead of
+// panicking: the target goes ERROR, the item stays suspended.
+func TestRestoreWithNilClientIsMissingToken(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	item, invoice := e.fixture(t, day(2026, 6, 8))
+	e.enforce(t, day(2026, 6, 12))
+	e.exec(t, `UPDATE invoices SET balance_due = 0, status = 'PAID' WHERE invoice_id = $1`, invoice)
+
+	Restorer{Pool: e.pool}.RestoreAfterCommit(context.Background(), invoice)
+
+	s := e.state(t, item)
+	if s.ItemStatus != "SUSPENDED" || s.ProviderStatus != "ERROR" || s.LastError == nil || *s.LastError != "cloudflare_api_token is not configured" {
+		t.Errorf("state %+v", s)
+	}
+	if !sameOps(e.cf.ops(), "suspend record_123") {
+		t.Errorf("calls %v", e.cf.ops())
+	}
+}

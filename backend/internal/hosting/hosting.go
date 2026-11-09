@@ -127,13 +127,13 @@ func suspend(ctx context.Context, q *hostingdb.Queries, cl *Client, it item) (bo
 }
 
 // restore is Python's restore_hosting_if_eligible on the locked item, with
-// Go change 2: nothing when suspension is off or the item CANCELLED (a
-// hand-set suspension stays), nothing without a target, while any open
-// invoice for the item has a balance, or when item and target are both
-// ACTIVE. A Cloudflare failure marks the target ERROR with the sentence;
-// success makes both ACTIVE.
+// Go change 2: nothing when the item is not a hosting item, suspension is off
+// or the item CANCELLED (a hand-set suspension stays), nothing without a
+// target, while any open invoice for the item has a balance, or when item
+// and target are both ACTIVE. A Cloudflare failure marks the target ERROR
+// with the sentence; success makes both ACTIVE.
 func restore(ctx context.Context, q *hostingdb.Queries, cl *Client, it item) (bool, error) {
-	if !it.suspensionOn() || it.status() == statusCancelled || it.target == nil {
+	if !it.IsHosting || !it.suspensionOn() || it.status() == statusCancelled || it.target == nil {
 		return false, nil
 	}
 	open, err := q.OpenInvoicesForItem(ctx, it.ItemID)

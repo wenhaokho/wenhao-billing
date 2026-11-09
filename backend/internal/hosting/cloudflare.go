@@ -66,8 +66,12 @@ func (c *Client) Restore(ctx context.Context, t Target) error {
 // update is Python's _update_target: PATCH the record, then httpx's
 // raise_for_status, then the body's success flag. Every failure is
 // ErrCloudflare; a transport or JSON failure carries Go's text, not
-// httpx's.
+// httpx's. A nil client is the missing-token error, so a Restorer with no
+// client fails like a missing token instead of panicking.
 func (c *Client) update(ctx context.Context, t Target, content string) error {
+	if c == nil || c.Token == "" {
+		return cfError{"cloudflare_api_token is not configured"}
+	}
 	payload, err := json.Marshal(map[string]any{
 		"type": t.RecordType, "name": t.RecordName, "content": content, "proxied": t.Proxied,
 	})
@@ -75,9 +79,6 @@ func (c *Client) update(ctx context.Context, t Target, content string) error {
 		return err
 	}
 	url := fmt.Sprintf("%s/zones/%s/dns_records/%s", c.BaseURL, t.ZoneID, t.RecordID)
-	if c.Token == "" {
-		return cfError{"cloudflare_api_token is not configured"}
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(payload))
 	if err != nil {
 		return cfError{fmt.Sprintf("cloudflare request failed: %v", err)}

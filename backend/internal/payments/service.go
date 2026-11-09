@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
+	"github.com/LOQATO/gokit/observe"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -87,9 +89,19 @@ func (s Service) stampPaid(ctx context.Context, tx pgx.Tx, invoiceID uuid.UUID) 
 // when p is CLEARED against an invoice, Hosting restores that invoice's
 // hosting, best effort (a Cloudflare failure never fails the payment, Go
 // change 1). It must not be called inside the transaction, nor after a
-// rollback.
+// rollback. A HostingRestorer that panics (for example a nil Cloudflare
+// client or a pgx panic) is recovered, logged and reported here, never
+// re-panicked: the payment is already committed, so a panic would otherwise
+// reach the platform recoverer and answer 500 for it.
 func (s Service) AfterCommit(ctx context.Context, p paymentsdb.Payment) {
 	if p.Status == matching.StatusCleared && p.InvoiceID.Valid {
+		defer func() {
+			if rec := recover(); rec != nil {
+				err := fmt.Errorf("hosting restore after payment panicked: %v", rec)
+				slog.ErrorContext(ctx, "hosting restore after payment panicked", "panic", rec, "invoice_id", uuid.UUID(p.InvoiceID.Bytes))
+				observe.Report(err, map[string]string{"component": "payments", "stage": "restore_after_commit"})
+			}
+		}()
 		s.hosting().RestoreAfterCommit(ctx, p.InvoiceID.Bytes)
 	}
 }
@@ -236,6 +248,7 @@ func stillClears(inc matching.Incoming, inv paymentsdb.LockInvoiceRow) bool {
 // in Python. A ledger refusal or a missing rate is returned unchanged
 // (errors.Is ledger.ErrLedger or fx.ErrRateMissing; its text is Python's
 // sentence) for the route to answer 400. The caller rolls back on any error.
+// An MCP caller must also call Service.AfterCommit after its commit.
 func (s Service) ApproveManual(ctx context.Context, tx pgx.Tx, paymentID, invoiceID uuid.UUID, actor *uuid.UUID, adj string) (paymentsdb.Payment, error) {
 	q := paymentsdb.New(tx)
 	p, err := lockPayment(ctx, q, paymentID)
