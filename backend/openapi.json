@@ -186,7 +186,10 @@
               "2026-01-01T03:00:00.123456Z"
             ],
             "format": "date-time",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "last_error": {
             "type": [
@@ -306,7 +309,14 @@
             "type": "boolean"
           },
           "cloudflare_target": {
-            "$ref": "#/components/schemas/CloudflareTargetIn"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloudflareTargetIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "default_currency": {
             "description": "Defaults to IDR.",
@@ -326,11 +336,10 @@
               },
               {
                 "type": "number"
+              },
+              {
+                "type": "null"
               }
-            ],
-            "type": [
-              "",
-              "null"
             ]
           },
           "default_unit_price": {
@@ -345,11 +354,10 @@
               },
               {
                 "type": "number"
+              },
+              {
+                "type": "null"
               }
-            ],
-            "type": [
-              "",
-              "null"
             ]
           },
           "description": {
@@ -441,7 +449,14 @@
             "type": "boolean"
           },
           "cloudflare_target": {
-            "$ref": "#/components/schemas/CloudflareTargetOut"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloudflareTargetOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "created_at": {
             "examples": [
@@ -464,6 +479,9 @@
               },
               {
                 "type": "number"
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -478,6 +496,9 @@
               },
               {
                 "type": "number"
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -512,7 +533,10 @@
               "2026-01-01T03:00:00.123456Z"
             ],
             "format": "date-time",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "hosting_last_error": {
             "type": [
@@ -525,7 +549,10 @@
               "2026-01-01T03:00:00.123456Z"
             ],
             "format": "date-time",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "hosting_status": {
             "enum": [
@@ -616,7 +643,14 @@
             "type": "boolean"
           },
           "cloudflare_target": {
-            "$ref": "#/components/schemas/CloudflareTargetIn"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloudflareTargetIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "default_currency": {
             "maxLength": 3,
@@ -635,11 +669,10 @@
               },
               {
                 "type": "number"
+              },
+              {
+                "type": "null"
               }
-            ],
-            "type": [
-              "",
-              "null"
             ]
           },
           "default_unit_price": {
@@ -654,11 +687,10 @@
               },
               {
                 "type": "number"
+              },
+              {
+                "type": "null"
               }
-            ],
-            "type": [
-              "",
-              "null"
             ]
           },
           "description": {

@@ -1,10 +1,14 @@
 package main
 
 import (
+	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -155,4 +159,143 @@ func TestResponsesNeverOmitFields(t *testing.T) {
 	if checked == 0 {
 		t.Error("no response schema was checked")
 	}
+}
+
+// acceptsNull reads a schema as a client generator does, from its JSON: a
+// null type, a type list holding "null", or a oneOf/anyOf branch that does.
+func acceptsNull(m map[string]any) bool {
+	switch typ := m["type"].(type) {
+	case string:
+		return typ == "null"
+	case []any:
+		if slices.Contains(typ, any("null")) {
+			return true
+		}
+	}
+	for _, k := range []string{"oneOf", "anyOf"} {
+		branches, _ := m[k].([]any)
+		for _, b := range branches {
+			if bm, ok := b.(map[string]any); ok && acceptsNull(bm) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Every pointer field of a response body is documented as nullable, whatever
+// its schema (a scalar, a decimal's oneOf, a $ref): the frontend's generated
+// types must allow the null the encoder writes. The Go types are walked
+// from each response's component.
+func TestNullableResponseFieldsAcceptNull(t *testing.T) {
+	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
+	register(api, features{Sessions: testSessions()})
+	doc, err := json.Marshal(api.OpenAPI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]map[string]any `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(doc, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	reg := api.OpenAPI().Components.Schemas
+	seen := map[reflect.Type]bool{}
+	checked := 0
+	var walk func(ref string)
+	walk = func(ref string) {
+		typ := reg.TypeFromRef(ref)
+		for typ != nil && (typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice) {
+			typ = typ.Elem()
+		}
+		if typ == nil || typ.Kind() != reflect.Struct || seen[typ] {
+			return
+		}
+		seen[typ] = true
+		name := strings.TrimPrefix(ref, "#/components/schemas/")
+		props := parsed.Components.Schemas[name].Properties
+		for f := range typ.Fields() {
+			field, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			if f.Type.Kind() == reflect.Pointer {
+				if !acceptsNull(props[field]) {
+					t.Errorf("%s.%s is a pointer but its schema refuses null: %v", name, field, props[field])
+				}
+				checked++
+			}
+		}
+		for _, p := range reg.SchemaFromRef(ref).Properties {
+			for _, s := range append([]*huma.Schema{p, p.Items}, p.AnyOf...) {
+				if s != nil && s.Ref != "" {
+					walk(s.Ref)
+				}
+			}
+		}
+	}
+	for _, op := range operations(api) {
+		for status, resp := range op.Responses {
+			if !strings.HasPrefix(status, "2") {
+				continue
+			}
+			for _, mt := range resp.Content {
+				if s := mt.Schema; s.Ref != "" {
+					walk(s.Ref)
+				} else if s.Items != nil && s.Items.Ref != "" {
+					walk(s.Items.Ref)
+				}
+			}
+		}
+	}
+	for _, want := range []string{"ItemOut", "CloudflareTargetOut", "VendorOut"} {
+		if !slices.ContainsFunc(slices.Collect(maps.Keys(seen)), func(t reflect.Type) bool { return t.Name() == want }) {
+			t.Errorf("%s was not walked", want)
+		}
+	}
+	if checked == 0 {
+		t.Error("no pointer field was checked")
+	}
+}
+
+// No schema in the real server's OpenAPI has an empty type: Huma writes
+// `"type": ["", "null"]` for a nullable schema with no type of its own,
+// which is not JSON Schema.
+func TestOpenAPIHasNoEmptyType(t *testing.T) {
+	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
+	register(api, features{Sessions: testSessions()})
+	doc, err := json.Marshal(api.OpenAPI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v any
+	if err := json.Unmarshal(doc, &v); err != nil {
+		t.Fatal(err)
+	}
+	var walk func(where string, v any)
+	walk = func(where string, v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			switch typ := x["type"].(type) {
+			case string:
+				if typ == "" {
+					t.Errorf("%s: empty type", where)
+				}
+			case []any:
+				if slices.Contains(typ, any("")) {
+					t.Errorf("%s: empty type in %v", where, typ)
+				}
+			}
+			for k, c := range x {
+				walk(where+"."+k, c)
+			}
+		case []any:
+			for i, c := range x {
+				walk(where+"["+strconv.Itoa(i)+"]", c)
+			}
+		}
+	}
+	walk("$", v)
 }

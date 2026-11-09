@@ -10,9 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 
-	"github.com/LOQATO/gokit/apierr"
-	"github.com/LOQATO/gokit/i18n"
-
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items/itemsdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
@@ -72,10 +69,9 @@ func list(ctx context.Context, q *itemsdb.Queries, p itemsdb.ListItemsParams) ([
 // The sentences pydantic answers for a price outside
 // `Field(ge=0, max_digits=19, decimal_places=4)`.
 const (
-	negativeSentence  = "Input should be greater than or equal to 0"
-	placesSentence    = "Decimal input should have no more than 4 decimal places"
-	wholeSentence     = "Decimal input should have no more than 15 digits before the decimal point"
-	validationSummary = "Request validation failed"
+	negativeSentence = "Input should be greater than or equal to 0"
+	placesSentence   = "Decimal input should have no more than 4 decimal places"
+	wholeSentence    = "Decimal input should have no more than 15 digits before the decimal point"
 )
 
 // maxPrice is the smallest value numeric(19,4) cannot hold: 15 integer digits.
@@ -99,22 +95,15 @@ func priceRefusal(f platform.Optional[platform.Dec4]) string {
 	return ""
 }
 
-// checkPrices is the 422 for refused prices, each at its field, or nil.
+// checkPrices is the 422 for the first refused price, at its field, or nil.
 func checkPrices(unit, purchase platform.Optional[platform.Dec4]) error {
-	var details []apierr.Detail
-	for _, f := range []struct {
-		name  string
-		value platform.Optional[platform.Dec4]
-	}{{"default_unit_price", unit}, {"default_purchase_price", purchase}} {
-		if s := priceRefusal(f.value); s != "" {
-			details = append(details, apierr.Detail{Field: f.name, Message: i18n.T(s)})
-		}
+	if s := priceRefusal(unit); s != "" {
+		return platform.FieldError("default_unit_price", s)
 	}
-	if details == nil {
-		return nil
+	if s := priceRefusal(purchase); s != "" {
+		return platform.FieldError("default_purchase_price", s)
 	}
-	status := http.StatusUnprocessableEntity
-	return apierr.New(status, apierr.Codes[status], i18n.T(validationSummary), details...)
+	return nil
 }
 
 // checkHosting is Python's ItemCreate rule: a hosting item names everything
@@ -124,13 +113,13 @@ func checkHosting(b ItemCreate) error {
 		return nil
 	}
 	var missing []string
-	if d := nullable(b.HostingDomain, nil); d == nil || *d == "" {
+	if d := b.HostingDomain.Merge(nil); d == nil || *d == "" {
 		missing = append(missing, "hosting_domain")
 	}
-	if nullable(b.HostingGraceDays, nil) == nil {
+	if b.HostingGraceDays.Merge(nil) == nil {
 		missing = append(missing, "hosting_grace_days")
 	}
-	if nullable(b.HostingSuspensionEnabled, nil) == nil {
+	if b.HostingSuspensionEnabled.Merge(nil) == nil {
 		missing = append(missing, "hosting_suspension_enabled")
 	}
 	if b.CloudflareTarget == nil {
@@ -186,22 +175,22 @@ func create(ctx context.Context, q *itemsdb.Queries, b ItemCreate) (ItemOut, err
 	}
 	it, err := q.CreateItem(ctx, itemsdb.CreateItemParams{
 		ItemID:                   uuid.New(),
-		Sku:                      nullable(b.Sku, nil),
+		Sku:                      b.Sku.Merge(nil),
 		Name:                     b.Name,
 		ItemType:                 b.ItemType,
-		Description:              nullable(b.Description, nil),
+		Description:              b.Description.Merge(nil),
 		DefaultCurrency:          b.DefaultCurrency.Or("IDR"),
 		DefaultUnitPrice:         nullDec(b.DefaultUnitPrice, decimal.NullDecimal{}),
 		DefaultPurchasePrice:     nullDec(b.DefaultPurchasePrice, decimal.NullDecimal{}),
-		RevenueAccountID:         nullable(b.RevenueAccountID, nil),
-		ExpenseAccountID:         nullable(b.ExpenseAccountID, nil),
+		RevenueAccountID:         b.RevenueAccountID.Merge(nil),
+		ExpenseAccountID:         b.ExpenseAccountID.Merge(nil),
 		IsSold:                   b.IsSold.Or(true),
 		IsPurchased:              b.IsPurchased.Or(false),
 		Active:                   b.Active.Or(true),
 		IsHosting:                isHosting,
-		HostingDomain:            domain(nullable(b.HostingDomain, nil)),
-		HostingGraceDays:         nullable(b.HostingGraceDays, nil),
-		HostingSuspensionEnabled: nullable(b.HostingSuspensionEnabled, nil),
+		HostingDomain:            domain(b.HostingDomain.Merge(nil)),
+		HostingGraceDays:         b.HostingGraceDays.Merge(nil),
+		HostingSuspensionEnabled: b.HostingSuspensionEnabled.Merge(nil),
 		HostingStatus:            status,
 	})
 	if err != nil {
@@ -226,26 +215,26 @@ func update(ctx context.Context, q *itemsdb.Queries, id uuid.UUID, b ItemUpdate)
 	}
 	p := itemsdb.UpdateItemParams{
 		ItemID:                   cur.ItemID,
-		Sku:                      nullable(b.Sku, cur.Sku),
+		Sku:                      b.Sku.Merge(cur.Sku),
 		Name:                     b.Name.Or(cur.Name),
 		ItemType:                 b.ItemType.Or(cur.ItemType),
-		Description:              nullable(b.Description, cur.Description),
+		Description:              b.Description.Merge(cur.Description),
 		DefaultCurrency:          b.DefaultCurrency.Or(cur.DefaultCurrency),
 		DefaultUnitPrice:         nullDec(b.DefaultUnitPrice, cur.DefaultUnitPrice),
 		DefaultPurchasePrice:     nullDec(b.DefaultPurchasePrice, cur.DefaultPurchasePrice),
-		RevenueAccountID:         nullable(b.RevenueAccountID, cur.RevenueAccountID),
-		ExpenseAccountID:         nullable(b.ExpenseAccountID, cur.ExpenseAccountID),
+		RevenueAccountID:         b.RevenueAccountID.Merge(cur.RevenueAccountID),
+		ExpenseAccountID:         b.ExpenseAccountID.Merge(cur.ExpenseAccountID),
 		IsSold:                   b.IsSold.Or(cur.IsSold),
 		IsPurchased:              b.IsPurchased.Or(cur.IsPurchased),
 		Active:                   b.Active.Or(cur.Active),
 		IsHosting:                b.IsHosting.Or(cur.IsHosting),
 		HostingDomain:            cur.HostingDomain,
-		HostingGraceDays:         nullable(b.HostingGraceDays, cur.HostingGraceDays),
-		HostingSuspensionEnabled: nullable(b.HostingSuspensionEnabled, cur.HostingSuspensionEnabled),
-		HostingStatus:            nullable(b.HostingStatus, cur.HostingStatus),
+		HostingGraceDays:         b.HostingGraceDays.Merge(cur.HostingGraceDays),
+		HostingSuspensionEnabled: b.HostingSuspensionEnabled.Merge(cur.HostingSuspensionEnabled),
+		HostingStatus:            b.HostingStatus.Merge(cur.HostingStatus),
 	}
 	if b.HostingDomain.Set {
-		p.HostingDomain = domain(nullable(b.HostingDomain, nil))
+		p.HostingDomain = domain(b.HostingDomain.Merge(nil))
 	}
 	if p.IsHosting && p.HostingStatus == nil {
 		s := statusActive

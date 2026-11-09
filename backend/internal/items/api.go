@@ -168,20 +168,7 @@ type ItemUpdate struct {
 	CloudflareTarget         *CloudflareTargetIn              `json:"cloudflare_target"`
 }
 
-// nullable is the column value for a nullable request field: the value when
-// sent, nil when sent as null, otherwise cur.
-func nullable[T any](f platform.Optional[T], cur *T) *T {
-	if !f.Set {
-		return cur
-	}
-	if f.Null {
-		return nil
-	}
-	v := f.Value
-	return &v
-}
-
-// nullDec is nullable for a price.
+// nullDec is Optional.Merge for a price, whose column type is NullDecimal.
 func nullDec(f platform.Optional[platform.Dec4], cur decimal.NullDecimal) decimal.NullDecimal {
 	if !f.Set {
 		return cur

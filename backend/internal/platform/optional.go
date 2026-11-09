@@ -31,6 +31,13 @@ func relax(reg huma.Registry, s *huma.Schema, t reflect.Type, seen map[*huma.Sch
 	if s == nil {
 		return
 	}
+	// A nullable $ref or object is anyOf [schema, null] (nullable).
+	if s.Ref == "" && s.Type == "" && s.AnyOf != nil {
+		for _, b := range s.AnyOf {
+			relax(reg, b, t, seen)
+		}
+		return
+	}
 	if s.Ref != "" {
 		if rt := reg.TypeFromRef(s.Ref); rt != nil {
 			t = rt

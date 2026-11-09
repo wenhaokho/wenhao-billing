@@ -314,8 +314,12 @@ func TestItemPatchUpdatesExistingTarget(t *testing.T) {
 	second := patch(t, a, it.ItemID, map[string]any{"cloudflare_target": tg})
 	st := second.CloudflareTarget
 	if st.TargetID != first.CloudflareTarget.TargetID || st.LiveContent != "9.9.9.9" || st.RecordType != "AAAA" || st.Proxied ||
-		st.ProviderStatus != "ACTIVE" || st.UpdatedAt.Before(st.CreatedAt.Time) {
+		st.ProviderStatus != "ACTIVE" || !st.CreatedAt.Equal(first.CloudflareTarget.CreatedAt.Time) {
 		t.Errorf("%+v", st)
+	}
+	// updated_at moves on every write (each PATCH is its own transaction).
+	if !st.UpdatedAt.After(first.CloudflareTarget.UpdatedAt.Time) {
+		t.Errorf("updated_at %v, first %v", st.UpdatedAt, first.CloudflareTarget.UpdatedAt)
 	}
 	if n := countTargets(t, a, it.ItemID); n != 1 {
 		t.Errorf("%d targets, want 1", n)
@@ -357,22 +361,27 @@ func TestItemPatchHostingSetsActive(t *testing.T) {
 
 func TestItemPriceFivePlacesIs422(t *testing.T) {
 	a := newApp(t)
-	const places = "Decimal input should have no more than 4 decimal places"
+	const (
+		places = "Decimal input should have no more than 4 decimal places"
+		whole  = "Decimal input should have no more than 15 digits before the decimal point"
+	)
 	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": 1.23456})),
-		http.StatusUnprocessableEntity, "", "Request validation failed", "default_unit_price", places)
+		http.StatusUnprocessableEntity, "", places, "default_unit_price", places)
 	// A string with five places already fails Dec4's schema pattern, at the field.
 	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_purchase_price": "1.23456"})),
 		http.StatusUnprocessableEntity, "", "Request validation failed", "default_purchase_price", "expected value to match exactly one schema but matched none")
 	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": -1})),
-		http.StatusUnprocessableEntity, "", "Request validation failed", "default_unit_price", "Input should be greater than or equal to 0")
+		http.StatusUnprocessableEntity, "", "Input should be greater than or equal to 0", "default_unit_price", "Input should be greater than or equal to 0")
 	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": "1000000000000000"})),
-		http.StatusUnprocessableEntity, "", "Request validation failed", "default_unit_price",
-		"Decimal input should have no more than 15 digits before the decimal point")
-	it := create(t, a, minimal(map[string]any{"default_unit_price": "999999999999999.9999", "default_purchase_price": 1.50000}))
+		http.StatusUnprocessableEntity, "", whole, "default_unit_price", whole)
+	it := create(t, a, minimal(map[string]any{"default_unit_price": "999999999999999.9999", "default_purchase_price": json.Number("1.50000")}))
 	price(t, it.DefaultUnitPrice, "999999999999999.9999")
-	price(t, it.DefaultPurchasePrice, "1.5000")
+	price(t, it.DefaultPurchasePrice, "1.5000") // trailing zeros are not places
+	// Both prices refused: the first is reported.
+	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": -1, "default_purchase_price": -1})),
+		http.StatusUnprocessableEntity, "", "Input should be greater than or equal to 0", "default_unit_price", "Input should be greater than or equal to 0")
 	wantProblem(t, a.Do(t, http.MethodPatch, itemPath(it.ItemID), map[string]any{"default_purchase_price": 0.00001}),
-		http.StatusUnprocessableEntity, "", "Request validation failed", "default_purchase_price", places)
+		http.StatusUnprocessableEntity, "", places, "default_purchase_price", places)
 	if cleared := patch(t, a, it.ItemID, map[string]any{"default_unit_price": nil}); cleared.DefaultUnitPrice != nil {
 		t.Errorf("%+v", cleared.DefaultUnitPrice)
 	}
@@ -487,6 +496,10 @@ func TestItemNullOnNotNullIs422(t *testing.T) {
 	tg["proxied"] = nil
 	wantProblem(t, a.Do(t, http.MethodPatch, itemPath(it.ItemID), map[string]any{"cloudflare_target": tg}),
 		http.StatusUnprocessableEntity, "", "Request validation failed", "cloudflare_target.proxied", "value cannot be null")
+	// A nullable object is anyOf [target, null] in the schema, so an
+	// incomplete target is reported at the target, not at its fields.
+	wantProblem(t, a.Do(t, http.MethodPost, path, hosting(map[string]any{"cloudflare_target": map[string]any{"zone_id": "z"}})),
+		http.StatusUnprocessableEntity, "", "Request validation failed", "cloudflare_target", "expected value to match at least one schema but matched none")
 	for _, body := range []map[string]any{
 		{"name": "x", "item_type": "GOODS"},
 		{"name": "", "item_type": "SERVICE"},

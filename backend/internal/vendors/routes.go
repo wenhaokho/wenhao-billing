@@ -85,11 +85,11 @@ func (r routes) create(ctx context.Context, in *createIn) (*vendorBody, error) {
 		VendorID:         uuid.New(),
 		Name:             b.Name,
 		ContactEmail:     emailPtr(b.ContactEmail, nil),
-		ContactName:      nullable(b.ContactName, nil),
+		ContactName:      b.ContactName.Merge(nil),
 		DefaultCurrency:  b.DefaultCurrency.Or("IDR"),
 		PaymentTermsDays: b.PaymentTermsDays.Or(30),
-		TaxID:            nullable(b.TaxID, nil),
-		Notes:            nullable(b.Notes, nil),
+		TaxID:            b.TaxID.Merge(nil),
+		Notes:            b.Notes.Merge(nil),
 		Active:           b.Active.Or(true),
 	})
 	if err != nil {
@@ -131,11 +131,11 @@ func (r routes) update(ctx context.Context, in *updateIn) (*vendorBody, error) {
 			VendorID:         cur.VendorID,
 			Name:             b.Name.Or(cur.Name),
 			ContactEmail:     emailPtr(b.ContactEmail, cur.ContactEmail),
-			ContactName:      nullable(b.ContactName, cur.ContactName),
+			ContactName:      b.ContactName.Merge(cur.ContactName),
 			DefaultCurrency:  b.DefaultCurrency.Or(cur.DefaultCurrency),
 			PaymentTermsDays: b.PaymentTermsDays.Or(cur.PaymentTermsDays),
-			TaxID:            nullable(b.TaxID, cur.TaxID),
-			Notes:            nullable(b.Notes, cur.Notes),
+			TaxID:            b.TaxID.Merge(cur.TaxID),
+			Notes:            b.Notes.Merge(cur.Notes),
 			Active:           b.Active.Or(cur.Active),
 		})
 		return err

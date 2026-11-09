@@ -37,8 +37,15 @@ func errInvalid(sentence string) error { return errors.New(sentence) }
 func invalidAt(path *huma.PathBuffer, sentence string) []error {
 	field, _ := strings.CutPrefix(path.String(), "body.")
 	field = strings.NewReplacer("[", ".", "]", "").Replace(field)
+	return []error{FieldError(field, sentence)}
+}
+
+// FieldError is the 422 for one refused request field: location names it as
+// the 422s for Huma's own validation do ("lines.0.amount"), and the sentence
+// is both the detail and the field's message.
+func FieldError(location, sentence string) error {
 	status := http.StatusUnprocessableEntity
-	return []error{apierr.New(status, apierr.Codes[status], i18n.T(sentence), apierr.Detail{Field: field, Message: i18n.T(sentence)})}
+	return apierr.New(status, apierr.Codes[status], i18n.T(sentence), apierr.Detail{Field: location, Message: i18n.T(sentence)})
 }
 
 // refusable is a value whose UnmarshalJSON may have refused its input;
@@ -268,11 +275,23 @@ func (o *Optional[T]) Resolve(_ huma.Context, path *huma.PathBuffer) []error {
 	return nil
 }
 
-// Schema describes Optional[T] as a nullable T.
+// Schema describes Optional[T] as a T that may be null.
 func (Optional[T]) Schema(r huma.Registry) *huma.Schema {
 	s := *r.Schema(reflect.TypeFor[T](), true, "")
-	s.Nullable = true
-	return &s
+	return nullable(&s)
+}
+
+// Merge is the column value of a nullable field: cur when the field was
+// left out, nil when it was sent as null, otherwise the value sent.
+func (o Optional[T]) Merge(cur *T) *T {
+	if !o.Set {
+		return cur
+	}
+	if o.Null {
+		return nil
+	}
+	v := o.Value
+	return &v
 }
 
 // NotNull is a request field for a NOT NULL column that may be left out: a

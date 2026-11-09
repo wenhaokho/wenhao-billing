@@ -60,19 +60,6 @@ type VendorUpdate struct {
 	Active           platform.NotNull[bool]            `json:"active"`
 }
 
-// nullable is the column value for a nullable request field: the value when
-// sent, nil when sent as null, otherwise cur.
-func nullable[T any](f platform.Optional[T], cur *T) *T {
-	if !f.Set {
-		return cur
-	}
-	if f.Null {
-		return nil
-	}
-	v := f.Value
-	return &v
-}
-
 // emailPtr is nullable for the email field, whose request type is Email and
 // whose column is text.
 func emailPtr(f platform.Optional[platform.Email], cur *string) *string {
