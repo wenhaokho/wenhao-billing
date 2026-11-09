@@ -27,6 +27,7 @@ func adminApp(t *testing.T) (app, string) {
 }
 
 func TestListUsersOrderedByEmail(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	a.user(t, "zed@example.com", "admin")
 	a.user(t, "bob@example.com", "admin")
@@ -49,6 +50,7 @@ func TestListUsersOrderedByEmail(t *testing.T) {
 }
 
 func TestUsersRequireAdmin(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, "member@example.com", "member")
 	c := a.mustLogin(t, "member@example.com", false)
@@ -68,6 +70,7 @@ func patchMe(t *testing.T, a app, c string, body any) (code int, out map[string]
 }
 
 func TestUpdateMeDisplayNameAndEmail(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	code, out, raw := patchMe(t, a, c, map[string]any{"display_name": "Wen", "email": "New@Example.COM"})
 	if code != http.StatusOK || out["display_name"] != "Wen" || out["email"] != "New@example.com" {
@@ -80,6 +83,7 @@ func TestUpdateMeDisplayNameAndEmail(t *testing.T) {
 }
 
 func TestUpdateMeEmptyDisplayNameIsNull(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	patchMe(t, a, c, map[string]any{"display_name": "Wen"})
 	code, out, raw := patchMe(t, a, c, map[string]any{"display_name": ""})
@@ -92,6 +96,7 @@ func TestUpdateMeEmptyDisplayNameIsNull(t *testing.T) {
 }
 
 func TestUpdateMeNullLeavesFields(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	patchMe(t, a, c, map[string]any{"display_name": "Wen"})
 	code, out, raw := patchMe(t, a, c, map[string]any{"display_name": nil, "email": nil})
@@ -105,6 +110,7 @@ func TestUpdateMeNullLeavesFields(t *testing.T) {
 }
 
 func TestUpdateMeEmailInUseIs409(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	a.user(t, "taken@example.com", "admin")
 	rec := a.do(t, http.MethodPatch, usersPath+"/me", jsonBody(t, map[string]any{"email": "taken@example.com"}), "Cookie", c)
@@ -115,6 +121,7 @@ func TestUpdateMeEmailInUseIs409(t *testing.T) {
 }
 
 func TestUpdateMeSameEmailIsNoConflict(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	code, out, raw := patchMe(t, a, c, map[string]any{"email": adminEmail})
 	if code != http.StatusOK || out["email"] != adminEmail {
@@ -123,6 +130,7 @@ func TestUpdateMeSameEmailIsNoConflict(t *testing.T) {
 }
 
 func TestUpdateMeInvalidEmailIs422(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	code, _, raw := patchMe(t, a, c, map[string]any{"email": "not-an-email"})
 	if code != http.StatusUnprocessableEntity || !strings.Contains(raw, "value is not a valid email address") {
@@ -131,6 +139,7 @@ func TestUpdateMeInvalidEmailIs422(t *testing.T) {
 }
 
 func TestCreateUser201ThenLogin(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	rec := a.do(t, http.MethodPost, usersPath,
 		jsonBody(t, map[string]any{"email": "Fresh@Example.com", "password": "fresh-pass", "display_name": "Fresh"}), "Cookie", c)
@@ -150,12 +159,14 @@ func TestCreateUser201ThenLogin(t *testing.T) {
 }
 
 func TestCreateUserDuplicateIs409(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	rec := a.do(t, http.MethodPost, usersPath, jsonBody(t, map[string]any{"email": adminEmail, "password": "whatever1"}), "Cookie", c)
 	wantError(t, rec, http.StatusConflict, "email already exists")
 }
 
 func TestCreateUserPasswordLengthIs422(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	for _, pw := range []string{"12345", strings.Repeat("x", 129)} {
 		rec := a.do(t, http.MethodPost, usersPath, jsonBody(t, map[string]any{"email": "len@example.com", "password": pw}), "Cookie", c)
@@ -166,6 +177,7 @@ func TestCreateUserPasswordLengthIs422(t *testing.T) {
 }
 
 func TestAdminResetPasswordSignsUserOut(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	id := a.user(t, "target@example.com", "admin")
 	targetCookie := a.mustLogin(t, "target@example.com", false)
@@ -198,6 +210,7 @@ func TestAdminResetPasswordSignsUserOut(t *testing.T) {
 // An admin resetting their own password bumps their own session epoch too
 // (PORT-NOTES 22): the reset answers 200, then the old cookie is refused.
 func TestAdminSelfResetSignsCallerOut(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	id := a.user(t, adminEmail, "admin")
 	c := a.mustLogin(t, adminEmail, false)
@@ -212,6 +225,7 @@ func TestAdminSelfResetSignsCallerOut(t *testing.T) {
 }
 
 func TestAdminResetPasswordUnknownIs404(t *testing.T) {
+	t.Parallel()
 	a, c := adminApp(t)
 	rec := a.do(t, http.MethodPost, usersPath+"/00000000-0000-4000-8000-000000000000/reset-password",
 		jsonBody(t, map[string]any{"password": "brand-new-pw"}), "Cookie", c)

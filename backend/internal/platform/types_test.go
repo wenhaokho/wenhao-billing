@@ -25,12 +25,14 @@ func mustJSON(t *testing.T, v any) string {
 }
 
 func TestDec4MarshalsFourPlaces(t *testing.T) {
+	t.Parallel()
 	if got := mustJSON(t, Dec4{Decimal: decimal.NewFromInt(1500)}); got != `"1500.0000"` {
 		t.Error(got)
 	}
 }
 
 func TestDec4AcceptsNumberAndString(t *testing.T) {
+	t.Parallel()
 	for _, in := range []string{`12.5`, `"12.5"`} {
 		var d Dec4
 		if err := json.Unmarshal([]byte(in), &d); err != nil || d.String() != "12.5" {
@@ -44,18 +46,21 @@ func TestDec4AcceptsNumberAndString(t *testing.T) {
 }
 
 func TestDec8MarshalsEightPlaces(t *testing.T) {
+	t.Parallel()
 	if got := mustJSON(t, Dec8{Decimal: decimal.RequireFromString("16000.5")}); got != `"16000.50000000"` {
 		t.Error(got)
 	}
 }
 
 func TestDec2MarshalsTwoPlaces(t *testing.T) {
+	t.Parallel()
 	if got := mustJSON(t, Dec2{Decimal: decimal.RequireFromString("97.5")}); got != `"97.50"` {
 		t.Error(got)
 	}
 }
 
 func TestNullDecimalIsNull(t *testing.T) {
+	t.Parallel()
 	type row struct {
 		Amount *Dec4 `json:"amount"`
 	}
@@ -70,6 +75,7 @@ func TestNullDecimalIsNull(t *testing.T) {
 
 // Constructors initialise slices; this pins the convention on a sample type.
 func TestNilSliceField(t *testing.T) {
+	t.Parallel()
 	type resp struct {
 		Items []string `json:"items"`
 	}
@@ -80,6 +86,7 @@ func TestNilSliceField(t *testing.T) {
 }
 
 func TestDateRoundTrip(t *testing.T) {
+	t.Parallel()
 	var d Date
 	if err := json.Unmarshal([]byte(`"2026-03-09"`), &d); err != nil {
 		t.Fatal(err)
@@ -93,6 +100,7 @@ func TestDateRoundTrip(t *testing.T) {
 }
 
 func TestTimeIsUTCWithZ(t *testing.T) {
+	t.Parallel()
 	loc := time.FixedZone("WIB", 7*3600)
 	tm := Time{Time: time.Date(2026, 1, 1, 10, 0, 0, 123456000, loc)}
 	if got := mustJSON(t, tm); got != `"2026-01-01T03:00:00.123456Z"` {
@@ -114,6 +122,7 @@ func TestTimeIsUTCWithZ(t *testing.T) {
 }
 
 func TestOptionalThreeStates(t *testing.T) {
+	t.Parallel()
 	type patch struct {
 		Note Optional[string] `json:"note"`
 	}
@@ -153,6 +162,7 @@ type notNullOut struct {
 // nested ones included, with every invalid field reported; the schema is
 // the plain T.
 func TestNotNull(t *testing.T) {
+	t.Parallel()
 	h, api := NewServer(Config{Environment: "test"}, Deps{})
 	huma.Register(api, huma.Operation{OperationID: "not-null", Method: http.MethodPatch, Path: "/not-null", Tags: []string{PublicTag}},
 		func(_ context.Context, in *notNullIn) (*notNullOut, error) {
@@ -233,6 +243,7 @@ type optionalParamOut struct {
 // OptionalParam tells an absent parameter from false, and refuses a value
 // that is not a T.
 func TestOptionalParam(t *testing.T) {
+	t.Parallel()
 	h, api := NewServer(Config{Environment: "test"}, Deps{})
 	huma.Register(api, huma.Operation{OperationID: "optional-param", Method: http.MethodGet, Path: "/optional-param", Tags: []string{PublicTag}},
 		func(_ context.Context, in *optionalParamIn) (*optionalParamOut, error) {
@@ -260,6 +271,7 @@ func TestOptionalParam(t *testing.T) {
 }
 
 func TestDecimalSchemaPatternPerScale(t *testing.T) {
+	t.Parallel()
 	_, api := NewServer(Config{Environment: "test"}, Deps{})
 	reg := api.OpenAPI().Components.Schemas
 	for typ, want := range map[reflect.Type]string{
@@ -302,6 +314,7 @@ type parsedBody struct {
 // Every parse failure of a decimal, date or time is a 422 at the field,
 // with a sentence and never a Go type name.
 func TestBadDecimalDateTimeIs422WithSentence(t *testing.T) {
+	t.Parallel()
 	h, api := NewServer(Config{Environment: "test"}, Deps{})
 	huma.Register(api, huma.Operation{OperationID: "parsed", Method: http.MethodPost, Path: "/parsed", Tags: []string{PublicTag}},
 		func(_ context.Context, _ *parsedIn) (*struct{}, error) { return nil, nil })

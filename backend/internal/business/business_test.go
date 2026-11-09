@@ -85,6 +85,7 @@ func allNull(p business.ProfileOut) []string {
 }
 
 func TestProfileGetReturnsSeedRow(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	rec := a.Do(t, http.MethodGet, profilePath, nil)
 	p := apitest.Decode[business.ProfileOut](t, rec, http.StatusOK)
@@ -106,6 +107,7 @@ func TestProfileGetReturnsSeedRow(t *testing.T) {
 }
 
 func TestProfileGetMissingRowWritesNothing(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	if err := exec(t, a, `DELETE FROM business_profile`); err != nil {
 		t.Fatal(err)
@@ -125,6 +127,7 @@ func TestProfileGetMissingRowWritesNothing(t *testing.T) {
 }
 
 func TestProfilePutPartialAndNullClears(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	p := putProfile(t, a, map[string]any{"name": "Wenhao Software", "npwp": "01.234.567.8-901.000", "address": "Batam"})
 	if *p.Name != "Wenhao Software" || *p.Npwp != "01.234.567.8-901.000" || *p.Address != "Batam" ||
@@ -165,6 +168,7 @@ func TestProfilePutPartialAndNullClears(t *testing.T) {
 }
 
 func TestProfilePutEmptyKeepsUpdatedAt(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	p := putProfile(t, a, map[string]any{})
 	if !p.UpdatedAt.Equal(seedUpdatedAt) || len(allNull(p)) != 0 {
@@ -198,6 +202,7 @@ func summary(accounts []business.PaymentAccountOut) []string {
 }
 
 func TestReplaceAndListPaymentAccounts(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := putAccounts(t, a, []acct{
 		{"currency": "SGD", "instructions": "DBS SGD", "is_default": false},
@@ -221,6 +226,7 @@ func TestReplaceAndListPaymentAccounts(t *testing.T) {
 }
 
 func TestReplaceIsFullOverwrite(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	putAccounts(t, a, []acct{{"currency": "USD", "instructions": "Wells", "is_default": true}})
 	putAccounts(t, a, []acct{{"currency": "SGD", "instructions": "DBS", "is_default": true}})
@@ -230,6 +236,7 @@ func TestReplaceIsFullOverwrite(t *testing.T) {
 }
 
 func TestRejectDuplicateCurrency(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wantProblem(t, a.Do(t, http.MethodPut, accountsPath, []acct{
 		{"currency": "SGD", "instructions": "DBS", "is_default": false},
@@ -238,6 +245,7 @@ func TestRejectDuplicateCurrency(t *testing.T) {
 }
 
 func TestDuplicateCurrencyCaseInsensitive(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wantProblem(t, a.Do(t, http.MethodPut, accountsPath, []acct{
 		{"currency": "sgd", "instructions": "DBS"},
@@ -246,6 +254,7 @@ func TestDuplicateCurrencyCaseInsensitive(t *testing.T) {
 }
 
 func TestRejectTwoDefaults(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wantProblem(t, a.Do(t, http.MethodPut, accountsPath, []acct{
 		{"currency": "SGD", "instructions": "DBS", "is_default": true},
@@ -254,6 +263,7 @@ func TestRejectTwoDefaults(t *testing.T) {
 }
 
 func TestRejectUnsupportedCurrency(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wantProblem(t, a.Do(t, http.MethodPut, accountsPath, []acct{{"currency": "GBP", "instructions": "Barclays", "is_default": true}}),
 		http.StatusUnprocessableEntity, "unsupported_currency", "Unsupported currency: GBP")
@@ -268,6 +278,7 @@ func TestRejectUnsupportedCurrency(t *testing.T) {
 }
 
 func TestPaymentAccountFieldsRequired(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	for _, body := range []acct{
 		{"instructions": "x"},
@@ -283,6 +294,7 @@ func TestPaymentAccountFieldsRequired(t *testing.T) {
 }
 
 func TestPaymentAccountsLowercaseCurrencyUppercased(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := putAccounts(t, a, []acct{{"currency": "idr", "instructions": "BCA"}})
 	if s := summary(got); !reflect.DeepEqual(s, []string{"IDR:BCA"}) {
@@ -295,6 +307,7 @@ func TestPaymentAccountsLowercaseCurrencyUppercased(t *testing.T) {
 }
 
 func TestPaymentAccountsEmptyIsArray(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	putAccounts(t, a, []acct{{"currency": "USD", "instructions": "Wells"}})
 	if rec := a.Do(t, http.MethodPut, accountsPath, []acct{}); rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
@@ -308,6 +321,7 @@ func TestPaymentAccountsEmptyIsArray(t *testing.T) {
 // A null body is not an empty list: Python's list[PaymentAccountIn] refuses
 // it, and the accounts stay.
 func TestPaymentAccountsNullBodyRefused(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	putAccounts(t, a, []acct{{"currency": "USD", "instructions": "Wells"}})
 	if rec := a.Do(t, http.MethodPut, accountsPath, "null"); rec.Code != http.StatusUnprocessableEntity {
@@ -321,6 +335,7 @@ func TestPaymentAccountsNullBodyRefused(t *testing.T) {
 }
 
 func TestPaymentAccountsPutCreatesMissingProfile(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	if err := exec(t, a, `DELETE FROM business_profile`); err != nil {
 		t.Fatal(err)
@@ -334,6 +349,7 @@ func TestPaymentAccountsPutCreatesMissingProfile(t *testing.T) {
 }
 
 func TestRelationshipOrdersAndReadsAccounts(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	if err := exec(t, a, `INSERT INTO payment_account (business_profile_id, currency, instructions, is_default)
 		VALUES (1, 'USD', 'Wells Fargo USD', false), (1, 'IDR', 'OCBC NISP IDR', true)`); err != nil {
@@ -359,6 +375,7 @@ func constraint(err error) string {
 }
 
 func TestDuplicateCurrencyRejected(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	const ins = `INSERT INTO payment_account (business_profile_id, currency, instructions, is_default) VALUES (1, 'SGD', $1, false)`
 	if err := exec(t, a, ins, "DBS SGD"); err != nil {
@@ -370,6 +387,7 @@ func TestDuplicateCurrencyRejected(t *testing.T) {
 }
 
 func TestSecondDefaultRejected(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	const ins = `INSERT INTO payment_account (business_profile_id, currency, instructions, is_default) VALUES (1, $1, $2, true)`
 	if err := exec(t, a, ins, "SGD", "DBS SGD"); err != nil {
@@ -383,6 +401,7 @@ func TestSecondDefaultRejected(t *testing.T) {
 // Two admins replacing the list at once: each replace runs whole, one after
 // the other, so the result is one of the two lists and no request fails.
 func TestReplacePaymentAccountsConcurrent(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	lists := [][]acct{
 		{{"currency": "IDR", "instructions": "BCA", "is_default": true}, {"currency": "SGD", "instructions": "DBS"}},

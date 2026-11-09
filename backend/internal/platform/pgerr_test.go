@@ -13,6 +13,7 @@ import (
 )
 
 func TestMapConstraint(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	pool, err := db.Open(ctx, db.PoolConfig{URL: testkit.PostgresURL(t, migrations.FS)})
 	if err != nil {

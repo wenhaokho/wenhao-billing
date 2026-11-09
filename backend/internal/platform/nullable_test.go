@@ -96,6 +96,7 @@ func jsonAcceptsNull(m map[string]any) bool {
 // property that is not required). NotNull, plain values and omitempty
 // pointers never do; and no schema has an empty type.
 func TestPointerAndOptionalSchemasAcceptNull(t *testing.T) {
+	t.Parallel()
 	_, api := nullServer(t)
 	reg := api.OpenAPI().Components.Schemas
 	check := func(s *huma.Schema, want map[string]bool) {
@@ -135,6 +136,7 @@ func TestPointerAndOptionalSchemasAcceptNull(t *testing.T) {
 // Nullable request fields keep their validation: null passes, and tagged,
 // decimal and nested errors are reported at their own fields.
 func TestNullableFieldsStillValidate(t *testing.T) {
+	t.Parallel()
 	h, _ := nullServer(t)
 	for _, body := range []string{
 		`{"note":null,"price":null,"target":null,"maybe_dec":null,"maybe_obj":null,"maybe_text":null,"plain":1}`,
@@ -162,6 +164,7 @@ func TestNullableFieldsStillValidate(t *testing.T) {
 }
 
 func TestOptionalMerge(t *testing.T) {
+	t.Parallel()
 	cur := "cur"
 	if got := (Optional[string]{}).Merge(&cur); got != &cur {
 		t.Errorf("omitted: %v", got)
@@ -176,6 +179,7 @@ func TestOptionalMerge(t *testing.T) {
 }
 
 func TestFieldError(t *testing.T) {
+	t.Parallel()
 	h, api := NewServer(Config{Environment: "test"}, Deps{})
 	huma.Register(api, huma.Operation{OperationID: "field-error", Method: http.MethodPost, Path: "/field-error", Tags: []string{PublicTag}},
 		func(_ context.Context, _ *struct{}) (*struct{}, error) {

@@ -57,6 +57,7 @@ func wantProblem(t *testing.T, rec *httptest.ResponseRecorder, status int, detai
 }
 
 func TestCreateVendorSetsFields(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, map[string]any{
 		"name": "Beta Supplies", "contact_email": "ap@beta.com", "contact_name": "Bea", "default_currency": "USD",
@@ -86,6 +87,7 @@ func TestCreateVendorSetsFields(t *testing.T) {
 }
 
 func TestVendorDefaults(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, map[string]any{"name": "Plain"})
 	if got.DefaultCurrency != "IDR" || got.PaymentTermsDays != 30 || !got.Active ||
@@ -99,6 +101,7 @@ func TestVendorDefaults(t *testing.T) {
 }
 
 func TestUpdateVendorEditsFields(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	v := create(t, a, map[string]any{"name": "Old", "contact_email": "x@old.com", "tax_id": "T1", "notes": "keep"})
 	got := apitest.Decode[vendors.VendorOut](t, a.Do(t, http.MethodPatch, vendorPath(v.VendorID), map[string]any{
@@ -111,6 +114,7 @@ func TestUpdateVendorEditsFields(t *testing.T) {
 }
 
 func TestUpdateVendorNotFound(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	wantProblem(t, a.Do(t, http.MethodPatch, vendorPath(uuid.New()), map[string]any{"name": "x"}), http.StatusNotFound, "vendor not found", "", "")
 	wantProblem(t, a.Do(t, http.MethodGet, vendorPath(uuid.New()), nil), http.StatusNotFound, "vendor not found", "", "")
@@ -118,6 +122,7 @@ func TestUpdateVendorNotFound(t *testing.T) {
 }
 
 func TestVendorListOrderAndFilter(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	b := create(t, a, map[string]any{"name": "Bravo"})
 	create(t, a, map[string]any{"name": "Alpha"})
@@ -144,6 +149,7 @@ func TestVendorListOrderAndFilter(t *testing.T) {
 }
 
 func TestVendorEmptyListIsArray(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	if rec := a.Do(t, http.MethodGet, path, nil); rec.Code != http.StatusOK || rec.Body.String() != "[]\n" {
 		t.Errorf("%d %q", rec.Code, rec.Body)
@@ -151,6 +157,7 @@ func TestVendorEmptyListIsArray(t *testing.T) {
 }
 
 func TestVendorEmailNormalisedAndValidated(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	got := create(t, a, map[string]any{"name": "Mail", "contact_email": "AP@Beta.COM"})
 	if got.ContactEmail == nil || *got.ContactEmail != "AP@beta.com" {
@@ -169,6 +176,7 @@ func TestVendorEmailNormalisedAndValidated(t *testing.T) {
 }
 
 func TestVendorTermsOutOfRangeIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	v := create(t, a, map[string]any{"name": "T"})
 	for _, days := range []int{366, -1} {
@@ -190,6 +198,7 @@ func TestVendorTermsOutOfRangeIs422(t *testing.T) {
 }
 
 func TestVendorPatchNullNameIs422(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	v := create(t, a, map[string]any{"name": "Keep"})
 	for _, f := range []string{"name", "default_currency", "payment_terms_days", "active"} {
@@ -205,6 +214,7 @@ func TestVendorPatchNullNameIs422(t *testing.T) {
 }
 
 func TestVendorPatchNullContactEmailClears(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	v := create(t, a, map[string]any{"name": "C", "contact_email": "a@b.com", "contact_name": "N", "tax_id": "T", "notes": "n"})
 	got := apitest.Decode[vendors.VendorOut](t, a.Do(t, http.MethodPatch, vendorPath(v.VendorID),
@@ -215,6 +225,7 @@ func TestVendorPatchNullContactEmailClears(t *testing.T) {
 }
 
 func TestVendorDeleteDeactivates(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	v := create(t, a, map[string]any{"name": "D"})
 	got := apitest.Decode[vendors.VendorOut](t, a.Do(t, http.MethodDelete, vendorPath(v.VendorID), nil), http.StatusOK)
@@ -228,6 +239,7 @@ func TestVendorDeleteDeactivates(t *testing.T) {
 }
 
 func TestVendorsRequireAdmin(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	id := uuid.New()
 	for _, c := range []struct{ method, p string }{

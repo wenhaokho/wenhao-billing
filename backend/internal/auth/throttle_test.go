@@ -34,6 +34,7 @@ func (a app) fail(t *testing.T, addr string, n int, header ...string) {
 // Ten failures for one account from one address lock that pair, even for the
 // right password, until the oldest failure leaves the 15-minute window.
 func TestThrottlePairLimit(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	a.fail(t, adminEmail, 10)
@@ -47,6 +48,7 @@ func TestThrottlePairLimit(t *testing.T) {
 
 // Thirty failures from one address across accounts lock the address.
 func TestThrottleAddressLimit(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	for i := range 30 {
@@ -64,6 +66,7 @@ func TestThrottleAddressLimit(t *testing.T) {
 // Failures from one address never lock the account for another address: an
 // attacker cannot lock the owner out.
 func TestThrottleNeverLocksEmailAlone(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	a.fail(t, adminEmail, 10, "X-Forwarded-For", "198.51.100.1")
@@ -74,6 +77,7 @@ func TestThrottleNeverLocksEmailAlone(t *testing.T) {
 }
 
 func TestThrottleUsesCFConnectingIP(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	for i := range 10 {
@@ -86,6 +90,7 @@ func TestThrottleUsesCFConnectingIP(t *testing.T) {
 }
 
 func TestSuccessfulLoginClearsPairCount(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	a.fail(t, adminEmail, 9)
@@ -97,6 +102,7 @@ func TestSuccessfulLoginClearsPairCount(t *testing.T) {
 }
 
 func TestFailedLoginPrunesDayOldRows(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	ctx := context.Background()
 	if _, err := a.pool.Exec(ctx, `INSERT INTO login_attempts (email, client_addr, failed_at) VALUES ('old@example.com', '192.0.2.9', $1), ('recent@example.com', '192.0.2.9', $2)`,
@@ -123,6 +129,7 @@ func TestFailedLoginPrunesDayOldRows(t *testing.T) {
 }
 
 func TestClientAddress(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ cf, xff, remote, want string }{
 		{"203.0.113.5", "10.0.0.1", "192.0.2.1:1234", "203.0.113.5"},
 		{"", "198.51.100.1, 10.0.0.1", "192.0.2.1:1234", "198.51.100.1"},
@@ -141,6 +148,7 @@ func TestClientAddress(t *testing.T) {
 // passwords for one pair, at most 10 reach the password check (401), the
 // rest are refused (429).
 func TestThrottleHoldsUnderConcurrency(t *testing.T) {
+	t.Parallel()
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	const n = 20
