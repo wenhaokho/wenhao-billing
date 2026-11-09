@@ -59,14 +59,14 @@ func TestRoundHalfUp(t *testing.T) {
 func TestNormalizeDefaultsRate(t *testing.T) {
 	typ, rate, gu, err := Normalize("PPH21", nil, true)
 	if err != nil || typ != "PPH21" || rate == nil || !rate.Equal(d("2.5")) || !gu {
-		t.Fatalf("got %v %v %v %v", typ, rate, gu, err)
+		t.Fatalf("got %v %v %v %v", typ, show(rate), gu, err)
 	}
 }
 
 func TestNormalizeNoneClears(t *testing.T) {
 	typ, rate, gu, err := Normalize("NONE", ptr("2"), true)
 	if err != nil || typ != "NONE" || rate != nil || gu {
-		t.Fatalf("got %v %v %v %v", typ, rate, gu, err)
+		t.Fatalf("got %v %v %v %v", typ, show(rate), gu, err)
 	}
 }
 
@@ -95,4 +95,24 @@ func TestExpectedCash(t *testing.T) {
 
 func TestExpectedCashNeverNegative(t *testing.T) {
 	eq(t, "cash", ExpectedCash(d("10"), d("50"), d("0")), "0")
+}
+
+// Ties at each of Compute's two rounding call sites (half-up, not half-even).
+func TestComputeRoundsTiesHalfUp(t *testing.T) {
+	r := Compute(d("100.5"), "USD", "PPH23", ptr("1"), false)
+	eq(t, "usd amount (1.005 tie)", r.Amount, "1.01")
+	r = Compute(d("25"), "IDR", "PPH23", ptr("2"), false)
+	eq(t, "idr amount (0.5 tie)", r.Amount, "1")
+	r = Compute(d("0.25"), "IDR", "PPH23", ptr("50"), true)
+	eq(t, "idr gross-up total (0.5 tie)", r.Total, "1")
+	eq(t, "idr gross-up amount", r.Amount, "0.75")
+	r = Compute(d("1.0025"), "USD", "PPH23", ptr("50"), true)
+	eq(t, "usd gross-up total (2.005 tie)", r.Total, "2.01")
+}
+
+func show(r *decimal.Decimal) string {
+	if r == nil {
+		return "<nil>"
+	}
+	return r.String()
 }

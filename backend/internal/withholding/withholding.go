@@ -9,6 +9,7 @@ package withholding
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/shopspring/decimal"
 
@@ -38,7 +39,8 @@ const divPlaces = 28
 type Result struct{ Total, Amount, Base decimal.Decimal }
 
 // Compute returns the invoice total and withholding amount. base is the
-// subtotal after discount.
+// subtotal after discount. rate must have passed Normalize: a rate of 100
+// with gross-up would divide by zero.
 func Compute(base decimal.Decimal, currency, whtType string, rate *decimal.Decimal, grossUp bool) Result {
 	if whtType == "NONE" || rate == nil || base.IsZero() {
 		return Result{Total: base, Amount: decimal.Zero, Base: base}
@@ -65,13 +67,7 @@ func ExpectedCash(balanceDue, whtAmount, whtBooked decimal.Decimal) decimal.Deci
 // Normalize validates a withholding configuration. NONE clears the rate and
 // gross-up; a nil rate takes the type's default. Error text is Python's.
 func Normalize(whtType string, rate *decimal.Decimal, grossUp bool) (string, *decimal.Decimal, bool, error) {
-	known := false
-	for _, t := range Types {
-		if t == whtType {
-			known = true
-		}
-	}
-	if !known {
+	if !slices.Contains(Types, whtType) {
 		return "", nil, false, fmt.Errorf("Unknown withholding tax type: %s", whtType) //nolint:staticcheck // Python's exact sentence, surfaced as the 422 detail
 	}
 	if whtType == "NONE" {
