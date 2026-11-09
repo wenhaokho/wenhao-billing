@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/shopspring/decimal"
 
 	"github.com/LOQATO/gokit/db"
 	"github.com/LOQATO/gokit/testkit"
@@ -112,6 +114,43 @@ func (h *fix1OAuthHandler) Authorize(context.Context, *http.Request, *http.Respo
 // callTool drives one tool call through the SDK client over the transport.
 func (h *fix1Harness) callTool(t *testing.T, name string) *mcp.CallToolResult {
 	t.Helper()
+	sess := h.connect(t)
+	res, err := sess.CallTool(t.Context(), &mcp.CallToolParams{Name: name, Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatalf("call %s: %v", name, err)
+	}
+	return res
+}
+
+// outputSchema is the outputSchema tools/list declares for the tool, as a
+// client sees it.
+func (h *fix1Harness) outputSchema(t *testing.T, name string) map[string]any {
+	t.Helper()
+	sess := h.connect(t)
+	list, err := sess.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("tools/list: %v", err)
+	}
+	for _, tool := range list.Tools {
+		if tool.Name == name {
+			b, err := json.Marshal(tool.OutputSchema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var m map[string]any
+			if err := json.Unmarshal(b, &m); err != nil {
+				t.Fatal(err)
+			}
+			return m
+		}
+	}
+	t.Fatalf("tools/list has no %s", name)
+	return nil
+}
+
+// connect opens an SDK client session over the transport as the admin.
+func (h *fix1Harness) connect(t *testing.T) *mcp.ClientSession {
+	t.Helper()
 	client := mcp.NewClient(&mcp.Implementation{Name: "fix1-client", Version: "1.0.0"}, nil)
 	transport := &mcp.StreamableClientTransport{
 		Endpoint:     h.srv.URL + "/mcp/",
@@ -121,12 +160,8 @@ func (h *fix1Harness) callTool(t *testing.T, name string) *mcp.CallToolResult {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	defer func() { _ = sess.Close() }()
-	res, err := sess.CallTool(t.Context(), &mcp.CallToolParams{Name: name, Arguments: map[string]any{}})
-	if err != nil {
-		t.Fatalf("call %s: %v", name, err)
-	}
-	return res
+	t.Cleanup(func() { _ = sess.Close() })
+	return sess
 }
 
 type fix1In struct{}
@@ -298,6 +333,90 @@ func TestToolRefusalIsErrorObjectAndRollsBack(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("the refusing tool left %d row(s) behind", n)
 	}
+
+	// The refusal conforms to the outputSchema the tool declares (clients
+	// validate structuredContent against it), which is Python's open object.
+	declared := h.outputSchema(t, "write_then_refuse")
+	if b, _ := json.Marshal(declared); string(b) != `{"additionalProperties":true,"type":"object"}` {
+		t.Fatalf("refusable tool declares outputSchema %s, want Python's open object", b)
+	}
+	validateAgainst(t, declared, res.StructuredContent)
+}
+
+// validateAgainst fails the test unless instance validates against the
+// JSON schema.
+func validateAgainst(t *testing.T, schema map[string]any, instance any) {
+	t.Helper()
+	b, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s jsonschema.Schema
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := s.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resolved.Validate(instance); err != nil {
+		t.Fatalf("%v does not validate against the declared outputSchema %s: %v", instance, b, err)
+	}
+}
+
+// decimalOut has a field whose JSON form (a string) differs from the
+// schema jsonschema-go infers for its Go type.
+type decimalOut struct {
+	Amount decimal.Decimal `json:"amount"`
+}
+
+// TestToolOutputSchemaFailureRollsBack: an output that does not match the
+// declared schema is caught before the commit: the generic isError result,
+// and the tool's write rolls back (the SDK's own check runs only after the
+// helper has committed).
+func TestToolOutputSchemaFailureRollsBack(t *testing.T) {
+	t.Parallel()
+	h := newFix1Harness(t, func(s *mcp.Server, d Deps) {
+		addTool(s, d, &mcp.Tool{Name: "write_bad_output", Description: "writes, then returns an off-schema output"}, func(ctx context.Context, tx pgx.Tx, _ principalRef, _ fix1In) (decimalOut, error) {
+			if _, err := tx.Exec(ctx, `INSERT INTO users (user_id, email, password_hash, role) VALUES ($1, 'written-by-off-schema-tool@example.com', 'x', 'admin')`, uuid.New()); err != nil {
+				return decimalOut{}, err
+			}
+			return decimalOut{Amount: decimal.RequireFromString("12.50")}, nil
+		}, withOutSchema())
+	})
+
+	res := h.callTool(t, "write_bad_output")
+	if !res.IsError {
+		t.Fatalf("off-schema output: IsError = false, want true: %+v", res.StructuredContent)
+	}
+	if text := resultText(res); text != errUnexpected+"\n" {
+		t.Fatalf("off-schema output: text %q, want the generic %q", text, errUnexpected)
+	}
+	var n int
+	if err := h.pool.QueryRow(t.Context(), `SELECT count(*) FROM users WHERE email='written-by-off-schema-tool@example.com'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("the off-schema tool left %d row(s) behind", n)
+	}
+}
+
+// TestIsCancellation: a cancelled or timed-out call is the caller going
+// away, not a fault: it is not reported, even wrapped.
+func TestIsCancellation(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		err  error
+		want bool
+	}{
+		{context.Canceled, true},
+		{fmt.Errorf("begin: %w", context.DeadlineExceeded), true},
+		{errors.New("boom"), false},
+	} {
+		if got := isCancellation(c.err); got != c.want {
+			t.Errorf("isCancellation(%v) = %v, want %v", c.err, got, c.want)
+		}
+	}
 }
 
 // TestToolDriverErrorDoesNotLeak: a tool returning a pgx error answers the
@@ -375,6 +494,16 @@ func TestPingDoesNotTouchTheDatabase(t *testing.T) {
 	if text := resultText(res); text != `{"result":"pong"}`+"\n" {
 		t.Fatalf("ping: text %q", text)
 	}
+	// Ping declares its own {"result": string} schema, as Python's wrapped
+	// ping does (python_session.json tools_list), not the open object.
+	declared := h.outputSchema(t, "ping")
+	props, _ := declared["properties"].(map[string]any)
+	result, _ := props["result"].(map[string]any)
+	req, _ := json.Marshal(declared["required"])
+	if declared["type"] != "object" || result["type"] != "string" || string(req) != `["result"]` {
+		t.Fatalf("ping outputSchema %v, want {result: string} required", declared)
+	}
+	validateAgainst(t, declared, res.StructuredContent)
 }
 
 // resultText is the text of a tool result's content blocks.

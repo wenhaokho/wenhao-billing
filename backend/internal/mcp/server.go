@@ -46,10 +46,11 @@ func pingTool(context.Context, pgx.Tx, principalRef, pingIn) (pingOut, error) {
 	return pingOut{Result: "pong"}, nil
 }
 
-// registerPing adds the ping tool. It runs withoutTx, so it never touches
-// d.Pool.
+// registerPing adds the ping tool. It declares its own {"result": ...}
+// schema (as Python wraps it; ping never refuses) and runs withoutTx, so it
+// never touches d.Pool.
 func registerPing(s *mcp.Server, d Deps) {
-	addTool(s, d, &mcp.Tool{Name: "ping", Description: "Health check — returns 'pong'."}, pingTool, withoutTx())
+	addTool(s, d, &mcp.Tool{Name: "ping", Description: "Health check \u2014 returns 'pong'."}, pingTool, withoutTx(), withOutSchema())
 }
 
 // bearer wraps a handler with the SDK's bearer-token middleware: the
