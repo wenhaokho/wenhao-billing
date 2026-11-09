@@ -114,6 +114,11 @@ services:
   # rebuilds the template). Created and dropped databases were most of each
   # test's time on the dev `db`. max_connections leaves room for
   # ./dev test's parallel tests, each with its own pool. No published port.
+  # The tmpfs is RAM inside the WSL VM, so it is capped: a full run peaks
+  # near 700 MB, but pgtestdb keeps a failed test's database for inspection
+  # and those pile up until the container stops (2 GB seen). Past the cap
+  # Postgres reports "No space left on device"; `docker compose --profile
+  # tools restart db-test` clears it.
   db-test:
     profiles: ["tools"]
     image: postgres:16-alpine
@@ -122,7 +127,7 @@ services:
       POSTGRES_USER: billing
       POSTGRES_PASSWORD: billing
     tmpfs:
-      - /var/lib/postgresql/data
+      - /var/lib/postgresql/data:size=1536m
     healthcheck:
       # Over TCP: the image's first-start setup server listens on the socket only.
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "billing"]
