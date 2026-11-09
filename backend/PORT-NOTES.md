@@ -134,3 +134,13 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Python: `default_wht_rate: Decimal | None` has no `decimal_places` (`app/schemas/customer.py:52`), so the value is rounded into `numeric(7,4)`; a rate such as `99.99999` passes the "below 100" check and is stored as `100.0000`.
     Go: such a rate is refused before the withholding check with a 422 at `default_wht_rate`, detail `Decimal input should have no more than 4 decimal places` (a JSON number; a string with five places already fails the decimal schema), and nothing is stored (`customers.TestCustomerWhtRateFivePlacesIs422`).
     After the switch: none: Go's behaviour is the fix.
+
+26. **A payment amount of zero or below fails the ledger with a refusal, not a crash.**
+    Python: `_build_line` converts only a positive side, so a bank line for an amount of `0` or less has no conversion and `(conv_debit or conv_credit).rate` raises `AttributeError` (`app/services/ledger.py:86`), which no caller catches as a ledger refusal.
+    Go: `ledger.PostPaymentCleared` refuses it as an `ErrLedger`, `journal line for account 1000 needs exactly one positive side (debit=0 credit=0)`, before any conversion or insert (`ledger.TestRefusesNonPositiveAmount`).
+    After the switch: none; payments of zero or less never reach the ledger through the matching flow.
+
+27. **Two concurrent reversals of one entry.**
+    Python: `post_reversal` reads the original with `db.get` and no lock (`app/services/ledger.py:223`), so two transactions can both see it unreversed and both post a reversal; the later one's `reversed_by_entry_id` wins.
+    Go: `ledger.PostReversal` reads the original `FOR UPDATE`; the second transaction waits for the first, then sees `reversed_by_entry_id` set and is refused `entry <id> already reversed` (`ledger.TestReverseConcurrentOnlyOnce`).
+    After the switch: none: Go's behaviour is the fix.
