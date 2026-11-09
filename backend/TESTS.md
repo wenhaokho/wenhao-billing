@@ -22,18 +22,18 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_customer_balances.py | test_zero_balance_rows_excluded |  | todo |  |  |
 | tests/integration/test_customer_balances.py | test_multiple_currencies_produce_separate_rows |  | todo |  |  |
 | tests/integration/test_customer_balances.py | test_multiple_customers_produce_separate_rows |  | todo |  |  |
-| tests/integration/test_customer_cc.py | test_customer_cc_lists_roundtrip |  | todo |  |  |
-| tests/integration/test_customer_cc.py | test_customer_cc_rejects_invalid_address |  | todo |  |  |
+| tests/integration/test_customer_cc.py | test_customer_cc_lists_roundtrip | customers.TestCustomerCCListsRoundtrip | ported |  | — |
+| tests/integration/test_customer_cc.py | test_customer_cc_rejects_invalid_address | customers.TestCustomerCCRejectsInvalidAddress | ported |  | CC validation skipped: TestCustomerCCRejectsInvalidAddress red, 201 want 422 (task 6) |
 | tests/integration/test_customer_cc.py | test_send_receipt_multiple_cc_normalised |  | todo |  |  |
 | tests/integration/test_customer_cc.py | test_send_receipt_invalid_cc_422 |  | todo |  |  |
-| tests/integration/test_customer_wht_defaults.py | test_create_customer_with_pph23_gross_up |  | todo |  |  |
-| tests/integration/test_customer_wht_defaults.py | test_customer_defaults_to_none |  | todo |  |  |
-| tests/integration/test_customer_wht_defaults.py | test_customer_wht_invalid_rate_422 |  | todo |  |  |
-| tests/integration/test_customer_wht_defaults.py | test_customer_wht_unknown_type_422 |  | todo |  |  |
-| tests/integration/test_customer_wht_defaults.py | test_customer_none_clears_rate |  | todo |  |  |
-| tests/integration/test_customer_wht_defaults.py | test_patch_without_wht_fields_keeps_stored |  | todo |  |  |
-| tests/integration/test_customer_wht_defaults.py | test_patch_partial_wht_merges_with_stored |  | todo |  |  |
-| tests/integration/test_customer_wht_defaults.py | test_patch_type_switch_uses_new_default_rate |  | todo |  |  |
+| tests/integration/test_customer_wht_defaults.py | test_create_customer_with_pph23_gross_up | customers.TestCreateCustomerWithPph23GrossUp | ported |  | — |
+| tests/integration/test_customer_wht_defaults.py | test_customer_defaults_to_none | customers.TestCustomerDefaultsToNone | ported |  | — |
+| tests/integration/test_customer_wht_defaults.py | test_customer_wht_invalid_rate_422 | customers.TestCustomerWhtInvalidRate422 | ported |  | — |
+| tests/integration/test_customer_wht_defaults.py | test_customer_wht_unknown_type_422 | customers.TestCustomerWhtUnknownType422 | ported |  | — |
+| tests/integration/test_customer_wht_defaults.py | test_customer_none_clears_rate | customers.TestCustomerNoneClearsRate | ported |  | Normalize skipped on PATCH (raw overlay of the sent withholding values): TestCustomerNoneClearsRate red (task 6) |
+| tests/integration/test_customer_wht_defaults.py | test_patch_without_wht_fields_keeps_stored | customers.TestPatchWithoutWhtFieldsKeepsStored | ported |  | — |
+| tests/integration/test_customer_wht_defaults.py | test_patch_partial_wht_merges_with_stored | customers.TestPatchPartialWhtMergesWithStored | ported |  | Normalize skipped on PATCH (raw overlay of the sent withholding values): TestPatchPartialWhtMergesWithStored red (task 6) |
+| tests/integration/test_customer_wht_defaults.py | test_patch_type_switch_uses_new_default_rate | customers.TestPatchTypeSwitchUsesNewDefaultRate | ported |  | Stored rate kept on a type switch: TestPatchTypeSwitchUsesNewDefaultRate red (task 6) |
 | tests/integration/test_dashboard_stats.py | test_empty_db_returns_zero_counts_and_no_currency_rows |  | todo |  |  |
 | tests/integration/test_dashboard_stats.py | test_counts_reflect_invoice_and_customer_state |  | todo |  |  |
 | tests/integration/test_dashboard_stats.py | test_open_ar_by_currency_sums_sent_and_partial_only |  | todo |  |  |
@@ -46,7 +46,7 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_dashboard_stats.py | test_draft_count_excludes_recurring_templates |  | todo |  |  |
 | tests/integration/test_dashboard_stats.py | test_dashboard_stats_includes_mrr_and_base_ar |  | todo |  |  |
 | tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_exposes_new_fields |  | todo |  |  |
-| tests/integration/test_hosting.py | test_hosting_item_creates_with_cloudflare_target |  | todo |  |  |
+| tests/integration/test_hosting.py | test_hosting_item_creates_with_cloudflare_target | items.TestHostingItemCreatesWithCloudflareTarget | ported |  | — |
 | tests/integration/test_hosting.py | test_trigger_recurring_cycle_stamps_coverage_on_hosting_invoice |  | todo |  |  |
 | tests/integration/test_hosting.py | test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates |  | todo |  |  |
 | tests/integration/test_hosting.py | test_enforcement_suspend_failure_marks_provider_error |  | todo |  |  |
@@ -89,12 +89,12 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_invoices_summary.py | test_avg_days_to_pay_averages_across_invoices |  | todo |  |  |
 | tests/integration/test_invoices_summary.py | test_avg_days_to_pay_ignores_payments_older_than_90_days |  | todo |  |  |
 | tests/integration/test_invoices_summary.py | test_avg_days_to_pay_ignores_non_cleared_payments |  | todo |  |  |
-| tests/integration/test_items_sell_buy.py | test_item_defaults_sold_true_purchased_false |  | todo |  |  |
-| tests/integration/test_items_sell_buy.py | test_item_can_be_purchased_only |  | todo |  |  |
-| tests/integration/test_items_sell_buy.py | test_item_can_be_both_sold_and_purchased |  | todo |  |  |
-| tests/integration/test_items_sell_buy.py | test_item_create_schema_accepts_purchase_fields |  | todo |  |  |
-| tests/integration/test_items_sell_buy.py | test_item_out_serializes_new_fields |  | todo |  |  |
-| tests/integration/test_items_sell_buy.py | test_item_update_can_toggle_purchased |  | todo |  |  |
+| tests/integration/test_items_sell_buy.py | test_item_defaults_sold_true_purchased_false | items.TestItemDefaultsSoldTruePurchasedFalse | ported |  | — |
+| tests/integration/test_items_sell_buy.py | test_item_can_be_purchased_only | items.TestItemCanBePurchasedOnly | ported |  | — |
+| tests/integration/test_items_sell_buy.py | test_item_can_be_both_sold_and_purchased | items.TestItemCanBeBothSoldAndPurchased | ported |  | — |
+| tests/integration/test_items_sell_buy.py | test_item_create_schema_accepts_purchase_fields | items.TestItemCreateAcceptsPurchaseFields | ported |  | — |
+| tests/integration/test_items_sell_buy.py | test_item_out_serializes_new_fields | items.TestItemOutSerializesNewFields | ported |  | — |
+| tests/integration/test_items_sell_buy.py | test_item_update_can_toggle_purchased | items.TestItemUpdateCanTogglePurchased | ported |  | — |
 | tests/integration/test_mcp_e2e.py | test_e2e_oauth_then_authenticated_tool_calls |  | todo |  |  |
 | tests/integration/test_mcp_e2e.py | test_e2e_bad_token_rejected |  | todo |  |  |
 | tests/integration/test_mcp_e2e.py | test_e2e_send_invoice_email_requires_confirmation_over_transport |  | todo |  |  |
@@ -268,14 +268,14 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_open_ar_base.py | test_foreign_currency_converted_via_seeded_rate |  | todo |  |  |
 | tests/integration/test_open_ar_base.py | test_missing_rate_currency_lands_in_unconverted |  | todo |  |  |
 | tests/integration/test_open_ar_base.py | test_draft_excluded |  | todo |  |  |
-| tests/integration/test_payment_account_model.py | test_relationship_orders_and_reads_accounts |  | todo |  |  |
-| tests/integration/test_payment_account_model.py | test_duplicate_currency_rejected |  | todo |  |  |
-| tests/integration/test_payment_account_model.py | test_second_default_rejected |  | todo |  |  |
-| tests/integration/test_payment_accounts_api.py | test_replace_and_list_payment_accounts |  | todo |  |  |
-| tests/integration/test_payment_accounts_api.py | test_replace_is_full_overwrite |  | todo |  |  |
-| tests/integration/test_payment_accounts_api.py | test_reject_duplicate_currency |  | todo |  |  |
-| tests/integration/test_payment_accounts_api.py | test_reject_two_defaults |  | todo |  |  |
-| tests/integration/test_payment_accounts_api.py | test_reject_unsupported_currency |  | todo |  |  |
+| tests/integration/test_payment_account_model.py | test_relationship_orders_and_reads_accounts | business.TestRelationshipOrdersAndReadsAccounts | ported |  | — |
+| tests/integration/test_payment_account_model.py | test_duplicate_currency_rejected | business.TestDuplicateCurrencyRejected | ported |  | — |
+| tests/integration/test_payment_account_model.py | test_second_default_rejected | business.TestSecondDefaultRejected | ported |  | — |
+| tests/integration/test_payment_accounts_api.py | test_replace_and_list_payment_accounts | business.TestReplaceAndListPaymentAccounts | ported |  | — |
+| tests/integration/test_payment_accounts_api.py | test_replace_is_full_overwrite | business.TestReplaceIsFullOverwrite | ported |  | — |
+| tests/integration/test_payment_accounts_api.py | test_reject_duplicate_currency | business.TestRejectDuplicateCurrency | ported |  | — |
+| tests/integration/test_payment_accounts_api.py | test_reject_two_defaults | business.TestRejectTwoDefaults | ported |  | — |
+| tests/integration/test_payment_accounts_api.py | test_reject_unsupported_currency | business.TestRejectUnsupportedCurrency | ported |  | — |
 | tests/integration/test_pdf_engine.py | test_html_to_pdf_returns_pdf_bytes |  | todo |  |  |
 | tests/integration/test_pdf_engine.py | test_fetcher_refuses_non_embedded_urls |  | todo |  |  |
 | tests/integration/test_pdf_engine.py | test_fetcher_allows_data_uris |  | todo |  |  |
@@ -366,9 +366,9 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_zero_value_invoice.py | test_settle_rejects_draft |  | todo |  |  |
 | tests/integration/test_zero_value_invoice.py | test_mark_paid_endpoint_settles_zero_value |  | todo |  |  |
 | tests/integration/test_zero_value_invoice.py | test_mark_paid_endpoint_rejects_nonzero_balance |  | todo |  |  |
-| tests/unit/test_customers_service.py | test_create_customer_sets_fields |  | todo |  |  |
-| tests/unit/test_customers_service.py | test_update_customer_edits_fields |  | todo |  |  |
-| tests/unit/test_customers_service.py | test_update_customer_not_found_raises |  | todo |  |  |
+| tests/unit/test_customers_service.py | test_create_customer_sets_fields | customers.TestCreateCustomerSetsFields | ported |  | — |
+| tests/unit/test_customers_service.py | test_update_customer_edits_fields | customers.TestUpdateCustomerEditsFields | ported |  | — |
+| tests/unit/test_customers_service.py | test_update_customer_not_found_raises | customers.TestUpdateCustomerNotFound | ported |  | — |
 | tests/unit/test_email_resend.py | test_resend_settings_defaults |  | todo |  |  |
 | tests/unit/test_email_resend.py | test_resend_api_key_from_env |  | todo |  |  |
 | tests/unit/test_email_resend.py | test_resend_used_when_key_set_and_smtp_untouched |  | todo |  |  |
@@ -390,10 +390,10 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_invoice_pdf.py | test_notes_fall_back_to_business_default_when_invoice_has_none |  | todo |  |  |
 | tests/unit/test_invoice_pdf.py | test_render_wht_invoice_hero_is_amount_to_transfer |  | todo |  |  |
 | tests/unit/test_invoice_pdf.py | test_render_no_wht_invoice_hero_is_balance_due |  | todo |  |  |
-| tests/unit/test_items_service.py | test_create_item_basic |  | todo |  |  |
-| tests/unit/test_items_service.py | test_create_hosting_item_sets_active_status_and_normalizes |  | todo |  |  |
-| tests/unit/test_items_service.py | test_update_item_not_found_raises |  | todo |  |  |
-| tests/unit/test_items_service.py | test_update_item_edits_fields |  | todo |  |  |
+| tests/unit/test_items_service.py | test_create_item_basic | items.TestCreateItemBasic | ported |  | — |
+| tests/unit/test_items_service.py | test_create_hosting_item_sets_active_status_and_normalizes | items.TestCreateHostingItemSetsActiveStatusAndNormalizes | ported |  | `record_type` not upper-cased: TestCreateHostingItemSetsActiveStatusAndNormalizes red (task 5) |
+| tests/unit/test_items_service.py | test_update_item_not_found_raises | items.TestUpdateItemNotFound | ported |  | — |
+| tests/unit/test_items_service.py | test_update_item_edits_fields | items.TestUpdateItemEditsFields | ported |  | — |
 | tests/unit/test_matching_engine.py | test_exact_match_clears |  | todo |  |  |
 | tests/unit/test_matching_engine.py | test_amount_mismatch_holds_and_no_ledger_hint |  | todo |  |  |
 | tests/unit/test_matching_engine.py | test_overpayment_flagged_as_credit_on_account |  | todo |  |  |
@@ -512,17 +512,17 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_recurring_schedule.py | test_next_cycle_after_returns_none_past_count_cap |  | todo |  |  |
 | tests/unit/test_recurring_schedule.py | test_paused_flag_roundtrips |  | todo |  |  |
 | tests/unit/test_sentry_disabled_in_tests.py | test_create_app_does_not_enable_sentry_under_pytest |  | todo |  |  |
-| tests/unit/test_vendors_service.py | test_create_vendor_sets_fields |  | todo |  |  |
-| tests/unit/test_vendors_service.py | test_update_vendor_edits_fields |  | todo |  |  |
-| tests/unit/test_vendors_service.py | test_update_vendor_not_found_raises |  | todo |  |  |
-| tests/unit/test_withholding.py | test_pph23_no_gross_up |  | todo |  |  |
-| tests/unit/test_withholding.py | test_pph23_gross_up |  | todo |  |  |
-| tests/unit/test_withholding.py | test_pph21_usd_gross_up_two_decimals |  | todo |  |  |
-| tests/unit/test_withholding.py | test_none_type |  | todo |  |  |
-| tests/unit/test_withholding.py | test_zero_base_gross_up |  | todo |  |  |
-| tests/unit/test_withholding.py | test_round_half_up |  | todo |  |  |
-| tests/unit/test_withholding.py | test_normalize_defaults_rate |  | todo |  |  |
-| tests/unit/test_withholding.py | test_normalize_none_clears |  | todo |  |  |
-| tests/unit/test_withholding.py | test_normalize_rejects_invalid |  | todo |  |  |
-| tests/unit/test_withholding.py | test_expected_cash |  | todo |  |  |
-| tests/unit/test_withholding.py | test_expected_cash_never_negative |  | todo |  |  |
+| tests/unit/test_vendors_service.py | test_create_vendor_sets_fields | vendors.TestCreateVendorSetsFields | ported |  | — |
+| tests/unit/test_vendors_service.py | test_update_vendor_edits_fields | vendors.TestUpdateVendorEditsFields | ported |  | Omitted `name` written as the zero value instead of `.Or(cur.Name)`: TestUpdateVendorEditsFields red (task 4) |
+| tests/unit/test_vendors_service.py | test_update_vendor_not_found_raises | vendors.TestUpdateVendorNotFound | ported |  | — |
+| tests/unit/test_withholding.py | test_pph23_no_gross_up | withholding.TestPph23NoGrossUp | ported |  | — |
+| tests/unit/test_withholding.py | test_pph23_gross_up | withholding.TestPph23GrossUp | ported |  | — |
+| tests/unit/test_withholding.py | test_pph21_usd_gross_up_two_decimals | withholding.TestPph21UsdGrossUpTwoDecimals | ported |  | Gross-up call site rounding replaced with `RoundBank(0)`: TestPph21UsdGrossUpTwoDecimals red (task 2 fix) |
+| tests/unit/test_withholding.py | test_none_type | withholding.TestNoneType | ported |  | — |
+| tests/unit/test_withholding.py | test_zero_base_gross_up | withholding.TestZeroBaseGrossUp | ported |  | — |
+| tests/unit/test_withholding.py | test_round_half_up | withholding.TestRoundHalfUp | ported |  | `platform.RoundWithholding` changed to half-even: TestRoundHalfUp red (task 2) |
+| tests/unit/test_withholding.py | test_normalize_defaults_rate | withholding.TestNormalizeDefaultsRate | ported |  | — |
+| tests/unit/test_withholding.py | test_normalize_none_clears | withholding.TestNormalizeNoneClears | ported |  | — |
+| tests/unit/test_withholding.py | test_normalize_rejects_invalid | withholding.TestNormalizeRejectsInvalid | ported |  | Rate check changed to reject only negatives: TestNormalizeRejectsInvalid red (task 2) |
+| tests/unit/test_withholding.py | test_expected_cash | withholding.TestExpectedCash | ported |  | — |
+| tests/unit/test_withholding.py | test_expected_cash_never_negative | withholding.TestExpectedCashNeverNegative | ported |  | — |

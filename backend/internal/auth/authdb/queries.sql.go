@@ -70,6 +70,45 @@ func (q *Queries) CountPairFailures(ctx context.Context, arg CountPairFailuresPa
 	return count, err
 }
 
+const createUser = `-- name: CreateUser :one
+INSERT INTO users (user_id, email, password_hash, role, display_name)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING user_id, email, password_hash, role, created_at, display_name, password_reset_token, password_reset_expires, session_epoch
+`
+
+type CreateUserParams struct {
+	UserID       uuid.UUID
+	Email        string
+	PasswordHash string
+	Role         string
+	DisplayName  *string
+}
+
+// role and display_name come from the request; created_at and the session
+// epoch from the database's defaults.
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, createUser,
+		arg.UserID,
+		arg.Email,
+		arg.PasswordHash,
+		arg.Role,
+		arg.DisplayName,
+	)
+	var i User
+	err := row.Scan(
+		&i.UserID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.CreatedAt,
+		&i.DisplayName,
+		&i.PasswordResetToken,
+		&i.PasswordResetExpires,
+		&i.SessionEpoch,
+	)
+	return i, err
+}
+
 const deleteFailure = `-- name: DeleteFailure :exec
 DELETE FROM login_attempts WHERE id = $1
 `
@@ -100,6 +139,40 @@ func (q *Queries) InsertFailure(ctx context.Context, arg InsertFailureParams) (i
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const listUsers = `-- name: ListUsers :many
+SELECT user_id, email, password_hash, role, created_at, display_name, password_reset_token, password_reset_expires, session_epoch FROM users ORDER BY email, user_id
+`
+
+func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := q.db.Query(ctx, listUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []User
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Email,
+			&i.PasswordHash,
+			&i.Role,
+			&i.CreatedAt,
+			&i.DisplayName,
+			&i.PasswordResetToken,
+			&i.PasswordResetExpires,
+			&i.SessionEpoch,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const oldestAddressFailure = `-- name: OldestAddressFailure :one
@@ -197,6 +270,35 @@ func (q *Queries) SetResetToken(ctx context.Context, arg SetResetTokenParams) er
 	return err
 }
 
+const updateProfile = `-- name: UpdateProfile :one
+UPDATE users SET email = $1, display_name = $2
+WHERE user_id = $3
+RETURNING user_id, email, password_hash, role, created_at, display_name, password_reset_token, password_reset_expires, session_epoch
+`
+
+type UpdateProfileParams struct {
+	Email       string
+	DisplayName *string
+	UserID      uuid.UUID
+}
+
+func (q *Queries) UpdateProfile(ctx context.Context, arg UpdateProfileParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateProfile, arg.Email, arg.DisplayName, arg.UserID)
+	var i User
+	err := row.Scan(
+		&i.UserID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.CreatedAt,
+		&i.DisplayName,
+		&i.PasswordResetToken,
+		&i.PasswordResetExpires,
+		&i.SessionEpoch,
+	)
+	return i, err
+}
+
 const userByEmail = `-- name: UserByEmail :one
 SELECT user_id, email, password_hash, role, created_at, display_name, password_reset_token, password_reset_expires, session_epoch FROM users WHERE email = $1
 `
@@ -224,6 +326,27 @@ SELECT user_id, email, password_hash, role, created_at, display_name, password_r
 
 func (q *Queries) UserByID(ctx context.Context, userID uuid.UUID) (User, error) {
 	row := q.db.QueryRow(ctx, userByID, userID)
+	var i User
+	err := row.Scan(
+		&i.UserID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.CreatedAt,
+		&i.DisplayName,
+		&i.PasswordResetToken,
+		&i.PasswordResetExpires,
+		&i.SessionEpoch,
+	)
+	return i, err
+}
+
+const userByIDForUpdate = `-- name: UserByIDForUpdate :one
+SELECT user_id, email, password_hash, role, created_at, display_name, password_reset_token, password_reset_expires, session_epoch FROM users WHERE user_id = $1 FOR UPDATE
+`
+
+func (q *Queries) UserByIDForUpdate(ctx context.Context, userID uuid.UUID) (User, error) {
+	row := q.db.QueryRow(ctx, userByIDForUpdate, userID)
 	var i User
 	err := row.Scan(
 		&i.UserID,

@@ -59,3 +59,21 @@ DELETE FROM login_attempts WHERE failed_at < sqlc.arg(before);
 
 -- name: ClearPairFailures :exec
 DELETE FROM login_attempts WHERE email = sqlc.arg(email) AND client_addr = sqlc.arg(client_addr);
+
+-- name: ListUsers :many
+SELECT * FROM users ORDER BY email, user_id;
+
+-- name: CreateUser :one
+-- role and display_name come from the request; created_at and the session
+-- epoch from the database's defaults.
+INSERT INTO users (user_id, email, password_hash, role, display_name)
+VALUES (sqlc.arg(user_id), sqlc.arg(email), sqlc.arg(password_hash), sqlc.arg(role), sqlc.arg(display_name))
+RETURNING *;
+
+-- name: UserByIDForUpdate :one
+SELECT * FROM users WHERE user_id = $1 FOR UPDATE;
+
+-- name: UpdateProfile :one
+UPDATE users SET email = sqlc.arg(email), display_name = sqlc.arg(display_name)
+WHERE user_id = sqlc.arg(user_id)
+RETURNING *;

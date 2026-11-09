@@ -7,14 +7,14 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// optionalMarker is implemented by Optional[T] only.
+// optionalMarker is implemented by Optional[T] and NotNull[T] only.
 type optionalMarker interface{ optionalField() }
 
 var optionalType = reflect.TypeFor[optionalMarker]()
 
 // relaxOptionalRequestFields is a huma OnAddOperation hook. Huma marks every
 // struct field required unless it carries omitempty, so a PATCH field of type
-// Optional[T], or a nullable *T request field, would be a 422 when omitted.
+// Optional[T] or NotNull[T], or a nullable *T request field, would be a 422 when omitted.
 // This walks each request body's Go types and drops those fields from the
 // schema's required list, so no author has to remember a tag.
 func relaxOptionalRequestFields(oapi *huma.OpenAPI, op *huma.Operation) {
@@ -29,6 +29,13 @@ func relaxOptionalRequestFields(oapi *huma.OpenAPI, op *huma.Operation) {
 
 func relax(reg huma.Registry, s *huma.Schema, t reflect.Type, seen map[*huma.Schema]bool) {
 	if s == nil {
+		return
+	}
+	// A nullable $ref or object is anyOf [schema, null] (nullable).
+	if s.Ref == "" && s.Type == "" && s.AnyOf != nil {
+		for _, b := range s.AnyOf {
+			relax(reg, b, t, seen)
+		}
 		return
 	}
 	if s.Ref != "" {
@@ -47,11 +54,23 @@ func relax(reg huma.Registry, s *huma.Schema, t reflect.Type, seen map[*huma.Sch
 	for t != nil && t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
+	// A bare array body has no Go type here; its items are a $ref, which
+	// names theirs.
+	if t == nil && s.Type == huma.TypeArray {
+		relax(reg, s.Items, nil, seen)
+		return
+	}
 	if t == nil {
 		return
 	}
 	if t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
 		relax(reg, s.Items, t.Elem(), seen)
+		return
+	}
+	if t.Kind() == reflect.Map {
+		if values, ok := s.AdditionalProperties.(*huma.Schema); ok {
+			relax(reg, values, t.Elem(), seen)
+		}
 		return
 	}
 	if t.Kind() == reflect.Struct {
@@ -73,9 +92,16 @@ func relax(reg huma.Registry, s *huma.Schema, t reflect.Type, seen map[*huma.Sch
 
 func relaxStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, optional map[string]bool, seen map[*huma.Schema]bool) {
 	for f := range t.Fields() {
-		if f.Anonymous && f.Type.Kind() == reflect.Struct {
-			relaxStruct(reg, s, f.Type, optional, seen)
-			continue
+		// Huma flattens an embedded struct, by value or by pointer, into the
+		// parent's properties.
+		if et := f.Type; f.Anonymous {
+			if et.Kind() == reflect.Pointer {
+				et = et.Elem()
+			}
+			if et.Kind() == reflect.Struct {
+				relaxStruct(reg, s, et, optional, seen)
+				continue
+			}
 		}
 		if !f.IsExported() {
 			continue

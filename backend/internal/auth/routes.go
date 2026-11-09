@@ -66,6 +66,7 @@ func Register(api huma.API, pool *pgxpool.Pool, s platform.Sessions, mail email.
 	}
 	q := authdb.New(pool)
 	r := routes{pool: pool, q: q, sessions: s, mail: mail, cfg: cfg, clock: clock, throttle: throttle{q: q}, dummy: dummy}
+	registerUsers(api, r)
 	public := []string{platform.PublicTag, "auth"}
 	const prefix = "/api/v1/auth"
 

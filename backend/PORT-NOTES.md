@@ -48,3 +48,89 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
    Python: when `/oauth/authorize` finds no session it redirects to `{app_base_url}/login?return_to=<authorize url>` (`app/mcp/oauth.py:350-358`). The login page only reads `route.query.next` (`frontend/src/views/LoginView.vue:53-54`); the router guard also sets `next` (`frontend/src/router/index.ts:277`).
    Seen: after signing in, an MCP client user lands on `/dashboard`, not back on the authorize screen, so the OAuth flow stalls until the client retries.
    After the switch: make the Go redirect send `next` (and have the login page accept only same-origin paths or the known authorize URL), or teach the login page to read `return_to`.
+
+10. **`null` for a NOT NULL column on PATCH.**
+    Python: a create schema declares these fields without `| None` (`name: str`, `active: bool = True`, …), so a `null` on create is already a 422. The PATCH schemas make every field `| None`, so pydantic accepts `null` for fields such as `code`, `name`, `active` and the row update fails at the database. `PATCH /api/v1/accounting/chart-of-accounts/{id}` catches the IntegrityError and answers 409 `account code already exists` (`app/api/v1/routers/accounting.py:100-104`); every other router lets it become a 500. Customers are the exception on create: `CustomerCreate` inherits `CustomerBase`'s `| None` fields (`app/schemas/customer.py:9-53`), so a `null` `active`, `default_currency` or CC list reaches the database on create too.
+    Seen: a client that sends `{"code": null}` gets a misleading 409 on accounts and an opaque 500 elsewhere.
+    Go: 422 `Request validation failed` with one error per null field, location `<field>` and message `value cannot be null` (`platform.NotNull`). The row is untouched. Not for customers' `default_wht_type` and `default_wht_gross_up`: Python's service treats their `null` as "keep the stored value" (`app/services/customers.py:31-43`), and Go does the same (`customers.TestCustomerNullWhtTypeAndGrossUpKeepStored`).
+    After the switch: none: Go's behaviour is the fix.
+
+11. **Duplicate item SKU and unknown item account.**
+    Python: `create_item` and `update_item` flush without catching the IntegrityError (`app/services/items.py:51, :71`), so a repeated `sku` or a `revenue_account_id` / `expense_account_id` that does not exist is a 500.
+    Seen: the item form shows a generic server error instead of the reason.
+    Go: 409 `sku_exists` with detail `sku already exists`; 422 `account_not_found` with detail `account not found`.
+    After the switch: none: Go's behaviour is the fix.
+
+12. **`GET /api/v1/business-profile` on a missing row.**
+    Python: see note 4, the GET inserts the row and never commits.
+    Go: the GET answers the same defaults (all fields null, `updated_at` = now) and writes nothing. This closes note 4 for Go.
+    After the switch: none: Go's behaviour is the fix.
+
+13. **Admin password reset signs the target out everywhere.**
+    Python: `admin_reset_password` replaces the hash and clears the reset token, but leaves existing sessions alive (`app/api/v1/routers/users.py:79-82`).
+    Seen: a user whose password an admin reset keeps working sessions on every device until they expire.
+    Go: the reset bumps the user's session epoch, so every session of that user stops working. This is a deliberate spec change, covered by "sign-out everywhere on a password change" under the heading "Best-practice changes" in the spec (`docs/superpowers/specs/2026-11-08-go-backend-design.md`).
+    After the switch: none: Go's behaviour is the fix.
+
+14. **Email address rules.**
+    Python: `EmailStr` (email-validator) for vendor, customer and user emails and for every CC entry (`app/schemas/vendor.py:9`, `app/schemas/customer.py:17`, `app/schemas/user.py:18`, `app/schemas/auth.py:31`, `app/schemas/email.py:8`).
+    Seen: both sides trim, lower-case the domain, and keep the local part's case.
+    Go: `platform.NormalizeEmail` keeps the email-validator rules listed in Task 1 of the plan (exactly one `@`; local part 1-64 bytes without whitespace; domain with at least two labels of letters, digits and inner hyphens, each at most 63; no special-use last label). Rarer forms may differ: Go may accept quoted local parts, leading, trailing or double dots in the local part, an all-numeric TLD and domains over 253 characters, which email-validator refuses. An allowed difference for `compare`.
+    After the switch: none needed; tighten `NormalizeEmail` only if a refused form is seen in real data.
+
+15. **Boolean query filters accept fewer spellings.**
+    Python: `active: bool | None = None` on the list routes (`app/api/v1/routers/accounting.py:47`, `vendors.py:19`, `customers.py:42`, `items.py:19`) is parsed by pydantic, which also accepts `yes/no/on/off/y/n` in any case.
+    Seen: `?active=yes` filters in Python.
+    Go: `strconv.ParseBool` through `platform.OptionalParam`. `items.TestItemListActiveFilterSpellings` shows `?active=` with `true`, `false`, `1`, `0`, `t`, `f`, `TRUE` or `False` answering 200, and `yes`, `no`, `on`, `off`, `y` or `n` answering 422. The frontend sends `true` and `false`.
+    After the switch: none; the frontend sends only `true` and `false`.
+
+16. **Over-long strings are 422 instead of a database 500.**
+    Python: some vendor, customer, business-profile and user fields have no `max_length` although their column is a varchar: vendor `contact_name` and `tax_id` (`app/schemas/vendor.py:10, 13`, and on PATCH `name`, `:23`), customer `contact_email` (`customer.py:17`), business-profile `name`, `contact_email`, `contact_phone`, `npwp` (`business_profile.py:9-18`), user `role` (`user.py:20`). A value longer than the column fails in Postgres and surfaces as 500.
+    Go: each request field carries the column's `maxLength`, so the same input is a 422 at the field.
+    After the switch: none: Go's behaviour is the fix.
+
+17. **`ItemUpdate` limits are enforced on PATCH.**
+    Python: `ItemUpdate` has no length limit on `sku` and no `min_length` on `name` (`app/schemas/item.py:82-102`), so an over-long `sku` is a 500 and an empty `name` is stored.
+    Go: `sku` at most 50 and `name` at least 1 apply on PATCH as on create.
+    After the switch: none: Go's behaviour is the fix.
+
+18. **A whitespace-only `hosting_domain` or target field is accepted and stored as `""`.**
+    Python: the hosting check and the target `min_length` test the raw value before it is stripped (`app/schemas/item.py:65-78`), so `"  "` passes and the stripped value is saved.
+    Seen: a hosting item can be created with an empty domain.
+    Go: the same, kept on purpose to match Python. Odd; decide when hosting is rebuilt.
+    After the switch: refuse a value that is empty once trimmed, with the hosting rebuild.
+
+19. **Item price errors list only the first refused price, and a parse refusal hides other errors.**
+    Python: pydantic reports every failing field, so a body with both prices refused lists both (`app/schemas/item.py:47-50, 88-91`), and a bad decimal, date or time is listed with the other errors of the body.
+    Go: `checkPrices` returns the first refused price (unit price first) as a 422 whose detail is pydantic's sentence. A value that fails to parse (bad decimal, date, time) is reported alone, without the other 422 errors of the same body.
+    After the switch: list every refused field in one 422 if a form needs it; the frontend shows `detail` only.
+
+20. **Invalid email `detail` and the CC list error location.**
+    Python: a bad single email is a pydantic error list (`value is not a valid email address: ...` text from email-validator) located at the field; a bad CC entry is located at the list, `billing_cc_emails` (`app/schemas/email.py:19-28`).
+    Go: `detail` is `value is not a valid email address` with the field as location. A CC entry error carries the element index, `billing_cc_emails.1`, and the message `invalid email address: <addr>`. The frontend reads `detail`, not locations.
+    After the switch: none; the frontend reads `detail`.
+
+21. **`POST /users` with `role: ""` or `null`.**
+    Python: `role: str = Field(default="admin")` stores `""` as given and refuses `null` (`app/schemas/user.py:20`). `role` is any string in both, with no check against known roles.
+    Go: `role` is any string of at most 20 characters; `""` and `null` store `admin`.
+    After the switch: check `role` against the roles the app knows.
+
+22. **An admin resetting their own password is signed out too.**
+    Python: no session is touched (note 13), so the caller stays signed in.
+    Go: the same epoch bump as note 13 applies to the caller's own account when the target is the caller, so the next request returns 401 `session expired` and they sign in again (`auth.TestAdminSelfResetSignsCallerOut`).
+    After the switch: none: Go's behaviour is the fix (it matches a password change, which also signs every session out).
+
+23. **A blanked display name cannot be cleared.**
+    Python: `PATCH /api/v1/users/me` changes `display_name` only when it is not `null` (`app/api/v1/routers/users.py:42`). The Account page sends `display_name: null` when the field is blanked (`frontend/src/views/AccountView.vue:64`).
+    Seen: a user who empties their display name and saves keeps the old name; only `""` (which the page never sends) clears it. Go keeps this contract (`auth.TestUpdateMeNullLeavesFields`).
+    After the switch: treat `null` as "clear" in Go (or have the page send `""`).
+
+24. **Business profile `updated_at` moves on a PUT that changes nothing.**
+    Python: the PUT sets each sent field on the row (`app/api/v1/routers/business_profile.py:44-47`); SQLAlchemy emits no UPDATE when no value changed, so the model's `onupdate` (`app/models/business_profile.py:32`) does not fire and `updated_at` stays.
+    Go: the PUT always writes the row, so `updated_at` moves even when every value sent equals the stored one. An allowed difference for `compare`.
+    After the switch: none; nothing reads `updated_at` as a change marker.
+
+25. **A customer `default_wht_rate` with more than four decimal places is 422.**
+    Python: `default_wht_rate: Decimal | None` has no `decimal_places` (`app/schemas/customer.py:52`), so the value is rounded into `numeric(7,4)`; a rate such as `99.99999` passes the "below 100" check and is stored as `100.0000`.
+    Go: such a rate is refused before the withholding check with a 422 at `default_wht_rate`, detail `Decimal input should have no more than 4 decimal places` (a JSON number; a string with five places already fails the decimal schema), and nothing is stored (`customers.TestCustomerWhtRateFivePlacesIs422`).
+    After the switch: none: Go's behaviour is the fix.

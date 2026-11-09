@@ -47,10 +47,15 @@ case "${1:-}" in
     # frontend's types are generated from openapi.json.
     "$self" sqlc >/dev/null
     "$self" openapi >/dev/null
+    # Only the generated files are checked: the sqlc packages (each `out:` in
+    # sqlc.yaml) and openapi.json. Other work in progress may be uncommitted.
     # git status, unlike git diff, also sees new untracked files and changes
-    # already staged: everything under internal/ must be committed as is.
-    git diff --exit-code -- internal openapi.json || { echo "generated files are stale: run ./dev sqlc and ./dev openapi"; exit 1; }
-    dirty=$(git status --porcelain -- internal openapi.json)
+    # already staged: the generated files must be committed as they are.
+    generated=(openapi.json)
+    while IFS= read -r out; do generated+=("$out"); done < <(sed -n 's/^[[:space:]]*out:[[:space:]]*\([^[:space:]#]*\).*/\1/p' sqlc.yaml)
+    if [[ ${#generated[@]} -lt 2 ]]; then echo "no out: path found in sqlc.yaml"; exit 1; fi
+    git diff --exit-code -- "${generated[@]}" || { echo "generated files are stale: run ./dev sqlc and ./dev openapi"; exit 1; }
+    dirty=$(git status --porcelain -- "${generated[@]}")
     if [[ -n "$dirty" ]]; then
       echo "$dirty"
       echo "generated files are stale or uncommitted: run ./dev sqlc and ./dev openapi, then commit"

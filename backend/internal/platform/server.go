@@ -85,7 +85,7 @@ func NewServer(cfg Config, deps Deps) (http.Handler, huma.API) {
 	// Set here, every body struct allows them.
 	config.AllowAdditionalPropertiesByDefault = true
 
-	config.OnAddOperation = append(config.OnAddOperation, relaxOptionalRequestFields)
+	config.OnAddOperation = append(config.OnAddOperation, relaxOptionalRequestFields, markNullablePointers, nonNullableArrayBodies)
 	api := humachi.New(r, config)
 	api.UseMiddleware(authenticate(api, deps.Pool, deps.Sessions))
 

@@ -36,9 +36,14 @@ import (
 	"github.com/LOQATO/gokit/db"
 	"github.com/LOQATO/gokit/observe"
 
+	"github.com/wenhaokho/wenhao-billing/backend/internal/accounts"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/auth"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/business"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/customers"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/vendors"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
 
@@ -54,6 +59,11 @@ type features struct {
 // register adds every feature's operations. A new feature adds its line here.
 func register(api huma.API, f features) {
 	auth.Register(api, f.Pool, f.Sessions, f.Mail, f.Config, f.Clock)
+	accounts.Register(api, f.Pool)
+	vendors.Register(api, f.Pool)
+	items.Register(api, f.Pool)
+	customers.Register(api, f.Pool)
+	business.Register(api, f.Pool, f.Clock)
 }
 
 func main() {

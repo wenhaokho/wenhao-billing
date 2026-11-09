@@ -1,4 +1,6 @@
 version: "2"
+# go_overrides is every package's type mapping; a new entry reuses it with
+# `overrides: *go_overrides`.
 sql:
   - engine: postgresql
     schema: migrations
@@ -10,7 +12,7 @@ sql:
         sql_package: pgx/v5
         emit_enum_valid_method: true
         emit_pointers_for_null_types: true
-        overrides:
+        overrides: &go_overrides
           - db_type: uuid
             go_type: github.com/google/uuid.UUID
           - db_type: pg_catalog.numeric
@@ -28,3 +30,88 @@ sql:
             go_type:
               type: time.Time
               pointer: true
+  - engine: postgresql
+    schema: migrations
+    queries: internal/accounts/queries.sql
+    gen:
+      go:
+        package: accountsdb
+        out: internal/accounts/accountsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/vendors/queries.sql
+    gen:
+      go:
+        package: vendorsdb
+        out: internal/vendors/vendorsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/items/queries.sql
+    gen:
+      go:
+        package: itemsdb
+        out: internal/items/itemsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/business/queries.sql
+    gen:
+      go:
+        package: businessdb
+        out: internal/business/businessdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/customers/queries.sql
+    gen:
+      go:
+        package: customersdb
+        out: internal/customers/customersdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        # A YAML anchor cannot be merged into a list: this is go_overrides
+        # (keep the two in step) plus the JSONB string lists.
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: pg_catalog.numeric
+            go_type: github.com/shopspring/decimal.Decimal
+          - db_type: pg_catalog.numeric
+            nullable: true
+            go_type: github.com/shopspring/decimal.NullDecimal
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: pg_catalog.timestamp
+            go_type: time.Time
+          - db_type: pg_catalog.timestamp
+            nullable: true
+            go_type:
+              type: time.Time
+              pointer: true
+          - column: customers.matching_aliases
+            go_type:
+              type: string
+              slice: true
+          - column: customers.quotation_cc_emails
+            go_type:
+              type: string
+              slice: true
+          - column: customers.billing_cc_emails
+            go_type:
+              type: string
+              slice: true
