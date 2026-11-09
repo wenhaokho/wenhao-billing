@@ -481,7 +481,7 @@ type templateActionIn struct {
 }
 
 func (r routes) actOnTemplate(ctx context.Context, in *templateActionIn) (*invoiceBody, error) {
-	today := todayUTC(r.clock)
+	today := platform.TodayUTC(r.clock)
 	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) {
 		return actOnTemplate(ctx, tx, in.TemplateID, in.Body.Action, today)
 	})

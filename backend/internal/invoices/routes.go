@@ -156,7 +156,7 @@ func (r routes) create(ctx context.Context, in *createIn) (*invoiceBody, error) 
 	if err := checkFields(in.Body.InvoiceFields, in.Body.LineItems); err != nil {
 		return nil, err
 	}
-	today := todayUTC(r.clock)
+	today := platform.TodayUTC(r.clock)
 	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return createInvoice(ctx, tx, in.Body, today) })
 }
 
@@ -166,7 +166,7 @@ func (r routes) createMilestone(ctx context.Context, in *milestoneIn) (*invoiceB
 	if in.Body.Amount.Decimal().Sign() <= 0 {
 		return nil, platform.FieldError("amount", notPositiveSentence)
 	}
-	today := todayUTC(r.clock)
+	today := platform.TodayUTC(r.clock)
 	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return createMilestone(ctx, tx, in.Body, today) })
 }
 

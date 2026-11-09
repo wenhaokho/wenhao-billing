@@ -1,8 +1,8 @@
-# Go backend, plan 8: reports and stats (DRAFT)
+# Go backend, plan 8: reports and stats
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Draft, written 2026-11-10 while plan 7 was building.** Before execution, a refresh pass checks the names below against `main` (plan 7's `payments` package and platform helpers).
+> **Refreshed 2026-11-10 against `main` at 6bf89c5 (plan 7 merged).** Checked: `invoices.todayUTC`/`utcDate` (core.go:395-398), `fx.GetRate`/`Convert`, `invoices.CurrencyAmount`, `schedule.Parse`/`IsPaused`/`Current`/`NextAfter` all exist as named; `platform.TodayUTC` and `fx.RateOn` do not yet (Task 1 adds them).
 
 **Goal:** Go answers the 5 accounting report routes and the 3 stats routes with Python's contract, and exposes the dashboard core as a function the MCP plan can call.
 

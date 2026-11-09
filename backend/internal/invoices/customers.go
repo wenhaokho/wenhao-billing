@@ -88,7 +88,7 @@ func registerCustomerViews(api huma.API, r routes) {
 type balancesOut struct{ Body []CustomerBalanceRow }
 
 func (r routes) customerBalances(ctx context.Context, _ *struct{}) (*balancesOut, error) {
-	rows, err := CustomerBalances(ctx, r.q, todayUTC(r.clock))
+	rows, err := CustomerBalances(ctx, r.q, platform.TodayUTC(r.clock))
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +143,7 @@ func (r routes) billingSummary(ctx context.Context, in *customerIn) (*summaryOut
 	s.TotalUnpaid = currencyAmounts(unpaid)
 
 	// A year is 365 days, not a calendar year (customers.py:172).
-	since := todayUTC(r.clock).AddDate(0, 0, -365)
+	since := platform.TodayUTC(r.clock).AddDate(0, 0, -365)
 	paid, err := r.q.SumClearedPaymentsSince(ctx, invoicesdb.SumClearedPaymentsSinceParams{
 		CustomerID: cust, Since: pgtype.Date{Time: since, Valid: true},
 	})

@@ -36,18 +36,18 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_customer_wht_defaults.py | test_patch_without_wht_fields_keeps_stored | customers.TestPatchWithoutWhtFieldsKeepsStored | ported |  | — |
 | tests/integration/test_customer_wht_defaults.py | test_patch_partial_wht_merges_with_stored | customers.TestPatchPartialWhtMergesWithStored | ported |  | Normalize skipped on PATCH (raw overlay of the sent withholding values): TestPatchPartialWhtMergesWithStored red (task 6) |
 | tests/integration/test_customer_wht_defaults.py | test_patch_type_switch_uses_new_default_rate | customers.TestPatchTypeSwitchUsesNewDefaultRate | ported |  | Stored rate kept on a type switch: TestPatchTypeSwitchUsesNewDefaultRate red (task 6) |
-| tests/integration/test_dashboard_stats.py | test_empty_db_returns_zero_counts_and_no_currency_rows |  | todo | stats plan |  |
-| tests/integration/test_dashboard_stats.py | test_counts_reflect_invoice_and_customer_state |  | todo |  |  |
-| tests/integration/test_dashboard_stats.py | test_open_ar_by_currency_sums_sent_and_partial_only |  | todo |  |  |
-| tests/integration/test_dashboard_stats.py | test_open_quotation_pipeline_sums_sent_and_accepted_only_sorted_desc |  | todo | stats plan |  |
-| tests/integration/test_dashboard_stats.py | test_auto_cleared_last_30d_counts_only_cleared_payments |  | todo |  |  |
-| tests/integration/test_dashboard_stats.py | test_awaiting_review_count_counts_pending_manual_review_payments |  | todo |  |  |
-| tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_matches_service_function |  | todo | stats plan |  |
-| tests/integration/test_dashboard_stats.py | test_recent_activity_includes_payment_invoice_and_actor_details |  | todo |  |  |
-| tests/integration/test_dashboard_stats.py | test_recent_activity_details_empty_for_unmatched_system_payment |  | todo |  |  |
-| tests/integration/test_dashboard_stats.py | test_draft_count_excludes_recurring_templates |  | todo |  |  |
-| tests/integration/test_dashboard_stats.py | test_dashboard_stats_includes_mrr_and_base_ar |  | todo |  |  |
-| tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_exposes_new_fields |  | todo |  |  |
+| tests/integration/test_dashboard_stats.py | test_empty_db_returns_zero_counts_and_no_currency_rows | stats.TestDashboardEmptyDBReturnsZeroCountsAndNoCurrencyRows | ported |  | — |
+| tests/integration/test_dashboard_stats.py | test_counts_reflect_invoice_and_customer_state | stats.TestDashboardCountsReflectInvoiceAndCustomerState | ported |  | — |
+| tests/integration/test_dashboard_stats.py | test_open_ar_by_currency_sums_sent_and_partial_only | stats.TestDashboardOpenARByCurrencySumsSentAndPartialOnly | ported |  | Open AR statuses without PARTIAL, and conversion per invoice instead of per currency sum: red (task 5) |
+| tests/integration/test_dashboard_stats.py | test_open_quotation_pipeline_sums_sent_and_accepted_only_sorted_desc | stats.TestDashboardOpenQuotationPipelineSumsSentAndAcceptedOnlySortedDesc | ported |  | Pipeline statuses plus DECLINED, and sort reversed: red (task 5) |
+| tests/integration/test_dashboard_stats.py | test_auto_cleared_last_30d_counts_only_cleared_payments | stats.TestDashboardAutoClearedLast30dCountsOnlyClearedPayments | ported |  | 30-day window changed to 31 and to 29 days: TestDashboardAutoCleared30DayWindow red (task 5) |
+| tests/integration/test_dashboard_stats.py | test_awaiting_review_count_counts_pending_manual_review_payments | stats.TestDashboardAwaitingReviewCountCountsPendingManualReviewPayments | ported |  | — |
+| tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_matches_service_function | stats.TestDashboardEndpointMatchesServiceFunction | ported |  | — |
+| tests/integration/test_dashboard_stats.py | test_recent_activity_includes_payment_invoice_and_actor_details | stats.TestRecentActivityIncludesPaymentInvoiceAndActorDetails | ported |  | Customer coalesce swapped (invoice first): TestRecentActivityCustomerCoalescesPaymentBeforeInvoice red (task 6) |
+| tests/integration/test_dashboard_stats.py | test_recent_activity_details_empty_for_unmatched_system_payment | stats.TestRecentActivityDetailsEmptyForUnmatchedSystemPayment | ported |  | — |
+| tests/integration/test_dashboard_stats.py | test_draft_count_excludes_recurring_templates | stats.TestDashboardDraftCountExcludesRecurringTemplates | ported |  | CountDrafts without `is_template = false`: red (task 5) |
+| tests/integration/test_dashboard_stats.py | test_dashboard_stats_includes_mrr_and_base_ar | stats.TestDashboardIncludesMRRAndBaseAR | ported |  | — |
+| tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_exposes_new_fields | stats.TestDashboardEndpointExposesNewFields | ported |  | — |
 | tests/integration/test_hosting.py | test_hosting_item_creates_with_cloudflare_target | items.TestHostingItemCreatesWithCloudflareTarget | ported |  | — |
 | tests/integration/test_hosting.py | test_trigger_recurring_cycle_stamps_coverage_on_hosting_invoice | invoices.TestTriggerRecurringCycleStampsCoverageOnHostingInvoice | ported |  | — |
 | tests/integration/test_hosting.py | test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates |  | todo | hosting plan (plan 9: enforcement and reconciliation restore) |  |
@@ -75,22 +75,22 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_invoice_withholding.py | test_milestone_invoice_inherits_customer_default | invoices.TestMilestoneInvoiceInheritsCustomerDefault | ported |  | — |
 | tests/integration/test_invoice_withholding.py | test_update_template_gross_up_only_keeps_type_and_rate | invoices.TestUpdateTemplateGrossUpOnlyKeepsTypeAndRate | ported |  | — |
 | tests/integration/test_invoice_withholding.py | test_create_invoice_rate_100_returns_400 | invoices.TestCreateInvoiceRate100Returns400 | ported |  | — |
-| tests/integration/test_invoices_summary.py | test_empty_db_returns_zero_buckets_and_null_avg |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_sent_invoice_past_due_appears_in_overdue |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_partial_invoice_past_due_uses_balance_due_not_amount |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_overdue_sums_multiple_invoices_same_currency |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_overdue_separates_by_currency |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_sent_invoice_due_today_is_in_due_30d_not_overdue |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_sent_invoice_due_in_30_days_inclusive |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_sent_invoice_due_in_31_days_excluded |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_draft_invoice_excluded_from_buckets |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_void_invoice_excluded_from_buckets |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_template_invoice_excluded |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_paid_invoice_excluded_from_overdue_and_due_30d |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_avg_days_to_pay_single_invoice |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_avg_days_to_pay_averages_across_invoices |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_avg_days_to_pay_ignores_payments_older_than_90_days |  | todo |  |  |
-| tests/integration/test_invoices_summary.py | test_avg_days_to_pay_ignores_non_cleared_payments |  | todo |  |  |
+| tests/integration/test_invoices_summary.py | test_empty_db_returns_zero_buckets_and_null_avg | stats.TestSummaryEmptyDBReturnsZeroBucketsAndNullAvg | ported |  | — |
+| tests/integration/test_invoices_summary.py | test_sent_invoice_past_due_appears_in_overdue | stats.TestSummarySentInvoicePastDueAppearsInOverdue | ported |  | — |
+| tests/integration/test_invoices_summary.py | test_partial_invoice_past_due_uses_balance_due_not_amount | stats.TestSummaryPartialInvoicePastDueUsesBalanceDueNotAmount | ported |  | — |
+| tests/integration/test_invoices_summary.py | test_overdue_sums_multiple_invoices_same_currency | stats.TestSummaryOverdueSumsMultipleInvoicesSameCurrency | ported |  | — |
+| tests/integration/test_invoices_summary.py | test_overdue_separates_by_currency | stats.TestSummaryOverdueSeparatesByCurrency | ported |  | — |
+| tests/integration/test_invoices_summary.py | test_sent_invoice_due_today_is_in_due_30d_not_overdue | stats.TestSummarySentInvoiceDueTodayIsInDue30dNotOverdue | ported |  | Overdue `<=` (due today in overdue), and due_30d `> today`: red (task 7) |
+| tests/integration/test_invoices_summary.py | test_sent_invoice_due_in_30_days_inclusive | stats.TestSummarySentInvoiceDueIn30DaysInclusive | ported |  | due_30d window +29 days: red (task 7) |
+| tests/integration/test_invoices_summary.py | test_sent_invoice_due_in_31_days_excluded | stats.TestSummarySentInvoiceDueIn31DaysExcluded | ported |  | due_30d window +31 days: red (task 7) |
+| tests/integration/test_invoices_summary.py | test_draft_invoice_excluded_from_buckets | stats.TestSummaryDraftInvoiceExcludedFromBuckets | ported |  | DRAFT admitted to overdue and to due_30d: red (task 7) |
+| tests/integration/test_invoices_summary.py | test_void_invoice_excluded_from_buckets | stats.TestSummaryVoidInvoiceExcludedFromBuckets | ported |  | VOID admitted: red (task 7) |
+| tests/integration/test_invoices_summary.py | test_template_invoice_excluded | stats.TestSummaryTemplateInvoiceExcluded | ported |  | Template filter removed from overdue and from due_30d: red (task 7) |
+| tests/integration/test_invoices_summary.py | test_paid_invoice_excluded_from_overdue_and_due_30d | stats.TestSummaryPaidInvoiceExcludedFromOverdueAndDue30d | ported |  | — |
+| tests/integration/test_invoices_summary.py | test_avg_days_to_pay_single_invoice | stats.TestSummaryAvgDaysToPaySingleInvoice | ported |  | — |
+| tests/integration/test_invoices_summary.py | test_avg_days_to_pay_averages_across_invoices | stats.TestSummaryAvgDaysToPayAveragesAcrossInvoices | ported |  | — |
+| tests/integration/test_invoices_summary.py | test_avg_days_to_pay_ignores_payments_older_than_90_days | stats.TestSummaryAvgDaysToPayIgnoresPaymentsOlderThan90Days | ported |  | Payments older than 90 days counted: red (task 7) |
+| tests/integration/test_invoices_summary.py | test_avg_days_to_pay_ignores_non_cleared_payments | stats.TestSummaryAvgDaysToPayIgnoresNonClearedPayments | ported |  | Average counts non-CLEARED payments: red (task 7) |
 | tests/integration/test_items_sell_buy.py | test_item_defaults_sold_true_purchased_false | items.TestItemDefaultsSoldTruePurchasedFalse | ported |  | — |
 | tests/integration/test_items_sell_buy.py | test_item_can_be_purchased_only | items.TestItemCanBePurchasedOnly | ported |  | — |
 | tests/integration/test_items_sell_buy.py | test_item_can_be_both_sold_and_purchased | items.TestItemCanBeBothSoldAndPurchased | ported |  | — |
@@ -256,20 +256,20 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_exact_match_clears |  | todo | mcp plan (plan 10) |  |
 | tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_currency_mismatch_refuses |  | todo | mcp plan (plan 10) |  |
 | tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_amount_mismatch_refuses |  | todo | mcp plan (plan 10) |  |
-| tests/integration/test_mrr_stats.py | test_empty_db_returns_no_rows |  | todo |  |  |
-| tests/integration/test_mrr_stats.py | test_monthly_interval_1_is_full_amount |  | todo |  |  |
-| tests/integration/test_mrr_stats.py | test_yearly_divided_by_twelve |  | todo |  |  |
-| tests/integration/test_mrr_stats.py | test_weekly_times_52_over_12 |  | todo |  |  |
-| tests/integration/test_mrr_stats.py | test_monthly_interval_3_is_third |  | todo |  |  |
-| tests/integration/test_mrr_stats.py | test_paused_template_excluded |  | todo |  |  |
-| tests/integration/test_mrr_stats.py | test_ended_template_excluded |  | todo |  |  |
-| tests/integration/test_mrr_stats.py | test_non_template_recurring_excluded |  | todo |  |  |
-| tests/integration/test_mrr_stats.py | test_grouped_and_sorted_desc |  | todo |  |  |
-| tests/integration/test_open_ar_base.py | test_empty_db_returns_empty |  | todo |  |  |
-| tests/integration/test_open_ar_base.py | test_base_currency_ar_uses_rate_one |  | todo |  |  |
-| tests/integration/test_open_ar_base.py | test_foreign_currency_converted_via_seeded_rate |  | todo |  |  |
-| tests/integration/test_open_ar_base.py | test_missing_rate_currency_lands_in_unconverted |  | todo |  |  |
-| tests/integration/test_open_ar_base.py | test_draft_excluded |  | todo |  |  |
+| tests/integration/test_mrr_stats.py | test_empty_db_returns_no_rows | stats.TestMRREmptyDBReturnsNoRows | ported |  | — |
+| tests/integration/test_mrr_stats.py | test_monthly_interval_1_is_full_amount | stats.TestMRRMonthlyInterval1IsFullAmount | ported |  | — |
+| tests/integration/test_mrr_stats.py | test_yearly_divided_by_twelve | stats.TestMRRYearlyDividedByTwelve | ported |  | — |
+| tests/integration/test_mrr_stats.py | test_weekly_times_52_over_12 | stats.TestMRRWeeklyTimes52Over12 | ported |  | Weekly factor 52 changed to 51: red (task 5) |
+| tests/integration/test_mrr_stats.py | test_monthly_interval_3_is_third | stats.TestMRRMonthlyInterval3IsThird | ported |  | — |
+| tests/integration/test_mrr_stats.py | test_paused_template_excluded | stats.TestMRRPausedTemplateExcluded | ported |  | Paused check dropped: red (task 5) |
+| tests/integration/test_mrr_stats.py | test_ended_template_excluded | stats.TestMRREndedTemplateExcluded | ported |  | — |
+| tests/integration/test_mrr_stats.py | test_non_template_recurring_excluded | stats.TestMRRNonTemplateRecurringExcluded | ported |  | — |
+| tests/integration/test_mrr_stats.py | test_grouped_and_sorted_desc | stats.TestMRRGroupedAndSortedDesc | ported |  | — |
+| tests/integration/test_open_ar_base.py | test_empty_db_returns_empty | stats.TestOpenAREmptyDBReturnsEmpty | ported |  | — |
+| tests/integration/test_open_ar_base.py | test_base_currency_ar_uses_rate_one | stats.TestOpenARBaseCurrencyUsesRateOne | ported |  | — |
+| tests/integration/test_open_ar_base.py | test_foreign_currency_converted_via_seeded_rate | stats.TestOpenARForeignCurrencyConvertedViaSeededRate | ported |  | — |
+| tests/integration/test_open_ar_base.py | test_missing_rate_currency_lands_in_unconverted | stats.TestOpenARMissingRateCurrencyLandsInUnconverted | ported |  | Missing rate not mapped to unconverted: red (task 5) |
+| tests/integration/test_open_ar_base.py | test_draft_excluded | stats.TestOpenARDraftExcluded | ported |  | — |
 | tests/integration/test_payment_account_model.py | test_relationship_orders_and_reads_accounts | business.TestRelationshipOrdersAndReadsAccounts | ported |  | — |
 | tests/integration/test_payment_account_model.py | test_duplicate_currency_rejected | business.TestDuplicateCurrencyRejected | ported |  | — |
 | tests/integration/test_payment_account_model.py | test_second_default_rejected | business.TestSecondDefaultRejected | ported |  | — |
@@ -336,30 +336,30 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_recurring_scheduling.py | test_ended_template_rejects_edit | invoices.TestEndedTemplateRejectsEdit | ported |  | Dropped the ended check on PUT (`if false && ended`): TestEndedTemplateRejectsEdit red (task 5); dropped the `next_run - 1` cap in END_NOW: red as well (task 5) |
 | tests/integration/test_recurring_scheduling.py | test_ended_template_rejects_pause_and_resume | invoices.TestEndedTemplateRejectsPauseAndResume | ported |  | Dropped the `next_run - 1` cap in END_NOW: TestEndedTemplateRejectsPauseAndResume red (task 5) |
 | tests/integration/test_recurring_scheduling.py | test_active_template_still_accepts_edit | invoices.TestActiveTemplateStillAcceptsEdit | ported |  | — |
-| tests/integration/test_revenue_monthly_base.py | test_labels_span_12_months_oldest_first |  | todo |  |  |
-| tests/integration/test_revenue_monthly_base.py | test_base_currency_uses_rate_one |  | todo |  |  |
-| tests/integration/test_revenue_monthly_base.py | test_foreign_currency_converted_via_seeded_rate |  | todo |  |  |
-| tests/integration/test_revenue_monthly_base.py | test_missing_rate_currency_reported_unconverted |  | todo |  |  |
-| tests/integration/test_revenue_monthly_base.py | test_draft_template_and_out_of_window_excluded |  | todo |  |  |
-| tests/integration/test_revenue_monthly_base.py | test_same_currency_summed_across_invoices_in_a_month |  | todo |  |  |
-| tests/integration/test_revenue_monthly_base.py | test_unpaid_split_tracks_remaining_balance |  | todo |  |  |
-| tests/integration/test_revenue_monthly_base.py | test_fully_paid_month_has_no_unpaid_entry |  | todo |  |  |
-| tests/integration/test_revenue_monthly_base.py | test_unconverted_currency_has_no_base_unpaid |  | todo |  |  |
+| tests/integration/test_revenue_monthly_base.py | test_labels_span_12_months_oldest_first | stats.TestRevenueLabelsSpan12MonthsOldestFirst | ported |  | — |
+| tests/integration/test_revenue_monthly_base.py | test_base_currency_uses_rate_one | stats.TestRevenueBaseCurrencyUsesRateOne | ported |  | — |
+| tests/integration/test_revenue_monthly_base.py | test_foreign_currency_converted_via_seeded_rate | stats.TestRevenueForeignCurrencyConvertedViaSeededRate | ported |  | — |
+| tests/integration/test_revenue_monthly_base.py | test_missing_rate_currency_reported_unconverted | stats.TestRevenueMissingRateCurrencyReportedUnconverted | ported |  | Unconverted not reported, and unconverted treated as rate 1: red (task 7) |
+| tests/integration/test_revenue_monthly_base.py | test_draft_template_and_out_of_window_excluded | stats.TestRevenueDraftTemplateAndOutOfWindowExcluded | ported |  | Status filter dropped, template filter removed, window start one day late: red (task 7) |
+| tests/integration/test_revenue_monthly_base.py | test_same_currency_summed_across_invoices_in_a_month | stats.TestRevenueSameCurrencySummedAcrossInvoicesInAMonth | ported |  | — |
+| tests/integration/test_revenue_monthly_base.py | test_unpaid_split_tracks_remaining_balance | stats.TestRevenueUnpaidSplitTracksRemainingBalance | ported |  | — |
+| tests/integration/test_revenue_monthly_base.py | test_fully_paid_month_has_no_unpaid_entry | stats.TestRevenueFullyPaidMonthHasNoUnpaidEntry | ported |  | Unpaid kept when zero (native and base): red (task 7) |
+| tests/integration/test_revenue_monthly_base.py | test_unconverted_currency_has_no_base_unpaid | stats.TestRevenueUnconvertedCurrencyHasNoBaseUnpaid | ported |  | Unconverted treated as rate 1: red (task 7) |
 | tests/integration/test_send_receipt.py | test_send_receipt_happy_path | payments.TestSendReceiptHappyPath | ported |  | — |
 | tests/integration/test_send_receipt.py | test_send_receipt_defaults_to_customer_contact_email | payments.TestSendReceiptDefaultsToCustomerContactEmail | ported |  | — |
 | tests/integration/test_send_receipt.py | test_send_receipt_no_recipient_400 | payments.TestSendReceiptNoRecipientIs400 | ported |  | — |
 | tests/integration/test_send_receipt.py | test_send_receipt_payment_not_on_invoice_404 | payments.TestSendReceiptPaymentNotOnInvoiceIs404 | ported |  | Dropped the payment-belongs-to-invoice check: TestSendReceiptPaymentNotOnInvoiceIs404 red (task 9) |
 | tests/integration/test_send_receipt.py | test_send_receipt_unknown_payment_404 | payments.TestSendReceiptUnknownPaymentIs404 | ported |  | — |
 | tests/integration/test_send_receipt.py | test_send_receipt_email_failure_502 | payments.TestSendReceiptEmailFailureIs502 | ported |  | — |
-| tests/integration/test_upcoming_invoices.py | test_empty_db_returns_empty |  | todo |  |  |
-| tests/integration/test_upcoming_invoices.py | test_recurring_next_occurrence_within_window |  | todo |  |  |
-| tests/integration/test_upcoming_invoices.py | test_recurring_reported_once_even_if_multiple_cycles_in_window |  | todo |  |  |
-| tests/integration/test_upcoming_invoices.py | test_recurring_beyond_window_excluded |  | todo |  |  |
-| tests/integration/test_upcoming_invoices.py | test_paused_recurring_excluded |  | todo |  |  |
-| tests/integration/test_upcoming_invoices.py | test_usage_next_cutoff_is_estimate |  | todo |  |  |
-| tests/integration/test_upcoming_invoices.py | test_usage_locked_or_no_cutoff_skipped |  | todo |  |  |
-| tests/integration/test_upcoming_invoices.py | test_usage_non_draft_skipped |  | todo |  |  |
-| tests/integration/test_upcoming_invoices.py | test_mixed_sorted_by_date |  | todo |  |  |
+| tests/integration/test_upcoming_invoices.py | test_empty_db_returns_empty | stats.TestUpcomingEmptyDBReturnsEmpty | ported |  | — |
+| tests/integration/test_upcoming_invoices.py | test_recurring_next_occurrence_within_window | stats.TestUpcomingRecurringNextOccurrenceWithinWindow | ported |  | — |
+| tests/integration/test_upcoming_invoices.py | test_recurring_reported_once_even_if_multiple_cycles_in_window | stats.TestUpcomingRecurringReportedOnceEvenIfMultipleCyclesInWindow | ported |  | — |
+| tests/integration/test_upcoming_invoices.py | test_recurring_beyond_window_excluded | stats.TestUpcomingRecurringBeyondWindowExcluded | ported |  | — |
+| tests/integration/test_upcoming_invoices.py | test_paused_recurring_excluded | stats.TestUpcomingPausedRecurringExcluded | ported |  | — |
+| tests/integration/test_upcoming_invoices.py | test_usage_next_cutoff_is_estimate | stats.TestUpcomingUsageNextCutoffIsEstimate | ported |  | — |
+| tests/integration/test_upcoming_invoices.py | test_usage_locked_or_no_cutoff_skipped | stats.TestUpcomingUsageLockedOrNoCutoffSkipped | ported |  | Locked skip removed: red (task 6) |
+| tests/integration/test_upcoming_invoices.py | test_usage_non_draft_skipped | stats.TestUpcomingUsageNonDraftSkipped | ported |  | Non-DRAFT usage skip removed: red (task 6) |
+| tests/integration/test_upcoming_invoices.py | test_mixed_sorted_by_date | stats.TestUpcomingMixedSortedByDate | ported |  | — |
 | tests/integration/test_zero_value_invoice.py | test_zero_value_draft_has_zero_totals | invoices.TestZeroValueDraftHasZeroTotals | ported |  | — |
 | tests/integration/test_zero_value_invoice.py | test_finalize_zero_value_invoice_becomes_paid | invoices.TestFinalizeZeroValueInvoiceBecomesPaid | ported |  | — |
 | tests/integration/test_zero_value_invoice.py | test_finalize_nonzero_invoice_becomes_open | invoices.TestFinalizeNonzeroInvoiceBecomesOpen | ported |  | — |

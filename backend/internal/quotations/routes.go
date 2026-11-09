@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
@@ -78,7 +77,7 @@ func (r routes) create(ctx context.Context, in *createIn) (*quotationBody, error
 	if err := checkFields(in.Body.QuotationFields, in.Body.LineItems); err != nil {
 		return nil, err
 	}
-	today := todayUTC(r.clock)
+	today := platform.TodayUTC(r.clock)
 	return r.inTx(ctx, func(tx pgx.Tx) (QuotationOut, error) { return createQuotation(ctx, tx, in.Body, today) })
 }
 
@@ -146,11 +145,4 @@ func (r routes) delete(ctx context.Context, in *idIn) (*struct{}, error) {
 		return nil, clientError(err)
 	}
 	return nil, nil
-}
-
-// todayUTC is the clock's UTC calendar date (Python's date.today() in a UTC
-// container), at midnight UTC.
-func todayUTC(c platform.Clock) time.Time {
-	n := c.Now().UTC()
-	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, time.UTC)
 }

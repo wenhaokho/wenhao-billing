@@ -28,7 +28,8 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
 5. **`as_of` and "today" defaults use the server-local date.**
    Python: `Query(default_factory=date.today)` on the trial balance, balance sheet, FX revaluation, AR aging and AP aging reports (`app/api/v1/routers/accounting.py:243, 314, 389, 558, 607`); the dashboard and customer balances use `date.today()` too (`routers/stats.py:191, 251, 286`, `routers/customers.py:65, 172`). `date.today()` reads the process time zone.
    Seen: a container running in UTC flips to the next day at 07:00 Jakarta time, so for seven hours each morning the reports and aging buckets show "yesterday" to a user in WIB.
-   After the switch: take "today" from one business-time-zone clock (Asia/Jakarta) in Go and use it everywhere.
+   Go: every "today" and every `as_of` default is the UTC calendar date of `platform.Clock`, through one helper, `platform.TodayUTC` (plan 8 moved it out of `invoices`, which had its own copy, and `quotations`, which had another). It is used by invoices, quotations, payments, the five reports and the three stats routes (`platform.TestTodayUTCAcrossMidnightJakarta`; the report default is `reports.TestAsOfDefaultsToUTCToday`). The date comes from the instant's UTC fields, so a `Clock` in another zone cannot shift it.
+   After the switch: take "today" from one business-time-zone clock (Asia/Jakarta) in Go and use it everywhere. It is now one function to change (`platform.TodayUTC`), plus the browser's `toISOString` date on the reports screen.
 
 6. **The matching engine can auto-clear a tie between equal top candidates (PRD safe-stop).**
    Python: `match_payment` sorts candidates by score and takes `scored[0]` with no check on the runner-up (`app/services/matching_engine.py:180-186`); a CLEARED result needs only an exact match on that one candidate with confidence at or above the threshold (`:226-233`). Candidates come from a query with no `ORDER BY` (`app/services/reconciliation.py:47-54`), so which of two equal invoices wins is up to the database.
@@ -509,4 +510,74 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
 96. **Python printers: repr now escapes like Python in two error texts.**
     Python: the FX sync error `fx provider returned invalid date for <src>-><target>: <value!r>` (`app/services/fx_provider.py:83`) and the ledger refusal for a payment that is not CLEARED, `with status {payment.status!r}` (`app/services/ledger.py:118`), print Python's `repr`, which escapes a quote or backslash and, for a string, any non-printable non-ASCII character.
     Go: `platform.PyJSONRepr` and `platform.PyRepr` do the same now (before plan 7, the fx text added quotes without escaping and the ledger text did not escape non-printable non-ASCII). No input of a route reaches either difference today; `platform.TestPrintersMatchTheCopiesTheyReplaced` pins the printers.
+    After the switch: none.
+
+97. **The balance sheet honours `as_of` (a change).**
+    Python: the `posted_at <= cutoff` test sits in the ON clause of the outer join to `journal_entries`, while the sums read `journal_lines` (`app/api/v1/routers/accounting.py:324-334`; the cutoff itself is `:237`). Every line ever posted is therefore summed, whatever the date. The reports screen always sends `as_of`, so a past date shows today's balances. The trial balance and the revaluation put the test in WHERE (`:262`, `:418`) and are right.
+    Go: lines count only from entries with `posted_at < as_of + 1 day`, so the whole `as_of` day is in and the next midnight is out (`reports.TestBalanceSheetHonoursAsOf`, `reports.TestBalanceSheetCutoffInclusiveOfDay`). This changes numbers for any past date.
+    After the switch: none; compare runs will differ on a past `as_of` once postings exist after it.
+
+98. **One open-AR rule everywhere (a change).**
+    Python: the dashboard's `open_ar_by_currency` and the base conversion read `status IN (OPEN, SENT, PARTIAL)` with no template filter and no `balance_due > 0` (`app/services/stats.py:150-154`, `:512-517`). AR aging (`accounting.py:576-578`), the invoices summary (`stats.py:366-369`, `:419-422`) and customer balances filter both, so a recurring template or a negative balance moved the dashboard only.
+    Go: the dashboard uses the same filter as the other three: `status IN (OPEN, SENT, PARTIAL) AND is_template = false AND balance_due > 0` (`stats.TestOpenARExcludesTemplatesAndZeroBalances`; every Python open-AR test uses positive non-template invoices, so none needed adapting).
+    After the switch: none. A compare run shows the difference only for a template or a non-positive balance in an open status.
+
+99. **Zero prints as `0.0000`; no negative zero (a change; an allowed difference for compare).**
+    Python: untouched starts are `Decimal("0")` and print `0`: the trial balance totals (`accounting.py:273-274`), the missing balance-sheet types (`:373-378`), the revaluation totals (`:450-451`) and every untouched aging bucket (`:532-539`); sums read from the database print four places. An unchanged LIABILITY bucket gives `(revalued - original) * Decimal("-1")`, which is `Decimal("-0.0000")` and prints `-0.0000` (`:466`, `:496`).
+    Go: every money value prints at four places (`platform.Dec4`), and shopspring has no negative zero (`reports.TestRevaluationUnchangedLiabilityIsZero` also asserts the body holds no `-0.0000`; `reports.TestTrialBalanceEmpty`, `reports.TestAgingEmpty`, `reports.TestAgingTotalsByCurrency`, `reports.TestBalanceSheetSignsPerType`).
+    After the switch: none. The compare tool must read `0` and `0.0000`, and `-0.0000` and `0.0000`, as equal.
+
+100. **Deterministic order everywhere (a change).**
+    Python: no `ORDER BY` on `open_ar_by_currency` (`app/services/stats.py:512-517`), so ties in the pipeline sort (`:534`), the MRR sort (`:136`), the open-AR-base sort (`:166`) and the monthly dicts (`:218-242`) follow the database; the invoices-summary buckets (`:363-373`) and the aging input (`accounting.py:567-579`, `:616-627`) are unordered, so rows with the same lower-cased name (`:600`) and the key order of `totals_by_currency` vary; recent activity breaks `created_at` ties by chance (`routers/stats.py:163`).
+    Go: per-currency lists come `ORDER BY currency` and then Python's stable sort; aging rows sort by `(lower(name), currency, party_id)`; `totals_by_currency` and the monthly dicts are JSON objects whose keys come in currency order; recent activity is `created_at DESC, log_id DESC` (`reports.TestAgingOrderDeterministic`, `reports.TestAgingSameCustomerCurrenciesOrderedByCurrency`, `reports.TestAgingTotalsByCurrency`, `stats.TestPipelineTieOrderDeterministic`, `stats.TestOpenARBaseTieOrderedByCurrency`, `stats.TestMRRWeeklyAndTie`, `stats.TestRevenueMonthlyRoute`, `stats.TestRecentActivityNewestFirstTenRowsLogIDBreaksTies`).
+    After the switch: none. A compare run that sees a tie in a different order is Python's chance, not a Go fault.
+
+101. **Kept: the balance sheet lists P&L groups and has no result line; the trial balance has inactive accounts.**
+    Python: the sheet lists INCOME, EXPENSE and COGS groups (`accounting.py:363-367`) and has no retained-earnings line (`:369-379`), so assets do not equal liabilities plus equity once there is income; a line is skipped only when its balance and both base sides are zero (`:354`). The trial balance includes inactive accounts and drops accounts without lines (`:260-262`); `net` and `base_net` are sent but not read by the screen.
+    Go: the same, on purpose: fixed group order ASSET, LIABILITY, EQUITY, INCOME, EXPENSE, COGS, `expense_total_base` is EXPENSE plus COGS, and an offsetting account (balance 0, both sides non-zero) is kept (`reports.TestBalanceSheetGroupOrder`, `reports.TestBalanceSheetSignsPerType`, `reports.TestBalanceSheetKeepsOffsettingAccount`, `reports.TestTrialBalanceInactiveAccountIncluded`).
+    After the switch: add a current-result line (income minus expense) so the sheet balances; decide whether inactive accounts belong in the trial balance.
+
+102. **Kept: counts that include more than their name says.**
+    Python: `auto_cleared_last_30d` counts every CLEARED payment (auto-cleared intake, manual record-payment, manual-review approvals), with `created_at >= now(UTC) - 30 days` and no upper bound; a reversed (FLAGGED) one drops out (`app/services/stats.py:499-510`). `sent_count` is OPEN plus SENT with no template filter and no PARTIAL (`:490-495`); `customer_count` includes inactive customers (`:497`).
+    Go: the same (`stats.TestDashboardAutoClearedLast30dCountsOnlyClearedPayments`, `stats.TestDashboardAutoCleared30DayWindow`, `stats.TestDashboardSentCountStatusesAndCustomers`). The window compares a full timestamp, so it is right only when the database time zone is UTC (spec "Timestamps").
+    After the switch: count only auto-cleared intake (`intake_source <> 'MANUAL'`, no later OVERRIDDEN log), or rename the field; count PARTIAL and drop templates in `sent_count`; filter inactive customers.
+
+103. **Kept: monthly revenue converts every month at today's rate.**
+    Python: one `get_rate(db, ccy, today)` per currency, used for all 12 months (`app/services/stats.py:244-256`; documented in `routers/stats.py:240-248`), so past months move with the rate and a currency with no current rate drops out of the base totals of every month and is listed in `unconverted`; its native amounts stay. Products round half-even at four places (`:258-282`).
+    Go: the same, with `fx.Convert`'s rounding (`stats.TestRevenueConvertsHalfEvenAtTodaysRate`, `stats.TestRevenueForeignCurrencyConvertedViaSeededRate`, `stats.TestRevenueMissingRateCurrencyReportedUnconverted`). The query has no upper bound; a future month is dropped when it is not one of the 12 labels (`stats.TestRevenueFutureMonthDropped`).
+    After the switch: convert each month at the rate of its own month end, so a closed month stops moving.
+
+104. **Kept: `avg_days_to_pay` is per payment (`10` vs `10.0` is an allowed difference for compare).**
+    Python: the mean of `(payment_date - issue_date).days` over each CLEARED payment of a PAID invoice with `payment_date >= today - 90`, so an invoice paid in two payments counts twice; no upper bound on `payment_date`; negative deltas are allowed; `None` when no rows (`app/services/stats.py:377-398`). It is a Python float: `10.0`, `13.333333333333334`.
+    Go: the same rule (`stats.TestSummaryAvgDaysToPayCountsEachPayment`, `stats.TestSummaryAvgDaysToPayWindowEdgeIs90DaysInclusive`, `stats.TestSummaryAvgDaysToPayOnlyCountsPaidInvoices`). It is a JSON number or null, held as `float64` (the one place a float is allowed, with a lint reason). Go prints `10` where Python printed `10.0`; both parse to the same number (`stats.TestInvoicesSummaryRoute` pins `13.333333333333334`).
+    After the switch: average per invoice (last payment date), if that is what the tile means.
+
+105. **Kept: upcoming-invoice rules.**
+    Python: a recurring template is listed at its first cycle strictly after today (`app/services/recurring_schedule.py:194`; `app/services/stats.py:315`), so a cycle starting today is not listed. A usage invoice uses the smallest date on or after today with the cut-off day, clamped to the month end (`:292-300`), so a cut-off today is listed. Templates of any status are listed (`:89-93`). A usage cut-off must satisfy `isinstance(dom, int) and 1 <= dom <= 31` (`:341`): JSON `true` passes as 1, while `"20"`, `20.0` and `false` are skipped, stricter than the usage-lock worker; a truthy `locked` skips the row (`:338`). The horizon is today plus 90 days, inclusive; sort `(next_date, str(invoice_id))` (`:358`).
+    Go: all the same (`stats.TestRecurringCycleStartingTodayNotListed`, `stats.TestUpcomingUsageCutoffTodayIsListed`, `stats.TestUsageCutOffDayTypes`, `stats.TestUsageCutOffClampsToMonthEnd`, `stats.TestUpcomingUsageLockedTruthiness`, `stats.TestUpcomingHorizonIsNinetyDaysInclusive`, `stats.TestUpcomingSortTieAcrossModesByInvoiceID`). The usage-side horizon check cannot be reached (a next cut-off is at most about 31 days away); it is kept for parity and has no test.
+    After the switch: use one rule for both kinds (on or after today), and one cut-off parser shared with the usage-lock worker.
+
+106. **Kept: FX revaluation keeps residue buckets and looks the rate up as written.**
+    Python: a bucket with a zero face balance but a non-zero base (rounding residue, or a realised FX line in a foreign currency) is kept, and its whole base shows as unrealised gain or loss (`app/api/v1/routers/accounting.py:469`, `:494-500`). Its rate query does not upper-case the currency, unlike `fx.get_rate` (`:434-444`), so a lower-case journal currency finds no rate and the row is `rate_missing`. The newest rate on or before `as_of` is used; a missing rate gives null fields and a sorted `missing_rates`.
+    Go: the same (`reports.TestRevaluationResidueBucketKept`, `reports.TestRevaluationSkipsSettledBucket`, `reports.TestRevaluationMissingRate`, `reports.TestRevaluationUsesNewestRateOnOrBefore`, `fx.TestRateOnCaseSensitive`). `fx.RateOn` is the new lookup; it returns the rate and its date, one call per currency per request.
+    After the switch: show a residue bucket as its own line, and upper-case the lookup (journal currencies are upper case in practice).
+
+107. **Kept: AR aging treats a NULL due date as current and has no `issue_date` filter.**
+    Python: `days = (as_of - due_date).days if due_date else 0` (`accounting.py:592`, `:640`), so an invoice with no due date is current; an invoice issued after `as_of` is still aged (no `issue_date` filter, `:570-578`). AP has no SENT status, and its `(no vendor)` and `-` branches cannot be reached because `bills.vendor_id` is NOT NULL.
+    Go: the same (`reports.TestAgingNullDueDateIsCurrent`, `reports.TestAgingUsesAsOf`, `reports.TestAPAgingExcludesSent`, `reports.TestAgingNoCustomerRow`). The AP fallback is kept and has no test.
+    After the switch: filter `issue_date <= as_of`, and decide where a NULL due date belongs.
+
+108. **Kept: recent activity shows an empty `actor_name`; `created_at` gains a `Z`.**
+    Python: `actor_name` is `coalesce(display_name, email)` (`app/api/v1/routers/stats.py:153`), so a user with `display_name = ""` shows blank, not their email. `created_at` is a naive datetime and prints without an offset (`:174`). The customer name is `coalesce(payment.customer_id, invoice.customer_id)` (`:155-160`).
+    Go: the empty name is kept (`stats.TestRecentActivityActorNameCoalesce`); `created_at` prints as UTC with `Z`, like the payments audit log (`stats.TestRecentActivityIncludesPaymentInvoiceAndActorDetails` pins `2026-01-15T09:00:00Z`); the customer coalesce is the same (`stats.TestRecentActivityCustomerCoalescesPaymentBeforeInvoice`). Upcoming rows get the customer name in the same query, not a second lookup.
+    After the switch: use `nullif(display_name, '')`; the `Z` is an allowed difference for compare (a client parses both).
+
+109. **`as_of`: an empty value is today; a bad date is 422 at `as_of`; the routes are admin only.**
+    Python: `as_of: date = Query(default_factory=date.today)` (`accounting.py:243, 314, 389, 558, 607`). An empty `?as_of=` is a 422 (the empty string is not a date) and the 422 location is `query.as_of`.
+    Go: an empty `?as_of=` counts as not sent and defaults to the UTC date (Huma's treatment of every optional date in the port; no test pins the empty case); a bad date is 422 at location `as_of`, as for `fx` `on_date` (`reports.TestBadAsOfIs422`); all eight routes are 401 `not authenticated` and 403 `admin required` (`reports.TestReportsRequireAdmin`, `reports.TestAgingRequiresAdminAndValidatesAsOf`, `stats.TestDashboardRequiresAdmin`, `stats.TestRevenueMonthlyRequiresAdmin`, `stats.TestInvoicesSummaryRequiresAdmin`). The base currency in every response is the configured one.
+    After the switch: none; a client that sends an empty `as_of` should drop the parameter.
+
+110. **Arithmetic: MRR divides at 28 places; the 28-digit context is not copied.**
+    Python: MRR divides in the 28-significant-digit decimal context and quantizes each currency's sum half-even (`app/services/stats.py:108-137`); products above 28 digits would round before `quantize`, and a quantized value above 10^24 raises (a 500) (`app/services/fx.py:72`, `accounting.py:494`).
+    Go: `DivRound(x, 28)` per template (28 decimal places, not 28 significant digits), then `RoundHalfEven4` on the per-currency sum (`stats.TestMRRWeeklyTimes52Over12`, `stats.TestMRRWeeklyAndTie`); products are exact. At `numeric(19,4)` times `numeric(19,8)` sizes the two cannot differ except for a sum landing exactly on a four-place tie.
     After the switch: none.

@@ -13,7 +13,7 @@
 #    database host and name (default db, billing_test).
 # 3. frontend: npm ci && npm run build (vue-tsc typecheck + vite build)
 # 4. go (backend/): lint, generated code current (sqlc + openapi.json), and
-#    go test -race. Fails if any Go test is skipped: gokit/testkit skips every
+#    go test (GO_TEST_RACE=1 adds -race). Fails if any Go test is skipped: gokit/testkit skips every
 #    database test when PGTESTDB_URL is unset, and go test still exits 0.
 set -euo pipefail
 cd "$(dirname "$0")/.."
