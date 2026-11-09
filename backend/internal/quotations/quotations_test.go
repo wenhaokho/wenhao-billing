@@ -2,9 +2,12 @@ package quotations_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -276,11 +279,50 @@ func TestCreateValidUntilOutOfRangeIs400(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
 	c := insertCustomer(t, a)
-	wantProblem(t, a.Do(t, http.MethodPost, path, body(c, map[string]any{"issue_date": "9999-12-15"})),
-		http.StatusBadRequest, "valid_until_out_of_range", "valid until is out of range", "", "")
+	// The last issue date whose default fits: 9999-12-01 + 30 days is 9999-12-31.
+	last := post(t, a, body(c, map[string]any{"issue_date": "9999-12-01"}))
+	wantDate(t, "valid_until", last.ValidUntil, "9999-12-31")
+	for _, issue := range []string{"9999-12-02", "9999-12-31"} {
+		wantProblem(t, a.Do(t, http.MethodPost, path, body(c, map[string]any{"issue_date": issue})),
+			http.StatusBadRequest, "valid_until_out_of_range", "valid until is out of range", "", "")
+	}
 	// A valid_until sent needs no default.
 	got := post(t, a, body(c, map[string]any{"issue_date": "9999-12-15", "valid_until": "9999-12-31"}))
 	wantDate(t, "valid_until", got.ValidUntil, "9999-12-31")
+	if n := countRows(t, a, "quotations"); n != 2 {
+		t.Errorf("stored %d quotations, want 2", n)
+	}
+}
+
+func TestCreateConcurrentNumbersAreConsecutive(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := insertCustomer(t, a)
+	const n = 10
+	recs := make([]*httptest.ResponseRecorder, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() { recs[i] = a.Do(t, http.MethodPost, path, body(c, nil)) })
+	}
+	wg.Wait()
+	numbers := make([]string, 0, n)
+	for i, rec := range recs {
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %d: %d %s", i, rec.Code, rec.Body)
+		}
+		var out quotations.QuotationOut
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.QuotationNumber == nil {
+			t.Fatalf("create %d: %v %s", i, err, rec.Body)
+		}
+		numbers = append(numbers, *out.QuotationNumber)
+	}
+	slices.Sort(numbers)
+	for i, got := range numbers {
+		if want := fmt.Sprintf("Q2026%04d", i+1); got != want {
+			t.Errorf("numbers = %v, want Q20260001..Q20260010", numbers)
+			break
+		}
+	}
 }
 
 func TestCreateRequiresLineItems(t *testing.T) {

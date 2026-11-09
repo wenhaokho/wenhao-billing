@@ -2,21 +2,19 @@ package invoices
 
 import (
 	"context"
-	"fmt"
-	"math/big"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
 // NextInvoiceNumber is the next free number of today's year,
-// WH{YYYY}{NNNN} (invoicing.py:157-171): one past the highest number whose
-// tail after "WH{YYYY}" is all digits, at least four of them, growing past
-// four as needed (WH202610000). The year is today's UTC calendar year,
+// WH{YYYY}{NNNN} (invoicing.py:157-171): platform.NextSequence over the
+// invoice numbers starting "WH{YYYY}" (at least four digits, growing past
+// four as needed: WH202610000). The year is today's UTC calendar year,
 // never an issue date's.
 //
 // Go changes this (port note): Python scanned without a lock, so two
@@ -42,30 +40,5 @@ func NextInvoiceNumber(ctx context.Context, tx pgx.Tx, today time.Time) (string,
 	if err != nil {
 		return "", err
 	}
-	highest := new(big.Int)
-	for _, n := range numbers {
-		tail := strings.TrimPrefix(n, prefix)
-		if !allDigits(tail) {
-			continue
-		}
-		// Arbitrary length, as Python's int: the column holds 44 digits.
-		v, _ := new(big.Int).SetString(tail, 10)
-		if v.Cmp(highest) > 0 {
-			highest = v
-		}
-	}
-	return fmt.Sprintf("%s%04d", prefix, highest.Add(highest, big.NewInt(1))), nil
-}
-
-// allDigits is Python's str.isdigit for ASCII: non-empty, every byte 0-9.
-func allDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := range len(s) {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
-	}
-	return true
+	return platform.NextSequence(prefix, numbers), nil
 }
