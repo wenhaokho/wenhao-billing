@@ -118,6 +118,123 @@
         },
         "type": "object"
       },
+      "AgingBuckets": {
+        "additionalProperties": true,
+        "properties": {
+          "current": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "d_1_30": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "d_31_60": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "d_61_90": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "d_90_plus": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "total": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current",
+          "d_1_30",
+          "d_31_60",
+          "d_61_90",
+          "d_90_plus",
+          "total"
+        ],
+        "type": "object"
+      },
+      "AgingReport": {
+        "additionalProperties": true,
+        "properties": {
+          "as_of": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AgingRow"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "totals_by_currency": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AgingBuckets"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "as_of",
+          "kind",
+          "rows",
+          "totals_by_currency"
+        ],
+        "type": "object"
+      },
+      "AgingRow": {
+        "additionalProperties": true,
+        "properties": {
+          "buckets": {
+            "$ref": "#/components/schemas/AgingBuckets"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "party_id": {
+            "type": "string"
+          },
+          "party_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "party_id",
+          "party_name",
+          "currency",
+          "buckets"
+        ],
+        "type": "object"
+      },
       "AuditRow": {
         "additionalProperties": true,
         "properties": {
@@ -6363,6 +6480,94 @@
           }
         },
         "summary": "Delete an FX rate",
+        "tags": [
+          "accounting"
+        ]
+      }
+    },
+    "/api/v1/accounting/reports/ap-aging": {
+      "get": {
+        "operationId": "reports-ap-aging",
+        "parameters": [
+          {
+            "description": "Defaults to today (UTC).",
+            "explode": false,
+            "in": "query",
+            "name": "as_of",
+            "schema": {
+              "description": "Defaults to today (UTC).",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgingReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open payables by days past due",
+        "tags": [
+          "accounting"
+        ]
+      }
+    },
+    "/api/v1/accounting/reports/ar-aging": {
+      "get": {
+        "operationId": "reports-ar-aging",
+        "parameters": [
+          {
+            "description": "Defaults to today (UTC).",
+            "explode": false,
+            "in": "query",
+            "name": "as_of",
+            "schema": {
+              "description": "Defaults to today (UTC).",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgingReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open receivables by days past due",
         "tags": [
           "accounting"
         ]
