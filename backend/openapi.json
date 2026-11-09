@@ -1974,6 +1974,155 @@
         ],
         "type": "object"
       },
+      "FxRevaluationLine": {
+        "additionalProperties": true,
+        "properties": {
+          "account_id": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "face_balance": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "original_base": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "rate": {
+            "examples": [
+              "16000.50000000"
+            ],
+            "pattern": "^-?[0-9]{1,11}\\.[0-9]{8}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rate_as_of": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rate_missing": {
+            "type": "boolean"
+          },
+          "revalued_base": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string"
+          },
+          "unrealised_gain_loss": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "account_id",
+          "code",
+          "name",
+          "type",
+          "currency",
+          "face_balance",
+          "original_base",
+          "revalued_base",
+          "rate",
+          "rate_as_of",
+          "unrealised_gain_loss",
+          "rate_missing"
+        ],
+        "type": "object"
+      },
+      "FxRevaluationReport": {
+        "additionalProperties": true,
+        "properties": {
+          "as_of": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "base_currency": {
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/FxRevaluationLine"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "missing_rates": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "total_unrealised_gain": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "total_unrealised_loss": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "as_of",
+          "base_currency",
+          "lines",
+          "total_unrealised_gain",
+          "total_unrealised_loss",
+          "missing_rates"
+        ],
+        "type": "object"
+      },
       "HealthOutBody": {
         "additionalProperties": true,
         "properties": {
@@ -6258,6 +6407,50 @@
           }
         },
         "summary": "Balance sheet in the base currency",
+        "tags": [
+          "accounting"
+        ]
+      }
+    },
+    "/api/v1/accounting/reports/fx-revaluation": {
+      "get": {
+        "operationId": "reports-fx-revaluation",
+        "parameters": [
+          {
+            "description": "Defaults to today (UTC).",
+            "explode": false,
+            "in": "query",
+            "name": "as_of",
+            "schema": {
+              "description": "Defaults to today (UTC).",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FxRevaluationReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Unrealised FX gain or loss on foreign-currency monetary balances",
         "tags": [
           "accounting"
         ]
