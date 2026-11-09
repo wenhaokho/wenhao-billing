@@ -403,3 +403,16 @@ func exec(t *testing.T, a *apitest.App, sql string, args ...any) {
 		t.Fatal(err)
 	}
 }
+
+func TestBalanceSheetCutoffInclusiveOfDay(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	post(t, a, time.Date(2026, 1, 10, 23, 59, 59, 999999000, time.UTC), dr(bank, "10", "IDR", "10"), cr(income, "10", "IDR", "10"))
+	post(t, a, time.Date(2026, 1, 11, 0, 0, 0, 0, time.UTC), dr(bank, "1000", "IDR", "1000"), cr(income, "1000", "IDR", "1000"))
+	if got := bs(t, a, "?as_of=2026-01-10").AssetsTotalBase; got != "10.0000" {
+		t.Errorf("as_of day: assets %s, want 10.0000", got)
+	}
+	if got := bs(t, a, "?as_of=2026-01-11").AssetsTotalBase; got != "1010.0000" {
+		t.Errorf("next day: assets %s, want 1010.0000", got)
+	}
+}
