@@ -293,7 +293,7 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_reconciliation_pipeline.py | test_manual_approval_clears_and_posts | payments.TestManualApprovalClearsAndPosts | ported |  | — |
 | tests/integration/test_reconciliation_withholding.py | test_auto_clear_books_prepaid_tax | payments.TestAutoClearBooksPrepaidTax | ported |  | — |
 | tests/integration/test_reconciliation_withholding.py | test_reverse_then_repay | payments.TestReverseThenRepay | ported |  | — |
-| tests/integration/test_reconciliation_withholding.py | test_manual_approve_non_matching_amount_books_no_withholding |  | todo |  |  |
+| tests/integration/test_reconciliation_withholding.py | test_manual_approve_non_matching_amount_books_no_withholding | payments.TestManualApproveNonMatchingAmountBooksNoWithholding | ported |  | Booked withholding on a partial payment (settles forced true): TestManualApproveNonMatchingAmountBooksNoWithholding red (task 5) |
 | tests/integration/test_reconciliation_withholding.py | test_foreign_currency_withholding_entry_balances_in_base | payments.TestForeignCurrencyWithholdingBalancesInBase | ported |  | — |
 | tests/integration/test_reconciliation_withholding.py | test_gross_payment_is_held_without_side_effects | payments.TestGrossPaymentIsHeldWithoutSideEffects | ported |  | — |
 | tests/integration/test_record_payment_withholding.py | test_record_net_plus_withheld_marks_paid | payments.TestRecordNetPlusWithheldMarksPaid | ported |  | — |
