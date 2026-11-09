@@ -213,3 +213,14 @@ sql:
         emit_enum_valid_method: true
         emit_pointers_for_null_types: true
         overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/reports/queries.sql
+    gen:
+      go:
+        package: reportsdb
+        out: internal/reports/reportsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
