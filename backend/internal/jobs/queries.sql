@@ -20,9 +20,13 @@ UPDATE scheduled_job_runs
 -- set, so the run that wrote it died (a killed process, a panic, a
 -- cancelled context). The advisory lock is held, so no live runner owns
 -- it: the slot runs again and the row records the new attempt.
+--
+-- The WHERE clause says the row is abandoned: a row that finished (or
+-- failed) is left alone.
 UPDATE scheduled_job_runs
    SET started_at = sqlc.arg(started_at), finished_at = NULL, error = NULL
- WHERE job_id = sqlc.arg(job_id) AND slot = sqlc.arg(slot);
+ WHERE job_id = sqlc.arg(job_id) AND slot = sqlc.arg(slot)
+   AND finished_at IS NULL AND error IS NULL;
 
 -- name: SkipSlot :exec
 -- A slot that is too old to run: recorded so it is never considered again,

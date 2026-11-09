@@ -5,15 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/LOQATO/gokit/sched"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/jobs/jobsdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
@@ -30,11 +27,10 @@ const TickInterval = time.Minute
 // would do a day's work out of time.
 const MaxSlotAge = 24 * time.Hour
 
-// LockAcquireTimeout bounds the wait for the connection that takes the
-// advisory lock. The pool is small (max(4, NumCPU) connections) and every
-// job ticks in the same minute, so a tick must never wait for a connection
-// forever: a tick that cannot get one in time is skipped and logged, and
-// the next tick tries again.
+// LockAcquireTimeout bounds the wait for the connection a job run takes. The
+// pool is small (max(4, NumCPU) connections) and the API needs it too, so a
+// job run must never wait for a connection forever: a run that cannot get
+// one in time is skipped and logged, and the next tick tries again.
 const LockAcquireTimeout = 10 * time.Second
 
 // Job is a scheduled job: it has an id (its advisory lock key and its name
@@ -50,18 +46,25 @@ type Job struct {
 	Run func(ctx context.Context, slot time.Time) error
 }
 
-// Start runs the jobs until ctx ends. Every job ticks every TickInterval: a
-// tick computes the latest due slot, runs it if it is not recorded yet, and
-// records the run.
+// Start runs the jobs until ctx ends.
 //
-// The jobs run under a Postgres advisory lock keyed on their id (Python's
+// One goroutine runs them: on every tick (once at the start, then every
+// TickInterval) it runs the due jobs one after another. The jobs never run
+// at the same time inside one process, so a tick holds one pool connection
+// at a time, not one per job.
+//
+// Each job runs under a Postgres advisory lock keyed on its id (Python's
 // lock keys, scheduler.py:40-52), so the Python and the Go backends (and
-// several Go processes) never run the same job at once: a tick that cannot
+// several Go processes) never run the same job at once: a run that cannot
 // take the lock is skipped silently, as in Python.
 //
 // report hears about a job that failed, so the API can log it (and Sentry
 // sees it); a failed job is recorded with its error and the slot is not run
 // again.
+//
+// Start returns at once; the jobs run until ctx ends. The caller that has
+// to know when they have stopped (a test) uses the wait function that
+// start returns.
 func Start(ctx context.Context, pool *pgxpool.Pool, clock platform.Clock, report func(error), jobs ...Job) {
 	start(ctx, pool, clock, report, TickInterval, jobs...)
 }
@@ -69,44 +72,17 @@ func Start(ctx context.Context, pool *pgxpool.Pool, clock platform.Clock, report
 // start is Start with the tick interval the caller chooses; the tests use a
 // short one.
 //
-// It returns a wait function: it blocks until the scheduler's goroutines
-// have stopped (the context is done and no tick is in flight). The API does
-// not need it (the process ends with the context), but a test does: it must
-// not assert while a tick is still running.
+// It returns a wait function: it blocks until the scheduler's goroutine has
+// stopped. The API does not need it (the process ends with the context),
+// but a test does: it must not assert while a tick is still running.
 func start(ctx context.Context, pool *pgxpool.Pool, clock platform.Clock, report func(error), interval time.Duration, jobs ...Job) func() {
 	r := newRunner(pool, clock, report)
-	sched.Start(ctx, pool, func(job string, err error) {
-		if report != nil {
-			report(fmt.Errorf("job %s: %w", job, err))
-		}
-	}, r.schedJobs(interval, jobs...)...)
-	return r.wait
-}
-
-// schedJobs builds the jobs gokit/sched runs.
-//
-// sched takes a lock of its own, on its own connection, for the whole tick.
-// It must not be the job's Python key: the runner takes that key on
-// another connection, and a session-level advisory lock cannot be taken
-// twice. It is a negative key instead, outside the range of Python's
-// unsigned crc32 keys, and it is per job: a key of zero would make every
-// job contend with every other one, and a slow job would starve the rest.
-//
-// The real lock (the job's Python key) is taken by the runner itself: it
-// covers the slot bookkeeping too, so sched's own key is not used.
-func (r *runner) schedJobs(interval time.Duration, jobs ...Job) []sched.Job {
-	schedJobs := make([]sched.Job, 0, len(jobs))
-	for _, j := range jobs {
-		schedJobs = append(schedJobs, sched.Job{
-			Name:    j.ID,
-			Every:   interval,
-			LockKey: schedLockKey(j.ID),
-			Run: func(ctx context.Context) error {
-				return r.tick(ctx, j)
-			},
-		})
-	}
-	return schedJobs
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		r.loop(ctx, interval, jobs)
+	}()
+	return func() { <-stopped }
 }
 
 // runner holds what a tick needs.
@@ -115,19 +91,10 @@ type runner struct {
 	clock  platform.Clock
 	report func(error)
 	logger *slog.Logger
-	// mu guards the tick bookkeeping below.
-	mu sync.Mutex
-	// inflight counts the ticks that are running, and idle is signalled
-	// when the last one ends.
-	inflight int
-	idle     *sync.Cond
-	// stopped says the scheduler is shutting down: no tick starts any
-	// more.
-	stopped bool
 	// unlock releases the advisory lock. It is the statement, in a field
 	// so a test can make it fail.
 	unlock func(ctx context.Context, conn *pgxpool.Conn, key int64) error
-	// lockTimeout is how long a tick waits for the lock's connection.
+	// lockTimeout is how long a job run waits for its connection.
 	// LockAcquireTimeout in production; a test shortens it.
 	lockTimeout time.Duration
 }
@@ -135,7 +102,6 @@ type runner struct {
 // newRunner is the runner the tests drive.
 func newRunner(pool *pgxpool.Pool, clock platform.Clock, report func(error), loggers ...*slog.Logger) *runner {
 	r := &runner{pool: pool, clock: clock, report: report, unlock: releaseLock, lockTimeout: LockAcquireTimeout}
-	r.idle = sync.NewCond(&r.mu)
 	if len(loggers) > 0 {
 		r.logger = loggers[0]
 	}
@@ -148,47 +114,53 @@ func releaseLock(ctx context.Context, conn *pgxpool.Conn, key int64) error {
 	return err
 }
 
-// beginTick registers a tick that is about to run. It says false when the
-// scheduler is stopping: no tick starts any more.
-func (r *runner) beginTick() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.stopped {
-		return false
-	}
-	r.inflight++
-	return true
-}
-
-// endTick registers that a tick has ended.
-func (r *runner) endTick() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.inflight--
-	if r.inflight == 0 {
-		r.idle.Broadcast()
-	}
-}
-
-// wait blocks until no tick is in flight and no tick starts any more.
-//
-// The scheduler's goroutines stop on the context, so the caller must have
-// cancelled it first. A tick that starts after this does nothing.
-func (r *runner) wait() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.stopped = true
-	for r.inflight > 0 {
-		r.idle.Wait()
-	}
-}
-
 // log returns the runner's logger, slog's default when there is none.
 func (r *runner) log() *slog.Logger {
 	if r.logger != nil {
 		return r.logger
 	}
 	return slog.Default()
+}
+
+// loop is the scheduler's goroutine: it ticks once at the start and then
+// every interval, until the context ends.
+//
+// A tick runs the due jobs one after another, never in parallel: the pool
+// is small and the API needs it, so the scheduler never takes more than one
+// connection for itself at a time.
+func (r *runner) loop(ctx context.Context, interval time.Duration, jobs []Job) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		r.tickAll(ctx, jobs)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// tickAll runs every job once, one after another.
+func (r *runner) tickAll(ctx context.Context, jobs []Job) {
+	for _, job := range jobs {
+		if ctx.Err() != nil {
+			// The scheduler is stopping: the rest of the jobs wait for
+			// the next start.
+			return
+		}
+		err := r.tick(ctx, job)
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, ctx.Err()) {
+			// The shutdown cut the run short: not a job failure. The
+			// slot is left abandoned and runs again after the next
+			// start.
+			continue
+		}
+		r.reportErr(fmt.Errorf("job %s: %w", job.ID, err))
+	}
 }
 
 // tick runs a job's latest due slot, if it is due to run.
@@ -199,23 +171,20 @@ func (r *runner) log() *slog.Logger {
 // error. A slot that is recorded already is not run again, and a slot older
 // than MaxSlotAge is recorded as skipped and logged, never run.
 //
-// A lock another process holds is not waited for: the tick is skipped
+// A lock another process holds is not waited for: the run is skipped
 // silently, as in Python ("job %s skipped: already running in another
 // process").
 //
-// The lock connection carries the whole tick: the slot bookkeeping runs on
-// it, so a tick holds at most one pool connection while the job itself
-// runs (the job opens its own connections while it works).
+// The whole run has one pool connection of the scheduler's own: the
+// advisory lock and the slot bookkeeping run on it. The job's work runs
+// after the bookkeeping and may open connections of its own (its queries
+// do), but the scheduler never holds two connections for itself, and the
+// jobs never run at the same time.
 func (r *runner) tick(ctx context.Context, job Job) error {
-	if !r.beginTick() {
-		// The scheduler is stopping: this tick does nothing.
-		return nil
-	}
-	defer r.endTick()
 	if ctx.Err() != nil {
-		// The scheduler is stopping: this tick does nothing. Without
-		// this, a tick that starts just after the cancel would take a
-		// connection and write, while the caller waits for the ticks to
+		// The scheduler is stopping: this run does nothing. Without
+		// this, a run that starts just after the cancel would take a
+		// connection and write, while the caller waits for the run to
 		// finish.
 		return nil
 	}
@@ -232,7 +201,7 @@ func (r *runner) tick(ctx context.Context, job Job) error {
 		return err
 	}
 	if conn == nil {
-		// No connection in time: the tick is skipped and logged.
+		// No connection in time: the run is skipped and logged.
 		return nil
 	}
 	// A connection that still holds the lock must not go back to the pool:
@@ -240,8 +209,8 @@ func (r *runner) tick(ctx context.Context, job Job) error {
 	released := false
 	defer func() {
 		if !released {
-			// The lock may still be held (the unlock failed, or the tick
-			// ended without one): the session must die with the tick, so
+			// The lock may still be held (the unlock failed, or the run
+			// ended without one): the session must die with the run, so
 			// the connection is taken out of the pool and closed.
 			raw := conn.Hijack()
 			_ = raw.Close(context.WithoutCancel(ctx))
@@ -271,10 +240,10 @@ func (r *runner) tick(ctx context.Context, job Job) error {
 	return r.runSlot(ctx, job, slot, now, conn)
 }
 
-// acquireLockConn takes the connection the advisory lock lives on. The wait
-// is bounded: the pool is small and every job ticks in the same minute, so a
-// tick that waits forever for a connection would starve the API's requests
-// as well. A tick that cannot get one in time is skipped and logged.
+// acquireLockConn takes the connection a job run lives on. The wait is
+// bounded: the pool is small and the API needs it, so a run that waits
+// forever for a connection would starve the API's requests as well. A run
+// that cannot get one in time is skipped and logged.
 func (r *runner) acquireLockConn(ctx context.Context, job Job) (*pgxpool.Conn, error) {
 	timeout := r.lockTimeout
 	if timeout <= 0 {
@@ -287,7 +256,7 @@ func (r *runner) acquireLockConn(ctx context.Context, job Job) (*pgxpool.Conn, e
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("job %s: %w", job.ID, err)
 		}
-		r.log().WarnContext(ctx, "job skipped: no database connection for the lock in time",
+		r.log().WarnContext(ctx, "job skipped: no database connection in time",
 			"job", job.ID, "timeout", timeout)
 		return nil, nil
 	}
@@ -295,7 +264,8 @@ func (r *runner) acquireLockConn(ctx context.Context, job Job) (*pgxpool.Conn, e
 }
 
 // runSlot is tick's work, under the advisory lock. The bookkeeping runs on
-// the lock's own connection, so a tick never holds two pool connections.
+// the lock's own connection, so the scheduler never holds two pool
+// connections of its own.
 //
 // The bookkeeping runs on a context the shutdown does not cancel: a query
 // that fails because the context was cancelled closes the pgx connection
@@ -364,6 +334,14 @@ func (r *runner) runSlot(ctx context.Context, job Job, slot, now time.Time, conn
 	} else {
 		r.log().InfoContext(ctx, "job has no work yet", "job", job.ID, "slot", slot)
 	}
+	if runErr != nil && ctx.Err() != nil && errors.Is(runErr, ctx.Err()) {
+		// The job was cut short by the shutdown. The slot is left
+		// abandoned (neither an end nor an error), so the next start
+		// runs it again: a deploy must not lose a slot's work.
+		r.log().InfoContext(ctx, "job cut short by the shutdown: the slot runs again after the next start",
+			"job", job.ID, "slot", slot)
+		return runErr
+	}
 	finished := r.clock.Now().UTC()
 	var errText *string
 	if runErr != nil {
@@ -381,8 +359,8 @@ func (r *runner) runSlot(ctx context.Context, job Job, slot, now time.Time, conn
 		r.reportErr(fmt.Errorf("job %s: record the end of the slot %s: %w", job.ID, slot, err))
 	}
 	if runErr != nil {
-		// The error is returned to sched, which reports it once. Reporting
-		// it here as well would report it twice.
+		// The error is returned to the scheduler, which reports it once.
+		// Reporting it here as well would report it twice.
 		return runErr
 	}
 	r.log().InfoContext(ctx, "job finished", "job", job.ID, "slot", slot)

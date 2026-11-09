@@ -24,35 +24,6 @@ func TestLockKeysMatchPython(t *testing.T) {
 	}
 }
 
-// TestTheSchedLockKeysArePerJobAndOutsidePythons: gokit/sched takes a lock
-// of its own, on its own connection, for the whole tick. It must not be the
-// job's Python key (the runner takes that key on another connection, and a
-// session-level advisory lock cannot be taken twice), and it must differ
-// from one job to the next (a key of zero would make every job contend
-// with every other one, and a slow job would starve the rest).
-func TestTheSchedLockKeysArePerJobAndOutsidePythons(t *testing.T) {
-	t.Parallel()
-	seen := map[int64]string{}
-	for _, id := range []string{
-		"recurring-scan-and-generate",
-		"usage-lock-cutoff-scan",
-		"hosting-overdue-enforcement",
-		"fx-rates-weekly-sync",
-	} {
-		key := schedLockKey(id)
-		if key == LockKey(id) {
-			t.Errorf("the sched lock key of %q is the job's own key", id)
-		}
-		if key >= 0 {
-			t.Errorf("the sched lock key of %q = %d, want a negative key", id, key)
-		}
-		if other, ok := seen[key]; ok {
-			t.Errorf("the sched lock key of %q is the key of %q too", id, other)
-		}
-		seen[key] = id
-	}
-}
-
 // TestDueSlotsDailyAndWeekly: the slots are the UTC hours of the Python
 // crons (scheduler.py:32-36): daily 02:00, 03:00, 04:00 and Monday 05:00.
 func TestDueSlotsDailyAndWeekly(t *testing.T) {

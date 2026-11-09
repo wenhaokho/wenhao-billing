@@ -82,6 +82,7 @@ const restartSlot = `-- name: RestartSlot :exec
 UPDATE scheduled_job_runs
    SET started_at = $1, finished_at = NULL, error = NULL
  WHERE job_id = $2 AND slot = $3
+   AND finished_at IS NULL AND error IS NULL
 `
 
 type RestartSlotParams struct {
@@ -94,6 +95,9 @@ type RestartSlotParams struct {
 // set, so the run that wrote it died (a killed process, a panic, a
 // cancelled context). The advisory lock is held, so no live runner owns
 // it: the slot runs again and the row records the new attempt.
+//
+// The WHERE clause says the row is abandoned: a row that finished (or
+// failed) is left alone.
 func (q *Queries) RestartSlot(ctx context.Context, arg RestartSlotParams) error {
 	_, err := q.db.Exec(ctx, restartSlot, arg.StartedAt, arg.JobID, arg.Slot)
 	return err

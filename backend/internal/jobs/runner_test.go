@@ -14,6 +14,7 @@ import (
 	"github.com/LOQATO/gokit/db"
 	"github.com/LOQATO/gokit/testkit"
 
+	"github.com/wenhaokho/wenhao-billing/backend/internal/jobs/jobsdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
@@ -395,6 +396,40 @@ func TestAnAbandonedSlotRunsAgain(t *testing.T) {
 	}
 }
 
+// TestRestartSlotLeavesAFinishedRowAlone: the restart query says the row
+// is abandoned (neither an end nor an error). A row that finished (or
+// failed) is left alone: restarting it would wipe the end of a run that
+// did finish, and the slot would run again for nothing.
+func TestRestartSlotLeavesAFinishedRowAlone(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	const jobID = "recurring-scan-and-generate"
+	slot := time.Date(2026, 11, 10, 2, 0, 0, 0, time.UTC)
+	// The finished row: it has an end and no error.
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO scheduled_job_runs (job_id, slot, started_at, finished_at) VALUES ($1, $2, $3, $3)`,
+		jobID, slot, slot); err != nil {
+		t.Fatalf("insert the finished row: %v", err)
+	}
+	q := jobsdb.New(pool)
+	if err := q.RestartSlot(context.Background(), jobsdb.RestartSlotParams{
+		JobID: jobID, Slot: slot, StartedAt: c.now,
+	}); err != nil {
+		t.Fatalf("restart the slot: %v", err)
+	}
+	got := slots(t, pool, jobID)
+	if len(got) != 1 {
+		t.Fatalf("recorded runs = %d, want 1", len(got))
+	}
+	if got[0].FinishedAt == nil {
+		t.Error("finished_at is gone: the restart wiped the end of a run that finished")
+	}
+	if !got[0].StartedAt.Equal(slot) {
+		t.Errorf("started_at = %s, want the row's own %s", got[0].StartedAt, slot)
+	}
+}
+
 // TestTheSlotBookkeepingSurvivesAShutdown: the slot bookkeeping runs on a
 // context the shutdown does not cancel. A query that fails because its
 // context was cancelled closes the pgx connection (the protocol's state is
@@ -483,30 +518,122 @@ func TestATickWithoutAConnectionIsSkipped(t *testing.T) {
 	}
 }
 
-// TestTheJobsDoNotStarveEachOther: the jobs gokit/sched runs must not share
-// a lock key. sched takes its lock for the whole tick, so a shared key
-// would make the second job wait for the first one to finish: a slow job
-// would starve the rest.
-func TestTheJobsDoNotStarveEachOther(t *testing.T) {
+// TestStartRunsEveryJobWithASmallPool: the scheduler runs the jobs one
+// after another, so it never holds more than one connection for itself.
+// The pool here has two connections and three due jobs: with a scheduler
+// that ran the jobs in parallel (each on its own connection, plus one for
+// the lock) the jobs would take turns skipping every tick and never all
+// run.
+//
+// The test drives the scheduler through Start, not through a single tick:
+// the whole scheduler is what has to fit in a small pool. Each job also
+// watches the pool: the scheduler may hold one connection while a job
+// runs, never two.
+//
+// The run count is counted inside the jobs themselves, so the test never
+// queries the pool while the scheduler is running (that would be a second
+// connection of the test's own).
+func TestStartRunsEveryJobWithASmallPool(t *testing.T) {
+	t.Parallel()
+	pool := newPoolWithMaxConns(t, 2)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	var mu sync.Mutex
+	var peak int32
+	var ran int
+	// job is a job that counts its runs and watches how many connections
+	// the pool has while it runs.
+	job := func(id string, due func(time.Time) time.Time) Job {
+		return Job{
+			ID:  id,
+			Due: due,
+			Run: func(context.Context, time.Time) error {
+				mu.Lock()
+				ran++
+				if got := pool.Stat().TotalConns(); got > peak {
+					peak = got
+				}
+				mu.Unlock()
+				return nil
+			},
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	wait := start(ctx, pool, c, func(error) {}, 10*time.Millisecond,
+		job("recurring-scan-and-generate", DailySlot(2)),
+		job("usage-lock-cutoff-scan", DailySlot(3)),
+		job("hosting-overdue-enforcement", DailySlot(4)))
+	// Every job has run: all three.
+	waitFor(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return ran >= 3
+	})
+	cancel()
+	wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if peak > 1 {
+		t.Errorf("the scheduler held %d connections while a job ran, want 1", peak)
+	}
+	// Each job ran exactly once: its slot is recorded, so a later tick
+	// would have found it and done nothing.
+	for _, id := range []string{"recurring-scan-and-generate", "usage-lock-cutoff-scan", "hosting-overdue-enforcement"} {
+		got := slots(t, pool, id)
+		if len(got) != 1 {
+			t.Errorf("the job %q recorded %d runs, want 1", id, len(got))
+		}
+	}
+}
+
+// TestTheJobsNeverRunAtTheSameTime: the scheduler runs the jobs one after
+// another, never in parallel: the pool is small and the API needs it, so
+// two jobs at once would take two connections and could starve the API.
+//
+// The test drives the scheduler through Start.
+func TestTheJobsNeverRunAtTheSameTime(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
 	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
-	r := newRunner(pool, c, func(error) {})
-	built := r.schedJobs(time.Minute,
-		Job{ID: "recurring-scan-and-generate", Due: DailySlot(2)},
-		Job{ID: "usage-lock-cutoff-scan", Due: DailySlot(3)},
-		Job{ID: "hosting-overdue-enforcement", Due: DailySlot(4)},
-		Job{ID: "fx-rates-weekly-sync", Due: WeeklySlot(time.Monday, 5)},
-	)
-	seen := map[int64]string{}
-	for _, sj := range built {
-		if other, ok := seen[sj.LockKey]; ok {
-			t.Errorf("the jobs %q and %q share the sched lock key %d", other, sj.Name, sj.LockKey)
+	var mu sync.Mutex
+	running := 0
+	overlap := false
+	ran := 0
+	job := func(id string) Job {
+		return Job{
+			ID:  id,
+			Due: DailySlot(2),
+			Run: func(context.Context, time.Time) error {
+				mu.Lock()
+				running++
+				if running > 1 {
+					overlap = true
+				}
+				mu.Unlock()
+				time.Sleep(20 * time.Millisecond)
+				mu.Lock()
+				running--
+				ran++
+				mu.Unlock()
+				return nil
+			},
 		}
-		seen[sj.LockKey] = sj.Name
-		if sj.LockKey == LockKey(sj.Name) {
-			t.Errorf("the job %q takes its own Python key as the sched key", sj.Name)
-		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	wait := start(ctx, pool, c, func(error) {}, 10*time.Millisecond,
+		job("recurring-scan-and-generate"), job("usage-lock-cutoff-scan"))
+	waitFor(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return ran >= 2
+	})
+	cancel()
+	wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if overlap {
+		t.Error("two jobs ran at the same time: the scheduler must run them one after another")
 	}
 }
 
@@ -566,6 +693,64 @@ func TestAShutdownStillFinishesTheSlot(t *testing.T) {
 	}
 	if got[0].FinishedAt == nil {
 		t.Error("finished_at is not set: the slot is still abandoned")
+	}
+}
+
+// TestAJobCutShortByTheShutdownRunsAgain: a job that the shutdown cuts
+// short (it returns the context's error) must leave its slot row
+// abandoned, with neither an end nor an error. A row with an error is not
+// abandoned, so the slot would never run again: that is the deploy case
+// the catch-up is for.
+//
+// The next tick (with a fresh context) runs the slot again.
+func TestAJobCutShortByTheShutdownRunsAgain(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	c := &clock{now: time.Date(2026, 11, 10, 9, 30, 0, 0, time.UTC)}
+	const jobID = "recurring-scan-and-generate"
+	ctx, cancel := context.WithCancel(context.Background())
+	var runs int
+	job := Job{
+		ID:  jobID,
+		Due: DailySlot(2),
+		Run: func(ctx context.Context, _ time.Time) error {
+			runs++
+			if runs == 1 {
+				// The shutdown cuts the job short.
+				cancel()
+				return ctx.Err()
+			}
+			return nil
+		},
+	}
+	r := newRunner(pool, c, func(error) {})
+	if err := r.tick(ctx, job); err == nil {
+		t.Fatal("tick error = nil, want the context's error")
+	}
+	got := slots(t, pool, jobID)
+	if len(got) != 1 {
+		t.Fatalf("recorded runs = %d, want 1", len(got))
+	}
+	if got[0].FinishedAt != nil {
+		t.Errorf("finished_at = %s, want none: the slot must stay abandoned", got[0].FinishedAt)
+	}
+	if got[0].Error != nil {
+		t.Errorf("error = %q, want none: the slot must stay abandoned", *got[0].Error)
+	}
+
+	// The next tick, with a fresh context, runs the slot again.
+	if err := r.tick(context.Background(), job); err != nil {
+		t.Fatalf("second tick: %v", err)
+	}
+	if runs != 2 {
+		t.Errorf("the job ran %d times, want 2: the slot must run again", runs)
+	}
+	got = slots(t, pool, jobID)
+	if len(got) != 1 {
+		t.Fatalf("recorded runs = %d, want 1", len(got))
+	}
+	if got[0].FinishedAt == nil {
+		t.Error("finished_at is not set after the second run")
 	}
 }
 
