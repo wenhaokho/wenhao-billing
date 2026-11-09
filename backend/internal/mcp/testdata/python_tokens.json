@@ -1,0 +1,19 @@
+{
+ "secret": "golden-token-secret-0123456789",
+ "confirm_secret": "golden-confirm-secret-0123456789",
+ "sub": "11111111-2222-3333-4444-555555555555",
+ "iat": 1800000000,
+ "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0yMjIyLTMzMzMtNDQ0NC01NTU1NTU1NTU1NTUiLCJ0eXAiOiJhY2Nlc3MiLCJpYXQiOjE4MDAwMDAwMDAsImV4cCI6MTgwMDAwMzYwMH0.cUIDyKHK2uMa-M_QUDfYC8dW-tESQO9ER56PCWqHLGE",
+ "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTExMTExMS0yMjIyLTMzMzMtNDQ0NC01NTU1NTU1NTU1NTUiLCJ0eXAiOiJyZWZyZXNoIiwiaWF0IjoxODAwMDAwMDAwLCJleHAiOjE4MDI1OTIwMDAsImp0aSI6IjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmIn0.mGKfIgzAjgfJQHPAmuMSnPyPMW8DKJ6i4OTsXCLvPQI",
+ "jti": "0123456789abcdef0123456789abcdef",
+ "code": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXAiOiJjb2RlIiwic3ViIjoiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1IiwiY2xpZW50X2lkIjoiY2xpZW50LTEiLCJyZWRpcmVjdF91cmkiOiJodHRwczovL2V4YW1wbGUuY29tL2NiIiwiY29kZV9jaGFsbGVuZ2UiOiJjaGFsLXh5eiIsImlhdCI6MTgwMDAwMDAwMCwiZXhwIjoxODAwMDAwMTIwfQ.sHE8w52XhG4Xvl3YhXzYfTed21A-wBV5ny3gLzvYmao",
+ "confirm": "1800000300.9abd8c2eb40f604d98d1c87ad6db6bcb820a1c83858c31e69bf8a180efbae509",
+ "confirm_action": "send_invoice_email",
+ "confirm_payload": {
+  "target_id": "abc",
+  "amount": "100.0000",
+  "currency": "USD",
+  "recipient": "a@b.com"
+ },
+ "confirm_now": 1800000000
+}
