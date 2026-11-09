@@ -153,9 +153,15 @@ func StatusLabel(status string) string {
 	if status == "" {
 		return Dash
 	}
+	return pyTitle(strings.ReplaceAll(status, "_", " "))
+}
+
+// pyTitle is Python's str.title(): a letter after a non-letter is upper-case,
+// every other letter lower-case.
+func pyTitle(s string) string {
 	var b strings.Builder
 	prevLetter := false
-	for _, r := range strings.ReplaceAll(status, "_", " ") {
+	for _, r := range s {
 		if prevLetter {
 			b.WriteRune(unicode.ToLower(r))
 		} else {

@@ -83,7 +83,7 @@ func register(api huma.API, f features) {
 	quotations.Register(api, f.Pool, f.Clock)
 	bills.Register(api, f.Pool, f.Clock)
 	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: payments.NoHosting{}}, f.Config, f.Clock,
-		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.StubRenderer{}})
+		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.PDFReceiptRenderer{DB: f.Pool}})
 }
 
 func main() {

@@ -4,8 +4,13 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 
+	"github.com/wenhaokho/wenhao-billing/backend/internal/business/businessdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/customers/customersdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/payments/paymentsdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/pdf"
 )
 
@@ -23,8 +28,8 @@ type ReceiptData struct {
 	BusinessName  *string
 }
 
-// ReceiptRenderer renders a payment receipt as PDF bytes. The documents plan
-// brings the real one; StubRenderer stands in until then.
+// ReceiptRenderer renders a payment receipt as PDF bytes: PDFReceiptRenderer,
+// or StubRenderer in tests that do not look at the PDF.
 type ReceiptRenderer interface {
 	RenderReceipt(ctx context.Context, d ReceiptData) ([]byte, error)
 }
@@ -36,6 +41,74 @@ type StubRenderer struct{}
 // RenderReceipt returns the stub PDF.
 func (StubRenderer) RenderReceipt(context.Context, ReceiptData) ([]byte, error) {
 	return append([]byte(nil), stubPDF...), nil
+}
+
+// PDFReceiptRenderer renders the receipt with the documents' renderer
+// (pdf.RenderReceipt). pdf never imports payments, so the ReceiptData is
+// mapped here field by field. What ReceiptData does not carry and the
+// receipt prints (the invoice total, the customer's address and contacts,
+// the business's address, contacts and logo) is read through DB with
+// pdf.LoadReceipt; with no DB those print as unknown (tests).
+type PDFReceiptRenderer struct {
+	DB pdf.DBTX
+}
+
+// RenderReceipt renders d.
+func (r PDFReceiptRenderer) RenderReceipt(ctx context.Context, d ReceiptData) ([]byte, error) {
+	data := receiptPDFData(d)
+	if r.DB != nil {
+		full, err := pdf.LoadReceipt(ctx, r.DB, d.Payment.PaymentID)
+		if err != nil {
+			return nil, err
+		}
+		data.Invoice.Amount = full.Invoice.Amount
+		data.Customer = full.Customer
+		data.Business = full.Business
+	}
+	return pdf.RenderReceipt(ctx, pdf.ReceiptDocument(data))
+}
+
+// receiptPDFData is d as the pdf package's ReceiptData.
+func receiptPDFData(d ReceiptData) pdf.ReceiptData {
+	p := d.Payment
+	out := pdf.ReceiptData{
+		Payment: paymentsdb.Payment{
+			PaymentID:      p.PaymentID,
+			Amount:         p.Amount.Decimal(),
+			WhtAmount:      p.WhtAmount.Decimal(),
+			Currency:       p.Currency,
+			PayerName:      p.PayerName,
+			PayerReference: p.PayerReference,
+			PaymentDate:    pgtype.Date{Time: p.PaymentDate.Time, Valid: !p.PaymentDate.IsZero()},
+			IntakeSource:   p.IntakeSource,
+			ExternalRef:    p.ExternalRef,
+			Status:         p.Status,
+			AdjustmentType: p.AdjustmentType,
+		},
+		Invoice: invoicesdb.Invoice{
+			Currency:   d.Currency,
+			BalanceDue: d.BalanceDue,
+		},
+	}
+	if p.InvoiceID != nil {
+		out.Payment.InvoiceID = pgtype.UUID{Bytes: *p.InvoiceID, Valid: true}
+		out.Invoice.InvoiceID = *p.InvoiceID
+	}
+	if p.CustomerID != nil {
+		out.Payment.CustomerID = pgtype.UUID{Bytes: *p.CustomerID, Valid: true}
+	}
+	if d.InvoiceNumber != "" {
+		n := d.InvoiceNumber
+		out.Invoice.InvoiceNumber = &n
+	}
+	if d.CustomerName != nil {
+		out.Customer = &customersdb.Customer{Name: *d.CustomerName}
+	}
+	if d.BusinessName != nil {
+		name := *d.BusinessName
+		out.Business = &businessdb.BusinessProfile{Name: &name}
+	}
+	return out
 }
 
 // stubPDF is a blank A4 page.
