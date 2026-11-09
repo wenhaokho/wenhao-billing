@@ -118,6 +118,153 @@
         },
         "type": "object"
       },
+      "ActivityItem": {
+        "additionalProperties": true,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_name": {
+            "description": "The actor's display name, else their email.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actor_user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "confidence_score": {
+            "examples": [
+              "97.50"
+            ],
+            "pattern": "^-?[0-9]{1,3}\\.[0-9]{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customer_name": {
+            "description": "The payment's customer, else its invoice's.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "intake_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "log_id": {
+            "type": "string"
+          },
+          "payer_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payer_reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_id": {
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "wht_amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "log_id",
+          "payment_id",
+          "action",
+          "reasons",
+          "actor_user_id",
+          "created_at",
+          "payer_name",
+          "amount",
+          "currency",
+          "payment_date",
+          "payer_reference",
+          "wht_amount",
+          "confidence_score",
+          "intake_source",
+          "invoice_id",
+          "invoice_number",
+          "customer_name",
+          "actor_name"
+        ],
+        "type": "object"
+      },
       "AgingBuckets": {
         "additionalProperties": true,
         "properties": {
@@ -1295,6 +1442,26 @@
         ],
         "type": "object"
       },
+      "CurrencyBaseAmount": {
+        "additionalProperties": true,
+        "properties": {
+          "base_amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency",
+          "base_amount"
+        ],
+        "type": "object"
+      },
       "CustomerBalanceRow": {
         "additionalProperties": true,
         "properties": {
@@ -2050,6 +2217,106 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "DashboardStats": {
+        "additionalProperties": true,
+        "properties": {
+          "auto_cleared_last_30d": {
+            "description": "Every CLEARED payment created in the last 30 days, manual ones included.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "awaiting_review_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "base_currency": {
+            "type": "string"
+          },
+          "customer_count": {
+            "description": "Every customer, inactive ones included.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "draft_count": {
+            "description": "DRAFT invoices that are not templates.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "mrr_by_currency": {
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "type": "array"
+          },
+          "open_ar_base_by_currency": {
+            "description": "Largest first.",
+            "items": {
+              "$ref": "#/components/schemas/CurrencyBaseAmount"
+            },
+            "type": "array"
+          },
+          "open_ar_by_currency": {
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "type": "array"
+          },
+          "open_ar_unconverted": {
+            "description": "Currencies with no FX rate, left out of open_ar_base_by_currency.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "open_quotation_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open_quotation_pipeline": {
+            "description": "Largest total first.",
+            "items": {
+              "$ref": "#/components/schemas/CurrencyAmount"
+            },
+            "type": "array"
+          },
+          "recent_activity": {
+            "description": "The ten newest reconciliation log rows.",
+            "items": {
+              "$ref": "#/components/schemas/ActivityItem"
+            },
+            "type": "array"
+          },
+          "sent_count": {
+            "description": "OPEN and SENT invoices (templates and PARTIAL as Python counts them).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "upcoming_invoices": {
+            "description": "Next generation dates within 90 days, by date.",
+            "items": {
+              "$ref": "#/components/schemas/UpcomingInvoiceItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "awaiting_review_count",
+          "draft_count",
+          "sent_count",
+          "customer_count",
+          "auto_cleared_last_30d",
+          "open_ar_by_currency",
+          "open_quotation_count",
+          "open_quotation_pipeline",
+          "recent_activity",
+          "mrr_by_currency",
+          "base_currency",
+          "open_ar_base_by_currency",
+          "open_ar_unconverted",
+          "upcoming_invoices"
+        ],
         "type": "object"
       },
       "ForgotPasswordRequest": {
@@ -5502,6 +5769,65 @@
           "base_debit",
           "base_credit",
           "base_net"
+        ],
+        "type": "object"
+      },
+      "UpcomingInvoiceItem": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "amount_is_estimate": {
+            "description": "True for usage invoices, whose amount is still accruing.",
+            "type": "boolean"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customer_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_id": {
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "RECURRING",
+              "USAGE"
+            ],
+            "type": "string"
+          },
+          "next_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id",
+          "customer_id",
+          "customer_name",
+          "mode",
+          "next_date",
+          "amount",
+          "currency",
+          "amount_is_estimate"
         ],
         "type": "object"
       },
@@ -11372,6 +11698,37 @@
         "summary": "Void any quotation that is not INVOICED",
         "tags": [
           "quotations"
+        ]
+      }
+    },
+    "/api/v1/stats/dashboard": {
+      "get": {
+        "operationId": "stats-dashboard",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardStats"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Dashboard statistics, recent activity and upcoming invoices",
+        "tags": [
+          "stats"
         ]
       }
     },
