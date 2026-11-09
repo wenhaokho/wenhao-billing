@@ -142,10 +142,19 @@ func TestConfigReadsJSONFXSyncCurrencies(t *testing.T) {
 }
 
 func TestConfigRefusesBadBaseCurrency(t *testing.T) {
-	for _, bad := range []string{"RUPIAH", "ID", "12R"} {
+	for _, bad := range []string{"RUPIAH", "ID", "12R", ""} {
 		_, err := ParseConfig(baseVars(map[string]string{"BASE_CURRENCY": bad}))
 		if err == nil || !strings.Contains(err.Error(), "BASE_CURRENCY") {
 			t.Errorf("%q: err = %v, want one naming BASE_CURRENCY", bad, err)
+		}
+	}
+}
+
+func TestConfigRefusesBadFXSyncCurrency(t *testing.T) {
+	for _, bad := range []string{"US", `["usd","eurx"]`, "usd,12"} {
+		_, err := ParseConfig(baseVars(map[string]string{"FX_SYNC_CURRENCIES": bad}))
+		if err == nil || !strings.Contains(err.Error(), "FX_SYNC_CURRENCIES") {
+			t.Errorf("%q: err = %v, want one naming FX_SYNC_CURRENCIES", bad, err)
 		}
 	}
 }

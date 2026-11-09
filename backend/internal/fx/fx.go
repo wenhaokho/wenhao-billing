@@ -33,13 +33,16 @@ func (e missingError) Is(target error) bool { return target == ErrRateMissing }
 type Conversion struct{ BaseAmount, Rate decimal.Decimal }
 
 // GetRate is the newest from->to rate whose as_of_date is on or before the
-// calendar date of on. The same currency is rate 1 without a query.
+// calendar date of on. on's calendar date in on's own location is the as-of
+// date (it is not converted to UTC or any zone): pass a date column's value
+// unchanged. The same currency is rate 1 without a query.
 func GetRate(ctx context.Context, q *fxdb.Queries, from string, on time.Time, to string) (decimal.Decimal, error) {
 	src, dst := strings.ToUpper(from), strings.ToUpper(to)
 	if src == dst {
 		return decimal.NewFromInt(1), nil
 	}
-	rate, err := q.GetRate(ctx, fxdb.GetRateParams{FromCurrency: src, ToCurrency: dst, AsOfDate: pgtype.Date{Time: time.Date(on.Year(), on.Month(), on.Day(), 0, 0, 0, 0, time.UTC), Valid: true}})
+	asOf := pgtype.Date{Time: time.Date(on.Year(), on.Month(), on.Day(), 0, 0, 0, 0, time.UTC), Valid: true}
+	rate, err := q.GetRate(ctx, fxdb.GetRateParams{FromCurrency: src, ToCurrency: dst, AsOfDate: asOf})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return decimal.Decimal{}, missingError{fmt.Sprintf("no fx rate for %s->%s on or before %s", src, dst, on.Format(time.DateOnly))}
 	}
