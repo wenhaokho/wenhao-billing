@@ -88,3 +88,30 @@ func (e *Email) Resolve(_ huma.Context, path *huma.PathBuffer) []error {
 func (Email) Schema(huma.Registry) *huma.Schema {
 	return &huma.Schema{Type: huma.TypeString, Examples: []any{"ap@example.com"}}
 }
+
+// ParseCcEmails is Python's CcEmails (schemas/email.py): a free-text list
+// split on commas, semicolons and whitespace, blanks dropped, each address
+// checked as an email, a repeat (any case) dropped so the first spelling
+// stays, the rest joined with ", ". No address is nil. A bad one is the 422
+// "invalid email address: <addr>" at cc_email.
+func ParseCcEmails(s string) (*string, error) {
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ';' || unicode.IsSpace(r) || (r >= 0x1c && r <= 0x1f)
+	})
+	var kept []string
+	seen := map[string]bool{}
+	for _, addr := range parts {
+		if _, ok := NormalizeEmail(addr); !ok {
+			return nil, FieldError("cc_email", "invalid email address: "+addr)
+		}
+		if k := strings.ToLower(addr); !seen[k] {
+			seen[k] = true
+			kept = append(kept, addr)
+		}
+	}
+	if len(kept) == 0 {
+		return nil, nil
+	}
+	joined := strings.Join(kept, ", ")
+	return &joined, nil
+}

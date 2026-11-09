@@ -202,7 +202,7 @@ func list(ctx context.Context, q *billsdb.Queries, rows []billsdb.Bill) ([]BillO
 // order).
 func billOut(r billsdb.Bill, lines []billsdb.BillLineItem) BillOut {
 	out := BillOut{
-		BillID: r.BillID, VendorID: r.VendorID, ProjectID: uuidPtr(r.ProjectID), BillNumber: r.BillNumber,
+		BillID: r.BillID, VendorID: r.VendorID, ProjectID: platform.UUIDPtr(r.ProjectID), BillNumber: r.BillNumber,
 		PoNumber: r.PoNumber, Currency: r.Currency, Subtotal: dec4Ptr(r.Subtotal), DiscountType: r.DiscountType,
 		DiscountValue: dec4Ptr(r.DiscountValue), Amount: platform.NewDec4(r.Amount), BalanceDue: platform.NewDec4(r.BalanceDue),
 		Status: r.Status, IssueDate: datePtr(r.IssueDate), DueDate: datePtr(r.DueDate), PaymentTerms: r.PaymentTerms,
@@ -211,20 +211,12 @@ func billOut(r billsdb.Bill, lines []billsdb.BillLineItem) BillOut {
 	}
 	for _, l := range lines {
 		out.LineItems = append(out.LineItems, BillLineItemOut{
-			LineItemID: l.LineItemID, ItemID: uuidPtr(l.ItemID), ExpenseAccountID: l.ExpenseAccountID,
+			LineItemID: l.LineItemID, ItemID: platform.UUIDPtr(l.ItemID), ExpenseAccountID: l.ExpenseAccountID,
 			Description: l.Description, Quantity: platform.NewDec4(l.Quantity), UnitPrice: platform.NewDec4(l.UnitPrice),
 			Amount: platform.NewDec4(l.Amount), Position: int(l.Position),
 		})
 	}
 	return out
-}
-
-func uuidPtr(u pgtype.UUID) *uuid.UUID {
-	if !u.Valid {
-		return nil
-	}
-	id := uuid.UUID(u.Bytes)
-	return &id
 }
 
 func pgUUID(id *uuid.UUID) pgtype.UUID {

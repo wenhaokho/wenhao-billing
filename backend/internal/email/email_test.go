@@ -29,3 +29,26 @@ func TestLogSenderHidesBodiesOutsideLocal(t *testing.T) {
 		}
 	}
 }
+
+// CC addresses and attachment names are logged; attachment bytes never are.
+func TestLogSenderLogsCcAndAttachmentNames(t *testing.T) {
+	t.Parallel()
+	m := Message{
+		To: "a@example.com", Subject: "Payment receipt", Cc: []string{"b@example.com", "c@example.com"},
+		Attachments: []Attachment{{Filename: "receipt-RCT-0A1B2C3D.pdf", ContentType: "application/pdf", Content: []byte("%PDF-secret-bytes")}},
+	}
+	var buf bytes.Buffer
+	s := LogSender{Logger: slog.New(slog.NewTextHandler(&buf, nil)), ShowBodies: true}
+	if err := s.Send(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"b@example.com, c@example.com", "receipt-RCT-0A1B2C3D.pdf"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q in %q", want, out)
+		}
+	}
+	if strings.Contains(out, "secret-bytes") {
+		t.Errorf("attachment content logged: %q", out)
+	}
+}

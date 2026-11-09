@@ -26,8 +26,8 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_customer_balances.py | test_multiple_customers_produce_separate_rows | invoices.TestMultipleCustomersProduceSeparateRows | ported |  | — |
 | tests/integration/test_customer_cc.py | test_customer_cc_lists_roundtrip | customers.TestCustomerCCListsRoundtrip | ported |  | — |
 | tests/integration/test_customer_cc.py | test_customer_cc_rejects_invalid_address | customers.TestCustomerCCRejectsInvalidAddress | ported |  | CC validation skipped: TestCustomerCCRejectsInvalidAddress red, 201 want 422 (task 6) |
-| tests/integration/test_customer_cc.py | test_send_receipt_multiple_cc_normalised |  | todo |  |  |
-| tests/integration/test_customer_cc.py | test_send_receipt_invalid_cc_422 |  | todo |  |  |
+| tests/integration/test_customer_cc.py | test_send_receipt_multiple_cc_normalised | payments.TestSendReceiptMultipleCCNormalised | ported |  | — |
+| tests/integration/test_customer_cc.py | test_send_receipt_invalid_cc_422 | payments.TestSendReceiptInvalidCCIs422 | ported |  | — |
 | tests/integration/test_customer_wht_defaults.py | test_create_customer_with_pph23_gross_up | customers.TestCreateCustomerWithPph23GrossUp | ported |  | — |
 | tests/integration/test_customer_wht_defaults.py | test_customer_defaults_to_none | customers.TestCustomerDefaultsToNone | ported |  | — |
 | tests/integration/test_customer_wht_defaults.py | test_customer_wht_invalid_rate_422 | customers.TestCustomerWhtInvalidRate422 | ported |  | — |
@@ -50,7 +50,7 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_dashboard_stats.py | test_dashboard_endpoint_exposes_new_fields |  | todo |  |  |
 | tests/integration/test_hosting.py | test_hosting_item_creates_with_cloudflare_target | items.TestHostingItemCreatesWithCloudflareTarget | ported |  | — |
 | tests/integration/test_hosting.py | test_trigger_recurring_cycle_stamps_coverage_on_hosting_invoice | invoices.TestTriggerRecurringCycleStampsCoverageOnHostingInvoice | ported |  | — |
-| tests/integration/test_hosting.py | test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates |  | todo | hosting plan (enforcement and reconciliation) |  |
+| tests/integration/test_hosting.py | test_hosting_enforcement_suspends_and_reconciliation_restore_reactivates |  | todo | hosting plan (plan 9: enforcement and reconciliation restore) |  |
 | tests/integration/test_hosting.py | test_enforcement_suspend_failure_marks_provider_error |  | todo | hosting plan (enforcement) |  |
 | tests/integration/test_hosting.py | test_enforcement_is_idempotent_for_already_suspended_hosting_item |  | todo | hosting plan (enforcement) |  |
 | tests/integration/test_hosting.py | test_enforcement_ignores_non_overdue_invoice |  | todo | hosting plan (enforcement) |  |
@@ -58,10 +58,10 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_invoice_internal_note.py | test_internal_note_can_be_cleared | invoices.TestInternalNoteCanBeCleared | ported |  | — |
 | tests/integration/test_invoice_internal_note.py | test_internal_note_never_reaches_the_pdf |  | todo | documents plan (PDF) |  |
 | tests/integration/test_invoice_internal_note.py | test_template_internal_note_copies_to_generated_child | invoices.TestTemplateInternalNoteCopiesToGeneratedChild | ported |  | — |
-| tests/integration/test_invoice_payments_list.py | test_list_payments_newest_first |  | todo |  |  |
-| tests/integration/test_invoice_payments_list.py | test_list_payments_empty |  | todo |  |  |
-| tests/integration/test_invoice_payments_list.py | test_list_payments_unknown_invoice_404 |  | todo |  |  |
-| tests/integration/test_invoice_payments_list.py | test_list_payments_excludes_non_cleared |  | todo |  |  |
+| tests/integration/test_invoice_payments_list.py | test_list_payments_newest_first | payments.TestListPaymentsNewestFirst | ported |  | — |
+| tests/integration/test_invoice_payments_list.py | test_list_payments_empty | payments.TestListPaymentsEmpty | ported |  | — |
+| tests/integration/test_invoice_payments_list.py | test_list_payments_unknown_invoice_404 | payments.TestListPaymentsUnknownInvoiceIs404 | ported |  | — |
+| tests/integration/test_invoice_payments_list.py | test_list_payments_excludes_non_cleared | payments.TestListPaymentsExcludesNonCleared | ported |  | — |
 | tests/integration/test_invoice_type_preserved.py | test_patch_without_invoice_type_keeps_it | invoices.TestPatchWithoutInvoiceTypeKeepsIt | ported |  | PATCH wrote `invoice_type` as MILESTONE when it was not sent: TestPatchWithoutInvoiceTypeKeepsIt/RECURRING and /USAGE red (task 3) |
 | tests/integration/test_invoice_withholding.py | test_create_invoice_gross_up_pph23 | invoices.TestCreateInvoiceGrossUpPph23 | ported |  | — |
 | tests/integration/test_invoice_withholding.py | test_create_invoice_inherits_customer_default | invoices.TestCreateInvoiceInheritsCustomerDefault | ported |  | — |
@@ -187,9 +187,9 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_mcp_reads_all.py | test_resolve_vendor_unique_match |  | todo |  |  |
 | tests/integration/test_mcp_reads_all.py | test_resolve_vendor_ambiguous_returns_candidates |  | todo |  |  |
 | tests/integration/test_mcp_reads_all.py | test_resolve_vendor_no_match_returns_empty_candidates |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_returns_list |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_excludes_other_statuses |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_respects_limit |  | todo |  |  |
+| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_returns_list |  | todo | mcp plan (plan 10) |  |
+| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_excludes_other_statuses |  | todo | mcp plan (plan 10) |  |
+| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_respects_limit |  | todo | mcp plan (plan 10) |  |
 | tests/integration/test_mcp_server.py | test_tool_session_uses_injected_factory |  | todo |  |  |
 | tests/integration/test_mcp_server.py | test_mcp_app_importable |  | todo |  |  |
 | tests/integration/test_mcp_server.py | test_tool_session_without_mcp_tool_db_fails_loud |  | todo |  |  |
@@ -253,9 +253,9 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_mcp_writes_all.py | test_update_quotation_echoes_notes |  | todo | mcp plan |  |
 | tests/integration/test_mcp_writes_all.py | test_update_invoice_rejects_unknown_field_names |  | todo |  |  |
 | tests/integration/test_mcp_writes_all.py | test_update_invoice_echoes_notes |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_exact_match_clears |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_currency_mismatch_refuses |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_amount_mismatch_refuses |  | todo |  |  |
+| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_exact_match_clears |  | todo | mcp plan (plan 10) |  |
+| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_currency_mismatch_refuses |  | todo | mcp plan (plan 10) |  |
+| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_amount_mismatch_refuses |  | todo | mcp plan (plan 10) |  |
 | tests/integration/test_mrr_stats.py | test_empty_db_returns_no_rows |  | todo |  |  |
 | tests/integration/test_mrr_stats.py | test_monthly_interval_1_is_full_amount |  | todo |  |  |
 | tests/integration/test_mrr_stats.py | test_yearly_divided_by_twelve |  | todo |  |  |
@@ -282,33 +282,33 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_pdf_engine.py | test_fetcher_refuses_non_embedded_urls |  | todo |  |  |
 | tests/integration/test_pdf_engine.py | test_fetcher_allows_data_uris |  | todo |  |  |
 | tests/integration/test_pdf_engine.py | test_external_reference_is_skipped_not_fatal |  | todo |  |  |
-| tests/integration/test_reconciliation_pipeline.py | test_cleared_payment_posts_exactly_one_balanced_entry |  | todo |  |  |
-| tests/integration/test_reconciliation_pipeline.py | test_amount_mismatch_holds_and_posts_no_journal |  | todo |  |  |
-| tests/integration/test_reconciliation_pipeline.py | test_currency_mismatch_holds_regardless_of_amount |  | todo |  |  |
-| tests/integration/test_reconciliation_pipeline.py | test_reconciliation_log_written_for_every_payment |  | todo |  |  |
-| tests/integration/test_reconciliation_pipeline.py | test_reversal_creates_balancing_entry_and_wires_link |  | todo |  |  |
-| tests/integration/test_reconciliation_pipeline.py | test_invariant_all_active_entries_balance_to_zero |  | todo |  |  |
-| tests/integration/test_reconciliation_pipeline.py | test_cross_currency_manual_approval_books_fx_loss |  | todo |  |  |
-| tests/integration/test_reconciliation_pipeline.py | test_cross_currency_manual_approval_books_fx_gain |  | todo |  |  |
-| tests/integration/test_reconciliation_pipeline.py | test_manual_approval_clears_and_posts |  | todo |  |  |
-| tests/integration/test_reconciliation_withholding.py | test_auto_clear_books_prepaid_tax |  | todo |  |  |
-| tests/integration/test_reconciliation_withholding.py | test_reverse_then_repay |  | todo |  |  |
-| tests/integration/test_reconciliation_withholding.py | test_manual_approve_non_matching_amount_books_no_withholding |  | todo |  |  |
-| tests/integration/test_reconciliation_withholding.py | test_foreign_currency_withholding_entry_balances_in_base |  | todo |  |  |
-| tests/integration/test_reconciliation_withholding.py | test_gross_payment_is_held_without_side_effects |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_record_net_plus_withheld_marks_paid |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_record_exceeding_balance_400 |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_record_without_wht_unchanged |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_record_partial_with_wht_reduces_balance_by_both |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_exceeding_error_mentions_withheld |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_withheld_above_outstanding_400 |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_withheld_above_remaining_after_partial_400 |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_pph_only_payment_settles_stuck_partial |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_zero_amount_and_zero_withheld_400 |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_send_invoice_body_quotes_amount_to_transfer |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_send_invoice_body_without_wht_unchanged |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_payment_reminder_quotes_expected_cash |  | todo |  |  |
-| tests/integration/test_record_payment_withholding.py | test_bill_payment_schema_still_requires_positive_amount |  | todo |  |  |
+| tests/integration/test_reconciliation_pipeline.py | test_cleared_payment_posts_exactly_one_balanced_entry | payments.TestClearedPaymentPostsExactlyOneBalancedEntry | ported |  | — |
+| tests/integration/test_reconciliation_pipeline.py | test_amount_mismatch_holds_and_posts_no_journal | payments.TestAmountMismatchHoldsAndPostsNoJournal | ported |  | — |
+| tests/integration/test_reconciliation_pipeline.py | test_currency_mismatch_holds_regardless_of_amount | payments.TestCurrencyMismatchHoldsRegardlessOfAmount | ported |  | — |
+| tests/integration/test_reconciliation_pipeline.py | test_reconciliation_log_written_for_every_payment | payments.TestReconciliationLogWrittenForEveryPayment | ported |  | — |
+| tests/integration/test_reconciliation_pipeline.py | test_reversal_creates_balancing_entry_and_wires_link | payments.TestReversalCreatesBalancingEntryAndWiresLink | ported |  | — |
+| tests/integration/test_reconciliation_pipeline.py | test_invariant_all_active_entries_balance_to_zero | payments.TestInvariantAllActiveEntriesBalanceToZero | ported |  | — |
+| tests/integration/test_reconciliation_pipeline.py | test_cross_currency_manual_approval_books_fx_loss | payments.TestCrossCurrencyManualApprovalBooksFxLoss | ported |  | — |
+| tests/integration/test_reconciliation_pipeline.py | test_cross_currency_manual_approval_books_fx_gain | payments.TestCrossCurrencyManualApprovalBooksFxGain | ported |  | — |
+| tests/integration/test_reconciliation_pipeline.py | test_manual_approval_clears_and_posts | payments.TestManualApprovalClearsAndPosts | ported |  | — |
+| tests/integration/test_reconciliation_withholding.py | test_auto_clear_books_prepaid_tax | payments.TestAutoClearBooksPrepaidTax | ported |  | — |
+| tests/integration/test_reconciliation_withholding.py | test_reverse_then_repay | payments.TestReverseThenRepay | ported |  | — |
+| tests/integration/test_reconciliation_withholding.py | test_manual_approve_non_matching_amount_books_no_withholding | payments.TestManualApproveNonMatchingAmountBooksNoWithholding | ported |  | Booked withholding on a partial payment (settles forced true): TestManualApproveNonMatchingAmountBooksNoWithholding red (task 5) |
+| tests/integration/test_reconciliation_withholding.py | test_foreign_currency_withholding_entry_balances_in_base | payments.TestForeignCurrencyWithholdingBalancesInBase | ported |  | — |
+| tests/integration/test_reconciliation_withholding.py | test_gross_payment_is_held_without_side_effects | payments.TestGrossPaymentIsHeldWithoutSideEffects | ported |  | — |
+| tests/integration/test_record_payment_withholding.py | test_record_net_plus_withheld_marks_paid | payments.TestRecordNetPlusWithheldMarksPaid | ported |  | — |
+| tests/integration/test_record_payment_withholding.py | test_record_exceeding_balance_400 | payments.TestRecordExceedingBalanceIs400 | ported |  | — |
+| tests/integration/test_record_payment_withholding.py | test_record_without_wht_unchanged | payments.TestRecordWithoutWhtUnchanged | ported |  | — |
+| tests/integration/test_record_payment_withholding.py | test_record_partial_with_wht_reduces_balance_by_both | payments.TestRecordPartialWithWhtReducesBalanceByBoth | ported |  | — |
+| tests/integration/test_record_payment_withholding.py | test_exceeding_error_mentions_withheld | payments.TestExceedingErrorMentionsWithheld | ported |  | — |
+| tests/integration/test_record_payment_withholding.py | test_withheld_above_outstanding_400 | payments.TestWithheldAboveOutstandingIs400 | ported |  | Dropped the withheld-above-outstanding check: TestWithheldAboveOutstandingIs400 red (task 6) |
+| tests/integration/test_record_payment_withholding.py | test_withheld_above_remaining_after_partial_400 | payments.TestWithheldAboveRemainingAfterPartialIs400 | ported |  | Dropped the withheld-above-outstanding check: TestWithheldAboveRemainingAfterPartialIs400 red (task 6) |
+| tests/integration/test_record_payment_withholding.py | test_pph_only_payment_settles_stuck_partial | payments.TestPphOnlyPaymentSettlesStuckPartial | ported |  | — |
+| tests/integration/test_record_payment_withholding.py | test_zero_amount_and_zero_withheld_400 | payments.TestZeroAmountAndZeroWithheldIs400 | ported |  | — |
+| tests/integration/test_record_payment_withholding.py | test_send_invoice_body_quotes_amount_to_transfer |  | todo | documents plan (plan 9: invoice send email) |  |
+| tests/integration/test_record_payment_withholding.py | test_send_invoice_body_without_wht_unchanged |  | todo | documents plan (plan 9: invoice send email) |  |
+| tests/integration/test_record_payment_withholding.py | test_payment_reminder_quotes_expected_cash |  | todo | mcp plan (plan 10: payment reminder) |  |
+| tests/integration/test_record_payment_withholding.py | test_bill_payment_schema_still_requires_positive_amount |  | todo | bills schema (plan 6 area, not plan 7) |  |
 | tests/integration/test_recurring_scheduling.py | test_create_template_stores_schedule_in_billing_cycle_ref | invoices.TestCreateTemplateStoresScheduleInBillingCycleRef | ported |  | — |
 | tests/integration/test_recurring_scheduling.py | test_create_template_persists_end_condition | invoices.TestCreateTemplatePersistsEndCondition | ported |  | — |
 | tests/integration/test_recurring_scheduling.py | test_create_template_rejects_inconsistent_end_condition | invoices.TestCreateTemplateRejectsInconsistentEndCondition | ported |  | — |
@@ -345,12 +345,12 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_revenue_monthly_base.py | test_unpaid_split_tracks_remaining_balance |  | todo |  |  |
 | tests/integration/test_revenue_monthly_base.py | test_fully_paid_month_has_no_unpaid_entry |  | todo |  |  |
 | tests/integration/test_revenue_monthly_base.py | test_unconverted_currency_has_no_base_unpaid |  | todo |  |  |
-| tests/integration/test_send_receipt.py | test_send_receipt_happy_path |  | todo |  |  |
-| tests/integration/test_send_receipt.py | test_send_receipt_defaults_to_customer_contact_email |  | todo |  |  |
-| tests/integration/test_send_receipt.py | test_send_receipt_no_recipient_400 |  | todo |  |  |
-| tests/integration/test_send_receipt.py | test_send_receipt_payment_not_on_invoice_404 |  | todo |  |  |
-| tests/integration/test_send_receipt.py | test_send_receipt_unknown_payment_404 |  | todo |  |  |
-| tests/integration/test_send_receipt.py | test_send_receipt_email_failure_502 |  | todo |  |  |
+| tests/integration/test_send_receipt.py | test_send_receipt_happy_path | payments.TestSendReceiptHappyPath | ported |  | — |
+| tests/integration/test_send_receipt.py | test_send_receipt_defaults_to_customer_contact_email | payments.TestSendReceiptDefaultsToCustomerContactEmail | ported |  | — |
+| tests/integration/test_send_receipt.py | test_send_receipt_no_recipient_400 | payments.TestSendReceiptNoRecipientIs400 | ported |  | — |
+| tests/integration/test_send_receipt.py | test_send_receipt_payment_not_on_invoice_404 | payments.TestSendReceiptPaymentNotOnInvoiceIs404 | ported |  | Dropped the payment-belongs-to-invoice check: TestSendReceiptPaymentNotOnInvoiceIs404 red (task 9) |
+| tests/integration/test_send_receipt.py | test_send_receipt_unknown_payment_404 | payments.TestSendReceiptUnknownPaymentIs404 | ported |  | — |
+| tests/integration/test_send_receipt.py | test_send_receipt_email_failure_502 | payments.TestSendReceiptEmailFailureIs502 | ported |  | — |
 | tests/integration/test_upcoming_invoices.py | test_empty_db_returns_empty |  | todo |  |  |
 | tests/integration/test_upcoming_invoices.py | test_recurring_next_occurrence_within_window |  | todo |  |  |
 | tests/integration/test_upcoming_invoices.py | test_recurring_reported_once_even_if_multiple_cycles_in_window |  | todo |  |  |
@@ -396,18 +396,18 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_items_service.py | test_create_hosting_item_sets_active_status_and_normalizes | items.TestCreateHostingItemSetsActiveStatusAndNormalizes | ported |  | `record_type` not upper-cased: TestCreateHostingItemSetsActiveStatusAndNormalizes red (task 5) |
 | tests/unit/test_items_service.py | test_update_item_not_found_raises | items.TestUpdateItemNotFound | ported |  | — |
 | tests/unit/test_items_service.py | test_update_item_edits_fields | items.TestUpdateItemEditsFields | ported |  | — |
-| tests/unit/test_matching_engine.py | test_exact_match_clears |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_amount_mismatch_holds_and_no_ledger_hint |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_overpayment_flagged_as_credit_on_account |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_currency_mismatch_always_holds_even_with_exact_amount |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_amount_epsilon_boundary_accepts_within_tolerance |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_payer_alias_hit_raises_confidence |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_payer_alias_miss_does_not_fail_if_amount_currency_exact |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_empty_candidates_holds_as_credit_on_account |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_date_decay_still_clears_within_window |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_date_outside_window_still_holds_if_payer_weak |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_withholding_net_payment_is_exact_match |  | todo |  |  |
-| tests/unit/test_matching_engine.py | test_gross_payment_on_withholding_invoice_goes_to_review |  | todo |  |  |
+| tests/unit/test_matching_engine.py | test_exact_match_clears | matching.TestExactMatchClears | ported |  | — |
+| tests/unit/test_matching_engine.py | test_amount_mismatch_holds_and_no_ledger_hint | matching.TestAmountMismatchHoldsAndNoLedgerHint | ported |  | — |
+| tests/unit/test_matching_engine.py | test_overpayment_flagged_as_credit_on_account | matching.TestOverpaymentFlaggedAsCreditOnAccount | ported |  | — |
+| tests/unit/test_matching_engine.py | test_currency_mismatch_always_holds_even_with_exact_amount | matching.TestCurrencyMismatchAlwaysHoldsEvenWithExactAmount | ported |  | — |
+| tests/unit/test_matching_engine.py | test_amount_epsilon_boundary_accepts_within_tolerance | matching.TestAmountEpsilonBoundaryAcceptsWithinTolerance | ported |  | AmountEpsilon 0.0001 set to 0: TestAmountEpsilonBoundaryAcceptsWithinTolerance red (task 3) |
+| tests/unit/test_matching_engine.py | test_payer_alias_hit_raises_confidence | matching.TestPayerAliasHitRaisesConfidence | ported |  | — |
+| tests/unit/test_matching_engine.py | test_payer_alias_miss_does_not_fail_if_amount_currency_exact | matching.TestPayerAliasMissNeverFailsOpen | ported |  | — |
+| tests/unit/test_matching_engine.py | test_empty_candidates_holds_as_credit_on_account | matching.TestEmptyCandidatesHoldsAsCreditOnAccount | ported |  | — |
+| tests/unit/test_matching_engine.py | test_date_decay_still_clears_within_window | matching.TestDateDecayStillClearsWithinWindow | ported |  | — |
+| tests/unit/test_matching_engine.py | test_date_outside_window_still_holds_if_payer_weak | matching.TestDateOutsideWindowStillHoldsIfPayerWeak | ported |  | — |
+| tests/unit/test_matching_engine.py | test_withholding_net_payment_is_exact_match | matching.TestWithholdingNetPaymentIsExactMatch | ported |  | — |
+| tests/unit/test_matching_engine.py | test_gross_payment_on_withholding_invoice_goes_to_review | matching.TestGrossPaymentOnWithholdingInvoiceGoesToReview | ported |  | — |
 | tests/unit/test_mcp_config.py | test_mcp_settings_have_secure_defaults_shape |  | todo |  |  |
 | tests/unit/test_mcp_config.py | test_transport_allowlist_public_https_host |  | todo |  |  |
 | tests/unit/test_mcp_config.py | test_transport_allowlist_includes_host_with_port |  | todo |  |  |
@@ -463,12 +463,12 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_without_customer |  | todo | documents plan |  |
 | tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_escapes_xml_special_chars_in_names |  | todo | documents plan |  |
 | tests/unit/test_quotation_pdf.py | test_render_quotation_pdf_escapes_xml_special_chars_in_free_text |  | todo | documents plan |  |
-| tests/unit/test_receipt_pdf.py | test_receipt_reference_shape |  | todo |  |  |
-| tests/unit/test_receipt_pdf.py | test_balance_note_partial_payment_shows_remaining |  | todo |  |  |
-| tests/unit/test_receipt_pdf.py | test_balance_note_full_payment_says_paid_in_full |  | todo |  |  |
-| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_returns_pdf_bytes |  | todo |  |  |
-| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_without_customer |  | todo |  |  |
-| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_escapes_xml_special_chars_in_names |  | todo |  |  |
+| tests/unit/test_receipt_pdf.py | test_receipt_reference_shape | payments.TestReceiptReferenceShape | ported |  | — |
+| tests/unit/test_receipt_pdf.py | test_balance_note_partial_payment_shows_remaining | payments.TestBalanceNotePartialPaymentShowsRemaining | ported |  | — |
+| tests/unit/test_receipt_pdf.py | test_balance_note_full_payment_says_paid_in_full | payments.TestBalanceNoteFullPaymentSaysPaidInFull | ported |  | — |
+| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_returns_pdf_bytes |  | todo | documents plan (plan 9: receipt PDF) |  |
+| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_without_customer |  | todo | documents plan (plan 9: receipt PDF) |  |
+| tests/unit/test_receipt_pdf.py | test_render_receipt_pdf_escapes_xml_special_chars_in_names |  | todo | documents plan (plan 9: receipt PDF) |  |
 | tests/unit/test_recurring_drafts_email.py | test_subject_counts_drafts |  | todo | email plan (digest subject) |  |
 | tests/unit/test_recurring_drafts_email.py | test_text_body_lists_draft_details |  | todo | email plan (digest text body) |  |
 | tests/unit/test_recurring_drafts_email.py | test_html_body_links_invoice_number |  | todo | email plan (digest html body) |  |

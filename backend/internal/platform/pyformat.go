@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -122,4 +123,54 @@ func PyUpperAtMost(field, s string, n int) (string, error) {
 		return "", FieldError(field, fmt.Sprintf("String should have at most %d characters", n))
 	}
 	return u, nil
+}
+
+// PyJSONRepr is Python's !r of a raw JSON value as json.loads yields it, for
+// the values a provider answer or config can hold: None for a missing or
+// null value, a string through PyRepr, and anything else (number, bool,
+// array, object) as sent.
+func PyJSONRepr(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "None"
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return PyRepr(s)
+	}
+	return string(raw)
+}
+
+// PyValueRepr is Python's repr of a decoded JSON value: nil, bool, string,
+// the int kinds, float64 and json.Number (an int when its text parses as
+// one, else a float). Any other type prints as "<unsupported>".
+func PyValueRepr(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return "None"
+	case bool:
+		if x {
+			return "True"
+		}
+		return "False"
+	case string:
+		return PyRepr(x)
+	case int:
+		return strconv.Itoa(x)
+	case int32:
+		return strconv.Itoa(int(x))
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case float64: //nolint:forbidigo // not money: Python repr of a JSON number
+		return PyFloatRepr(x)
+	case json.Number:
+		s := x.String()
+		if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return s
+		}
+		if f, err := x.Float64(); err == nil {
+			return PyFloatRepr(f)
+		}
+		return s
+	}
+	return "<unsupported>"
 }

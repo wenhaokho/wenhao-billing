@@ -54,8 +54,8 @@ func invoiceOut(inv invoicesdb.Invoice, lines []invoicesdb.InvoiceLineItem) (Inv
 		return InvoiceOut{}, fmt.Errorf("invoice %s has no created_at", inv.InvoiceID)
 	}
 	out := InvoiceOut{
-		InvoiceID: inv.InvoiceID, CustomerID: uuidPtr(inv.CustomerID), ProjectID: uuidPtr(inv.ProjectID),
-		SourceQuoteID: uuidPtr(inv.SourceQuoteID), InvoiceType: inv.InvoiceType, InvoiceNumber: inv.InvoiceNumber,
+		InvoiceID: inv.InvoiceID, CustomerID: platform.UUIDPtr(inv.CustomerID), ProjectID: platform.UUIDPtr(inv.ProjectID),
+		SourceQuoteID: platform.UUIDPtr(inv.SourceQuoteID), InvoiceType: inv.InvoiceType, InvoiceNumber: inv.InvoiceNumber,
 		PoSoNumber: inv.PoSoNumber, Currency: inv.Currency, Subtotal: dec4Ptr(inv.Subtotal),
 		DiscountType: inv.DiscountType, DiscountValue: dec4Ptr(inv.DiscountValue),
 		WhtType: inv.WhtType, WhtRate: dec4Ptr(inv.WhtRate), WhtGrossUp: inv.WhtGrossUp, WhtBase: dec4Ptr(inv.WhtBase),
@@ -71,20 +71,12 @@ func invoiceOut(inv invoicesdb.Invoice, lines []invoicesdb.InvoiceLineItem) (Inv
 	}
 	for _, l := range lines {
 		out.LineItems = append(out.LineItems, LineItemOut{
-			LineItemID: l.LineItemID, ItemID: uuidPtr(l.ItemID), Description: l.Description,
+			LineItemID: l.LineItemID, ItemID: platform.UUIDPtr(l.ItemID), Description: l.Description,
 			Quantity: platform.NewDec4(l.Quantity), UnitPrice: platform.NewDec4(l.UnitPrice),
 			Amount: platform.NewDec4(l.Amount), Position: int(l.Position),
 		})
 	}
 	return out, nil
-}
-
-func uuidPtr(u pgtype.UUID) *uuid.UUID {
-	if !u.Valid {
-		return nil
-	}
-	id := uuid.UUID(u.Bytes)
-	return &id
 }
 
 func dec4Ptr(d decimal.NullDecimal) *platform.Dec4 {

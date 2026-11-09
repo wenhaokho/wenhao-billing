@@ -204,32 +204,24 @@ func list(ctx context.Context, q *quotationsdb.Queries, rows []quotationsdb.Quot
 // line_item_id order).
 func quotationOut(r quotationsdb.Quotation, lines []quotationsdb.QuotationLineItem) QuotationOut {
 	out := QuotationOut{
-		QuotationID: r.QuotationID, CustomerID: r.CustomerID, ProjectID: uuidPtr(r.ProjectID),
+		QuotationID: r.QuotationID, CustomerID: r.CustomerID, ProjectID: platform.UUIDPtr(r.ProjectID),
 		QuotationNumber: r.QuotationNumber, PoSoNumber: r.PoSoNumber, Currency: r.Currency,
 		Subtotal: dec4Ptr(r.Subtotal), DiscountType: r.DiscountType, DiscountValue: dec4Ptr(r.DiscountValue),
 		Amount: platform.NewDec4(r.Amount), Status: r.Status,
 		IssueDate: datePtr(r.IssueDate), ValidUntil: datePtr(r.ValidUntil),
 		PaymentTerms: r.PaymentTerms, Notes: r.Notes, Footer: r.Footer,
 		LastSentAt: timePtr(r.LastSentAt), AcceptedAt: timePtr(r.AcceptedAt), AcceptedBy: r.AcceptedBy,
-		ConvertedInvoiceID: uuidPtr(r.ConvertedInvoiceID), CreatedAt: platform.Time{Time: r.CreatedAt},
+		ConvertedInvoiceID: platform.UUIDPtr(r.ConvertedInvoiceID), CreatedAt: platform.Time{Time: r.CreatedAt},
 		LineItems: make([]QuotationLineItemOut, 0, len(lines)),
 	}
 	for _, l := range lines {
 		out.LineItems = append(out.LineItems, QuotationLineItemOut{
-			LineItemID: l.LineItemID, ItemID: uuidPtr(l.ItemID), Description: l.Description,
+			LineItemID: l.LineItemID, ItemID: platform.UUIDPtr(l.ItemID), Description: l.Description,
 			Quantity: platform.NewDec4(l.Quantity), UnitPrice: platform.NewDec4(l.UnitPrice),
 			Amount: platform.NewDec4(l.Amount), Position: int(l.Position),
 		})
 	}
 	return out
-}
-
-func uuidPtr(u pgtype.UUID) *uuid.UUID {
-	if !u.Valid {
-		return nil
-	}
-	id := uuid.UUID(u.Bytes)
-	return &id
 }
 
 func pgUUID(id *uuid.UUID) pgtype.UUID {

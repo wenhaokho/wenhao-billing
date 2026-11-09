@@ -105,7 +105,7 @@ func fetchPair(ctx context.Context, client *http.Client, timeout time.Duration, 
 	}
 	asOf, err := parseDate(a.Date)
 	if err != nil {
-		return fetched{}, false, providerErr("fx provider returned invalid date for %s: %s", pair, pyRepr(a.Date))
+		return fetched{}, false, providerErr("fx provider returned invalid date for %s: %s", pair, platform.PyJSONRepr(a.Date))
 	}
 	rate, err := decimal.NewFromString(string(value))
 	// fx_rates.rate is numeric(19,8): Postgres rounds to 8 places and then
@@ -158,17 +158,4 @@ func parseDate(raw json.RawMessage) (time.Time, error) {
 		return time.Time{}, errors.New("not a string")
 	}
 	return time.Parse(time.DateOnly, s)
-}
-
-// pyRepr is how Python's !r shows a JSON value in the error: None for a
-// missing or null value, a string in single quotes, anything else as sent.
-func pyRepr(raw json.RawMessage) string {
-	if isNull(raw) {
-		return "None"
-	}
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return "'" + s + "'"
-	}
-	return string(raw)
 }

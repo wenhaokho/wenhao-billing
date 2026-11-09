@@ -31,3 +31,17 @@ SELECT account_id, debit, credit, currency, base_amount_debit, base_amount_credi
 
 -- name: SetReversedBy :exec
 UPDATE journal_entries SET reversed_by_entry_id = sqlc.arg(reversed_by)::uuid WHERE entry_id = sqlc.arg(entry_id);
+
+-- name: ActiveEntryFor :one
+-- The newest entry for a source that is neither reversed nor itself a reversal
+-- (no entry's reversed_by_entry_id points at it). A reversal shares the
+-- original's source and has reversed_by_entry_id NULL, so the NOT EXISTS is what
+-- keeps it out.
+SELECT e.entry_id
+  FROM journal_entries e
+ WHERE e.source_type = $1
+   AND e.source_id = $2
+   AND e.reversed_by_entry_id IS NULL
+   AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id)
+ ORDER BY e.posted_at DESC, e.entry_id DESC
+ LIMIT 1;

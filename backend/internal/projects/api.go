@@ -119,13 +119,3 @@ func contractValue(f platform.Optional[platform.Dec4], cur decimal.NullDecimal) 
 	}
 	return decimal.NullDecimal{Decimal: v, Valid: true}, nil
 }
-
-func mergeDate(f platform.Optional[platform.Date], cur pgtype.Date) pgtype.Date {
-	if !f.Set {
-		return cur
-	}
-	if f.Null {
-		return pgtype.Date{}
-	}
-	return pgtype.Date{Time: f.Value.Time, Valid: true}
-}

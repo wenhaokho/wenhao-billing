@@ -368,7 +368,7 @@ func templateRows(ctx context.Context, q *invoicesdb.Queries) ([]RecurringTempla
 	out := make([]RecurringTemplateRow, 0, len(templates))
 	for _, t := range templates {
 		row := RecurringTemplateRow{
-			TemplateID: t.InvoiceID, CustomerID: uuidPtr(t.CustomerID), CustomerName: t.CustomerName,
+			TemplateID: t.InvoiceID, CustomerID: platform.UUIDPtr(t.CustomerID), CustomerName: t.CustomerName,
 			Currency: t.Currency, Amount: platform.NewDec4(t.Amount), PaymentTerms: t.PaymentTerms,
 		}
 		var previous *time.Time

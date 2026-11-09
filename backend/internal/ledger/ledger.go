@@ -13,8 +13,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +22,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx/fxdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger/ledgerdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
 // The chart-of-accounts codes the ledger posts to.
@@ -96,16 +95,16 @@ type Entry struct {
 // error fx returns (errors.Is fx.ErrRateMissing).
 func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p Payment, inv Invoice, withheld decimal.Decimal) (Entry, error) {
 	if p.Status != "CLEARED" {
-		return Entry{}, refuse("refuse to post ledger for payment %s with status %s — only CLEARED may post", p.ID, pyRepr(p.Status))
+		return Entry{}, refuse("refuse to post ledger for payment %s with status %s — only CLEARED may post", p.ID, platform.PyRepr(p.Status))
 	}
 	if withheld.IsNegative() {
-		return Entry{}, refuse("withheld tax cannot be negative (got %s)", pyStr(withheld))
+		return Entry{}, refuse("withheld tax cannot be negative (got %s)", platform.PyDecimalStr(withheld))
 	}
 	// A payment that is not positive never reaches here from the API
 	// (validated gt=0); Python crashes on one. A programming error, not a
 	// refusal: a plain error, so it is never routed to manual review.
 	if !p.Amount.IsPositive() {
-		return Entry{}, fmt.Errorf("ledger: payment %s amount must be > 0 (got %s)", p.ID, pyStr(p.Amount))
+		return Entry{}, fmt.Errorf("ledger: payment %s amount must be > 0 (got %s)", p.ID, platform.PyDecimalStr(p.Amount))
 	}
 	q := ledgerdb.New(tx)
 	b, err := newBuilder(ctx, q, fxdb.New(tx), baseCurrency, p.Date)
@@ -144,7 +143,7 @@ func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 		lines = append(lines, ar)
 	} else {
 		if !inv.BalanceDue.IsPositive() {
-			return Entry{}, refuse("cross-currency settlement requires invoice balance_due > 0 (invoice %s balance=%s)", inv.ID, pyStr(inv.BalanceDue))
+			return Entry{}, refuse("cross-currency settlement requires invoice balance_due > 0 (invoice %s balance=%s)", inv.ID, platform.PyDecimalStr(inv.BalanceDue))
 		}
 		ar, err := b.line(ReceivableCode, decimal.Zero, inv.BalanceDue, inv.Currency)
 		if err != nil {
@@ -263,7 +262,7 @@ func (b *builder) line(code string, debit, credit decimal.Decimal, currency stri
 	case credit.IsPositive() && debit.IsZero():
 		amount = credit
 	default:
-		return Line{}, refuse("journal line for account %s needs exactly one positive side (debit=%s credit=%s)", code, pyStr(debit), pyStr(credit))
+		return Line{}, refuse("journal line for account %s needs exactly one positive side (debit=%s credit=%s)", code, platform.PyDecimalStr(debit), platform.PyDecimalStr(credit))
 	}
 	conv, err := fx.Convert(b.ctx, b.fx, amount, currency, b.on, b.base)
 	if err != nil {
@@ -289,7 +288,7 @@ func checkBalanced(lines []Line) error {
 		net = net.Add(l.BaseDebit.Sub(l.BaseCredit))
 	}
 	if !net.IsZero() {
-		return refuse("journal entry unbalanced in base currency: net=%s", pyStr(net))
+		return refuse("journal entry unbalanced in base currency: net=%s", platform.PyDecimalStr(net))
 	}
 	if len(lines) == 0 {
 		return nil
@@ -304,7 +303,7 @@ func checkBalanced(lines []Line) error {
 		net = net.Add(l.Debit.Sub(l.Credit))
 	}
 	if !net.IsZero() {
-		return refuse("journal entry unbalanced in %s: net=%s", lines[0].Currency, pyStr(net))
+		return refuse("journal entry unbalanced in %s: net=%s", lines[0].Currency, platform.PyDecimalStr(net))
 	}
 	return nil
 }
@@ -327,63 +326,19 @@ func insert(ctx context.Context, q *ledgerdb.Queries, e Entry) error {
 	return nil
 }
 
-// pyStr prints d as Python's str(Decimal) does: plain notation, keeping the
-// exponent's places (0.0000, -1.50), unless the exponent is positive or the
-// number is below 1E-6, which print in scientific notation (1E+3, 1E-7).
-func pyStr(d decimal.Decimal) string {
-	digits := new(big.Int).Abs(d.Coefficient()).String()
-	sign := ""
-	if d.IsNegative() {
-		sign = "-"
+// ActiveEntryFor returns the newest entry for the source that is neither
+// reversed nor itself a reversal, or false when there is none. A reversal
+// shares its original's source and has reversed_by_entry_id NULL, so that
+// test alone would pick it; the original's reversed_by_entry_id points at the
+// reversal, so an entry some other entry points at is a reversal and is
+// skipped.
+func ActiveEntryFor(ctx context.Context, tx pgx.Tx, sourceType string, sourceID uuid.UUID) (uuid.UUID, bool, error) {
+	id, err := ledgerdb.New(tx).ActiveEntryFor(ctx, ledgerdb.ActiveEntryForParams{SourceType: sourceType, SourceID: sourceID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, false, nil
 	}
-	exp := int(d.Exponent())
-	left := exp + len(digits)
-	dot := 1
-	if exp <= 0 && left > -6 {
-		dot = left
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("ledger: active entry: %w", err)
 	}
-	var intPart, frac string
-	switch {
-	case dot <= 0:
-		intPart, frac = "0", "."+strings.Repeat("0", -dot)+digits
-	case dot >= len(digits):
-		intPart = digits + strings.Repeat("0", dot-len(digits))
-	default:
-		intPart, frac = digits[:dot], "."+digits[dot:]
-	}
-	e := ""
-	if left != dot {
-		e = fmt.Sprintf("E%+d", left-dot)
-	}
-	return sign + intPart + frac + e
-}
-
-// pyRepr quotes s as Python's repr(str) does for printable text: single
-// quotes, or double quotes when s holds a single quote and no double one.
-func pyRepr(s string) string {
-	q := '\''
-	if strings.ContainsRune(s, '\'') && !strings.ContainsRune(s, '"') {
-		q = '"'
-	}
-	var b strings.Builder
-	b.WriteRune(q)
-	for _, r := range s {
-		switch {
-		case r == '\\' || r == q:
-			b.WriteRune('\\')
-			b.WriteRune(r)
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r < 0x20 || r == 0x7f:
-			fmt.Fprintf(&b, `\x%02x`, r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteRune(q)
-	return b.String()
+	return id, true, nil
 }

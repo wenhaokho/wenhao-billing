@@ -202,3 +202,14 @@ sql:
         emit_enum_valid_method: true
         emit_pointers_for_null_types: true
         overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/payments/queries.sql
+    gen:
+      go:
+        package: paymentsdb
+        out: internal/payments/paymentsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides

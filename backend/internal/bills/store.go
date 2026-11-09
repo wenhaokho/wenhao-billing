@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -110,7 +109,7 @@ func createBill(ctx context.Context, tx pgx.Tx, b BillCreate) (BillOut, error) {
 		BillID: id, VendorID: b.VendorID, ProjectID: pgUUID(f.ProjectID.Merge(nil)), BillNumber: f.BillNumber.Merge(nil),
 		PoNumber: f.PoNumber.Merge(nil), Currency: currency, Subtotal: nullDec(&subtotal), DiscountType: discountType,
 		DiscountValue: nullDec(discountValue), Amount: amount, BalanceDue: amount, Status: "DRAFT",
-		IssueDate: mergeDate(f.IssueDate, pgtype.Date{}), DueDate: mergeDate(f.DueDate, pgtype.Date{}),
+		IssueDate: platform.MergeDate(f.IssueDate, pgtype.Date{}), DueDate: platform.MergeDate(f.DueDate, pgtype.Date{}),
 		PaymentTerms: f.PaymentTerms.Merge(nil), Notes: f.Notes.Merge(nil),
 	})
 	if err != nil {
@@ -169,10 +168,10 @@ func updateBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, b BillUpdate) (Bil
 	}
 
 	err = q.UpdateBill(ctx, billsdb.UpdateBillParams{
-		BillID: id, VendorID: b.VendorID.Or(cur.VendorID), ProjectID: mergeUUID(f.ProjectID, cur.ProjectID),
+		BillID: id, VendorID: b.VendorID.Or(cur.VendorID), ProjectID: platform.MergeUUID(f.ProjectID, cur.ProjectID),
 		BillNumber: f.BillNumber.Merge(cur.BillNumber), PoNumber: f.PoNumber.Merge(cur.PoNumber), Currency: currency,
 		Subtotal: subtotal, DiscountType: discountType, DiscountValue: discountValue, Amount: amount, BalanceDue: balance,
-		Status: status, IssueDate: mergeDate(f.IssueDate, cur.IssueDate), DueDate: mergeDate(f.DueDate, cur.DueDate),
+		Status: status, IssueDate: platform.MergeDate(f.IssueDate, cur.IssueDate), DueDate: platform.MergeDate(f.DueDate, cur.DueDate),
 		PaymentTerms: f.PaymentTerms.Merge(cur.PaymentTerms), Notes: f.Notes.Merge(cur.Notes),
 	})
 	if err != nil {
@@ -201,23 +200,4 @@ func nullDec(d *decimal.Decimal) decimal.NullDecimal {
 		return decimal.NullDecimal{}
 	}
 	return decimal.NullDecimal{Decimal: *d, Valid: true}
-}
-
-func pgDate(t time.Time) pgtype.Date { return pgtype.Date{Time: t, Valid: true} }
-
-func mergeUUID(f platform.Optional[uuid.UUID], cur pgtype.UUID) pgtype.UUID {
-	if !f.Set {
-		return cur
-	}
-	return pgUUID(f.Merge(nil))
-}
-
-func mergeDate(f platform.Optional[platform.Date], cur pgtype.Date) pgtype.Date {
-	if !f.Set {
-		return cur
-	}
-	if f.Null {
-		return pgtype.Date{}
-	}
-	return pgDate(f.Value.Time)
 }

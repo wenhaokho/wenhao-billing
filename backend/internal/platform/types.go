@@ -546,3 +546,21 @@ func (o OptionalParam[T]) Ptr() *T {
 	}
 	return &o.Value
 }
+
+// ParseDec4 reads s as a numeric(19,4) value with the bounds and refusal
+// sentences of Dec4's JSON decode, returning the refusal as an error
+// (errors.Is ErrInvalid is not promised: the text is the sentence). It is for
+// decoders outside Huma, which cannot use the pending-refusal path. It never
+// panics, and fit bounds the exponent before rescaling, so a huge one is
+// cheap.
+func ParseDec4(s string) (decimal.Decimal, error) {
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		return decimal.Zero, errors.New(decimalSentence)
+	}
+	d, sentence := dec4Bounds.fit(d)
+	if sentence != "" {
+		return decimal.Zero, errors.New(sentence)
+	}
+	return d, nil
+}
