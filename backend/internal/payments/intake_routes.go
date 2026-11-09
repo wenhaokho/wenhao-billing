@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -35,6 +36,7 @@ func (r routes) registerIntake(api huma.API) {
 		DefaultStatus: http.StatusCreated,
 		Errors:        []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusConflict},
 		RequestBody:   jsonObjectBody(), SkipValidateBody: true,
+		Middlewares: huma.Middlewares{r.webhookGuard(api)},
 	}, r.intakeWebhook)
 	huma.Register(api, huma.Operation{
 		OperationID: "payments-intake-email", Method: http.MethodPost, Path: prefix + "/email", Tags: tags,
@@ -44,6 +46,7 @@ func (r routes) registerIntake(api huma.API) {
 		DefaultStatus: http.StatusCreated,
 		Errors:        []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusConflict},
 		RequestBody:   jsonObjectBody(), SkipValidateBody: true,
+		Middlewares: huma.Middlewares{r.emailGuard(api)},
 	}, r.intakeEmail)
 }
 
@@ -54,41 +57,115 @@ func jsonObjectBody() *huma.RequestBody {
 	return &huma.RequestBody{Content: map[string]*huma.MediaType{"application/json": {Schema: &huma.Schema{Type: "object"}}}}
 }
 
-// The headers are optional parameters so that a missing one is Python's 400 or
-// 401 sentence, not Huma's 422, and the body is raw so that the HMAC covers
-// the bytes sent and the checks run before any validation of it.
-type webhookIn struct {
-	Signature platform.OptionalParam[string] `header:"X-Signature"`
-	RawBody   []byte
+// maxIntakeBody is Huma's default body limit (1 MB), which these routes keep.
+const maxIntakeBody = 1024 * 1024
+
+type bodyKey struct{}
+
+// intakeBody is the request body the guard middleware read and verified.
+func intakeBody(ctx context.Context) []byte {
+	b, _ := ctx.Value(bodyKey{}).([]byte)
+	return b
 }
 
-type emailIn struct {
-	Token   platform.OptionalParam[string] `header:"X-Email-Token"`
-	RawBody []byte
+// header is the first value of the request header name; present tells an
+// empty header from an absent one (Huma's parameters cannot).
+func header(ctx huma.Context, name string) (value string, present bool) {
+	ctx.EachHeader(func(n, v string) {
+		if !present && strings.EqualFold(n, name) {
+			value, present = v, true
+		}
+	})
+	return value, present
 }
 
-func (r routes) intakeWebhook(ctx context.Context, in *webhookIn) (*paymentBody, error) {
-	if !in.Signature.Set {
-		return nil, platform.Err(http.StatusBadRequest, "missing_signature", "missing X-Signature header")
+// guard is a middleware: the secret check and the body read run before Huma's
+// own body handling, which would refuse an empty body with its own 400 before
+// Python's 400 or 401 could answer. pre runs before the body is read, post
+// after; each refuses with Python's sentence. The
+// body bytes, read with the 1 MB limit, travel to the handler in the context.
+func guard(api huma.API, pre func(ctx huma.Context) error, post func(ctx huma.Context, body []byte) error) func(huma.Context, func(huma.Context)) {
+	refuse := func(ctx huma.Context, err error) {
+		status := http.StatusInternalServerError
+		var e interface{ GetStatus() int }
+		if errors.As(err, &e) {
+			status = e.GetStatus()
+		}
+		_ = huma.WriteErr(api, ctx, status, "", err)
 	}
-	mac := hmac.New(sha256.New, []byte(r.webhookSecret))
-	mac.Write(in.RawBody)
-	expected := hex.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(expected), []byte(strings.TrimSpace(in.Signature.Value))) {
-		return nil, platform.Err(http.StatusUnauthorized, "invalid_signature", "invalid webhook signature")
+	return func(ctx huma.Context, next func(huma.Context)) {
+		if pre != nil {
+			if err := pre(ctx); err != nil {
+				refuse(ctx, err)
+				return
+			}
+		}
+		var body []byte
+		if r := ctx.BodyReader(); r != nil {
+			var err error
+			body, err = io.ReadAll(http.MaxBytesReader(nil, io.NopCloser(r), maxIntakeBody))
+			var tooBig *http.MaxBytesError
+			if errors.As(err, &tooBig) {
+				refuse(ctx, platform.Err(http.StatusRequestEntityTooLarge, "body_too_large", "request body is too large"))
+				return
+			}
+			if err != nil {
+				refuse(ctx, platform.Err(http.StatusBadRequest, "unreadable_body", "cannot read request body"))
+				return
+			}
+		}
+		if post != nil {
+			if err := post(ctx, body); err != nil {
+				refuse(ctx, err)
+				return
+			}
+		}
+		next(huma.WithValue(ctx, bodyKey{}, body))
 	}
-	payload, err := ParseWebhook(in.RawBody)
+}
+
+// webhookGuard: X-Signature must be present (400), then equal the lowercase
+// hex HMAC-SHA256 of the body (401). An empty header is present, so 401.
+func (r routes) webhookGuard(api huma.API) func(huma.Context, func(huma.Context)) {
+	return guard(api, func(ctx huma.Context) error {
+		if _, ok := header(ctx, "X-Signature"); !ok {
+			return platform.Err(http.StatusBadRequest, "missing_signature", "missing X-Signature header")
+		}
+		return nil
+	}, func(ctx huma.Context, body []byte) error {
+		sig, _ := header(ctx, "X-Signature")
+		mac := hmac.New(sha256.New, []byte(r.webhookSecret))
+		mac.Write(body)
+		expected := hex.EncodeToString(mac.Sum(nil))
+		if !hmac.Equal([]byte(expected), []byte(strings.TrimSpace(sig))) {
+			return platform.Err(http.StatusUnauthorized, "invalid_signature", "invalid webhook signature")
+		}
+		return nil
+	})
+}
+
+// emailGuard: X-Email-Token must equal the configured token (401), in
+// constant time.
+func (r routes) emailGuard(api huma.API) func(huma.Context, func(huma.Context)) {
+	return guard(api, func(ctx huma.Context) error {
+		tok, _ := header(ctx, "X-Email-Token")
+		if subtle.ConstantTimeCompare([]byte(tok), []byte(r.emailToken)) != 1 {
+			return platform.Err(http.StatusUnauthorized, "invalid_email_token", "invalid email webhook token")
+		}
+		return nil
+	}, nil)
+}
+
+func (r routes) intakeWebhook(ctx context.Context, _ *struct{}) (*paymentBody, error) {
+	payload, err := ParseWebhook(intakeBody(ctx))
 	if err != nil {
 		return nil, intakeError(err)
 	}
 	return r.intake(ctx, payload, "duplicate (intake_source, external_ref)")
 }
 
-func (r routes) intakeEmail(ctx context.Context, in *emailIn) (*paymentBody, error) {
-	if !in.Token.Set || subtle.ConstantTimeCompare([]byte(in.Token.Value), []byte(r.emailToken)) != 1 {
-		return nil, platform.Err(http.StatusUnauthorized, "invalid_email_token", "invalid email webhook token")
-	}
-	body, err := decodeObject(in.RawBody, "")
+func (r routes) intakeEmail(ctx context.Context, _ *struct{}) (*paymentBody, error) {
+	body, err := decodeObject(intakeBody(ctx), "")
 	if err != nil {
 		sentence := "Input should be a valid dictionary"
 		var e ErrIntake

@@ -8975,31 +8975,14 @@
       "post": {
         "description": "X-Email-Token is EMAIL_WEBHOOK_TOKEN. The body is the inbound-mail JSON object (from, subject, text, html, message_id, payment_date); the amount is read from the subject, text and html. An attachment with content is refused: no OCR backend is attached.",
         "operationId": "payments-intake-email",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Email-Token",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "type": "object"
               }
-            },
-            "application/octet-stream": {
-              "schema": {
-                "contentMediaType": "application/octet-stream",
-                "format": "binary",
-                "type": "string"
-              }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -9074,31 +9057,14 @@
       "post": {
         "description": "X-Signature is the lowercase hex HMAC-SHA256 of the raw body under WEBHOOK_HMAC_SECRET. The body is a JSON object with amount, currency, payer_name, payment_date and external_ref (and optional payer_reference). The payment is matched against open invoices of its currency: a confident match is cleared, anything else is held for manual review.",
         "operationId": "payments-intake-webhook",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Signature",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "type": "object"
               }
-            },
-            "application/octet-stream": {
-              "schema": {
-                "contentMediaType": "application/octet-stream",
-                "format": "binary",
-                "type": "string"
-              }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {

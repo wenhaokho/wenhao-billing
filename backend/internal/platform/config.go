@@ -121,13 +121,14 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 	if r.FXProviderSeconds <= 0 { // 0 would mean no timeout at all
 		return Config{}, fmt.Errorf("FX_PROVIDER_TIMEOUT_SECONDS must be greater than 0")
 	}
-	// The defaults are published in the source: anyone could sign a payment.
-	if r.Environment == "production" {
+	// The defaults are published in the source: anyone could sign a payment, so
+	// only a local environment (as Config.LocalHTTP) may keep them.
+	if r.Environment != "development" && r.Environment != "test" {
 		if r.WebhookHMACSecret == "" || r.WebhookHMACSecret == devWebhookHMACSecret {
-			return Config{}, fmt.Errorf("WEBHOOK_HMAC_SECRET must be set to a secret of your own in production")
+			return Config{}, fmt.Errorf("WEBHOOK_HMAC_SECRET must be set to a secret of your own outside development and test")
 		}
 		if r.EmailWebhookToken == "" || r.EmailWebhookToken == devEmailWebhookToken {
-			return Config{}, fmt.Errorf("EMAIL_WEBHOOK_TOKEN must be set to a secret of your own in production")
+			return Config{}, fmt.Errorf("EMAIL_WEBHOOK_TOKEN must be set to a secret of your own outside development and test")
 		}
 	}
 	return Config{

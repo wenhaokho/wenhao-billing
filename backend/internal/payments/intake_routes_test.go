@@ -104,6 +104,7 @@ func TestWebhookBadSignature401(t *testing.T) {
 	other.Write([]byte(body))
 	for name, sig := range map[string]string{
 		"wrong":         "0000",
+		"empty":         "",
 		"wrong secret":  hex.EncodeToString(other.Sum(nil)),
 		"signs another": sign(body + " "),
 	} {
@@ -300,4 +301,42 @@ func TestEmailEmptyRefSecondIs409(t *testing.T) {
 	if n := a.paymentCount(t); n != 1 {
 		t.Errorf("%d payments, want 1", n)
 	}
+}
+
+// The checks run before Huma's body handling: an empty body must not turn
+// them into Huma's 400 "request body is required".
+func TestIntakeChecksComeBeforeBodyHandling(t *testing.T) {
+	t.Parallel()
+	a := newAPI(t, NoHosting{})
+	a.wantNoPayments(t)
+	t.Run("webhook empty body bad signature", func(t *testing.T) {
+		t.Parallel()
+		rec := a.post(t, webhookPath, "", map[string]string{"X-Signature": "0000"})
+		wantProblem(t, rec, http.StatusUnauthorized, "invalid_signature", "invalid webhook signature")
+	})
+	t.Run("webhook empty body no signature", func(t *testing.T) {
+		t.Parallel()
+		wantProblem(t, a.post(t, webhookPath, "", nil), http.StatusBadRequest, "missing_signature", "missing X-Signature header")
+	})
+	t.Run("webhook empty body empty signature", func(t *testing.T) {
+		t.Parallel()
+		rec := a.post(t, webhookPath, "", map[string]string{"X-Signature": ""})
+		wantProblem(t, rec, http.StatusUnauthorized, "invalid_signature", "invalid webhook signature")
+	})
+	t.Run("webhook empty body signed is a 400 on the body", func(t *testing.T) {
+		t.Parallel()
+		rec := a.post(t, webhookPath, "", map[string]string{"X-Signature": sign("")})
+		if p := apitest.Decode[problemBody](t, rec, http.StatusBadRequest); p.Code != "invalid_json" {
+			t.Errorf("problem = %+v", p)
+		}
+	})
+	t.Run("email empty body no token", func(t *testing.T) {
+		t.Parallel()
+		wantProblem(t, a.post(t, emailPath, "", nil), http.StatusUnauthorized, "invalid_email_token", "invalid email webhook token")
+	})
+	t.Run("email empty body wrong token", func(t *testing.T) {
+		t.Parallel()
+		rec := a.post(t, emailPath, "", map[string]string{"X-Email-Token": "nope"})
+		wantProblem(t, rec, http.StatusUnauthorized, "invalid_email_token", "invalid email webhook token")
+	})
 }

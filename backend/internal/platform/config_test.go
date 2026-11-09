@@ -198,7 +198,10 @@ func TestProductionRefusesDefaultIntakeSecrets(t *testing.T) {
 		"default token":        {map[string]string{"EMAIL_WEBHOOK_TOKEN": devToken}, "EMAIL_WEBHOOK_TOKEN"},
 		"empty token":          {map[string]string{"EMAIL_WEBHOOK_TOKEN": ""}, "EMAIL_WEBHOOK_TOKEN"},
 		"explicit production":  {map[string]string{"ENVIRONMENT": "production", "WEBHOOK_HMAC_SECRET": devSecret}, "WEBHOOK_HMAC_SECRET"},
+		"prod":                 {map[string]string{"ENVIRONMENT": "prod", "WEBHOOK_HMAC_SECRET": devSecret}, "WEBHOOK_HMAC_SECRET"},
+		"staging":              {map[string]string{"ENVIRONMENT": "staging", "EMAIL_WEBHOOK_TOKEN": devToken}, "EMAIL_WEBHOOK_TOKEN"},
 		"real values":          {nil, ""},
+		"test defaults":        {map[string]string{"ENVIRONMENT": "test", "WEBHOOK_HMAC_SECRET": devSecret, "EMAIL_WEBHOOK_TOKEN": devToken}, ""},
 		"development defaults": {map[string]string{"ENVIRONMENT": "development", "WEBHOOK_HMAC_SECRET": devSecret, "EMAIL_WEBHOOK_TOKEN": devToken}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
