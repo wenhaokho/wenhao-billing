@@ -12,6 +12,53 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const createRate = `-- name: CreateRate :one
+INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING rate_id, from_currency, to_currency, rate, as_of_date, source, created_at
+`
+
+type CreateRateParams struct {
+	FromCurrency string
+	ToCurrency   string
+	Rate         decimal.Decimal
+	AsOfDate     pgtype.Date
+	Source       string
+}
+
+func (q *Queries) CreateRate(ctx context.Context, arg CreateRateParams) (FxRate, error) {
+	row := q.db.QueryRow(ctx, createRate,
+		arg.FromCurrency,
+		arg.ToCurrency,
+		arg.Rate,
+		arg.AsOfDate,
+		arg.Source,
+	)
+	var i FxRate
+	err := row.Scan(
+		&i.RateID,
+		&i.FromCurrency,
+		&i.ToCurrency,
+		&i.Rate,
+		&i.AsOfDate,
+		&i.Source,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const deleteRate = `-- name: DeleteRate :execrows
+DELETE FROM fx_rates WHERE rate_id = $1
+`
+
+func (q *Queries) DeleteRate(ctx context.Context, rateID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteRate, rateID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getRate = `-- name: GetRate :one
 SELECT rate FROM fx_rates
  WHERE from_currency = $1 AND to_currency = $2 AND as_of_date <= $3
@@ -32,4 +79,121 @@ func (q *Queries) GetRate(ctx context.Context, arg GetRateParams) (decimal.Decim
 	var rate decimal.Decimal
 	err := row.Scan(&rate)
 	return rate, err
+}
+
+const latestRate = `-- name: LatestRate :one
+SELECT rate_id, from_currency, to_currency, rate, as_of_date, source, created_at FROM fx_rates
+ WHERE from_currency = $1 AND to_currency = $2
+   AND ($3::date IS NULL OR as_of_date <= $3::date)
+ ORDER BY as_of_date DESC, rate_id DESC
+ LIMIT 1
+`
+
+type LatestRateParams struct {
+	FromCurrency string
+	ToCurrency   string
+	OnDate       pgtype.Date
+}
+
+// The newest from->to row, on or before on_date when it is not null
+// (Python's latest_fx_rate).
+func (q *Queries) LatestRate(ctx context.Context, arg LatestRateParams) (FxRate, error) {
+	row := q.db.QueryRow(ctx, latestRate, arg.FromCurrency, arg.ToCurrency, arg.OnDate)
+	var i FxRate
+	err := row.Scan(
+		&i.RateID,
+		&i.FromCurrency,
+		&i.ToCurrency,
+		&i.Rate,
+		&i.AsOfDate,
+		&i.Source,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listRates = `-- name: ListRates :many
+SELECT rate_id, from_currency, to_currency, rate, as_of_date, source, created_at FROM fx_rates
+ WHERE ($1::text IS NULL OR from_currency = $1::text)
+   AND ($2::text IS NULL OR to_currency = $2::text)
+ ORDER BY as_of_date DESC, rate_id DESC
+`
+
+type ListRatesParams struct {
+	FromCurrency *string
+	ToCurrency   *string
+}
+
+// A null filter matches every currency (Python's list_fx_rates).
+func (q *Queries) ListRates(ctx context.Context, arg ListRatesParams) ([]FxRate, error) {
+	rows, err := q.db.Query(ctx, listRates, arg.FromCurrency, arg.ToCurrency)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FxRate
+	for rows.Next() {
+		var i FxRate
+		if err := rows.Scan(
+			&i.RateID,
+			&i.FromCurrency,
+			&i.ToCurrency,
+			&i.Rate,
+			&i.AsOfDate,
+			&i.Source,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const upsertSyncedRate = `-- name: UpsertSyncedRate :many
+INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source)
+VALUES ($1, $2, $3, $4, 'FRANKFURTER')
+ON CONFLICT ON CONSTRAINT uq_fx_rates_triple DO UPDATE
+   SET rate = EXCLUDED.rate, source = 'FRANKFURTER'
+ WHERE fx_rates.rate <> EXCLUDED.rate OR fx_rates.source <> 'FRANKFURTER'
+RETURNING (xmax = 0) AS inserted
+`
+
+type UpsertSyncedRateParams struct {
+	FromCurrency string
+	ToCurrency   string
+	Rate         decimal.Decimal
+	AsOfDate     pgtype.Date
+}
+
+// A provider rate: inserted, or written over the row of the same pair and
+// date when its rate or source differs. inserted is true for a new row and
+// false for an updated one; an unchanged row returns nothing. :many, not
+// :one, so "nothing" is an empty result rather than an error.
+func (q *Queries) UpsertSyncedRate(ctx context.Context, arg UpsertSyncedRateParams) ([]bool, error) {
+	rows, err := q.db.Query(ctx, upsertSyncedRate,
+		arg.FromCurrency,
+		arg.ToCurrency,
+		arg.Rate,
+		arg.AsOfDate,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []bool
+	for rows.Next() {
+		var inserted bool
+		if err := rows.Scan(&inserted); err != nil {
+			return nil, err
+		}
+		items = append(items, inserted)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
