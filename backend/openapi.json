@@ -250,6 +250,724 @@
         ],
         "type": "object"
       },
+      "CustomerCreate": {
+        "additionalProperties": true,
+        "properties": {
+          "account_number": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "description": "Defaults to true.",
+            "type": "boolean"
+          },
+          "billing_address": {
+            "description": "Legacy unstructured address.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_address1": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_address2": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_cc_emails": {
+            "description": "CC addresses for invoices and payment receipts, kept as quotation_cc_emails is. Defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "billing_city": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_country": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_postal_code": {
+            "maxLength": 32,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_state": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_email": {
+            "examples": [
+              "ap@example.com"
+            ],
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_first_name": {
+            "maxLength": 120,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_last_name": {
+            "maxLength": 120,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_phone": {
+            "maxLength": 64,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_phone_2": {
+            "maxLength": 64,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "default_currency": {
+            "description": "Defaults to IDR.",
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "default_wht_gross_up": {
+            "description": "Defaults to false.",
+            "type": "boolean"
+          },
+          "default_wht_rate": {
+            "description": "Percent, above 0 and below 100. Null or left out with a new type: the type's default rate (PPH21 2.5, PPH23 2).",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "default_wht_type": {
+            "description": "NONE, PPH21 or PPH23. Defaults to NONE.",
+            "maxLength": 16,
+            "type": "string"
+          },
+          "matching_aliases": {
+            "description": "Defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quotation_cc_emails": {
+            "description": "CC addresses for quotations. Blanks are dropped, each is trimmed and must be an email address, and a repeat (any case) is dropped. Defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ship_to_name": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_address1": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_address2": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_city": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_country": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_delivery_instructions": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_phone": {
+            "maxLength": 64,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_postal_code": {
+            "maxLength": 32,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_state": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "website": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "CustomerOut": {
+        "additionalProperties": true,
+        "properties": {
+          "account_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "billing_address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_address1": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_address2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_cc_emails": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "billing_city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_postal_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_first_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_last_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_phone_2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "default_currency": {
+            "type": "string"
+          },
+          "default_wht_gross_up": {
+            "type": "boolean"
+          },
+          "default_wht_rate": {
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "default_wht_type": {
+            "type": "string"
+          },
+          "matching_aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quotation_cc_emails": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ship_to_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_address1": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_address2": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_delivery_instructions": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_postal_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "website": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "customer_id",
+          "name",
+          "matching_aliases",
+          "active",
+          "contact_first_name",
+          "contact_last_name",
+          "contact_email",
+          "quotation_cc_emails",
+          "billing_cc_emails",
+          "contact_phone",
+          "contact_phone_2",
+          "account_number",
+          "website",
+          "notes",
+          "default_currency",
+          "billing_address",
+          "billing_address1",
+          "billing_address2",
+          "billing_country",
+          "billing_state",
+          "billing_city",
+          "billing_postal_code",
+          "ship_to_name",
+          "shipping_address1",
+          "shipping_address2",
+          "shipping_country",
+          "shipping_state",
+          "shipping_city",
+          "shipping_postal_code",
+          "shipping_phone",
+          "shipping_delivery_instructions",
+          "default_wht_type",
+          "default_wht_rate",
+          "default_wht_gross_up"
+        ],
+        "type": "object"
+      },
+      "CustomerUpdate": {
+        "additionalProperties": true,
+        "properties": {
+          "account_number": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "description": "Defaults to true.",
+            "type": "boolean"
+          },
+          "billing_address": {
+            "description": "Legacy unstructured address.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_address1": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_address2": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_cc_emails": {
+            "description": "CC addresses for invoices and payment receipts, kept as quotation_cc_emails is. Defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "billing_city": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_country": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_postal_code": {
+            "maxLength": 32,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_state": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_email": {
+            "examples": [
+              "ap@example.com"
+            ],
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_first_name": {
+            "maxLength": 120,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_last_name": {
+            "maxLength": 120,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_phone": {
+            "maxLength": 64,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_phone_2": {
+            "maxLength": 64,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "default_currency": {
+            "description": "Defaults to IDR.",
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "default_wht_gross_up": {
+            "description": "Defaults to false.",
+            "type": "boolean"
+          },
+          "default_wht_rate": {
+            "description": "Percent, above 0 and below 100. Null or left out with a new type: the type's default rate (PPH21 2.5, PPH23 2).",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "default_wht_type": {
+            "description": "NONE, PPH21 or PPH23. Defaults to NONE.",
+            "maxLength": 16,
+            "type": "string"
+          },
+          "matching_aliases": {
+            "description": "Defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quotation_cc_emails": {
+            "description": "CC addresses for quotations. Blanks are dropped, each is trimmed and must be an email address, and a repeat (any case) is dropped. Defaults to [].",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ship_to_name": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_address1": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_address2": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_city": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_country": {
+            "maxLength": 100,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_delivery_instructions": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_phone": {
+            "maxLength": 64,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_postal_code": {
+            "maxLength": 32,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_state": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "website": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "ForgotPasswordRequest": {
         "additionalProperties": true,
         "properties": {
@@ -1700,6 +2418,281 @@
         "tags": [
           "public",
           "auth"
+        ]
+      }
+    },
+    "/api/v1/customers": {
+      "get": {
+        "operationId": "customers-list",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "active",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CustomerOut"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List customers",
+        "tags": [
+          "customers"
+        ]
+      },
+      "post": {
+        "operationId": "customers-create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Add a customer",
+        "tags": [
+          "customers"
+        ]
+      }
+    },
+    "/api/v1/customers/{customer_id}": {
+      "delete": {
+        "operationId": "customers-deactivate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Deactivate a customer (never deleted)",
+        "tags": [
+          "customers"
+        ]
+      },
+      "get": {
+        "operationId": "customers-get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "A customer",
+        "tags": [
+          "customers"
+        ]
+      },
+      "patch": {
+        "operationId": "customers-update",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Change a customer's fields",
+        "tags": [
+          "customers"
         ]
       }
     },
