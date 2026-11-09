@@ -38,6 +38,14 @@ func Register(api huma.API, pool *pgxpool.Pool, cfg platform.Config, clock platf
 		OperationID: "reports-fx-revaluation", Method: http.MethodGet, Path: prefix + "/fx-revaluation", Tags: tags,
 		Summary: "Unrealised FX gain or loss on foreign-currency monetary balances",
 	}), r.fxRevaluation)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "reports-ar-aging", Method: http.MethodGet, Path: prefix + "/ar-aging", Tags: tags,
+		Summary: "Open receivables by days past due",
+	}), r.arAging)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "reports-ap-aging", Method: http.MethodGet, Path: prefix + "/ap-aging", Tags: tags,
+		Summary: "Open payables by days past due",
+	}), r.apAging)
 }
 
 // asOfIn is the report date: UTC today when left out.

@@ -9,8 +9,99 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
+
+const apAgingRows = `-- name: ApAgingRows :many
+SELECT b.vendor_id, b.currency, b.due_date, b.balance_due, v.name AS party_name
+  FROM bills b
+  LEFT JOIN vendors v ON v.vendor_id = b.vendor_id
+ WHERE b.status IN ('OPEN', 'PARTIAL')
+   AND b.balance_due > 0
+`
+
+type ApAgingRowsRow struct {
+	VendorID   uuid.UUID
+	Currency   string
+	DueDate    pgtype.Date
+	BalanceDue decimal.Decimal
+	PartyName  *string
+}
+
+// Bills are never SENT, and have no template flag.
+func (q *Queries) ApAgingRows(ctx context.Context) ([]ApAgingRowsRow, error) {
+	rows, err := q.db.Query(ctx, apAgingRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ApAgingRowsRow
+	for rows.Next() {
+		var i ApAgingRowsRow
+		if err := rows.Scan(
+			&i.VendorID,
+			&i.Currency,
+			&i.DueDate,
+			&i.BalanceDue,
+			&i.PartyName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const arAgingRows = `-- name: ArAgingRows :many
+SELECT i.customer_id, i.currency, i.due_date, i.balance_due, c.name AS party_name
+  FROM invoices i
+  LEFT JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.status IN ('OPEN', 'SENT', 'PARTIAL')
+   AND i.is_template = false
+   AND i.balance_due > 0
+`
+
+type ArAgingRowsRow struct {
+	CustomerID pgtype.UUID
+	Currency   string
+	DueDate    pgtype.Date
+	BalanceDue decimal.Decimal
+	PartyName  *string
+}
+
+// The open-AR rule shared with the dashboard and invoices summary. No ORDER BY:
+// sums are exact and the report sorts its own rows. The LEFT JOIN keeps an
+// invoice with no customer.
+func (q *Queries) ArAgingRows(ctx context.Context) ([]ArAgingRowsRow, error) {
+	rows, err := q.db.Query(ctx, arAgingRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ArAgingRowsRow
+	for rows.Next() {
+		var i ArAgingRowsRow
+		if err := rows.Scan(
+			&i.CustomerID,
+			&i.Currency,
+			&i.DueDate,
+			&i.BalanceDue,
+			&i.PartyName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const balanceSheetRows = `-- name: BalanceSheetRows :many
 SELECT a.account_id, a.code, a.name, a.type,

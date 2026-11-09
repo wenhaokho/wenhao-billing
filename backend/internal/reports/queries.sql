@@ -45,3 +45,22 @@ SELECT a.account_id, a.code, a.name, a.type, l.currency,
    AND l.currency <> @base_currency::text
  GROUP BY a.account_id, a.code, a.name, a.type, l.currency
  ORDER BY a.code, l.currency;
+
+-- name: ArAgingRows :many
+-- The open-AR rule shared with the dashboard and invoices summary. No ORDER BY:
+-- sums are exact and the report sorts its own rows. The LEFT JOIN keeps an
+-- invoice with no customer.
+SELECT i.customer_id, i.currency, i.due_date, i.balance_due, c.name AS party_name
+  FROM invoices i
+  LEFT JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.status IN ('OPEN', 'SENT', 'PARTIAL')
+   AND i.is_template = false
+   AND i.balance_due > 0;
+
+-- name: ApAgingRows :many
+-- Bills are never SENT, and have no template flag.
+SELECT b.vendor_id, b.currency, b.due_date, b.balance_due, v.name AS party_name
+  FROM bills b
+  LEFT JOIN vendors v ON v.vendor_id = b.vendor_id
+ WHERE b.status IN ('OPEN', 'PARTIAL')
+   AND b.balance_due > 0;
