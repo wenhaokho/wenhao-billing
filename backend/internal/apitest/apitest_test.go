@@ -25,6 +25,7 @@ func TestApitestAdminReachesAdminRoute(t *testing.T) {
 }
 
 func TestApitestSeedsPythonRates(t *testing.T) {
+	t.Parallel()
 	a := apitest.New(t, func(huma.API, apitest.Deps) {})
 	rows, err := a.Pool.Query(t.Context(),
 		`SELECT from_currency || '>' || to_currency || '=' || rate::text || '@' || as_of_date::text || '/' || source FROM fx_rates WHERE source = 'TEST' ORDER BY from_currency`)

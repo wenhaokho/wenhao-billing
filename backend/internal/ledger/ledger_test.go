@@ -189,6 +189,7 @@ func refused(t *testing.T, tx pgx.Tx, err error, msg string) {
 }
 
 func TestSameCurrencyIDR(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	p, inv := cleared("1000000", "IDR"), invoice("IDR", "1000000")
 	e := post(t, pool, p, inv, "0")
@@ -203,6 +204,7 @@ func TestSameCurrencyIDR(t *testing.T) {
 }
 
 func TestSameCurrencyUSD(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	e := post(t, pool, cleared("100", "USD"), invoice("USD", "100"), "0")
 	checkLines(t, pool, e, []want{
@@ -215,6 +217,7 @@ func TestSameCurrencyUSD(t *testing.T) {
 // (16000.00003 rounds down) but 2 USD converts to 32000.0001 (32000.00006
 // rounds up): AR is relieved by the debits' 32000.0000, not its own 32000.0001.
 func TestSameCurrencyWithholdingRelievesExactDebitBase(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	if _, err := pool.Exec(context.Background(),
 		`INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source) VALUES ('USD', 'IDR', 16000.00003, '2026-03-01', 'TEST')`); err != nil {
@@ -231,6 +234,7 @@ func TestSameCurrencyWithholdingRelievesExactDebitBase(t *testing.T) {
 }
 
 func TestCrossCurrencyGain(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	e := post(t, pool, cleared("100", "USD"), invoice("IDR", "1550000"), "0")
 	checkLines(t, pool, e, []want{
@@ -241,6 +245,7 @@ func TestCrossCurrencyGain(t *testing.T) {
 }
 
 func TestCrossCurrencyLoss(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	e := post(t, pool, cleared("100", "USD"), invoice("IDR", "1650000"), "0")
 	checkLines(t, pool, e, []want{
@@ -251,6 +256,7 @@ func TestCrossCurrencyLoss(t *testing.T) {
 }
 
 func TestCrossCurrencyExact(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	e := post(t, pool, cleared("100", "USD"), invoice("IDR", "1600000"), "0")
 	checkLines(t, pool, e, []want{
@@ -262,6 +268,7 @@ func TestCrossCurrencyExact(t *testing.T) {
 // diff = 1,600,000 bank + 50,000 withheld − 1,700,000 AR = −50,000: a loss
 // of 50,000, not the 100,000 it would be without the withholding.
 func TestCrossCurrencyWithholdingCountsInDiff(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	e := post(t, pool, cleared("100", "USD"), invoice("IDR", "1700000"), "50000")
 	checkLines(t, pool, e, []want{
@@ -273,6 +280,7 @@ func TestCrossCurrencyWithholdingCountsInDiff(t *testing.T) {
 }
 
 func TestRefusesNonCleared(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	tx := begin(t, pool)
 	p := cleared("100", "IDR")
@@ -282,6 +290,7 @@ func TestRefusesNonCleared(t *testing.T) {
 }
 
 func TestRefusesNegativeWithheld(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	tx := begin(t, pool)
 	_, err := PostPaymentCleared(context.Background(), tx, base, cleared("100", "IDR"), invoice("IDR", "100"), dec("-1.50"))
@@ -289,6 +298,7 @@ func TestRefusesNegativeWithheld(t *testing.T) {
 }
 
 func TestRefusesCrossCurrencyZeroBalance(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	tx := begin(t, pool)
 	inv := invoice("IDR", "0.0000")
@@ -299,6 +309,7 @@ func TestRefusesCrossCurrencyZeroBalance(t *testing.T) {
 // A payment amount with no positive side would break the one-sided line rule;
 // Python fails on it with an AttributeError (PORT-NOTES).
 func TestRefusesNonPositiveAmount(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	tx := begin(t, pool)
 	// A non-positive amount is a programming error (Python crashes), not a
@@ -319,6 +330,7 @@ func TestRefusesNonPositiveAmount(t *testing.T) {
 }
 
 func TestRateMissingPassesThrough(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	tx := begin(t, pool)
 	_, err := PostPaymentCleared(context.Background(), tx, base, cleared("100", "EUR"), invoice("EUR", "100"), dec("0"))
@@ -334,6 +346,7 @@ func TestRateMissingPassesThrough(t *testing.T) {
 }
 
 func TestMissingAccountCode(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	tx := begin(t, pool)
 	if _, err := tx.Exec(context.Background(), `UPDATE chart_of_accounts SET code = '1301' WHERE code = '1300'`); err != nil {
@@ -344,6 +357,7 @@ func TestMissingAccountCode(t *testing.T) {
 }
 
 func TestReversalSwapsSidesAndLinks(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	orig := post(t, pool, cleared("100", "USD"), invoice("IDR", "1550000"), "0")
 	tx := begin(t, pool)
@@ -384,6 +398,7 @@ func TestReversalSwapsSidesAndLinks(t *testing.T) {
 }
 
 func TestReversalDefaultMemo(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	orig := post(t, pool, cleared("100", "IDR"), invoice("IDR", "100"), "0")
 	for _, memo := range []*string{nil, new(string)} {
@@ -400,6 +415,7 @@ func TestReversalDefaultMemo(t *testing.T) {
 }
 
 func TestReverseTwiceFails(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	orig := post(t, pool, cleared("100", "IDR"), invoice("IDR", "100"), "0")
 	tx := begin(t, pool)
@@ -420,6 +436,7 @@ func TestReverseTwiceFails(t *testing.T) {
 }
 
 func TestReverseUnknownFails(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	tx := begin(t, pool)
 	id := uuid.New()
@@ -432,6 +449,7 @@ func TestReverseUnknownFails(t *testing.T) {
 // reversal and refuse. Without the row lock B reads the entry as unreversed,
 // posts a second reversal and overwrites reversed_by_entry_id.
 func TestReverseConcurrentOnlyOnce(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	ctx := context.Background()
 	orig := post(t, pool, cleared("100", "IDR"), invoice("IDR", "100"), "0")
@@ -504,6 +522,7 @@ WHERE datname = current_database() AND pid <> pg_backend_pid() AND wait_event_ty
 }
 
 func TestUnbalancedEntryRefused(t *testing.T) {
+	t.Parallel()
 	line := func(debit, credit, ccy, baseDebit, baseCredit string) Line {
 		return Line{
 			AccountID: 1, Debit: dec(debit), Credit: dec(credit), Currency: ccy,
@@ -539,6 +558,7 @@ func TestUnbalancedEntryRefused(t *testing.T) {
 }
 
 func TestLinesAreOneSided(t *testing.T) {
+	t.Parallel()
 	pool := newPool(t)
 	post(t, pool, cleared("100", "USD"), invoice("IDR", "1550000"), "0")
 	post(t, pool, cleared("100", "USD"), invoice("IDR", "1700000"), "50000")
@@ -564,6 +584,7 @@ FROM journal_lines`).Scan(&total, &bad); err != nil {
 
 // pyStr prints like Python's str(Decimal).
 func TestPyStr(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"0": "0", "0.0000": "0.0000", "-1.50": "-1.50", "1600000.0001": "1600000.0001",
 		"-0.0001": "-0.0001", "1000": "1000", "1E+3": "1E+3", "0.0000001": "1E-7", "0.000001": "0.000001",

@@ -151,6 +151,7 @@ func TestTamperedCookieIs401(t *testing.T) {
 		claims["iat"] = time.Now().Unix()
 		claims["exp"] = time.Now().Add(time.Hour).Unix()
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			wantRefusal(t, get(t, a.h, "/whoami", "Cookie", SessionCookie+"="+sign(t, claims)), 401, "not authenticated")
 		})
 	}

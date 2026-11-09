@@ -117,6 +117,7 @@ func wantKeys(t *testing.T, got []rate, want ...string) {
 }
 
 func TestBaseCurrency(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	rec := a.Do(t, http.MethodGet, "/api/v1/accounting/base-currency", nil)
 	if rec.Code != http.StatusOK || rec.Body.String() != `{"base_currency":"IDR"}`+"\n" {
@@ -125,6 +126,7 @@ func TestBaseCurrency(t *testing.T) {
 }
 
 func TestListRatesOrderAndFilters(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	createRate(t, a, map[string]any{"from_currency": "EUR", "to_currency": "IDR", "rate": "17000", "as_of_date": "2026-01-05"})
 	createRate(t, a, map[string]any{"from_currency": "USD", "to_currency": "IDR", "rate": "16100", "as_of_date": "2026-01-05"})
@@ -143,6 +145,7 @@ func TestListRatesOrderAndFilters(t *testing.T) {
 }
 
 func TestListRatesFilterLengthIs422(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	for _, q := range []struct{ query, location string }{
 		{"?from_currency=US", "from_currency"},
@@ -155,6 +158,7 @@ func TestListRatesFilterLengthIs422(t *testing.T) {
 }
 
 func TestCreateRate201(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	rec := a.Do(t, http.MethodPost, ratesPath, map[string]any{
 		"from_currency": "eur", "to_currency": "idr", "rate": "16250.5", "as_of_date": "2026-02-01",
@@ -184,6 +188,7 @@ func TestCreateRate201(t *testing.T) {
 }
 
 func TestCreateRateDuplicateIs409(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	rec := a.Do(t, http.MethodPost, ratesPath, map[string]any{
 		"from_currency": "usd", "to_currency": "IDR", "rate": "1", "as_of_date": "2026-01-01",
@@ -193,6 +198,7 @@ func TestCreateRateDuplicateIs409(t *testing.T) {
 }
 
 func TestCreateRateNinePlacesIs422(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	want422At(t, a.Do(t, http.MethodPost, ratesPath, map[string]any{
 		"from_currency": "EUR", "to_currency": "IDR", "rate": "1.123456789", "as_of_date": "2026-02-01",
@@ -201,6 +207,7 @@ func TestCreateRateNinePlacesIs422(t *testing.T) {
 }
 
 func TestCreateRateZeroIs422(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	for _, r := range []any{"0", "-1", 0, "0.00000000"} {
 		p := want422At(t, a.Do(t, http.MethodPost, ratesPath, map[string]any{
@@ -214,6 +221,7 @@ func TestCreateRateZeroIs422(t *testing.T) {
 }
 
 func TestCreateRateFieldRules(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	good := func() map[string]any {
 		return map[string]any{"from_currency": "EUR", "to_currency": "IDR", "rate": "1", "as_of_date": "2026-02-01"}
@@ -239,6 +247,7 @@ func latest(t *testing.T, a *apitest.App, query string) rate {
 }
 
 func TestLatestRate(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	createRate(t, a, map[string]any{"from_currency": "USD", "to_currency": "IDR", "rate": "16500", "as_of_date": "2026-01-10"})
 	createRate(t, a, map[string]any{"from_currency": "USD", "to_currency": "SGD", "rate": "1.3", "as_of_date": "2026-01-02"})
@@ -261,6 +270,7 @@ func TestLatestRate(t *testing.T) {
 }
 
 func TestLatestRateNotFound404(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	for _, q := range []string{"?from_currency=EUR", "?from_currency=USD&on_date=2025-12-31", "?from_currency=USD&to_currency=SGD"} {
 		wantProblem(t, a.Do(t, http.MethodGet, ratesPath+"/latest"+q, nil), http.StatusNotFound, "fx_rate_none_on_or_before", "no rate found")
@@ -268,6 +278,7 @@ func TestLatestRateNotFound404(t *testing.T) {
 }
 
 func TestDeleteRate204ThenGone(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	r := createRate(t, a, map[string]any{"from_currency": "EUR", "to_currency": "IDR", "rate": "17000", "as_of_date": "2026-01-05"})
 	rec := a.Do(t, http.MethodDelete, fmt.Sprintf("%s/%d", ratesPath, r.RateID), nil)
@@ -279,6 +290,7 @@ func TestDeleteRate204ThenGone(t *testing.T) {
 }
 
 func TestDeleteUnknown404(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	wantProblem(t, a.Do(t, http.MethodDelete, ratesPath+"/999999", nil), http.StatusNotFound, "fx_rate_not_found", "rate not found")
 	if rec := a.Do(t, http.MethodDelete, ratesPath+"/abc", nil); rec.Code != http.StatusUnprocessableEntity {
@@ -287,6 +299,7 @@ func TestDeleteUnknown404(t *testing.T) {
 }
 
 func TestLiteralPathsNotSwallowed(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	if got := latest(t, a, "?from_currency=USD"); key(got) != "USD->IDR 2026-01-01 16000.00000000 TEST" {
 		t.Errorf("GET /latest: %+v", got)
@@ -304,6 +317,7 @@ func TestLiteralPathsNotSwallowed(t *testing.T) {
 }
 
 func TestFXRoutesRequireAdmin(t *testing.T) {
+	t.Parallel()
 	a := newRoutesApp(t)
 	for _, req := range []struct{ method, path string }{
 		{http.MethodGet, "/api/v1/accounting/base-currency"},

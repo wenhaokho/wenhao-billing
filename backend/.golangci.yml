@@ -12,6 +12,11 @@ linters:
     - misspell
     - noctx
     - nolintlint
+    # Every test and subtest runs in parallel (./dev test uses -parallel 8 on
+    # the throwaway db-test Postgres). A test that must not, says why with
+    # //nolint:paralleltest // <reason>.
+    - paralleltest
+    - tparallel
     - revive
     - rowserrcheck
     - sqlclosecheck

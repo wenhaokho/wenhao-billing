@@ -562,7 +562,7 @@ func countArgon2(t *testing.T) *atomic.Int64 {
 // Every refused login costs one argon2id verification, so its timing does
 // not tell an unknown email (or a bcrypt-era account) from a wrong password.
 // Not parallel: countArgon2 swaps verifyHash.
-func TestUnknownEmailStillVerifies(t *testing.T) {
+func TestUnknownEmailStillVerifies(t *testing.T) { //nolint:paralleltest // it swaps the package var verifyHash (countArgon2)
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	a.user(t, "bcrypt@example.com", "admin")
@@ -588,7 +588,7 @@ func TestUnknownEmailStillVerifies(t *testing.T) {
 // logins arrive together. The instrumented verifier holds each run for a
 // moment and records how many overlap. Not parallel: it swaps verifyHash, and
 // another test's logins would take argonSlots and hide the overlap.
-func TestArgonConcurrencyIsBounded(t *testing.T) {
+func TestArgonConcurrencyIsBounded(t *testing.T) { //nolint:paralleltest // it swaps the package var verifyHash and needs argonSlots to itself to observe overlap
 	const capacity = 2
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
@@ -632,7 +632,7 @@ func TestArgonConcurrencyIsBounded(t *testing.T) {
 // A request waiting for an argon2id slot gives up when its context ends.
 // Not parallel: it fills the package's argonSlots, which would block every
 // other test's hashing.
-func TestArgonSlotWaitEndsWithContext(t *testing.T) {
+func TestArgonSlotWaitEndsWithContext(t *testing.T) { //nolint:paralleltest // it fills the package-level argonSlots, which would block every other test hashing
 	for range cap(argonSlots) {
 		argonSlots <- struct{}{}
 	}
@@ -660,7 +660,7 @@ func TestArgonSlotWaitEndsWithContext(t *testing.T) {
 // the second is seen blocked, not for a fixed time, keeps the test from
 // passing without the lock when the second request merely starts late.
 // Not parallel: it sets the package's testHookResetLocked.
-func TestResetTokenSingleUseUnderConcurrency(t *testing.T) {
+func TestResetTokenSingleUseUnderConcurrency(t *testing.T) { //nolint:paralleltest // it sets the package var testHookResetLocked
 	a := newApp(t)
 	a.user(t, adminEmail, "admin")
 	token := a.forgotToken(t)

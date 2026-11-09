@@ -123,6 +123,7 @@ func TestConfigMalformedJSONCorsOriginsErrors(t *testing.T) {
 }
 
 func TestConfigFXDefaults(t *testing.T) {
+	t.Parallel()
 	cfg, err := ParseConfig(baseVars(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -134,6 +135,7 @@ func TestConfigFXDefaults(t *testing.T) {
 }
 
 func TestConfigReadsJSONFXSyncCurrencies(t *testing.T) {
+	t.Parallel()
 	cfg, err := ParseConfig(baseVars(map[string]string{"FX_SYNC_CURRENCIES": `["usd","eur"]`}))
 	if err != nil {
 		t.Fatal(err)
@@ -151,6 +153,7 @@ func TestConfigReadsJSONFXSyncCurrencies(t *testing.T) {
 }
 
 func TestConfigRefusesBadBaseCurrency(t *testing.T) {
+	t.Parallel()
 	for _, bad := range []string{"RUPIAH", "ID", "12R", ""} {
 		_, err := ParseConfig(baseVars(map[string]string{"BASE_CURRENCY": bad}))
 		if err == nil || !strings.Contains(err.Error(), "BASE_CURRENCY") {
@@ -161,6 +164,7 @@ func TestConfigRefusesBadBaseCurrency(t *testing.T) {
 
 // 0 would mean no timeout at all, so it is refused with the negatives.
 func TestConfigRefusesNonPositiveFXTimeout(t *testing.T) {
+	t.Parallel()
 	for _, bad := range []string{"0", "-1", "-0.5"} {
 		_, err := ParseConfig(baseVars(map[string]string{"FX_PROVIDER_TIMEOUT_SECONDS": bad}))
 		if err == nil || !strings.Contains(err.Error(), "FX_PROVIDER_TIMEOUT_SECONDS") {
@@ -170,6 +174,7 @@ func TestConfigRefusesNonPositiveFXTimeout(t *testing.T) {
 }
 
 func TestConfigRefusesBadFXSyncCurrency(t *testing.T) {
+	t.Parallel()
 	for _, bad := range []string{"US", `["usd","eurx"]`, "usd,12"} {
 		_, err := ParseConfig(baseVars(map[string]string{"FX_SYNC_CURRENCIES": bad}))
 		if err == nil || !strings.Contains(err.Error(), "FX_SYNC_CURRENCIES") {
