@@ -53,3 +53,13 @@ VALUES (@line_item_id, @bill_id, @item_id, @expense_account_id, @position, @desc
 
 -- name: DeleteBillLines :exec
 DELETE FROM bill_line_items WHERE bill_id = $1;
+
+-- name: SetBillBalance :exec
+-- A recorded payment: the balance and status computed from the row read
+-- with GetBillForUpdate.
+UPDATE bills SET balance_due = @balance_due, status = @status WHERE bill_id = @bill_id;
+
+-- name: VoidBill :exec
+-- A void: VOID with nothing due, notes as computed from the row read with
+-- GetBillForUpdate.
+UPDATE bills SET status = 'VOID', balance_due = 0, notes = @notes WHERE bill_id = @bill_id;

@@ -295,6 +295,23 @@ func (q *Queries) ListLinesOfBills(ctx context.Context, billIds []uuid.UUID) ([]
 	return items, nil
 }
 
+const setBillBalance = `-- name: SetBillBalance :exec
+UPDATE bills SET balance_due = $1, status = $2 WHERE bill_id = $3
+`
+
+type SetBillBalanceParams struct {
+	BalanceDue decimal.Decimal
+	Status     string
+	BillID     uuid.UUID
+}
+
+// A recorded payment: the balance and status computed from the row read
+// with GetBillForUpdate.
+func (q *Queries) SetBillBalance(ctx context.Context, arg SetBillBalanceParams) error {
+	_, err := q.db.Exec(ctx, setBillBalance, arg.BalanceDue, arg.Status, arg.BillID)
+	return err
+}
+
 const updateBill = `-- name: UpdateBill :exec
 UPDATE bills SET
     vendor_id = $1, project_id = $2, bill_number = $3, po_number = $4,
@@ -344,5 +361,21 @@ func (q *Queries) UpdateBill(ctx context.Context, arg UpdateBillParams) error {
 		arg.Notes,
 		arg.BillID,
 	)
+	return err
+}
+
+const voidBill = `-- name: VoidBill :exec
+UPDATE bills SET status = 'VOID', balance_due = 0, notes = $1 WHERE bill_id = $2
+`
+
+type VoidBillParams struct {
+	Notes  *string
+	BillID uuid.UUID
+}
+
+// A void: VOID with nothing due, notes as computed from the row read with
+// GetBillForUpdate.
+func (q *Queries) VoidBill(ctx context.Context, arg VoidBillParams) error {
+	_, err := q.db.Exec(ctx, voidBill, arg.Notes, arg.BillID)
 	return err
 }

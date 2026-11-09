@@ -548,6 +548,8 @@ func TestBillRoutesRequireAdmin(t *testing.T) {
 		{http.MethodGet, path},
 		{http.MethodGet, billPath(id)},
 		{http.MethodPatch, billPath(id)},
+		{http.MethodPost, billPath(id) + "/record-payment"},
+		{http.MethodPost, billPath(id) + "/void"},
 	} {
 		wantProblem(t, a.Anon(t, c.method, c.p, map[string]any{}), http.StatusUnauthorized, "", "not authenticated", "", "")
 		wantProblem(t, staff.Do(t, c.method, c.p, map[string]any{}), http.StatusForbidden, "", "admin required", "", "")

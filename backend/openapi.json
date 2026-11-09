@@ -518,6 +518,60 @@
         ],
         "type": "object"
       },
+      "BillPaymentRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "description": "Above 0, at most 4 decimal places, at most the balance due.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "notes": {
+            "description": "Not stored.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payer_name": {
+            "description": "Not stored.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payer_reference": {
+            "description": "Not stored.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_date": {
+            "description": "Required, but not stored.",
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "payment_date"
+        ],
+        "type": "object"
+      },
       "BillUpdate": {
         "additionalProperties": true,
         "properties": {
@@ -4876,6 +4930,15 @@
         },
         "type": "object"
       },
+      "VoidBillRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "reason": {
+            "description": "Any JSON value, written into the notes as Python prints it (a string as is, true as True, a list or object as Python's repr); left out or falsy (null, false, 0, \"\", [], {}) is \"no reason given\"."
+          }
+        },
+        "type": "object"
+      },
       "VoidRequest": {
         "additionalProperties": true,
         "properties": {
@@ -6079,6 +6142,170 @@
           }
         },
         "summary": "Change a DRAFT or OPEN bill's fields; a list of lines reprices it",
+        "tags": [
+          "bills"
+        ]
+      }
+    },
+    "/api/v1/bills/{bill_id}/record-payment": {
+      "post": {
+        "description": "The balance falls by the amount: to 0 is PAID, otherwise PARTIAL. More than the balance is refused. Nothing is posted to the ledger and no payment row is kept.",
+        "operationId": "bills-record-payment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillPaymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Record an outgoing payment against an OPEN or PARTIAL bill",
+        "tags": [
+          "bills"
+        ]
+      }
+    },
+    "/api/v1/bills/{bill_id}/void": {
+      "post": {
+        "description": "Nothing is left due, and \"[voided] \u003creason\u003e\" is appended to the notes on a new line.",
+        "operationId": "bills-void",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoidBillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Void a DRAFT, OPEN or PARTIAL bill",
         "tags": [
           "bills"
         ]

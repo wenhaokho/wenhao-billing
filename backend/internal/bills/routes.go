@@ -45,6 +45,7 @@ func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock) {
 		Summary: "Change a DRAFT or OPEN bill's fields; a list of lines reprices it",
 		Errors:  []int{http.StatusBadRequest, http.StatusNotFound},
 	}), r.update)
+	r.registerPayments(api, prefix, tags)
 }
 
 // inTx runs write in one transaction and answers its bill.
