@@ -43,6 +43,10 @@ code current, and `go test -race`. It **fails if any test is skipped**, Go or Py
 `cmd/api` is one binary with subcommands; configuration comes from the environment
 (`DATABASE_URL`, `SESSION_SECRET` of at least 32 bytes, `ENVIRONMENT`, `CORS_ORIGINS`,
 `APP_BASE_URL`, `PORT`).
+The FX settings are optional: `BASE_CURRENCY` (default `IDR`; set but blank is refused),
+`FX_PROVIDER_BASE_URL` (default `https://api.frankfurter.dev/v1`),
+`FX_PROVIDER_TIMEOUT_SECONDS` (default `15`) and `FX_SYNC_CURRENCIES` (default `USD,SGD`;
+3-letter codes, comma separated).
 
 - `api` (no subcommand) serves. It refuses a database Alembic still owns, then applies
   the Go (goose) migrations.

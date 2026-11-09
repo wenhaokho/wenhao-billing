@@ -144,3 +144,28 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Python: `post_reversal` reads the original with `db.get` and no lock (`app/services/ledger.py:223`), so two transactions can both see it unreversed and both post a reversal; the later one's `reversed_by_entry_id` wins.
     Go: `ledger.PostReversal` reads the original `FOR UPDATE`; the second transaction waits for the first, then sees `reversed_by_entry_id` set and is refused `entry <id> already reversed` (`ledger.TestReverseConcurrentOnlyOnce`).
     After the switch: none: Go's behaviour is the fix.
+
+28. **FX sync 502 `detail`: the trailing error text is Go's.**
+    Python: `fx provider request failed for SRC->TARGET: <httpx error>` for transport and HTTP failures, and `fx provider returned invalid JSON for SRC->TARGET: <error>` for a bad body (`app/services/fx_provider.py:63-70`), surfaced as a 502 (`app/api/v1/routers/accounting.py:184-186`).
+    Go: the leading sentence and the 502 are the same. A non-2xx keeps httpx's first line (`Server error '500 Internal Server Error' for url '...'`); a transport failure or timeout carries Go's `net/http` text (`Get "...": context deadline exceeded`) and invalid JSON carries `encoding/json`'s text, not httpx's or Python's.
+    After the switch: nothing may match on the trailing text; the frontend shows `detail` as is.
+
+29. **A failed sync writes nothing, in Go and in Python.**
+    Python: `run_fx_sync` fetches every pair first (`fetch_latest_rates`, `app/workers/tasks/fx_sync.py:23`) and only then adds rows to the session, so a provider failure raises before anything is added; the router rolls back and answers 502 (`accounting.py:184-186`), and the weekly job never commits. Python could not write a partial set.
+    Go: the same order: every pair is fetched, then all pairs are written in one transaction (`fx.TestSyncProviderErrorIs502WritesNothing`).
+    After the switch: none; the behaviour is identical.
+
+30. **An FX rate or money value with too many places or digits is 422 in Go.**
+    Python: rates have `decimal_places=8` in pydantic, so those are a 422 there too, with pydantic's own message; money fields with no such bound are rounded or overflow `numeric(19,4)` in the database and answer 500.
+    Go: `platform.Dec2/Dec4/Dec8` refuse a value with more places than the column holds, or more digits than it can store, as a 422 at the field (`fx.TestCreateRateNinePlacesIs422`).
+    After the switch: none: Go's behaviour is the fix; messages differ from pydantic's.
+
+31. **Concurrent "Sync now".**
+    Python: `run_fx_sync` selects each rate and then inserts it (`app/workers/tasks/fx_sync.py:30-47`), so two syncs in flight can both insert the same `(from, to, date)` and one hits `uq_fx_rates_triple`, a 500.
+    Go: each pair is one `INSERT ... ON CONFLICT ON CONSTRAINT uq_fx_rates_triple DO UPDATE ... WHERE <changed>`, so both succeed and the counts stay right (`fx.TestSyncConcurrentIsIdempotent`).
+    After the switch: none: Go's behaviour is the fix.
+
+32. **The sync's 502 also covers responses Python answered 500.**
+    Python: `Decimal(str(value))` accepts a numeric string such as `"16000"` (`app/services/fx_provider.py:91`) but raises `InvalidOperation` (500) for `"abc"`; a body that is not a JSON object fails at `body.get` (`:72`) and a `rates` that is not an object at `rates.get` (`:73`), both `AttributeError` (500).
+    Go: a provider rate that is not a JSON number (a string, a bool) is a 502 `fx provider returned invalid rate for SRC->TARGET: <raw>`, so Go refuses `"16000"` where Python stored it; a body or `rates` that is not a JSON object is a 502 reported as invalid JSON.
+    After the switch: none, unless Frankfurter starts sending rates as strings; then the sync fails loudly with 502 instead of storing them.
