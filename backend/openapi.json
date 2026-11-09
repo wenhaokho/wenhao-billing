@@ -2767,6 +2767,7 @@
           "end_after_cycles": {
             "description": "Required with AFTER_N; stored whenever sent.",
             "format": "int64",
+            "maximum": 1000,
             "minimum": 1,
             "type": [
               "integer",
@@ -2805,6 +2806,7 @@
           "interval": {
             "description": "Defaults to 1.",
             "format": "int64",
+            "maximum": 1000,
             "minimum": 1,
             "type": "integer"
           },

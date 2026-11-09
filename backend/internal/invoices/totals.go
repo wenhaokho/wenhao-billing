@@ -92,8 +92,11 @@ var (
 // Python's date arithmetic raised (a 500).
 func errDueOutOfRange() error { return refuse("due_date_out_of_range", "due date is out of range") }
 
-// addDays is day + days, refused when it leaves 0001-01-01..9999-12-31.
-func addDays(day time.Time, days int) (time.Time, error) {
+// AddDays is day + days, refused with the 400 due_date_out_of_range
+// ("due date is out of range") when the result leaves Python's date range,
+// 0001-01-01..9999-12-31, where Python's date arithmetic raised (a 500,
+// port note 38). Any int is safe, however large.
+func AddDays(day time.Time, days int) (time.Time, error) {
 	// Whole days from Unix seconds: time.Duration saturates at about 292
 	// years, so Sub cannot measure the distance to either end. Comparing in
 	// days also keeps huge values away from time arithmetic.
@@ -106,12 +109,14 @@ func addDays(day time.Time, days int) (time.Time, error) {
 	return day.AddDate(0, 0, days), nil
 }
 
-// dueAfterTerms is the due date payment terms give an issue date
-// (invoicing.py:247-249, :335-338), refused when out of range.
-func dueAfterTerms(issue time.Time, terms *string) (time.Time, error) {
+// DueAfterTerms is the due date payment terms give an issue date
+// (invoicing.py:247-249, :335-338): issue plus PaymentTermsDays(terms),
+// refused as AddDays refuses when the terms' days or the result are out of
+// range.
+func DueAfterTerms(issue time.Time, terms *string) (time.Time, error) {
 	days, ok := PaymentTermsDays(terms)
 	if !ok {
 		return time.Time{}, errDueOutOfRange()
 	}
-	return addDays(issue, days)
+	return AddDays(issue, days)
 }

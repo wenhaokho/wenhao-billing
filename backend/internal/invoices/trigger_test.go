@@ -2,6 +2,7 @@ package invoices
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -32,12 +33,21 @@ func postTrigger(t *testing.T, a *apitest.App, id uuid.UUID, key string) *httpte
 type recorder struct {
 	mu    sync.Mutex
 	calls [][]DraftSummary
+	// ctxErrs is each call's ctx.Err() as the notifier saw it.
+	ctxErrs []error
 }
 
-func (r *recorder) NotifyNewDrafts(_ context.Context, drafts []DraftSummary) {
+func (r *recorder) NotifyNewDrafts(ctx context.Context, drafts []DraftSummary) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, slices.Clone(drafts))
+	r.ctxErrs = append(r.ctxErrs, ctx.Err())
+}
+
+func (r *recorder) contextErrs() []error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.ctxErrs)
 }
 
 func (r *recorder) taken() [][]DraftSummary {
@@ -434,4 +444,103 @@ func TestTriggerIgnoresPauseAndEnd(t *testing.T) {
 	ended := mkTemplate(t, a, monthly("2025-01-01"))
 	endNow(t, a, ended.InvoiceID)
 	apitest.Decode[InvoiceOut](t, postTrigger(t, a, ended.InvoiceID, "2026-02-01"), http.StatusOK)
+}
+
+// waitForALockWait waits until a session of this test's database waits on
+// a lock; false when none did within five seconds.
+func waitForALockWait(t *testing.T, pool *pgxpool.Pool) bool {
+	t.Helper()
+	for range 500 {
+		var waiting int
+		err := pool.QueryRow(t.Context(), `SELECT count(*) FROM pg_stat_activity
+WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting > 0 {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
+// triggerDuring triggers template's 2026-01-01 cycle while hold's
+// uncommitted transaction holds the template, then commits hold: the child,
+// and whether the trigger waited for hold.
+func triggerDuring(t *testing.T, a *apitest.App, template uuid.UUID, hold func(pgx.Tx) error) (InvoiceOut, bool) {
+	t.Helper()
+	ctx := t.Context()
+	tx, err := a.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := hold(tx); err != nil {
+		t.Fatal(err)
+	}
+	var out InvoiceOut
+	done := make(chan error, 1)
+	go func() {
+		var err error
+		out, _, err = triggerAndSummarise(ctx, a.Pool, template, "2026-01-01", day("2026-01-15"))
+		done <- err
+	}()
+	waited := waitForALockWait(t, a.Pool)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+	return out, waited
+}
+
+// TestTriggerWaitsForATemplatePut: a trigger that starts while a PUT holds
+// the template waits for its commit, then copies the new lines with the new
+// discount, never the new lines with the old discount. The lock order is
+// the template's advisory lock first, in both.
+func TestTriggerWaitsForATemplatePut(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	tpl := mkTemplate(t, a, monthly("2026-01-01")) // one 1000 line, no discount
+	body := templateBody(*tpl.CustomerID, monthly("2026-01-01"))
+	body["line_items"] = []any{map[string]any{"description": "Bigger retainer", "quantity": "1", "unit_price": "2000"}}
+	body["discount_type"], body["discount_value"] = "AMOUNT", "300"
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var put RecurringTemplateCreate
+	if err := json.Unmarshal(raw, &put); err != nil {
+		t.Fatal(err)
+	}
+
+	child, waited := triggerDuring(t, a, tpl.InvoiceID, func(tx pgx.Tx) error {
+		_, err := updateTemplate(t.Context(), tx, tpl.InvoiceID, put)
+		return err
+	})
+	if !waited {
+		t.Error("the trigger did not wait for the PUT")
+	}
+	wantDec4(t, "subtotal", child.Subtotal, "2000")
+	wantDec4(t, "discount_value", child.DiscountValue, "300")
+	if !child.Amount.Decimal().Equal(decimal.RequireFromString("1700")) {
+		t.Errorf("amount = %s, want 1700 (new lines, new discount)", child.Amount.Decimal())
+	}
+}
+
+// TestTriggerWaitsForATemplatePatch: a template PATCH takes the template's
+// advisory lock first too, so a trigger waits for it.
+func TestTriggerWaitsForATemplatePatch(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	tpl := mkTemplate(t, a, monthly("2026-01-01"))
+	_, waited := triggerDuring(t, a, tpl.InvoiceID, func(tx pgx.Tx) error {
+		_, err := actOnTemplate(t.Context(), tx, tpl.InvoiceID, "PAUSE", day("2026-01-15"))
+		return err
+	})
+	if !waited {
+		t.Error("the trigger did not wait for the PATCH")
+	}
 }

@@ -36,15 +36,26 @@ type cycleRef struct {
 //
 // Go changes this (port note): cycleKey must be exactly YYYY-MM-DD (Python's
 // date.fromisoformat also took "20260301", stored raw, so two spellings made
-// two invoices), and the lookup and create run under
-// pg_advisory_xact_lock keyed on the template, held until tx ends, so a
-// manual trigger and the scan cannot both create the cycle. tx must be READ
-// COMMITTED (the default), so the lookup after the lock sees a child that a
-// transaction holding it before has committed. today is taken as its UTC
-// calendar date.
+// two invoices), and everything runs under pg_advisory_xact_lock keyed on
+// the template (LockRecurringTemplate), taken before the template is read
+// and held until tx ends, so a manual trigger and the scan cannot both
+// create the cycle, and a template PUT or PATCH (which take it first too)
+// is seen whole or not at all. tx must be READ COMMITTED (the default), so
+// the reads after the lock see what a transaction holding it before has
+// committed. today is taken as its UTC calendar date.
+//
+// Lock order, everywhere in this package: the template's advisory lock,
+// then an invoice row FOR UPDATE, then the year's number lock
+// (NextInvoiceNumber). A transaction never takes an earlier kind after a
+// later one, so two of these paths cannot wait on each other in a cycle.
 func Trigger(ctx context.Context, tx pgx.Tx, templateID uuid.UUID, cycleKey string, today time.Time) (InvoiceOut, bool, error) {
 	today = utcDate(today)
 	q := invoicesdb.New(tx)
+	// First, before any read of the template: a PUT holding the lock
+	// commits its lines and discount together before this reads either.
+	if err := q.LockRecurringTemplate(ctx, templateID.String()); err != nil {
+		return InvoiceOut{}, false, err
+	}
 	tpl, err := q.GetInvoice(ctx, templateID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return InvoiceOut{}, false, refuse("template_invoice_not_found", "template invoice %s not found", templateID)
@@ -69,9 +80,6 @@ func Trigger(ctx context.Context, tx pgx.Tx, templateID uuid.UUID, cycleKey stri
 		return InvoiceOut{}, false, refuse("not_a_cycle_start", "cycle_key %s is not a valid cycle start for this schedule", schedule.ReprString(cycleKey))
 	}
 
-	if err := q.LockRecurringTemplate(ctx, templateID.String()); err != nil {
-		return InvoiceOut{}, false, err
-	}
 	existing, found, err := findCycleInvoice(ctx, q, templateID, cycleKey)
 	if err != nil {
 		return InvoiceOut{}, false, err
@@ -116,7 +124,7 @@ func createChild(ctx context.Context, tx pgx.Tx, tpl invoicesdb.Invoice, sched s
 	cycleStart time.Time, cycleKey string, today time.Time,
 ) (InvoiceOut, error) {
 	q := invoicesdb.New(tx)
-	due, err := dueAfterTerms(today, tpl.PaymentTerms)
+	due, err := DueAfterTerms(today, tpl.PaymentTerms)
 	if err != nil {
 		return InvoiceOut{}, err
 	}
@@ -150,7 +158,7 @@ func createChild(ctx context.Context, tx pgx.Tx, tpl invoicesdb.Invoice, sched s
 		Notes: tpl.Notes, Footer: tpl.Footer, InternalNote: tpl.InternalNote,
 	})
 	if err != nil {
-		return InvoiceOut{}, writeError(err)
+		return InvoiceOut{}, MapWriteError(err)
 	}
 
 	label, err := stampCoverage(ctx, q, tpl.InvoiceID, id, sched, cycleStart)
@@ -185,6 +193,9 @@ func stampCoverage(ctx context.Context, q *invoicesdb.Queries, template, id uuid
 	if err != nil || !hosting {
 		return "", err
 	}
+	// sched.Interval stands for Python's cfg.get("interval") or 1
+	// (hosting.py:74): the two are equal once schedule.Parse has accepted
+	// the config, which fills a missing interval with 1 and refuses 0.
 	end := schedule.AddMonths(cycleStart, sched.Interval).AddDate(0, 0, -1)
 	err = q.SetInvoiceCoverage(ctx, invoicesdb.SetInvoiceCoverageParams{
 		InvoiceID: id, CoverageStart: pgDate(&cycleStart), CoverageEnd: pgDate(&end),

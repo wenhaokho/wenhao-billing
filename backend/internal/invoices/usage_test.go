@@ -198,9 +198,14 @@ func TestCutoffScanSkipsLockedAndOtherDays(t *testing.T) {
 	// A locked flag that is falsy does not stop the lock.
 	falsy := insertUsage(t, a.Pool, "DRAFT", `{"cut_off_day": 25, "locked": false}`)
 	var seen []uuid.UUID
-	n, err := cutoff(t, a, "2026-05-26", accruing(map[uuid.UUID]string{wantLocked: "1", falsy: "1"}, &seen))
-	if err != nil || n != 2 {
-		t.Fatalf("locked %d, err %v", n, err)
+	// The already-locked invoice has an accrual too, so a scan that relocked
+	// it would change its amount.
+	n, err := cutoff(t, a, "2026-05-26", accruing(map[uuid.UUID]string{wantLocked: "1", falsy: "1", skipped[0]: "999"}, &seen))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("locked %d, want 2", n)
 	}
 	if len(seen) != 2 || seen[0] != wantLocked || seen[1] != falsy {
 		t.Errorf("accrual asked for %v", seen)
@@ -210,8 +215,12 @@ func TestCutoffScanSkipsLockedAndOtherDays(t *testing.T) {
 			t.Errorf("%s was locked: %s", id, got.BillingCycleRef)
 		}
 	}
-	if got := get(t, a, skipped[0]); got.BillingCycleRef == nil || cfgOf(t, got.BillingCycleRef)["cutoff_date"] != nil {
+	got := get(t, a, skipped[0])
+	if got.BillingCycleRef == nil || cfgOf(t, got.BillingCycleRef)["cutoff_date"] != nil {
 		t.Errorf("already locked invoice rewritten: %s", got.BillingCycleRef)
+	}
+	if !got.Amount.Decimal().Equal(decimal.NewFromInt(5)) {
+		t.Errorf("already locked invoice amount = %s, want 5 (unchanged)", got.Amount.Decimal())
 	}
 }
 

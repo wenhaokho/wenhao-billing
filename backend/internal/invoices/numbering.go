@@ -27,6 +27,10 @@ import (
 // lock sees the numbers a transaction that held it before has committed.
 // And only ASCII digits count as a tail, where Python's isdigit also
 // took other scripts' digits.
+//
+// The number lock comes last in the package's lock order (see Trigger):
+// a caller may hold a template's advisory lock or an invoice row FOR UPDATE
+// when it calls this, and takes neither after it.
 func NextInvoiceNumber(ctx context.Context, tx pgx.Tx, today time.Time) (string, error) {
 	year := strconv.Itoa(today.UTC().Year())
 	q := invoicesdb.New(tx)

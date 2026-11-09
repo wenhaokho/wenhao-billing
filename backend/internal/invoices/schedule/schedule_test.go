@@ -145,7 +145,6 @@ func TestParseErrorSentences(t *testing.T) {
 		{"start missing", map[string]any{"frequency": "MONTHLY"}, "missing or invalid start_date"},
 		{"start number", base(map[string]any{"start_date": 20260501}), "missing or invalid start_date"},
 		{"start bad", base(map[string]any{"start_date": "05/01/2026"}), "invalid ISO date for start_date: '05/01/2026'"},
-		{"start compact", base(map[string]any{"start_date": "20260501"}), "invalid ISO date for start_date: '20260501'"},
 		{"start impossible", base(map[string]any{"start_date": "2026-02-30"}), "invalid ISO date for start_date: '2026-02-30'"},
 		{"end mode", base(map[string]any{"end_mode": "SOMETIME"}), "invalid end_mode: 'SOMETIME'"},
 		{"end mode null", base(map[string]any{"end_mode": nil}), "invalid end_mode: None"},
@@ -167,6 +166,16 @@ func TestParseErrorSentences(t *testing.T) {
 			assert.ErrorIs(t, err, schedule.ErrSchedule)
 		})
 	}
+}
+
+// TestParseRefusesCompactDates is a port difference (PORT-NOTES 51): Python
+// 3.11's date.fromisoformat accepted "20260501"; Go takes YYYY-MM-DD only.
+func TestParseRefusesCompactDates(t *testing.T) {
+	t.Parallel()
+	_, err := schedule.Parse(map[string]any{"frequency": "MONTHLY", "interval": 1, "start_date": "20260501"})
+	require.Error(t, err)
+	assert.Equal(t, "invalid ISO date for start_date: '20260501'", err.Error())
+	assert.ErrorIs(t, err, schedule.ErrSchedule)
 }
 
 func TestParseNumberShapes(t *testing.T) {

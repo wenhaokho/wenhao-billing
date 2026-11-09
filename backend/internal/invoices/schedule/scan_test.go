@@ -39,9 +39,11 @@ func TestMonthlyReturnsISOCycleStart(t *testing.T) {
 func TestWeeklyIntervalTwo(t *testing.T) {
 	t.Parallel()
 	cfg := map[string]any{"frequency": "WEEKLY", "interval": 2, "start_date": "2026-05-04"}
-	k, _ := schedule.CycleKeyFor(cfg, day(2026, 5, 17))
+	k, ok := schedule.CycleKeyFor(cfg, day(2026, 5, 17))
+	assert.True(t, ok)
 	assert.Equal(t, "2026-05-04", k)
-	k, _ = schedule.CycleKeyFor(cfg, day(2026, 5, 18))
+	k, ok = schedule.CycleKeyFor(cfg, day(2026, 5, 18))
+	assert.True(t, ok)
 	assert.Equal(t, "2026-05-18", k)
 }
 

@@ -20,11 +20,11 @@ import (
 // RecurringSchedule is a template's schedule as sent (schemas/invoice.py:99-105).
 type RecurringSchedule struct {
 	Frequency      string                           `json:"frequency" enum:"DAILY,WEEKLY,MONTHLY,YEARLY"`
-	Interval       platform.NotNull[int]            `json:"interval" minimum:"1" doc:"Defaults to 1."`
+	Interval       platform.NotNull[int]            `json:"interval" minimum:"1" maximum:"1000" doc:"Defaults to 1."`
 	StartDate      platform.Date                    `json:"start_date" doc:"The first cycle's first day."`
 	EndMode        platform.NotNull[string]         `json:"end_mode" enum:"NEVER,ON_DATE,AFTER_N" doc:"Defaults to NEVER."`
 	EndDate        platform.Optional[platform.Date] `json:"end_date" doc:"Required with ON_DATE (the last day a cycle may start); stored whenever sent."`
-	EndAfterCycles platform.Optional[int]           `json:"end_after_cycles" minimum:"1" doc:"Required with AFTER_N; stored whenever sent."`
+	EndAfterCycles platform.Optional[int]           `json:"end_after_cycles" minimum:"1" maximum:"1000" doc:"Required with AFTER_N; stored whenever sent."`
 }
 
 // RecurringTemplateCreate is the body of a template create and of a PUT,
@@ -151,7 +151,7 @@ func createTemplate(ctx context.Context, tx pgx.Tx, b RecurringTemplateCreate) (
 		Notes: b.Notes.Merge(nil), Footer: b.Footer.Merge(nil), InternalNote: b.InternalNote.Merge(nil), IsTemplate: true,
 	})
 	if err != nil {
-		return InvoiceOut{}, writeError(err)
+		return InvoiceOut{}, MapWriteError(err)
 	}
 	if err := insertLines(ctx, q, id, b.LineItems); err != nil {
 		return InvoiceOut{}, err
@@ -162,9 +162,13 @@ func createTemplate(ctx context.Context, tx pgx.Tx, b RecurringTemplateCreate) (
 // updateTemplate is the PUT (invoices.py:299-317, invoicing.py:415-464): an
 // ended template is refused (409) before anything else; then every field,
 // the lines and the schedule are replaced, the pause flag kept, and the
-// withholding merged as a PATCH merges it.
+// withholding merged as a PATCH merges it. It takes the template's advisory
+// lock before reading anything, as Trigger does (see Trigger for the order).
 func updateTemplate(ctx context.Context, tx pgx.Tx, id uuid.UUID, b RecurringTemplateCreate) (InvoiceOut, error) {
 	q := invoicesdb.New(tx)
+	if err := q.LockRecurringTemplate(ctx, id.String()); err != nil {
+		return InvoiceOut{}, err
+	}
 	inv, err := q.GetInvoiceForUpdate(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !inv.IsTemplate) {
 		return InvoiceOut{}, refuse("recurring_template_not_found", "recurring template %s not found", id)
@@ -209,7 +213,7 @@ func updateTemplate(ctx context.Context, tx pgx.Tx, id uuid.UUID, b RecurringTem
 		WhtAmount: totals.WHT.Amount, Amount: totals.Amount, BalanceDue: totals.Amount, BillingCycleRef: ref,
 	})
 	if err != nil {
-		return InvoiceOut{}, writeError(err)
+		return InvoiceOut{}, MapWriteError(err)
 	}
 	if err := q.DeleteInvoiceLines(ctx, id); err != nil {
 		return InvoiceOut{}, err
@@ -223,9 +227,13 @@ func updateTemplate(ctx context.Context, tx pgx.Tx, id uuid.UUID, b RecurringTem
 // actOnTemplate is the PATCH (invoices.py:324-362). PAUSE and RESUME set and
 // clear the pause flag, and are refused on an ended template. END_NOW ends
 // the schedule before every cycle not generated yet, unless it has already
-// ended (it is idempotent), and always clears the pause flag.
+// ended (it is idempotent), and always clears the pause flag. It takes the
+// template's advisory lock first, as Trigger does.
 func actOnTemplate(ctx context.Context, tx pgx.Tx, id uuid.UUID, action string, today time.Time) (InvoiceOut, error) {
 	q := invoicesdb.New(tx)
+	if err := q.LockRecurringTemplate(ctx, id.String()); err != nil {
+		return InvoiceOut{}, err
+	}
 	inv, err := q.GetInvoiceForUpdate(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !inv.IsTemplate) {
 		return InvoiceOut{}, errTemplateNotFound

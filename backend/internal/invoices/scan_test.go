@@ -1,12 +1,16 @@
 package invoices
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
 )
@@ -159,5 +163,55 @@ func TestTriggerConcurrentWithScanOneChild(t *testing.T) {
 			t.Fatalf("round %d: children %v, want only the trigger's %s", round, got, out.InvoiceID)
 		}
 		apitest.Decode[InvoiceOut](t, act(t, a, tpl.InvoiceID, "PAUSE"), http.StatusOK)
+	}
+}
+
+// TestScanCountsACommitBeforeTheContextEnds: when the context ends right
+// after a trigger committed, that draft is still counted and notified, and
+// the notifier gets a context that has not ended (the draft exists).
+func TestScanCountsACommitBeforeTheContextEnds(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	first := mkTemplate(t, a, monthly("2026-01-01"))
+	second := mkTemplate(t, a, monthly("2026-01-01"))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// The context ends once the first trigger has committed.
+	cancelAfterCommit := func(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID, key string, today time.Time) (InvoiceOut, *DraftSummary, error) {
+		out, summary, err := triggerAndSummarise(ctx, pool, id, key, today)
+		cancel()
+		return out, summary, err
+	}
+	n := &recorder{}
+
+	got, err := scanWith(ctx, a.Pool, day("2026-03-10"), n, cancelAfterCommit)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if got != 1 {
+		t.Errorf("generated %d, want 1 (the committed draft)", got)
+	}
+	wantChildKeys(t, a, "first", first.InvoiceID, "2026-03-01")
+	wantChildKeys(t, a, "second", second.InvoiceID)
+	calls := n.taken()
+	if len(calls) != 1 || len(calls[0]) != 1 || calls[0][0].InvoiceID != children(t, a.Pool, first.InvoiceID)[0] {
+		t.Fatalf("notify calls = %+v, want the first template's draft", calls)
+	}
+	if errs := n.contextErrs(); errs[0] != nil {
+		t.Errorf("notifier's ctx.Err() = %v, want a live context", errs[0])
+	}
+}
+
+// TestNotifyDraftsOutlivesTheCallersContext: the drafts are committed, so
+// the notifier hears of them with the caller's context's values but not its
+// end (Scan and the trigger route both notify through here).
+func TestNotifyDraftsOutlivesTheCallersContext(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	n := &recorder{}
+	notifyDrafts(ctx, n, []DraftSummary{{InvoiceNumber: "WH20260001"}})
+	if errs := n.contextErrs(); len(errs) != 1 || errs[0] != nil {
+		t.Errorf("notifier's ctx.Err() = %v, want one call with a live context", errs)
 	}
 }

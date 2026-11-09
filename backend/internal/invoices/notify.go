@@ -30,13 +30,17 @@ type DraftNotifier interface {
 type LogNotifier struct{ Logger *slog.Logger }
 
 // notifyDrafts hands the drafts to n once they are committed; none is no
-// call (notify_users_of_new_drafts, draft_notifications.py:55-58). A notifier
-// that panics breaks its promise: the panic is logged, never the caller's
-// failure.
+// call (notify_users_of_new_drafts, draft_notifications.py:55-58). The
+// notifier gets ctx's values without its cancellation: the drafts are
+// committed, so a scan or request ending just after the commit must not
+// silence them. Scan and the trigger route both notify through here. A
+// notifier that panics breaks its promise: the panic is logged, never the
+// caller's failure.
 func notifyDrafts(ctx context.Context, n DraftNotifier, drafts []DraftSummary) {
 	if len(drafts) == 0 {
 		return
 	}
+	ctx = context.WithoutCancel(ctx)
 	defer func() {
 		if p := recover(); p != nil {
 			slog.ErrorContext(ctx, "draft notifier failed", "drafts", len(drafts), "panic", p)

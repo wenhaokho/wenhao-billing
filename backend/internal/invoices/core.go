@@ -115,10 +115,15 @@ var foreignKeys = map[string]struct{ field, sentence string }{
 	"invoices_project_id_fkey":  {"project_id", "project not found"},
 }
 
-// writeError is a failed invoice write as the client error it is: an
-// unknown customer or project (422 at the field) or a taken number (409).
-// Any other error comes back unchanged.
-func writeError(err error) error {
+// MapWriteError is a failed write to the invoices table as the client error
+// it is: an unknown customer or project (the invoices_*_fkey constraints) is
+// the 422 at customer_id or project_id, and a taken invoice number
+// (uq_invoices_invoice_number) is the 409 invoice_number_exists; Python
+// answered 500 for both (port note 36). Any other error, Postgres or not,
+// comes back unchanged. Every write of an invoice row passes its error here,
+// including those of other packages (the quotations plan converts a quote
+// into an invoice).
+func MapWriteError(err error) error {
 	var pg *pgconn.PgError
 	if !errors.As(err, &pg) {
 		return err
@@ -215,7 +220,7 @@ func createInvoice(ctx context.Context, tx pgx.Tx, b InvoiceCreate, today time.T
 		Notes: f.Notes.Merge(nil), Footer: f.Footer.Merge(nil), InternalNote: f.InternalNote.Merge(nil),
 	})
 	if err != nil {
-		return InvoiceOut{}, writeError(err)
+		return InvoiceOut{}, MapWriteError(err)
 	}
 	if err := insertLines(ctx, q, id, b.LineItems); err != nil {
 		return InvoiceOut{}, err
@@ -228,7 +233,7 @@ func dueOr(sent *platform.Date, issue time.Time, terms *string) (time.Time, erro
 	if sent != nil {
 		return sent.Time, nil
 	}
-	return dueAfterTerms(issue, terms)
+	return DueAfterTerms(issue, terms)
 }
 
 // updateInvoice is Python's update_invoice (invoicing.py:283-341) in tx:
@@ -291,7 +296,7 @@ func updateInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID, b InvoiceUpdate
 	totals := ComputeTotals(lines, inv.DiscountType, storedDec(inv.DiscountValue), inv.Currency, whtType, whtRate, grossUp)
 
 	if !inv.DueDate.Valid && inv.IssueDate.Valid {
-		due, err := dueAfterTerms(inv.IssueDate.Time, inv.PaymentTerms)
+		due, err := DueAfterTerms(inv.IssueDate.Time, inv.PaymentTerms)
 		if err != nil {
 			return InvoiceOut{}, err
 		}
@@ -308,7 +313,7 @@ func updateInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID, b InvoiceUpdate
 		Notes: inv.Notes, Footer: inv.Footer, InternalNote: inv.InternalNote,
 	})
 	if err != nil {
-		return InvoiceOut{}, writeError(err)
+		return InvoiceOut{}, MapWriteError(err)
 	}
 	return Get(ctx, q, id)
 }
@@ -326,7 +331,7 @@ func createMilestone(ctx context.Context, tx pgx.Tx, b MilestoneInvoiceCreate, t
 	if b.IssueDate.Set && !b.IssueDate.Null {
 		issue = b.IssueDate.Value.Time
 	}
-	due, err := addDays(issue, b.DueInDays.Or(14))
+	due, err := AddDays(issue, b.DueInDays.Or(14))
 	if err != nil {
 		return InvoiceOut{}, err
 	}
@@ -344,7 +349,7 @@ func createMilestone(ctx context.Context, tx pgx.Tx, b MilestoneInvoiceCreate, t
 		BillingCycleRef: ref, IssueDate: pgDate(&issue), DueDate: pgDate(&due),
 	})
 	if err != nil {
-		return InvoiceOut{}, writeError(err)
+		return InvoiceOut{}, MapWriteError(err)
 	}
 	return Get(ctx, q, id)
 }

@@ -725,3 +725,72 @@ func TestListTemplatesNewestFirst(t *testing.T) {
 		t.Errorf("templates = %s", rec.Body)
 	}
 }
+
+// TestTemplateScheduleCountsAtMost1000: interval and end_after_cycles are at
+// most 1000 (Go change; Python's date arithmetic overflowed into a 500 far
+// beyond that), on create and PUT.
+func TestTemplateScheduleCountsAtMost1000(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := insertCustomer(t, a.Pool, "NONE", "", false)
+	out := mkTemplate(t, a, monthly("2026-01-01"))
+	for _, tc := range []struct {
+		field string
+		sched map[string]any
+	}{
+		{"interval", map[string]any{"frequency": "DAILY", "interval": 1001, "start_date": "2026-01-01"}},
+		{"end_after_cycles", map[string]any{"frequency": "DAILY", "start_date": "2026-01-01", "end_mode": "AFTER_N", "end_after_cycles": 1001}},
+	} {
+		body := templateBody(c, tc.sched)
+		wantProblem(t, a.Do(t, http.MethodPost, invoicesPath+"/recurring-template", body), http.StatusUnprocessableEntity,
+			"", invalid, "schedule."+tc.field, "expected number <= 1000")
+		put := putBody(*out.CustomerID)
+		put["schedule"] = tc.sched
+		wantProblem(t, a.Do(t, http.MethodPut, templatePath(out.InvoiceID), put), http.StatusUnprocessableEntity,
+			"", invalid, "schedule."+tc.field, "expected number <= 1000")
+	}
+	body := templateBody(c, map[string]any{"frequency": "DAILY", "interval": 1000, "start_date": "2026-01-01", "end_mode": "AFTER_N", "end_after_cycles": 1000})
+	apitest.Decode[InvoiceOut](t, a.Do(t, http.MethodPost, invoicesPath+"/recurring-template", body), http.StatusCreated)
+}
+
+// TestTemplateLineItemsNullIs400: "line_items": null on a template create is
+// the 400 an empty list is (port note 37), not Python's 422.
+func TestTemplateLineItemsNullIs400(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	body := templateBody(insertCustomer(t, a.Pool, "NONE", "", false), monthly("2026-01-01"))
+	body["line_items"] = nil
+	wantProblem(t, a.Do(t, http.MethodPost, invoicesPath+"/recurring-template", body), http.StatusBadRequest,
+		"template_line_items_required", "recurring template must have at least one line item", "", "")
+}
+
+// TestEndedTemplateUnknownActionIs400: the ended check covers PAUSE and
+// RESUME only, so an unknown action on an ended template is still the 400.
+func TestEndedTemplateUnknownActionIs400(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	out := mkTemplate(t, a, monthly("2026-01-01"))
+	endNow(t, a, out.InvoiceID)
+	wantProblem(t, act(t, a, out.InvoiceID, "stop"), http.StatusBadRequest, "unknown_action", "unknown action: stop", "", "")
+}
+
+// TestPatchTemplateWhoseRefIsNotAnObject: a stored billing_cycle_ref that is
+// not a JSON object (Python: dict() of it, a 500 for most) is read as an
+// empty config, so PAUSE stores just the flag and RESUME an empty object.
+func TestPatchTemplateWhoseRefIsNotAnObject(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	for _, tc := range []struct{ stored, action, want string }{
+		{`[1, 2]`, "PAUSE", `{"paused":true}`},
+		{`"monthly"`, "RESUME", `{}`},
+	} {
+		out := mkTemplate(t, a, monthly("2026-01-01"))
+		if _, err := a.Pool.Exec(t.Context(), `UPDATE invoices SET billing_cycle_ref = $2::jsonb WHERE invoice_id = $1`, out.InvoiceID, tc.stored); err != nil {
+			t.Fatal(err)
+		}
+		got := apitest.Decode[InvoiceOut](t, act(t, a, out.InvoiceID, tc.action), http.StatusOK)
+		if string(got.BillingCycleRef) != tc.want {
+			t.Errorf("%s on %s: billing_cycle_ref = %s, want %s", tc.action, tc.stored, got.BillingCycleRef, tc.want)
+		}
+	}
+}

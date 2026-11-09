@@ -161,6 +161,20 @@ func TestFinalizeTemplateIs400(t *testing.T) {
 	}
 }
 
+// TestFinalizeVoidTemplateIsNotDraft: the DRAFT check comes before the
+// template check (invoicing.py:647-650), so a VOID template is refused as
+// not a DRAFT.
+func TestFinalizeVoidTemplateIsNotDraft(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	id := insertWithStatus(t, a.Pool, "VOID", "5")
+	if _, err := a.Pool.Exec(t.Context(), `UPDATE invoices SET is_template = true WHERE invoice_id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	wantProblem(t, a.Do(t, http.MethodPost, actionPath(id, "finalize"), nil), http.StatusBadRequest, "invoice_not_draft",
+		"only DRAFT invoices can be finalized (got VOID)", "", "")
+}
+
 func TestFinalizeUnknownIs400(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)

@@ -46,12 +46,12 @@ func TestAddDaysBounds(t *testing.T) {
 		{day(2026, 1, 15), -200000, day(2026, 1, 15).AddDate(0, 0, -200000), false},
 		{day(2026, 1, 15), 200000, day(2026, 1, 15).AddDate(0, 0, 200000), false},
 	} {
-		got, err := addDays(c.from, c.days)
+		got, err := AddDays(c.from, c.days)
 		switch {
 		case c.refused && !errors.Is(err, ErrInvoicing):
-			t.Errorf("addDays(%s, %d) = %s, %v, want refused", c.from.Format(time.DateOnly), c.days, got, err)
+			t.Errorf("AddDays(%s, %d) = %s, %v, want refused", c.from.Format(time.DateOnly), c.days, got, err)
 		case !c.refused && (err != nil || !got.Equal(c.want)):
-			t.Errorf("addDays(%s, %d) = %s, %v, want %s", c.from.Format(time.DateOnly), c.days, got, err, c.want.Format(time.DateOnly))
+			t.Errorf("AddDays(%s, %d) = %s, %v, want %s", c.from.Format(time.DateOnly), c.days, got, err, c.want.Format(time.DateOnly))
 		}
 	}
 }
