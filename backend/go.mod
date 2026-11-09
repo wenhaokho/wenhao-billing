@@ -14,6 +14,7 @@ require (
 	github.com/johnfercher/go-tree v1.1.0
 	github.com/johnfercher/maroto/v2 v2.4.1
 	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
+	github.com/phpdave11/gofpdf v1.4.3
 	github.com/shopspring/decimal v1.6.0
 	golang.org/x/text v0.43.0
 )
@@ -38,7 +39,6 @@ require (
 	github.com/pdfcpu/pdfcpu v0.11.1 // indirect
 	github.com/peterldowns/pgtestdb v0.1.1 // indirect
 	github.com/peterldowns/pgtestdb/migrators/goosemigrator v0.1.1 // indirect
-	github.com/phpdave11/gofpdf v1.4.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pressly/goose/v3 v3.29.0 // indirect
 	github.com/redis/go-redis/v9 v9.23.0 // indirect

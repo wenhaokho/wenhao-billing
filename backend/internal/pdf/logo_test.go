@@ -254,3 +254,75 @@ func TestLogoCacheIsBounded(t *testing.T) {
 		t.Errorf("cache holds %d logos, max %d", n, logoCacheMax)
 	}
 }
+
+func TestLogoRedirectIsNotFollowed(t *testing.T) {
+	t.Parallel()
+	target, targetHits := logoServer(t, "image/png", testPNG(t, 2, 2))
+	redirect := httptest.NewServer(http.RedirectHandler(target.URL+"/logo.png", http.StatusFound))
+	t.Cleanup(redirect.Close)
+	u := redirect.URL + "/logo.png"
+	for _, r := range []*LogoResolver{{}, {Client: &http.Client{}}} {
+		if !isDefault(r.Resolve(t.Context(), &u)) {
+			t.Error("a redirect: not the default logo")
+		}
+	}
+	eq(t, "redirect target hits", targetHits.Load(), int32(0))
+}
+
+// pngHeader is a PNG whose IHDR claims w x h, with one tiny IDAT: a few
+// hundred bytes that decode to a w*h*4 byte buffer.
+func pngHeader(w, h uint32) []byte {
+	chunk := func(typ string, data []byte) []byte {
+		var b bytes.Buffer
+		_ = binary.Write(&b, binary.BigEndian, uint32(len(data)))
+		body := append([]byte(typ), data...)
+		b.Write(body)
+		_ = binary.Write(&b, binary.BigEndian, crc32.ChecksumIEEE(body))
+		return b.Bytes()
+	}
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:], w)
+	binary.BigEndian.PutUint32(ihdr[4:], h)
+	ihdr[8], ihdr[9] = 8, 6 // 8-bit RGBA
+	out := []byte("\x89PNG\r\n\x1a\n")
+	out = append(out, chunk("IHDR", ihdr)...)
+	out = append(out, chunk("IDAT", []byte{0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01})...)
+	return append(out, chunk("IEND", nil)...)
+}
+
+func TestLogoDimensionsAreCapped(t *testing.T) {
+	t.Parallel()
+	wide := image.NewNRGBA(image.Rect(0, 0, logoMaxSide+1, 1))
+	var widePNG, wideJPEG bytes.Buffer
+	if err := png.Encode(&widePNG, wide); err != nil {
+		t.Fatal(err)
+	}
+	if err := jpeg.Encode(&wideJPEG, wide, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, b := range map[string][]byte{
+		"header claiming 100000 x 100000": pngHeader(100000, 100000),
+		"PNG 4097 x 1":                    widePNG.Bytes(),
+		"JPEG 4097 x 1":                   wideJPEG.Bytes(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			uri := "data:image/png;base64," + base64.StdEncoding.EncodeToString(b)
+			if !isDefault((&LogoResolver{}).Resolve(t.Context(), &uri)) {
+				t.Error("not the default logo")
+			}
+		})
+	}
+	ok := "data:image/png;base64," + base64.StdEncoding.EncodeToString(testPNG(t, logoMaxSide, 1))
+	eq(t, "4096 x 1", size(t, (&LogoResolver{}).Resolve(t.Context(), &ok)), image.Pt(logoMaxSide, 1))
+}
+
+func TestResolvedLogoIsACopy(t *testing.T) {
+	t.Parallel()
+	uri := "data:image/png;base64," + base64.StdEncoding.EncodeToString(testPNG(t, 3, 3))
+	r := &LogoResolver{}
+	first := r.Resolve(t.Context(), &uri)
+	want := bytes.Clone(first)
+	first[0], first[len(first)-1] = 0, 0
+	eq(t, "second resolve", r.Resolve(t.Context(), &uri), want)
+}

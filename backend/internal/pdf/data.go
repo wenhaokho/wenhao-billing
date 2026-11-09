@@ -3,8 +3,10 @@ package pdf
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/business/businessdb"
@@ -65,6 +67,10 @@ type Document struct {
 	FootMeta []string
 	// LogoURL is the business's logo_url as stored; the renderer resolves it.
 	LogoURL string
+	// Date is the PDF's creation date: the issue date (the payment date on
+	// a receipt). The zero value prints a fixed epoch, so the same
+	// document always renders to the same bytes.
+	Date time.Time
 }
 
 // InvoiceData is an invoice with what its document shows. Customer and
@@ -308,6 +314,14 @@ func discountRow(typ *string, value, subtotal decimal.NullDecimal, currency stri
 	return SummaryRow{Label: "Discount" + suffix, Value: Minus + FmtNum(disc, currency), Class: "discount"}, true
 }
 
+// dateOf is a date column as a time, zero when NULL.
+func dateOf(d pgtype.Date) time.Time {
+	if !d.Valid {
+		return time.Time{}
+	}
+	return d.Time
+}
+
 // meta adds the PO/SO number as a fourth cell when it is set (Go change 10).
 func meta(cells []MetaCell, poSo *string) []MetaCell {
 	if poSo != nil && *poSo != "" {
@@ -373,6 +387,7 @@ func InvoiceDocument(in InvoiceData) Document {
 		{"Due Date", FmtDate(inv.DueDate)},
 	}, inv.PoSoNumber)
 	d.Footer = deref(inv.Footer)
+	d.Date = dateOf(inv.IssueDate)
 	d.Summary = rows
 	d.HeroLabel, d.HeroAmount = "Total Due", FmtNum(inv.BalanceDue, cur)
 	if wht {
@@ -404,6 +419,7 @@ func QuotationDocument(in QuotationData) Document {
 		{"Valid Until", FmtDate(q.ValidUntil)},
 	}, q.PoSoNumber)
 	d.Footer = deref(q.Footer)
+	d.Date = dateOf(q.IssueDate)
 	d.HeroLabel, d.HeroAmount = "Total", FmtNum(q.Amount, cur)
 	return d
 }
@@ -451,6 +467,7 @@ func ReceiptDocument(in ReceiptData) Document {
 		Notes:      BalanceNote(inv.BalanceDue, inv.Currency) + "\nThank you for your payment.",
 		FootName:   deref(businessName(in.Business)),
 		FootMeta:   footMeta(in.Business),
+		Date:       dateOf(pay.PaymentDate),
 	}
 	d.ToName = firstNonEmpty(deref(customerName(in.Customer)), pay.PayerName, Dash)
 	if in.Business != nil {

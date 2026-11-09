@@ -508,6 +508,46 @@ func TestDefaultLogoIsPNG(t *testing.T) {
 	}
 }
 
+func TestRenderIsReproducible(t *testing.T) {
+	t.Parallel()
+	for name, d := range map[string]Document{
+		"long invoice": InvoiceDocument(longInvoice(30)),
+		"receipt":      ReceiptDocument(receipt("600")),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			a, err := RenderInvoice(t.Context(), d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := RenderInvoice(t.Context(), d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(a, b) {
+				t.Errorf("two renders differ (%d and %d bytes)", len(a), len(b))
+			}
+		})
+	}
+	dateOf := func(b []byte) string {
+		r, err := lpdf.NewReader(bytes.NewReader(b), int64(len(b)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Trailer().Key("Info").Key("CreationDate").Text()
+	}
+	b, err := RenderInvoice(t.Context(), InvoiceDocument(fullInvoice()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, "issue date", dateOf(b), "D:20260723000000")
+	b, err = RenderReceipt(t.Context(), Document{DocTitle: "RECEIPT", Ref: "RCT-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eq(t, "no date", dateOf(b), "D:20000101000000")
+}
+
 // TestWriteSamples writes the owner's review PDFs: go test -run
 // TestWriteSamples -args -samples=DIR.
 func TestWriteSamples(t *testing.T) {

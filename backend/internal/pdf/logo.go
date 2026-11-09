@@ -30,12 +30,24 @@ const (
 	// logoCacheMax bounds the cache; one business has one logo, so this is
 	// room for edits within the TTL.
 	logoCacheMax = 64
+	// logoMaxSide and logoMaxPixels bound a logo's dimensions, read from its
+	// header before it is decoded: a small file can claim a huge image.
+	logoMaxSide   = 4096
+	logoMaxPixels = 16 << 20
 )
 
 var (
 	errLogoTooLarge = errors.New("logo is larger than 2 MB")
 	errLogoType     = errors.New("logo is not a PNG or JPEG image")
+	errLogoPixels   = errors.New("logo is larger than 4096 x 4096 pixels")
 )
+
+// logoClient fetches logos when the resolver has no Client: no redirects
+// (Python's httpx.get followed none), the 5 s timeout.
+var logoClient = &http.Client{Timeout: logoTimeout, CheckRedirect: noRedirect}
+
+// noRedirect stops at a redirect: the 3xx is the response, and not a logo.
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // LogoResolver turns a business's logo_url into PNG or JPEG bytes Maroto can
 // embed (Maroto takes png, jpg and jpeg only). A data: URI is decoded; an
@@ -46,8 +58,8 @@ var (
 // logo_url is ever fetched: the renderer reads nothing else from outside.
 // The zero value is ready to use.
 type LogoResolver struct {
-	// Client fetches http(s) logos; nil is http.DefaultClient. The 5 s
-	// timeout applies whatever the client.
+	// Client fetches http(s) logos; nil is a plain client. Whatever the
+	// client, redirects are not followed and the 5 s timeout applies.
 	Client *http.Client
 	// Timeout overrides the 5 s fetch timeout (tests).
 	Timeout time.Duration
@@ -97,7 +109,7 @@ func (r *LogoResolver) Resolve(ctx context.Context, logoURL *string) []byte {
 	u := *logoURL
 	key := sha256.Sum256([]byte(u))
 	if logo, ok := r.cached(key); ok {
-		return logo
+		return bytes.Clone(logo)
 	}
 	var raw []byte
 	var err error
@@ -118,7 +130,7 @@ func (r *LogoResolver) Resolve(ctx context.Context, logoURL *string) []byte {
 		return DefaultLogo()
 	}
 	r.store(key, logo)
-	return logo
+	return bytes.Clone(logo)
 }
 
 func (r *LogoResolver) cached(key [sha256.Size]byte) ([]byte, bool) {
@@ -161,9 +173,11 @@ func (r *LogoResolver) fetch(ctx context.Context, u string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := r.Client
-	if client == nil {
-		client = http.DefaultClient
+	client := logoClient
+	if r.Client != nil {
+		c := *r.Client
+		c.CheckRedirect = noRedirect
+		client = &c
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -217,11 +231,22 @@ func decodeDataURI(u string) ([]byte, error) {
 func embeddable(raw []byte) ([]byte, error) {
 	switch http.DetectContentType(raw) {
 	case "image/jpeg":
-		if _, err := jpeg.DecodeConfig(bytes.NewReader(raw)); err != nil {
+		cfg, err := jpeg.DecodeConfig(bytes.NewReader(raw))
+		if err != nil {
+			return nil, err
+		}
+		if err := checkPixels(cfg); err != nil {
 			return nil, err
 		}
 		return raw, nil
 	case "image/png":
+		cfg, err := png.DecodeConfig(bytes.NewReader(raw))
+		if err != nil {
+			return nil, err
+		}
+		if err := checkPixels(cfg); err != nil {
+			return nil, err
+		}
 		img, err := png.Decode(bytes.NewReader(raw))
 		if err != nil {
 			return nil, err
@@ -236,6 +261,15 @@ func embeddable(raw []byte) ([]byte, error) {
 	default:
 		return nil, errLogoType
 	}
+}
+
+// checkPixels refuses dimensions over 4096 on a side or 16 MP in all, before
+// anything is decoded.
+func checkPixels(cfg image.Config) error {
+	if cfg.Width > logoMaxSide || cfg.Height > logoMaxSide || cfg.Width*cfg.Height > logoMaxPixels {
+		return fmt.Errorf("%w: %d x %d", errLogoPixels, cfg.Width, cfg.Height)
+	}
+	return nil
 }
 
 // logoIsJPEG tells an embeddable logo's Maroto type: JPEG, else PNG.

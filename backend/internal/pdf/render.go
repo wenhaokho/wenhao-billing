@@ -7,6 +7,7 @@ import (
 	_ "embed" // the default logo
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/johnfercher/maroto/v2"
 	"github.com/johnfercher/maroto/v2/pkg/config"
@@ -15,7 +16,20 @@ import (
 	"github.com/johnfercher/maroto/v2/pkg/core/entity"
 	"github.com/johnfercher/maroto/v2/pkg/fontrepository"
 	"github.com/johnfercher/maroto/v2/pkg/props"
+	"github.com/phpdave11/gofpdf"
 )
+
+// reproEpoch is the creation date of a Document without one, and every PDF's
+// modification date: a document renders to the same bytes every time.
+var reproEpoch = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// gofpdf (Maroto's writer) stamps the modification date with the clock and
+// writes its catalogs in map order unless told otherwise; Maroto exposes
+// neither, so the package defaults are set once, before any render.
+func init() {
+	gofpdf.SetDefaultModificationDate(reproEpoch)
+	gofpdf.SetDefaultCatalogSort(true)
+}
 
 // The three families of the design (inventory §2.5), static TTF instances of
 // Google Fonts' OFL releases (licences beside them in fonts/). Maroto has a
@@ -86,6 +100,10 @@ func render(ctx context.Context, d Document, logos *LogoResolver) ([]byte, error
 	}
 	logoURL := d.LogoURL
 	logo := logos.Resolve(ctx, &logoURL)
+	created := d.Date
+	if created.IsZero() {
+		created = reproEpoch
+	}
 	cfg := config.NewBuilder().
 		WithPageSize(pagesize.A4).
 		WithLeftMargin(0).WithTopMargin(0).WithRightMargin(0).WithBottomMargin(0).
@@ -95,6 +113,7 @@ func render(ctx context.Context, d Document, logos *LogoResolver) ([]byte, error
 		// The template's "{{ doc_title|title }} {{ ref }}".
 		WithTitle(pyTitle(d.DocTitle)+" "+d.Ref, true).
 		WithCompression(true).
+		WithCreationDate(created).
 		Build()
 	m := maroto.New(cfg)
 	if err := layout(m, cfg, d, logo); err != nil {
