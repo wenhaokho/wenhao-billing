@@ -793,6 +793,7 @@ func TestInvoiceRoutesRequireAdmin(t *testing.T) {
 		{http.MethodPost, actionPath(id, "finalize")},
 		{http.MethodPost, actionPath(id, "void")},
 		{http.MethodPost, actionPath(id, "mark-paid")},
+		{http.MethodPost, invoicesPath + "/usage/" + id.String() + "/lock"},
 		{http.MethodDelete, invoicePath(id)},
 		{http.MethodPost, invoicesPath + "/recurring-template"},
 		{http.MethodGet, templatesPath},

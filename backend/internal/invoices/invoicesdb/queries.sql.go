@@ -756,6 +756,39 @@ func (q *Queries) ListTemplates(ctx context.Context) ([]Invoice, error) {
 	return items, nil
 }
 
+const listUsageDrafts = `-- name: ListUsageDrafts :many
+SELECT invoice_id, billing_cycle_ref FROM invoices
+WHERE invoice_type = 'USAGE' AND status = 'DRAFT'
+ORDER BY created_at, invoice_id
+`
+
+type ListUsageDraftsRow struct {
+	InvoiceID       uuid.UUID
+	BillingCycleRef json.RawMessage
+}
+
+// The cut-off scan's candidates (workers/tasks/usage_lock.py:34-38), oldest
+// first, the id breaking ties.
+func (q *Queries) ListUsageDrafts(ctx context.Context) ([]ListUsageDraftsRow, error) {
+	rows, err := q.db.Query(ctx, listUsageDrafts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsageDraftsRow
+	for rows.Next() {
+		var i ListUsageDraftsRow
+		if err := rows.Scan(&i.InvoiceID, &i.BillingCycleRef); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockInvoiceNumbers = `-- name: LockInvoiceNumbers :exec
 SELECT pg_advisory_xact_lock(hashtextextended('invoice-number:' || $1::text, 0))
 `
@@ -774,6 +807,34 @@ SELECT pg_advisory_xact_lock(hashtextextended('recurring-template:' || $1::text,
 // template, so a manual trigger and the scan cannot both create a cycle.
 func (q *Queries) LockRecurringTemplate(ctx context.Context, templateID string) error {
 	_, err := q.db.Exec(ctx, lockRecurringTemplate, templateID)
+	return err
+}
+
+const lockUsageInvoice = `-- name: LockUsageInvoice :exec
+UPDATE invoices SET
+    wht_base = $1, wht_amount = $2, amount = $3, balance_due = $3,
+    billing_cycle_ref = $4
+WHERE invoice_id = $5
+`
+
+type LockUsageInvoiceParams struct {
+	WhtBase         decimal.NullDecimal
+	WhtAmount       decimal.Decimal
+	Total           decimal.Decimal
+	BillingCycleRef json.RawMessage
+	InvoiceID       uuid.UUID
+}
+
+// Usage Lock (invoicing.py:604-640): the recomputed withholding and totals,
+// and the cycle config with its cut-off and lock marks. The status stays.
+func (q *Queries) LockUsageInvoice(ctx context.Context, arg LockUsageInvoiceParams) error {
+	_, err := q.db.Exec(ctx, lockUsageInvoice,
+		arg.WhtBase,
+		arg.WhtAmount,
+		arg.Total,
+		arg.BillingCycleRef,
+		arg.InvoiceID,
+	)
 	return err
 }
 

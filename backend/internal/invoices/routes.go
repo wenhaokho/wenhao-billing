@@ -83,6 +83,10 @@ func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, notify Dra
 		OperationID: "invoices-mark-paid", Method: http.MethodPost, Path: prefix + "/{invoice_id}/mark-paid", Tags: tags,
 		Summary: "Settle an issued invoice with nothing outstanding to PAID", Errors: []int{http.StatusBadRequest},
 	}), r.markPaid)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-lock-usage", Method: http.MethodPost, Path: prefix + "/usage/{invoice_id}/lock", Tags: tags,
+		Summary: "Freeze a DRAFT USAGE invoice at its accrued amount", Errors: []int{http.StatusBadRequest},
+	}), r.lockUsage)
 
 	huma.Register(api, platform.Admin(huma.Operation{
 		OperationID: "invoices-create-recurring-template", Method: http.MethodPost, Path: prefix + "/recurring-template", Tags: tags,

@@ -174,3 +174,18 @@ SELECT name FROM customers WHERE customer_id = $1;
 SELECT invoice_id, billing_cycle_ref FROM invoices
 WHERE invoice_type = 'RECURRING' AND is_template = true
 ORDER BY created_at, invoice_id;
+
+-- name: LockUsageInvoice :exec
+-- Usage Lock (invoicing.py:604-640): the recomputed withholding and totals,
+-- and the cycle config with its cut-off and lock marks. The status stays.
+UPDATE invoices SET
+    wht_base = @wht_base, wht_amount = @wht_amount, amount = @total, balance_due = @total,
+    billing_cycle_ref = @billing_cycle_ref
+WHERE invoice_id = @invoice_id;
+
+-- name: ListUsageDrafts :many
+-- The cut-off scan's candidates (workers/tasks/usage_lock.py:34-38), oldest
+-- first, the id breaking ties.
+SELECT invoice_id, billing_cycle_ref FROM invoices
+WHERE invoice_type = 'USAGE' AND status = 'DRAFT'
+ORDER BY created_at, invoice_id;
