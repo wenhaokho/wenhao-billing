@@ -1,0 +1,205 @@
+{
+ "script": "import difflib, json\npairs = [\n [\"acme corp\", \"acme corp\"],\n [\"\", \"\"],\n [\"\", \"a\"],\n [\"a\", \"\"],\n [\"pt maju jaya\", \"pt maju jaya tbk\"],\n [\"acme\", \"amce\"],\n [\"abcabcabc\", \"cbacbacba\"],\n [\"aaaa\", \"aa\"],\n [\"aaaaaaaaaa\", \"aaaaabaaaa\"],\n [\"café\", \"cafe\"],\n [\"pay \\U0001F600 ltd\", \"pay \\U0001F601 ltd\"],\n [\"\\U0001F600\\U0001F600\", \"\\U0001F600\"],\n [\"x\" * 250 + \"abc\", \"x\" * 250 + \"abd\"],\n [(\"ab \" * 90) + \"zzz\", (\"ab \" * 80) + \"yyy\" + (\"ab \" * 15)],\n [\"the quick brown fox \" * 12, \"the quick brown fox jumps \" * 10],\n [(\"a\" * 150) + \"needle\" + (\"a\" * 150), (\"a\" * 100) + \"needle\" + (\"a\" * 200)],\n [\"a b a b \" * 30, \"b a b a \" * 31],\n [\"pt maju jaya sejahtera\", \"maju jaya sejahtera pt\"],\n [\"ABC Trading Pte Ltd\", \"ABC TRADING PTE. LTD.\"],\n [\"john smith\", \"smith john\"],\n [\"bank transfer from budi santoso\", \"budi santoso\"],\n [\"cv sinar abadi\", \"sinar abadi cv\"],\n [\"pt global teknologi indonesia\", \"global teknologi indonesia pt\"],\n [\"acme holdings\", \"acme holding\"],\n [\"pt bumi resources tbk\", \"pt bumi resource\"],\n [\"wenhao studio\", \"wen hao studio\"],\n [\"delta logistics sdn bhd\", \"delta logistic\"],\n [\"mr. andi wijaya\", \"andi wijaya\"],\n [\"pt sumber makmur\", \"ud sumber makmur\"],\n [\"star digital agency\", \"stardigital\"],\n [\"sari rasa restaurant\", \"sari rasa resto\"],\n [\"pt kreasi nusantara\", \"kreasi nusantara pt\"],\n [\"lim chong wei\", \"lim c w\"],\n [\"northwind traders\", \"southwind traders\"],\n [\"pt abc\", \"pt abd\"],\n [\"techno solutions pte ltd\", \"techno solution pte ltd\"],\n [\"maria gonzalez\", \"gonzalez maria\"],\n [\"tokopedia\", \"tokopedia official\"],\n [\"pt indo makmur jaya\", \"pt indo jaya makmur\"],\n [\"cafe\\u0301\", \"café\"],\n]\nout = [[a, b, repr(difflib.SequenceMatcher(None, a, b).ratio())] for a, b in pairs]\nprint(json.dumps(out, ensure_ascii=False))\n",
+ "cases": [
+  [
+   "acme corp",
+   "acme corp",
+   "1.0"
+  ],
+  [
+   "",
+   "",
+   "1.0"
+  ],
+  [
+   "",
+   "a",
+   "0.0"
+  ],
+  [
+   "a",
+   "",
+   "0.0"
+  ],
+  [
+   "pt maju jaya",
+   "pt maju jaya tbk",
+   "0.8571428571428571"
+  ],
+  [
+   "acme",
+   "amce",
+   "0.75"
+  ],
+  [
+   "abcabcabc",
+   "cbacbacba",
+   "0.4444444444444444"
+  ],
+  [
+   "aaaa",
+   "aa",
+   "0.6666666666666666"
+  ],
+  [
+   "aaaaaaaaaa",
+   "aaaaabaaaa",
+   "0.9"
+  ],
+  [
+   "café",
+   "cafe",
+   "0.75"
+  ],
+  [
+   "pay 😀 ltd",
+   "pay 😁 ltd",
+   "0.8888888888888888"
+  ],
+  [
+   "😀😀",
+   "😀",
+   "0.6666666666666666"
+  ],
+  [
+   "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxabc",
+   "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxabd",
+   "0.9960474308300395"
+  ],
+  [
+   "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab zzz",
+   "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab yyyab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ",
+   "0.8556149732620321"
+  ],
+  [
+   "the quick brown fox the quick brown fox the quick brown fox the quick brown fox the quick brown fox the quick brown fox the quick brown fox the quick brown fox the quick brown fox the quick brown fox the quick brown fox the quick brown fox ",
+   "the quick brown fox jumps the quick brown fox jumps the quick brown fox jumps the quick brown fox jumps the quick brown fox jumps the quick brown fox jumps the quick brown fox jumps the quick brown fox jumps the quick brown fox jumps the quick brown fox jumps ",
+   "0.08"
+  ],
+  [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaneedleaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaneedleaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "0.8366013071895425"
+  ],
+  [
+   "a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b ",
+   "b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a b a ",
+   "0.0"
+  ],
+  [
+   "pt maju jaya sejahtera",
+   "maju jaya sejahtera pt",
+   "0.8636363636363636"
+  ],
+  [
+   "ABC Trading Pte Ltd",
+   "ABC TRADING PTE. LTD.",
+   "0.45"
+  ],
+  [
+   "john smith",
+   "smith john",
+   "0.5"
+  ],
+  [
+   "bank transfer from budi santoso",
+   "budi santoso",
+   "0.5581395348837209"
+  ],
+  [
+   "cv sinar abadi",
+   "sinar abadi cv",
+   "0.7857142857142857"
+  ],
+  [
+   "pt global teknologi indonesia",
+   "global teknologi indonesia pt",
+   "0.896551724137931"
+  ],
+  [
+   "acme holdings",
+   "acme holding",
+   "0.96"
+  ],
+  [
+   "pt bumi resources tbk",
+   "pt bumi resource",
+   "0.8648648648648649"
+  ],
+  [
+   "wenhao studio",
+   "wen hao studio",
+   "0.9629629629629629"
+  ],
+  [
+   "delta logistics sdn bhd",
+   "delta logistic",
+   "0.7567567567567568"
+  ],
+  [
+   "mr. andi wijaya",
+   "andi wijaya",
+   "0.8461538461538461"
+  ],
+  [
+   "pt sumber makmur",
+   "ud sumber makmur",
+   "0.875"
+  ],
+  [
+   "star digital agency",
+   "stardigital",
+   "0.7333333333333333"
+  ],
+  [
+   "sari rasa restaurant",
+   "sari rasa resto",
+   "0.8"
+  ],
+  [
+   "pt kreasi nusantara",
+   "kreasi nusantara pt",
+   "0.8421052631578947"
+  ],
+  [
+   "lim chong wei",
+   "lim c w",
+   "0.7"
+  ],
+  [
+   "northwind traders",
+   "southwind traders",
+   "0.8823529411764706"
+  ],
+  [
+   "pt abc",
+   "pt abd",
+   "0.8333333333333334"
+  ],
+  [
+   "techno solutions pte ltd",
+   "techno solution pte ltd",
+   "0.9787234042553191"
+  ],
+  [
+   "maria gonzalez",
+   "gonzalez maria",
+   "0.5714285714285714"
+  ],
+  [
+   "tokopedia",
+   "tokopedia official",
+   "0.6666666666666666"
+  ],
+  [
+   "pt indo makmur jaya",
+   "pt indo jaya makmur",
+   "0.7368421052631579"
+  ],
+  [
+   "café",
+   "café",
+   "0.6666666666666666"
+  ]
+ ]
+}
