@@ -23,23 +23,42 @@ func (failingMail) Send(context.Context, email.Message) error { return errors.Ne
 
 func newDocApp(t *testing.T, failing bool) *apitest.App {
 	t.Helper()
-	return apitest.New(t, func(api huma.API, d apitest.Deps) {
-		quotations.Register(api, d.Pool, d.Clock)
-		var mail email.Sender = d.Mail
+	return newDocAppWith(t, func(d apitest.Deps) email.Sender {
 		if failing {
-			mail = failingMail{}
+			return failingMail{}
 		}
-		quotations.RegisterDocuments(api, d.Pool, d.Clock, mail)
+		return d.Mail
 	})
 }
 
+func newDocAppWith(t *testing.T, mail func(d apitest.Deps) email.Sender) *apitest.App {
+	t.Helper()
+	return apitest.New(t, func(api huma.API, d apitest.Deps) {
+		quotations.Register(api, d.Pool, d.Clock)
+		quotations.RegisterDocuments(api, d.Pool, d.Clock, mail(d))
+	})
+}
+
+// voidingMail voids every quotation as it "sends", as a concurrent void would
+// while the email is out.
+type voidingMail struct{ d apitest.Deps }
+
+func (m voidingMail) Send(ctx context.Context, _ email.Message) error {
+	_, err := m.d.Pool.Exec(ctx, `UPDATE quotations SET status = 'VOID'`)
+	return err
+}
+
 func insertQuotation(t *testing.T, a *apitest.App, number *string, status string, customer *uuid.UUID, validUntil *string) uuid.UUID {
+	t.Helper()
+	return insertQuotationID(t, a, uuid.New(), number, status, customer, validUntil)
+}
+
+func insertQuotationID(t *testing.T, a *apitest.App, id uuid.UUID, number *string, status string, customer *uuid.UUID, validUntil *string) uuid.UUID {
 	t.Helper()
 	if customer == nil {
 		c := contactCustomer(t, a, "")
 		customer = &c
 	}
-	id := uuid.New()
 	exec(t, a, `INSERT INTO quotations (quotation_id, customer_id, quotation_number, currency, amount, status, valid_until)
 VALUES ($1, $2, $3, 'SGD', 5000, $4, $5)`, id, customer, number, status, validUntil)
 	return id
@@ -128,7 +147,7 @@ func TestQuotationSendBodyAndLastSentAt(t *testing.T) {
 		t.Run(from, func(t *testing.T) {
 			t.Parallel()
 			a := newDocApp(t, false)
-			id := insertQuotation(t, a, sptr("Q20260001"), from, nil, sptr("2026-12-31"))
+			id := insertQuotationID(t, a, uuid.MustParse("11111111-2222-3333-4444-666666666666"), sptr("Q20260001"), from, nil, sptr("2026-12-31"))
 			out := apitest.Decode[quotations.QuotationOut](t, a.Do(t, http.MethodPost, sendPath(id),
 				map[string]any{"to_email": "ap@acme.example", "cc_email": "me@acme.example; me@acme.example"}), http.StatusOK)
 			want := from
@@ -159,8 +178,8 @@ func TestQuotationSendBodyAndLastSentAt(t *testing.T) {
 				!strings.HasPrefix(string(m.Attachments[0].Content), "%PDF-") {
 				t.Errorf("attachments %+v", m.Attachments)
 			}
-			if want := func() string { k := m; k.IdempotencyKey = ""; return email.IdempotencyKey(id.String(), k) }(); m.IdempotencyKey != want {
-				t.Errorf("idempotency key %q", m.IdempotencyKey)
+			if want := "11111111-2222-3333-4444-666666666666:412c02f7f301aa4b2b5010e2918c9971679cb7482ef1e858543a7758c14c6170"; m.IdempotencyKey != want {
+				t.Errorf("idempotency key %q, want %q", m.IdempotencyKey, want)
 			}
 		})
 	}
@@ -277,5 +296,48 @@ func TestQuotationDocumentRoutesRequireAdmin(t *testing.T) {
 	}
 	if n := len(a.Mail.Messages()); n != 0 {
 		t.Errorf("%d messages", n)
+	}
+}
+
+func TestQuotationSendCcAndNormalisedTo(t *testing.T) {
+	t.Parallel()
+	a := newDocApp(t, false)
+	id := insertQuotation(t, a, nil, "DRAFT", nil, nil)
+	apitest.Decode[quotations.QuotationOut](t, a.Do(t, http.MethodPost, sendPath(id), map[string]any{
+		"to_email": " a@B.com", "cc_email": "me@acme.example; ME@acme.example, b@acme.example",
+	}), http.StatusOK)
+	m := a.Mail.Messages()[0]
+	if m.To != "a@b.com" {
+		t.Errorf("sent to %q, want a@b.com", m.To)
+	}
+	if len(m.Cc) != 2 || m.Cc[0] != "me@acme.example" || m.Cc[1] != "b@acme.example" {
+		t.Errorf("cc %q", m.Cc)
+	}
+}
+
+func TestQuotationSendBadCc422(t *testing.T) {
+	t.Parallel()
+	a := newDocApp(t, false)
+	id := insertQuotation(t, a, nil, "DRAFT", nil, nil)
+	rec := a.Do(t, http.MethodPost, sendPath(id), map[string]any{"to_email": "ap@acme.example", "cc_email": "ok@acme.example, bad"})
+	p := apitest.Decode[struct {
+		Errors []struct{ Location, Message string }
+	}](t, rec, http.StatusUnprocessableEntity)
+	if len(p.Errors) != 1 || p.Errors[0].Location != "cc_email" || p.Errors[0].Message != "invalid email address: bad" {
+		t.Errorf("errors %+v", p.Errors)
+	}
+	if n := len(a.Mail.Messages()); n != 0 {
+		t.Errorf("%d messages", n)
+	}
+}
+
+// A void that lands while the email is out stays VOID and is not stamped.
+func TestQuotationSendConcurrentVoidStaysVoid(t *testing.T) {
+	t.Parallel()
+	a := newDocAppWith(t, func(d apitest.Deps) email.Sender { return voidingMail{d} })
+	id := insertQuotation(t, a, nil, "DRAFT", nil, nil)
+	apitest.Decode[quotations.QuotationOut](t, a.Do(t, http.MethodPost, sendPath(id), map[string]any{"to_email": "a@acme.example"}), http.StatusOK)
+	if st := storedOf(t, a, id); st.Status != "VOID" || st.LastSentAt != nil {
+		t.Errorf("stored %+v, want VOID and no last_sent_at", st)
 	}
 }

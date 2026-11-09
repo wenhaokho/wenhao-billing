@@ -116,9 +116,11 @@ func (d documents) send(ctx context.Context, in *sendIn) (*invoiceBody, error) {
 	// 422 even for an unknown invoice.
 	toGiven := orDefault(in.Body.ToEmail, "")
 	if toGiven != "" {
-		if _, ok := platform.NormalizeEmail(toGiven); !ok {
+		norm, ok := platform.NormalizeEmail(toGiven)
+		if !ok {
 			return nil, platform.FieldError("to_email", "invalid email address: "+toGiven)
 		}
+		toGiven = norm
 	}
 	var cc []string
 	if v := in.Body.CcEmail.Merge(nil); v != nil {
@@ -189,18 +191,20 @@ func (d documents) send(ctx context.Context, in *sendIn) (*invoiceBody, error) {
 		return nil, platform.Err(http.StatusBadGateway, "invoice_send_failed", "failed to send invoice email")
 	}
 
-	// Only now does the status move, and on the row as it is now.
+	// Only now does the status move, and on the row as it is now. The email
+	// is out, so a client that hung up must not skip the update.
+	wctx := context.WithoutCancel(ctx)
 	var out InvoiceOut
-	err = db.InTx(ctx, d.pool, func(tx pgx.Tx) error {
+	err = db.InTx(wctx, d.pool, func(tx pgx.Tx) error {
 		q := invoicesdb.New(tx)
-		if _, err := lock(ctx, q, in.InvoiceID); err != nil {
+		if _, err := lock(wctx, q, in.InvoiceID); err != nil {
 			return err
 		}
-		if err := q.MarkInvoiceSent(ctx, in.InvoiceID); err != nil {
+		if err := q.MarkInvoiceSent(wctx, in.InvoiceID); err != nil {
 			return err
 		}
 		var err error
-		out, err = Get(ctx, q, in.InvoiceID)
+		out, err = Get(wctx, q, in.InvoiceID)
 		return err
 	})
 	if err != nil {

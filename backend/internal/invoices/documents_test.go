@@ -27,17 +27,33 @@ func (failingMail) Send(context.Context, email.Message) error { return errors.Ne
 // every send fail.
 func newDocApp(t *testing.T, failing bool) *apitest.App {
 	t.Helper()
-	return apitest.New(t, func(api huma.API, d apitest.Deps) {
-		Register(api, d.Pool, d.Clock, nil)
-		var mail email.Sender = d.Mail
+	return newDocAppWith(t, func(d apitest.Deps) email.Sender {
 		if failing {
-			mail = failingMail{}
+			return failingMail{}
 		}
-		RegisterDocuments(api, d.Pool, mail)
+		return d.Mail
 	})
 }
 
+func newDocAppWith(t *testing.T, mail func(d apitest.Deps) email.Sender) *apitest.App {
+	t.Helper()
+	return apitest.New(t, func(api huma.API, d apitest.Deps) {
+		Register(api, d.Pool, d.Clock, nil)
+		RegisterDocuments(api, d.Pool, mail(d))
+	})
+}
+
+// voidingMail voids every invoice as it "sends", as a concurrent void would
+// while the email is out.
+type voidingMail struct{ d apitest.Deps }
+
+func (m voidingMail) Send(ctx context.Context, _ email.Message) error {
+	_, err := m.d.Pool.Exec(ctx, `UPDATE invoices SET status = 'VOID', balance_due = 0`)
+	return err
+}
+
 type docInv struct {
+	id       uuid.UUID // zero: a new one
 	number   *string
 	status   string
 	amount   string
@@ -50,7 +66,10 @@ type docInv struct {
 
 func (a docInv) insert(t *testing.T, app *apitest.App) uuid.UUID {
 	t.Helper()
-	id := uuid.New()
+	id := a.id
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
 	if a.status == "" {
 		a.status = "SENT"
 	}
@@ -133,7 +152,7 @@ func TestSendInvoiceBodyQuotesAmountToTransfer(t *testing.T) {
 func TestSendInvoiceBodyWithoutWHTUnchanged(t *testing.T) {
 	t.Parallel()
 	app := newDocApp(t, false)
-	id := docInv{number: str("WH20260002"), due: "2026-12-31"}.insert(t, app)
+	id := docInv{id: uuid.MustParse("11111111-2222-3333-4444-555555555555"), number: str("WH20260002"), due: "2026-12-31"}.insert(t, app)
 	rec := app.Do(t, http.MethodPost, sendPath(id), map[string]any{"to_email": "ap@acme.example"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
@@ -153,8 +172,8 @@ func TestSendInvoiceBodyWithoutWHTUnchanged(t *testing.T) {
 		m.Attachments[0].ContentType != "application/pdf" || !strings.HasPrefix(string(m.Attachments[0].Content), "%PDF-") {
 		t.Errorf("attachments %+v", m.Attachments)
 	}
-	if want := func() string { k := m; k.IdempotencyKey = ""; return email.IdempotencyKey(id.String(), k) }(); m.IdempotencyKey != want {
-		t.Errorf("idempotency key %q", m.IdempotencyKey)
+	if want := "11111111-2222-3333-4444-555555555555:b700c637eced12e9e3fb0e259124bc4c5ad98f7226ca6b258cd6a83a84ebdf4c"; m.IdempotencyKey != want {
+		t.Errorf("idempotency key %q, want %q", m.IdempotencyKey, want)
 	}
 }
 
@@ -324,5 +343,84 @@ func TestDocumentRoutesRequireAdmin(t *testing.T) {
 	}
 	if n := len(app.Mail.Messages()); n != 0 {
 		t.Errorf("%d messages sent", n)
+	}
+}
+
+func TestSendInvoiceCcSubjectAndMessage(t *testing.T) {
+	t.Parallel()
+	app := newDocApp(t, false)
+	id := docInv{number: str("WH20260004")}.insert(t, app)
+	rec := app.Do(t, http.MethodPost, sendPath(id), map[string]any{
+		"to_email": "ap@acme.example", "cc_email": "me@acme.example; ME@acme.example, b@acme.example",
+		"subject": "Hello", "message": "Custom body",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	m := onlyMessage(t, app)
+	if len(m.Cc) != 2 || m.Cc[0] != "me@acme.example" || m.Cc[1] != "b@acme.example" {
+		t.Errorf("cc %q", m.Cc)
+	}
+	if m.Subject != "Hello" || m.Text != "Custom body" {
+		t.Errorf("subject %q body %q", m.Subject, m.Text)
+	}
+}
+
+func TestSendInvoiceNoNumberDefaults(t *testing.T) {
+	t.Parallel()
+	app := newDocApp(t, false)
+	id := docInv{}.insert(t, app)
+	rec := app.Do(t, http.MethodPost, sendPath(id), map[string]any{"to_email": "ap@acme.example", "subject": "", "message": ""})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	m := onlyMessage(t, app)
+	if m.Subject != "Invoice" || !strings.Contains(m.Text, "attached invoice  for 1,000,000 IDR.") {
+		t.Errorf("subject %q body %q", m.Subject, m.Text)
+	}
+	if m.Attachments[0].Filename != "invoice-"+id.String()[:8]+".pdf" {
+		t.Errorf("filename %q", m.Attachments[0].Filename)
+	}
+}
+
+func TestSendBadCc422(t *testing.T) {
+	t.Parallel()
+	app := newDocApp(t, false)
+	id := docInv{}.insert(t, app)
+	rec := app.Do(t, http.MethodPost, sendPath(id), map[string]any{"to_email": "ap@acme.example", "cc_email": "ok@acme.example, bad"})
+	p := apitest.Decode[struct {
+		Errors []struct{ Location, Message string }
+	}](t, rec, http.StatusUnprocessableEntity)
+	if len(p.Errors) != 1 || p.Errors[0].Location != "cc_email" || p.Errors[0].Message != "invalid email address: bad" {
+		t.Errorf("errors %+v", p.Errors)
+	}
+	if n := len(app.Mail.Messages()); n != 0 {
+		t.Errorf("%d messages sent", n)
+	}
+}
+
+func TestSendToNormalisedAddress(t *testing.T) {
+	t.Parallel()
+	app := newDocApp(t, false)
+	id := docInv{}.insert(t, app)
+	if rec := app.Do(t, http.MethodPost, sendPath(id), map[string]any{"to_email": " a@B.com"}); rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if m := onlyMessage(t, app); m.To != "a@b.com" {
+		t.Errorf("sent to %q, want a@b.com", m.To)
+	}
+}
+
+// A void that lands while the email is out must stay VOID.
+func TestSendConcurrentVoidStaysVoid(t *testing.T) {
+	t.Parallel()
+	app := newDocAppWith(t, func(d apitest.Deps) email.Sender { return voidingMail{d} })
+	id := docInv{status: "OPEN"}.insert(t, app)
+	rec := app.Do(t, http.MethodPost, sendPath(id), map[string]any{"to_email": "a@acme.example"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if got := status(t, app, id); got != "VOID" {
+		t.Errorf("status %s, want VOID", got)
 	}
 }

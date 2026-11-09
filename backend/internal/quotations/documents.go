@@ -113,9 +113,11 @@ func orDefault(o platform.Optional[string], def string) string {
 func (d documents) send(ctx context.Context, in *sendIn) (*quotationBody, error) {
 	toGiven := orDefault(in.Body.ToEmail, "")
 	if toGiven != "" {
-		if _, ok := platform.NormalizeEmail(toGiven); !ok {
+		norm, ok := platform.NormalizeEmail(toGiven)
+		if !ok {
 			return nil, platform.FieldError("to_email", "invalid email address: "+toGiven)
 		}
+		toGiven = norm
 	}
 	var cc []string
 	if v := in.Body.CcEmail.Merge(nil); v != nil {
@@ -184,21 +186,25 @@ func (d documents) send(ctx context.Context, in *sendIn) (*quotationBody, error)
 	}
 
 	// Only now do the status and last_sent_at change, on the row as it is
-	// now.
+	// now. The email is out, so a client that hung up must not skip it.
+	wctx := context.WithoutCancel(ctx)
 	at := instant(d.clock)
 	var out QuotationOut
-	err = db.InTx(ctx, d.pool, func(tx pgx.Tx) error {
+	err = db.InTx(wctx, d.pool, func(tx pgx.Tx) error {
 		qq := quotationsdb.New(tx)
-		if _, err := lock(ctx, qq, in.QuotationID); err != nil {
+		cur, err := lock(wctx, qq, in.QuotationID)
+		if err != nil {
 			return err
 		}
-		if err := qq.MarkQuotationSentOnSend(ctx, quotationsdb.MarkQuotationSentOnSendParams{
-			QuotationID: in.QuotationID, LastSentAt: &at,
-		}); err != nil {
-			return err
+		// Voided or converted while the email went out: leave the row alone.
+		if cur.Status != "VOID" && cur.Status != "INVOICED" {
+			if err := qq.MarkQuotationSentOnSend(wctx, quotationsdb.MarkQuotationSentOnSendParams{
+				QuotationID: in.QuotationID, LastSentAt: &at,
+			}); err != nil {
+				return err
+			}
 		}
-		var err error
-		out, err = get(ctx, qq, in.QuotationID)
+		out, err = get(wctx, qq, in.QuotationID)
 		return err
 	})
 	if err != nil {
