@@ -1507,6 +1507,60 @@
         ],
         "type": "object"
       },
+      "PaymentAccountIn": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "description": "IDR, SGD or USD, in any case; stored upper-case.",
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "is_default": {
+            "description": "Defaults to false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "currency",
+          "instructions"
+        ],
+        "type": "object"
+      },
+      "PaymentAccountOut": {
+        "additionalProperties": true,
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "currency",
+          "instructions",
+          "is_default",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "ProblemBody": {
         "additionalProperties": true,
         "properties": {
@@ -1555,6 +1609,164 @@
           "location",
           "message"
         ],
+        "type": "object"
+      },
+      "ProfileOut": {
+        "additionalProperties": true,
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "default_notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "logo_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "npwp": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "npwp_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "address",
+          "contact_email",
+          "contact_phone",
+          "invoice_title",
+          "invoice_summary",
+          "logo_url",
+          "default_notes",
+          "npwp",
+          "npwp_name",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ProfileUpdate": {
+        "additionalProperties": true,
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_email": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contact_phone": {
+            "maxLength": 50,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "default_notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_title": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "logo_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "npwp": {
+            "maxLength": 32,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "npwp_name": {
+            "maxLength": 255,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "ResetPasswordRequest": {
@@ -2418,6 +2630,174 @@
         "tags": [
           "public",
           "auth"
+        ]
+      }
+    },
+    "/api/v1/business-profile": {
+      "get": {
+        "operationId": "business-profile-get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The business profile",
+        "tags": [
+          "business-profile"
+        ]
+      },
+      "put": {
+        "operationId": "business-profile-update",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Change the business profile's fields",
+        "tags": [
+          "business-profile"
+        ]
+      }
+    },
+    "/api/v1/business-profile/payment-accounts": {
+      "get": {
+        "operationId": "payment-accounts-list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PaymentAccountOut"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the payment accounts",
+        "tags": [
+          "business-profile"
+        ]
+      },
+      "put": {
+        "operationId": "payment-accounts-replace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "$ref": "#/components/schemas/PaymentAccountIn"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PaymentAccountOut"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Replace every payment account",
+        "tags": [
+          "business-profile"
         ]
       }
     },

@@ -46,6 +46,23 @@ func TestRelaxReachesEmbeddedAndMapFields(t *testing.T) {
 	}
 }
 
+type relaxArrayIn struct {
+	Body []relaxEntry
+}
+
+// A bare JSON array body reaches its items' fields too.
+func TestRelaxReachesArrayBodyItems(t *testing.T) {
+	h, api := NewServer(Config{Environment: "test"}, Deps{})
+	huma.Register(api, huma.Operation{OperationID: "relax-array", Method: http.MethodPut, Path: "/relax-array", Tags: []string{PublicTag}},
+		func(_ context.Context, _ *relaxArrayIn) (*struct{}, error) { return nil, nil })
+	if rec := do(t, h, http.MethodPut, "/relax-array", `[{"size":1}]`); rec.Code != 204 {
+		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+	if rec := do(t, h, http.MethodPut, "/relax-array", `[{"memo":"m"}]`); rec.Code != 422 {
+		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+}
+
 // RelaxShared is embedded by pointer.
 type RelaxShared struct {
 	Memo Optional[string] `json:"memo"`

@@ -38,6 +38,7 @@ import (
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/accounts"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/auth"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/business"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/customers"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
@@ -62,6 +63,7 @@ func register(api huma.API, f features) {
 	vendors.Register(api, f.Pool)
 	items.Register(api, f.Pool)
 	customers.Register(api, f.Pool)
+	business.Register(api, f.Pool, f.Clock)
 }
 
 func main() {

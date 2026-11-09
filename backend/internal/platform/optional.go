@@ -54,6 +54,12 @@ func relax(reg huma.Registry, s *huma.Schema, t reflect.Type, seen map[*huma.Sch
 	for t != nil && t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
+	// A bare array body has no Go type here; its items are a $ref, which
+	// names theirs.
+	if t == nil && s.Type == huma.TypeArray {
+		relax(reg, s.Items, nil, seen)
+		return
+	}
 	if t == nil {
 		return
 	}
