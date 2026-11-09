@@ -1,0 +1,416 @@
+CREATE INDEX ix_bill_line_items_bill_id ON public.bill_line_items USING btree (bill_id)
+CREATE INDEX ix_bills_project_id ON public.bills USING btree (project_id)
+CREATE INDEX ix_bills_status ON public.bills USING btree (status)
+CREATE INDEX ix_bills_vendor_id ON public.bills USING btree (vendor_id)
+CREATE INDEX ix_fx_rates_from_to_date ON public.fx_rates USING btree (from_currency, to_currency, as_of_date)
+CREATE INDEX ix_invoice_line_items_invoice_id ON public.invoice_line_items USING btree (invoice_id)
+CREATE INDEX ix_invoices_customer_id ON public.invoices USING btree (customer_id)
+CREATE INDEX ix_invoices_project_id ON public.invoices USING btree (project_id)
+CREATE INDEX ix_invoices_source_quote_id ON public.invoices USING btree (source_quote_id)
+CREATE INDEX ix_invoices_status ON public.invoices USING btree (status)
+CREATE INDEX ix_items_is_hosting ON public.items USING btree (is_hosting) WHERE (is_hosting = true)
+CREATE INDEX ix_items_name ON public.items USING btree (name)
+CREATE INDEX ix_journal_entries_source ON public.journal_entries USING btree (source_type, source_id)
+CREATE INDEX ix_journal_lines_entry_id ON public.journal_lines USING btree (entry_id)
+CREATE INDEX ix_payments_status ON public.payments USING btree (status)
+CREATE INDEX ix_projects_customer_id ON public.projects USING btree (customer_id)
+CREATE INDEX ix_quotation_line_items_quotation_id ON public.quotation_line_items USING btree (quotation_id)
+CREATE INDEX ix_quotations_converted_invoice_id ON public.quotations USING btree (converted_invoice_id)
+CREATE INDEX ix_quotations_customer_id ON public.quotations USING btree (customer_id)
+CREATE INDEX ix_quotations_project_id ON public.quotations USING btree (project_id)
+CREATE INDEX ix_reconciliation_log_payment_id ON public.reconciliation_log USING btree (payment_id)
+CREATE INDEX ix_vendors_name ON public.vendors USING btree (name)
+CREATE UNIQUE INDEX bill_line_items_pkey ON public.bill_line_items USING btree (line_item_id)
+CREATE UNIQUE INDEX bills_pkey ON public.bills USING btree (bill_id)
+CREATE UNIQUE INDEX business_profile_pkey ON public.business_profile USING btree (id)
+CREATE UNIQUE INDEX chart_of_accounts_code_key ON public.chart_of_accounts USING btree (code)
+CREATE UNIQUE INDEX chart_of_accounts_pkey ON public.chart_of_accounts USING btree (account_id)
+CREATE UNIQUE INDEX cloudflare_targets_item_id_key ON public.cloudflare_targets USING btree (item_id)
+CREATE UNIQUE INDEX cloudflare_targets_pkey ON public.cloudflare_targets USING btree (target_id)
+CREATE UNIQUE INDEX customers_pkey ON public.customers USING btree (customer_id)
+CREATE UNIQUE INDEX fx_rates_pkey ON public.fx_rates USING btree (rate_id)
+CREATE UNIQUE INDEX invoice_line_items_pkey ON public.invoice_line_items USING btree (line_item_id)
+CREATE UNIQUE INDEX invoices_pkey ON public.invoices USING btree (invoice_id)
+CREATE UNIQUE INDEX items_pkey ON public.items USING btree (item_id)
+CREATE UNIQUE INDEX items_sku_key ON public.items USING btree (sku)
+CREATE UNIQUE INDEX ix_projects_code ON public.projects USING btree (code)
+CREATE UNIQUE INDEX ix_users_password_reset_token ON public.users USING btree (password_reset_token)
+CREATE UNIQUE INDEX journal_entries_pkey ON public.journal_entries USING btree (entry_id)
+CREATE UNIQUE INDEX journal_lines_pkey ON public.journal_lines USING btree (line_id)
+CREATE UNIQUE INDEX oauth_clients_pkey ON public.oauth_clients USING btree (client_id)
+CREATE UNIQUE INDEX oauth_refresh_tokens_pkey ON public.oauth_refresh_tokens USING btree (jti)
+CREATE UNIQUE INDEX payment_account_pkey ON public.payment_account USING btree (id)
+CREATE UNIQUE INDEX payments_pkey ON public.payments USING btree (payment_id)
+CREATE UNIQUE INDEX projects_code_key ON public.projects USING btree (code)
+CREATE UNIQUE INDEX projects_pkey ON public.projects USING btree (project_id)
+CREATE UNIQUE INDEX quotation_line_items_pkey ON public.quotation_line_items USING btree (line_item_id)
+CREATE UNIQUE INDEX quotations_pkey ON public.quotations USING btree (quotation_id)
+CREATE UNIQUE INDEX quotations_quotation_number_key ON public.quotations USING btree (quotation_number)
+CREATE UNIQUE INDEX reconciliation_log_pkey ON public.reconciliation_log USING btree (log_id)
+CREATE UNIQUE INDEX uq_fx_rates_triple ON public.fx_rates USING btree (from_currency, to_currency, as_of_date)
+CREATE UNIQUE INDEX uq_invoices_invoice_number ON public.invoices USING btree (invoice_number)
+CREATE UNIQUE INDEX uq_payment_account_currency ON public.payment_account USING btree (business_profile_id, currency)
+CREATE UNIQUE INDEX uq_payment_account_one_default ON public.payment_account USING btree (business_profile_id) WHERE is_default
+CREATE UNIQUE INDEX uq_payments_source_ref ON public.payments USING btree (intake_source, external_ref)
+CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)
+CREATE UNIQUE INDEX users_pkey ON public.users USING btree (user_id)
+CREATE UNIQUE INDEX vendors_pkey ON public.vendors USING btree (vendor_id)
+column bill_line_items.amount numeric(19,4) notnull=t default= identity= generated=
+column bill_line_items.bill_id uuid notnull=t default= identity= generated=
+column bill_line_items.created_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column bill_line_items.description text notnull=t default= identity= generated=
+column bill_line_items.expense_account_id integer notnull=f default= identity= generated=
+column bill_line_items.item_id uuid notnull=f default= identity= generated=
+column bill_line_items.line_item_id uuid notnull=t default= identity= generated=
+column bill_line_items.position integer notnull=t default= identity= generated=
+column bill_line_items.quantity numeric(19,4) notnull=t default= identity= generated=
+column bill_line_items.unit_price numeric(19,4) notnull=t default= identity= generated=
+column bills.amount numeric(19,4) notnull=t default= identity= generated=
+column bills.balance_due numeric(19,4) notnull=t default= identity= generated=
+column bills.bill_id uuid notnull=t default= identity= generated=
+column bills.bill_number character varying(100) notnull=f default= identity= generated=
+column bills.created_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column bills.currency character varying(3) notnull=t default= identity= generated=
+column bills.discount_type character varying(10) notnull=f default= identity= generated=
+column bills.discount_value numeric(19,4) notnull=f default= identity= generated=
+column bills.due_date date notnull=f default= identity= generated=
+column bills.issue_date date notnull=f default= identity= generated=
+column bills.notes text notnull=f default= identity= generated=
+column bills.payment_terms character varying(30) notnull=f default= identity= generated=
+column bills.po_number character varying(100) notnull=f default= identity= generated=
+column bills.project_id uuid notnull=f default= identity= generated=
+column bills.status character varying(20) notnull=t default='DRAFT'::character varying identity= generated=
+column bills.subtotal numeric(19,4) notnull=f default= identity= generated=
+column bills.vendor_id uuid notnull=t default= identity= generated=
+column business_profile.address text notnull=f default= identity= generated=
+column business_profile.contact_email character varying(255) notnull=f default= identity= generated=
+column business_profile.contact_phone character varying(50) notnull=f default= identity= generated=
+column business_profile.default_notes text notnull=f default= identity= generated=
+column business_profile.id integer notnull=t default=nextval('business_profile_id_seq'::regclass) identity= generated=
+column business_profile.invoice_summary text notnull=f default= identity= generated=
+column business_profile.invoice_title character varying(255) notnull=f default= identity= generated=
+column business_profile.logo_url text notnull=f default= identity= generated=
+column business_profile.name character varying(255) notnull=f default= identity= generated=
+column business_profile.npwp character varying(32) notnull=f default= identity= generated=
+column business_profile.npwp_name character varying(255) notnull=f default= identity= generated=
+column business_profile.updated_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column chart_of_accounts.account_id integer notnull=t default=nextval('chart_of_accounts_account_id_seq'::regclass) identity= generated=
+column chart_of_accounts.active boolean notnull=t default=true identity= generated=
+column chart_of_accounts.code character varying(10) notnull=t default= identity= generated=
+column chart_of_accounts.name character varying(100) notnull=t default= identity= generated=
+column chart_of_accounts.type character varying(50) notnull=t default= identity= generated=
+column cloudflare_targets.created_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column cloudflare_targets.item_id uuid notnull=t default= identity= generated=
+column cloudflare_targets.last_action_at timestamp without time zone notnull=f default= identity= generated=
+column cloudflare_targets.last_error text notnull=f default= identity= generated=
+column cloudflare_targets.live_content text notnull=t default= identity= generated=
+column cloudflare_targets.maintenance_content text notnull=t default= identity= generated=
+column cloudflare_targets.provider_status character varying(20) notnull=t default='ACTIVE'::character varying identity= generated=
+column cloudflare_targets.proxied boolean notnull=t default=true identity= generated=
+column cloudflare_targets.record_id character varying(100) notnull=t default= identity= generated=
+column cloudflare_targets.record_name character varying(255) notnull=t default= identity= generated=
+column cloudflare_targets.record_type character varying(20) notnull=t default= identity= generated=
+column cloudflare_targets.target_id uuid notnull=t default= identity= generated=
+column cloudflare_targets.updated_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column cloudflare_targets.zone_id character varying(100) notnull=t default= identity= generated=
+column customers.account_number character varying(255) notnull=f default= identity= generated=
+column customers.active boolean notnull=t default=true identity= generated=
+column customers.billing_address text notnull=f default= identity= generated=
+column customers.billing_address1 character varying(255) notnull=f default= identity= generated=
+column customers.billing_address2 character varying(255) notnull=f default= identity= generated=
+column customers.billing_cc_emails jsonb notnull=t default='[]'::jsonb identity= generated=
+column customers.billing_city character varying(255) notnull=f default= identity= generated=
+column customers.billing_country character varying(100) notnull=f default= identity= generated=
+column customers.billing_postal_code character varying(32) notnull=f default= identity= generated=
+column customers.billing_state character varying(255) notnull=f default= identity= generated=
+column customers.contact_email character varying(255) notnull=f default= identity= generated=
+column customers.contact_first_name character varying(120) notnull=f default= identity= generated=
+column customers.contact_last_name character varying(120) notnull=f default= identity= generated=
+column customers.contact_phone character varying(64) notnull=f default= identity= generated=
+column customers.contact_phone_2 character varying(64) notnull=f default= identity= generated=
+column customers.customer_id uuid notnull=t default= identity= generated=
+column customers.default_currency character varying(3) notnull=t default='IDR'::character varying identity= generated=
+column customers.default_wht_gross_up boolean notnull=t default=false identity= generated=
+column customers.default_wht_rate numeric(7,4) notnull=f default= identity= generated=
+column customers.default_wht_type character varying(10) notnull=t default='NONE'::character varying identity= generated=
+column customers.matching_aliases jsonb notnull=t default='[]'::jsonb identity= generated=
+column customers.name character varying(255) notnull=t default= identity= generated=
+column customers.notes text notnull=f default= identity= generated=
+column customers.quotation_cc_emails jsonb notnull=t default='[]'::jsonb identity= generated=
+column customers.ship_to_name character varying(255) notnull=f default= identity= generated=
+column customers.shipping_address1 character varying(255) notnull=f default= identity= generated=
+column customers.shipping_address2 character varying(255) notnull=f default= identity= generated=
+column customers.shipping_city character varying(255) notnull=f default= identity= generated=
+column customers.shipping_country character varying(100) notnull=f default= identity= generated=
+column customers.shipping_delivery_instructions text notnull=f default= identity= generated=
+column customers.shipping_phone character varying(64) notnull=f default= identity= generated=
+column customers.shipping_postal_code character varying(32) notnull=f default= identity= generated=
+column customers.shipping_state character varying(255) notnull=f default= identity= generated=
+column customers.website character varying(255) notnull=f default= identity= generated=
+column fx_rates.as_of_date date notnull=t default= identity= generated=
+column fx_rates.created_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column fx_rates.from_currency character varying(3) notnull=t default= identity= generated=
+column fx_rates.rate numeric(19,8) notnull=t default= identity= generated=
+column fx_rates.rate_id bigint notnull=t default=nextval('fx_rates_rate_id_seq'::regclass) identity= generated=
+column fx_rates.source character varying(50) notnull=t default='MANUAL'::character varying identity= generated=
+column fx_rates.to_currency character varying(3) notnull=t default= identity= generated=
+column invoice_line_items.amount numeric(19,4) notnull=t default= identity= generated=
+column invoice_line_items.created_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column invoice_line_items.description text notnull=t default= identity= generated=
+column invoice_line_items.invoice_id uuid notnull=t default= identity= generated=
+column invoice_line_items.item_id uuid notnull=f default= identity= generated=
+column invoice_line_items.line_item_id uuid notnull=t default= identity= generated=
+column invoice_line_items.position integer notnull=t default= identity= generated=
+column invoice_line_items.quantity numeric(19,4) notnull=t default= identity= generated=
+column invoice_line_items.unit_price numeric(19,4) notnull=t default= identity= generated=
+column invoices.amount numeric(19,4) notnull=t default= identity= generated=
+column invoices.balance_due numeric(19,4) notnull=t default= identity= generated=
+column invoices.billing_cycle_ref jsonb notnull=f default= identity= generated=
+column invoices.coverage_end date notnull=f default= identity= generated=
+column invoices.coverage_start date notnull=f default= identity= generated=
+column invoices.created_at timestamp without time zone notnull=f default=CURRENT_TIMESTAMP identity= generated=
+column invoices.currency character varying(3) notnull=t default= identity= generated=
+column invoices.customer_id uuid notnull=f default= identity= generated=
+column invoices.discount_type character varying(10) notnull=f default= identity= generated=
+column invoices.discount_value numeric(19,4) notnull=f default= identity= generated=
+column invoices.due_date date notnull=f default= identity= generated=
+column invoices.footer text notnull=f default= identity= generated=
+column invoices.internal_note text notnull=f default= identity= generated=
+column invoices.invoice_id uuid notnull=t default= identity= generated=
+column invoices.invoice_number character varying(50) notnull=f default= identity= generated=
+column invoices.invoice_type character varying(20) notnull=t default= identity= generated=
+column invoices.is_template boolean notnull=t default=false identity= generated=
+column invoices.issue_date date notnull=f default= identity= generated=
+column invoices.notes text notnull=f default= identity= generated=
+column invoices.payment_terms character varying(30) notnull=f default= identity= generated=
+column invoices.po_so_number character varying(100) notnull=f default= identity= generated=
+column invoices.project_id uuid notnull=f default= identity= generated=
+column invoices.source_quote_id uuid notnull=f default= identity= generated=
+column invoices.status character varying(20) notnull=t default= identity= generated=
+column invoices.subtotal numeric(19,4) notnull=f default= identity= generated=
+column invoices.wht_amount numeric(19,4) notnull=t default='0'::numeric identity= generated=
+column invoices.wht_base numeric(19,4) notnull=f default= identity= generated=
+column invoices.wht_booked numeric(19,4) notnull=t default='0'::numeric identity= generated=
+column invoices.wht_gross_up boolean notnull=t default=false identity= generated=
+column invoices.wht_rate numeric(7,4) notnull=f default= identity= generated=
+column invoices.wht_type character varying(10) notnull=t default='NONE'::character varying identity= generated=
+column items.active boolean notnull=t default=true identity= generated=
+column items.created_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column items.default_currency character varying(3) notnull=t default='IDR'::character varying identity= generated=
+column items.default_purchase_price numeric(19,4) notnull=f default= identity= generated=
+column items.default_unit_price numeric(19,4) notnull=f default= identity= generated=
+column items.description text notnull=f default= identity= generated=
+column items.expense_account_id integer notnull=f default= identity= generated=
+column items.hosting_domain character varying(255) notnull=f default= identity= generated=
+column items.hosting_grace_days integer notnull=f default= identity= generated=
+column items.hosting_last_action_at timestamp without time zone notnull=f default= identity= generated=
+column items.hosting_last_error text notnull=f default= identity= generated=
+column items.hosting_last_paid_at timestamp without time zone notnull=f default= identity= generated=
+column items.hosting_status character varying(20) notnull=f default= identity= generated=
+column items.hosting_suspension_enabled boolean notnull=f default= identity= generated=
+column items.is_hosting boolean notnull=t default=false identity= generated=
+column items.is_purchased boolean notnull=t default=false identity= generated=
+column items.is_sold boolean notnull=t default=true identity= generated=
+column items.item_id uuid notnull=t default= identity= generated=
+column items.item_type character varying(20) notnull=t default= identity= generated=
+column items.name character varying(255) notnull=t default= identity= generated=
+column items.revenue_account_id integer notnull=f default= identity= generated=
+column items.sku character varying(50) notnull=f default= identity= generated=
+column journal_entries.entry_id uuid notnull=t default= identity= generated=
+column journal_entries.memo character varying(500) notnull=f default= identity= generated=
+column journal_entries.posted_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column journal_entries.reversed_by_entry_id uuid notnull=f default= identity= generated=
+column journal_entries.source_id uuid notnull=t default= identity= generated=
+column journal_entries.source_type character varying(20) notnull=t default= identity= generated=
+column journal_lines.account_id integer notnull=t default= identity= generated=
+column journal_lines.base_amount_credit numeric(19,4) notnull=t default='0'::numeric identity= generated=
+column journal_lines.base_amount_debit numeric(19,4) notnull=t default='0'::numeric identity= generated=
+column journal_lines.credit numeric(19,4) notnull=t default='0'::numeric identity= generated=
+column journal_lines.currency character varying(3) notnull=t default= identity= generated=
+column journal_lines.debit numeric(19,4) notnull=t default='0'::numeric identity= generated=
+column journal_lines.entry_id uuid notnull=t default= identity= generated=
+column journal_lines.fx_rate numeric(19,8) notnull=t default='1'::numeric identity= generated=
+column journal_lines.line_id uuid notnull=t default= identity= generated=
+column oauth_clients.client_id character varying notnull=t default= identity= generated=
+column oauth_clients.client_name character varying notnull=f default= identity= generated=
+column oauth_clients.created_at timestamp with time zone notnull=t default=now() identity= generated=
+column oauth_clients.redirect_uris character varying notnull=t default= identity= generated=
+column oauth_refresh_tokens.created_at timestamp with time zone notnull=t default=now() identity= generated=
+column oauth_refresh_tokens.jti character varying notnull=t default= identity= generated=
+column oauth_refresh_tokens.revoked boolean notnull=t default= identity= generated=
+column oauth_refresh_tokens.user_id character varying notnull=t default= identity= generated=
+column payment_account.business_profile_id integer notnull=t default= identity= generated=
+column payment_account.currency character varying(3) notnull=t default= identity= generated=
+column payment_account.id integer notnull=t default=nextval('payment_account_id_seq'::regclass) identity= generated=
+column payment_account.instructions text notnull=t default= identity= generated=
+column payment_account.is_default boolean notnull=t default=false identity= generated=
+column payment_account.updated_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column payments.adjustment_type character varying(30) notnull=t default='NONE'::character varying identity= generated=
+column payments.amount numeric(19,4) notnull=t default= identity= generated=
+column payments.confidence_score numeric(5,2) notnull=f default= identity= generated=
+column payments.created_at timestamp without time zone notnull=f default=CURRENT_TIMESTAMP identity= generated=
+column payments.currency character varying(3) notnull=t default= identity= generated=
+column payments.customer_id uuid notnull=f default= identity= generated=
+column payments.external_ref character varying(255) notnull=f default= identity= generated=
+column payments.intake_source character varying(50) notnull=t default= identity= generated=
+column payments.invoice_id uuid notnull=f default= identity= generated=
+column payments.payer_name character varying(255) notnull=t default= identity= generated=
+column payments.payer_reference character varying(255) notnull=f default= identity= generated=
+column payments.payment_date date notnull=t default= identity= generated=
+column payments.payment_id uuid notnull=t default= identity= generated=
+column payments.status character varying(30) notnull=t default= identity= generated=
+column payments.wht_amount numeric(19,4) notnull=t default='0'::numeric identity= generated=
+column projects.active boolean notnull=t default=true identity= generated=
+column projects.code character varying(40) notnull=t default= identity= generated=
+column projects.contract_value numeric(19,4) notnull=f default= identity= generated=
+column projects.created_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column projects.currency character varying(3) notnull=t default= identity= generated=
+column projects.customer_id uuid notnull=t default= identity= generated=
+column projects.end_date date notnull=f default= identity= generated=
+column projects.name character varying(255) notnull=t default= identity= generated=
+column projects.notes text notnull=f default= identity= generated=
+column projects.project_id uuid notnull=t default= identity= generated=
+column projects.start_date date notnull=f default= identity= generated=
+column projects.status character varying(20) notnull=t default='ACTIVE'::character varying identity= generated=
+column quotation_line_items.amount numeric(19,4) notnull=t default= identity= generated=
+column quotation_line_items.created_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column quotation_line_items.description text notnull=t default= identity= generated=
+column quotation_line_items.item_id uuid notnull=f default= identity= generated=
+column quotation_line_items.line_item_id uuid notnull=t default= identity= generated=
+column quotation_line_items.position integer notnull=t default= identity= generated=
+column quotation_line_items.quantity numeric(19,4) notnull=t default= identity= generated=
+column quotation_line_items.quotation_id uuid notnull=t default= identity= generated=
+column quotation_line_items.unit_price numeric(19,4) notnull=t default= identity= generated=
+column quotations.accepted_at timestamp without time zone notnull=f default= identity= generated=
+column quotations.accepted_by character varying(255) notnull=f default= identity= generated=
+column quotations.amount numeric(19,4) notnull=t default= identity= generated=
+column quotations.converted_invoice_id uuid notnull=f default= identity= generated=
+column quotations.created_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column quotations.currency character varying(3) notnull=t default= identity= generated=
+column quotations.customer_id uuid notnull=t default= identity= generated=
+column quotations.discount_type character varying(10) notnull=f default= identity= generated=
+column quotations.discount_value numeric(19,4) notnull=f default= identity= generated=
+column quotations.footer text notnull=f default= identity= generated=
+column quotations.issue_date date notnull=f default= identity= generated=
+column quotations.last_sent_at timestamp without time zone notnull=f default= identity= generated=
+column quotations.notes text notnull=f default= identity= generated=
+column quotations.payment_terms character varying(30) notnull=f default= identity= generated=
+column quotations.po_so_number character varying(100) notnull=f default= identity= generated=
+column quotations.project_id uuid notnull=f default= identity= generated=
+column quotations.quotation_id uuid notnull=t default= identity= generated=
+column quotations.quotation_number character varying(50) notnull=f default= identity= generated=
+column quotations.status character varying(20) notnull=t default='DRAFT'::character varying identity= generated=
+column quotations.subtotal numeric(19,4) notnull=f default= identity= generated=
+column quotations.valid_until date notnull=f default= identity= generated=
+column reconciliation_log.action character varying(30) notnull=t default= identity= generated=
+column reconciliation_log.actor_user_id uuid notnull=f default= identity= generated=
+column reconciliation_log.created_at timestamp without time zone notnull=f default=CURRENT_TIMESTAMP identity= generated=
+column reconciliation_log.log_id uuid notnull=t default= identity= generated=
+column reconciliation_log.payment_id uuid notnull=t default= identity= generated=
+column reconciliation_log.reasons text[] notnull=t default=ARRAY[]::text[] identity= generated=
+column users.created_at timestamp without time zone notnull=f default=CURRENT_TIMESTAMP identity= generated=
+column users.display_name character varying(255) notnull=f default= identity= generated=
+column users.email character varying(255) notnull=t default= identity= generated=
+column users.password_hash character varying(255) notnull=t default= identity= generated=
+column users.password_reset_expires timestamp without time zone notnull=f default= identity= generated=
+column users.password_reset_token character varying(64) notnull=f default= identity= generated=
+column users.role character varying(20) notnull=t default='admin'::character varying identity= generated=
+column users.user_id uuid notnull=t default= identity= generated=
+column vendors.active boolean notnull=t default=true identity= generated=
+column vendors.contact_email character varying(255) notnull=f default= identity= generated=
+column vendors.contact_name character varying(255) notnull=f default= identity= generated=
+column vendors.created_at timestamp without time zone notnull=t default=CURRENT_TIMESTAMP identity= generated=
+column vendors.default_currency character varying(3) notnull=t default='IDR'::character varying identity= generated=
+column vendors.name character varying(255) notnull=t default= identity= generated=
+column vendors.notes text notnull=f default= identity= generated=
+column vendors.payment_terms_days integer notnull=t default=30 identity= generated=
+column vendors.tax_id character varying(100) notnull=f default= identity= generated=
+column vendors.vendor_id uuid notnull=t default= identity= generated=
+constraint bill_line_items bill_line_items_bill_id_fkey FOREIGN KEY (bill_id) REFERENCES bills(bill_id) ON DELETE CASCADE deferrable=f deferred=f
+constraint bill_line_items bill_line_items_expense_account_id_fkey FOREIGN KEY (expense_account_id) REFERENCES chart_of_accounts(account_id) deferrable=f deferred=f
+constraint bill_line_items bill_line_items_item_id_fkey FOREIGN KEY (item_id) REFERENCES items(item_id) deferrable=f deferred=f
+constraint bill_line_items bill_line_items_pkey PRIMARY KEY (line_item_id) deferrable=f deferred=f
+constraint bills bills_pkey PRIMARY KEY (bill_id) deferrable=f deferred=f
+constraint bills bills_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(project_id) deferrable=f deferred=f
+constraint bills bills_vendor_id_fkey FOREIGN KEY (vendor_id) REFERENCES vendors(vendor_id) deferrable=f deferred=f
+constraint business_profile business_profile_pkey PRIMARY KEY (id) deferrable=f deferred=f
+constraint business_profile ck_business_profile_singleton CHECK ((id = 1)) deferrable=f deferred=f
+constraint chart_of_accounts chart_of_accounts_code_key UNIQUE (code) deferrable=f deferred=f
+constraint chart_of_accounts chart_of_accounts_pkey PRIMARY KEY (account_id) deferrable=f deferred=f
+constraint cloudflare_targets cloudflare_targets_item_id_fkey FOREIGN KEY (item_id) REFERENCES items(item_id) ON DELETE CASCADE deferrable=f deferred=f
+constraint cloudflare_targets cloudflare_targets_item_id_key UNIQUE (item_id) deferrable=f deferred=f
+constraint cloudflare_targets cloudflare_targets_pkey PRIMARY KEY (target_id) deferrable=f deferred=f
+constraint customers customers_pkey PRIMARY KEY (customer_id) deferrable=f deferred=f
+constraint fx_rates fx_rates_pkey PRIMARY KEY (rate_id) deferrable=f deferred=f
+constraint fx_rates uq_fx_rates_triple UNIQUE (from_currency, to_currency, as_of_date) deferrable=f deferred=f
+constraint invoice_line_items invoice_line_items_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES invoices(invoice_id) ON DELETE CASCADE deferrable=f deferred=f
+constraint invoice_line_items invoice_line_items_item_id_fkey FOREIGN KEY (item_id) REFERENCES items(item_id) deferrable=f deferred=f
+constraint invoice_line_items invoice_line_items_pkey PRIMARY KEY (line_item_id) deferrable=f deferred=f
+constraint invoices invoices_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES customers(customer_id) deferrable=f deferred=f
+constraint invoices invoices_pkey PRIMARY KEY (invoice_id) deferrable=f deferred=f
+constraint invoices invoices_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(project_id) deferrable=f deferred=f
+constraint invoices invoices_source_quote_id_fkey FOREIGN KEY (source_quote_id) REFERENCES quotations(quotation_id) deferrable=f deferred=f
+constraint invoices uq_invoices_invoice_number UNIQUE (invoice_number) deferrable=f deferred=f
+constraint items ck_items_type CHECK (((item_type)::text = ANY ((ARRAY['SERVICE'::character varying, 'USAGE'::character varying, 'FIXED_FEE'::character varying])::text[]))) deferrable=f deferred=f
+constraint items fk_items_expense_account FOREIGN KEY (expense_account_id) REFERENCES chart_of_accounts(account_id) deferrable=f deferred=f
+constraint items items_pkey PRIMARY KEY (item_id) deferrable=f deferred=f
+constraint items items_revenue_account_id_fkey FOREIGN KEY (revenue_account_id) REFERENCES chart_of_accounts(account_id) deferrable=f deferred=f
+constraint items items_sku_key UNIQUE (sku) deferrable=f deferred=f
+constraint journal_entries journal_entries_pkey PRIMARY KEY (entry_id) deferrable=f deferred=f
+constraint journal_entries journal_entries_reversed_by_entry_id_fkey FOREIGN KEY (reversed_by_entry_id) REFERENCES journal_entries(entry_id) deferrable=f deferred=f
+constraint journal_lines ck_journal_lines_one_sided CHECK ((((debit = (0)::numeric) AND (credit > (0)::numeric)) OR ((credit = (0)::numeric) AND (debit > (0)::numeric)))) deferrable=f deferred=f
+constraint journal_lines journal_lines_account_id_fkey FOREIGN KEY (account_id) REFERENCES chart_of_accounts(account_id) deferrable=f deferred=f
+constraint journal_lines journal_lines_entry_id_fkey FOREIGN KEY (entry_id) REFERENCES journal_entries(entry_id) deferrable=f deferred=f
+constraint journal_lines journal_lines_pkey PRIMARY KEY (line_id) deferrable=f deferred=f
+constraint oauth_clients oauth_clients_pkey PRIMARY KEY (client_id) deferrable=f deferred=f
+constraint oauth_refresh_tokens oauth_refresh_tokens_pkey PRIMARY KEY (jti) deferrable=f deferred=f
+constraint payment_account payment_account_business_profile_id_fkey FOREIGN KEY (business_profile_id) REFERENCES business_profile(id) ON DELETE CASCADE deferrable=f deferred=f
+constraint payment_account payment_account_pkey PRIMARY KEY (id) deferrable=f deferred=f
+constraint payment_account uq_payment_account_currency UNIQUE (business_profile_id, currency) deferrable=f deferred=f
+constraint payments payments_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES customers(customer_id) deferrable=f deferred=f
+constraint payments payments_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES invoices(invoice_id) deferrable=f deferred=f
+constraint payments payments_pkey PRIMARY KEY (payment_id) deferrable=f deferred=f
+constraint payments uq_payments_source_ref UNIQUE (intake_source, external_ref) deferrable=f deferred=f
+constraint projects projects_code_key UNIQUE (code) deferrable=f deferred=f
+constraint projects projects_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES customers(customer_id) deferrable=f deferred=f
+constraint projects projects_pkey PRIMARY KEY (project_id) deferrable=f deferred=f
+constraint quotation_line_items quotation_line_items_item_id_fkey FOREIGN KEY (item_id) REFERENCES items(item_id) deferrable=f deferred=f
+constraint quotation_line_items quotation_line_items_pkey PRIMARY KEY (line_item_id) deferrable=f deferred=f
+constraint quotation_line_items quotation_line_items_quotation_id_fkey FOREIGN KEY (quotation_id) REFERENCES quotations(quotation_id) ON DELETE CASCADE deferrable=f deferred=f
+constraint quotations quotations_converted_invoice_id_fkey FOREIGN KEY (converted_invoice_id) REFERENCES invoices(invoice_id) deferrable=f deferred=f
+constraint quotations quotations_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES customers(customer_id) deferrable=f deferred=f
+constraint quotations quotations_pkey PRIMARY KEY (quotation_id) deferrable=f deferred=f
+constraint quotations quotations_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(project_id) deferrable=f deferred=f
+constraint quotations quotations_quotation_number_key UNIQUE (quotation_number) deferrable=f deferred=f
+constraint reconciliation_log reconciliation_log_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES users(user_id) deferrable=f deferred=f
+constraint reconciliation_log reconciliation_log_payment_id_fkey FOREIGN KEY (payment_id) REFERENCES payments(payment_id) deferrable=f deferred=f
+constraint reconciliation_log reconciliation_log_pkey PRIMARY KEY (log_id) deferrable=f deferred=f
+constraint users users_email_key UNIQUE (email) deferrable=f deferred=f
+constraint users users_pkey PRIMARY KEY (user_id) deferrable=f deferred=f
+constraint vendors vendors_pkey PRIMARY KEY (vendor_id) deferrable=f deferred=f
+sequence business_profile_id_seq type=integer start=1 increment=1 min=1 max=2147483647 cache=1 cycle=f owned_by=business_profile.id
+sequence chart_of_accounts_account_id_seq type=integer start=1 increment=1 min=1 max=2147483647 cache=1 cycle=f owned_by=chart_of_accounts.account_id
+sequence fx_rates_rate_id_seq type=bigint start=1 increment=1 min=1 max=9223372036854775807 cache=1 cycle=f owned_by=fx_rates.rate_id
+sequence payment_account_id_seq type=integer start=1 increment=1 min=1 max=2147483647 cache=1 cycle=f owned_by=payment_account.id
+table bill_line_items kind=r
+table bills kind=r
+table business_profile kind=r
+table chart_of_accounts kind=r
+table cloudflare_targets kind=r
+table customers kind=r
+table fx_rates kind=r
+table invoice_line_items kind=r
+table invoices kind=r
+table items kind=r
+table journal_entries kind=r
+table journal_lines kind=r
+table oauth_clients kind=r
+table oauth_refresh_tokens kind=r
+table payment_account kind=r
+table payments kind=r
+table projects kind=r
+table quotation_line_items kind=r
+table quotations kind=r
+table reconciliation_log kind=r
+table users kind=r
+table vendors kind=r

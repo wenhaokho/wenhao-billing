@@ -87,6 +87,49 @@ services:
       # and avoids the host overlay clobbering it.
       - frontend_node_modules:/app/node_modules
 
+  # Go toolchain for backend/ (run via backend/dev). Uses this file's network
+  # and Postgres, so no extra Compose project or network is created.
+  go:
+    profiles: ["tools"]
+    image: golang:1.27-bookworm
+    working_dir: /src
+    volumes:
+      - ./backend:/src
+      - gomod:/go/pkg/mod
+      - gobuild:/root/.cache/go-build
+    environment:
+      CGO_ENABLED: "1"
+      GOFLAGS: -mod=vendor
+      PGTESTDB_URL: postgres://billing:billing@db:5432/postgres?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # The Go API (backend/) for local comparison with the Python backend on
+  # :8000. Not started by `docker compose up`. Run it against a scratch copy of
+  # the database, never `billing`: serve migrates, and adopt-baseline rewrites
+  # the migration bookkeeping. Set GO_DATABASE_URL to a scratch database for
+  # the run. Unset, it points at the nonexistent billing_go_scratch, so a
+  # forgotten override fails to connect instead of touching `billing` (a
+  # required-variable `:?` would break every compose command, since Compose
+  # interpolates the whole file).
+  api-go:
+    profiles: ["tools"]
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: ${GO_DATABASE_URL:-postgresql://billing:billing@db:5432/billing_go_scratch}
+      SESSION_SECRET: dev-session-secret-change-me-32-bytes-min
+      CORS_ORIGINS: '["http://localhost:5173"]'
+      ENVIRONMENT: development
+    ports:
+      - "${GO_API_HOST_PORT:-8001}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   db_data:
+  gomod:
+  gobuild:
   frontend_node_modules:
