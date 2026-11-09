@@ -46,6 +46,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/mcp"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/oauth"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
@@ -102,7 +103,21 @@ func oauthRoot(cfg platform.Config, pool *pgxpool.Pool, sessions platform.Sessio
 			Sessions: sessions, Clock: clock,
 			Tokens: oauth.NewTokens(cfg.MCPTokenSecret, cfg.MCPAccessTokenTTL, cfg.MCPRefreshTokenTTL),
 		})
+		handler := mcp.NewHandler(mcp.Deps{
+			Pool: pool, Clock: clock, Cfg: cfg,
+			Sender:   mailSenderForRoot(cfg),
+			Payments: payments.Service{BaseCurrency: cfg.BaseCurrency, Hosting: payments.NoHosting{}},
+		})
+		r.Handle("/mcp", handler)
+		r.Handle("/mcp/*", handler)
 	}
+}
+
+// mailSenderForRoot returns the logged mail sender for the MCP connector
+// (the same LogSender serve uses). It needs no logger: LogSender defaults
+// to slog's default.
+func mailSenderForRoot(cfg platform.Config) email.LogSender {
+	return email.LogSender{ShowBodies: cfg.LocalHTTP()}
 }
 
 func main() {
