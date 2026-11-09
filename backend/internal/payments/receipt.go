@@ -2,11 +2,11 @@ package payments
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+
+	"github.com/wenhaokho/wenhao-billing/backend/internal/pdf"
 )
 
 // ReceiptData is what a receipt renderer is given: the payment, its invoice's
@@ -47,50 +47,16 @@ var stubPDF = []byte("%PDF-1.4\n" +
 
 // ReceiptReference is the receipt's number: RCT- and the first 8 hex
 // characters of the payment id, upper-cased (Python receipt_reference).
-func ReceiptReference(paymentID uuid.UUID) string {
-	return "RCT-" + strings.ToUpper(strings.ReplaceAll(paymentID.String(), "-", "")[:8])
-}
+func ReceiptReference(paymentID uuid.UUID) string { return pdf.ReceiptReference(paymentID) }
 
 // BalanceNote is the one-line balance summary of the receipt email (Python
 // balance_note): paid in full at a balance of 0 or less.
 func BalanceNote(balance decimal.Decimal, currency string) string {
-	if !balance.IsPositive() {
-		return "This invoice is now paid in full."
-	}
-	return "Remaining balance: " + FormatAmount(balance, currency) + "."
+	return pdf.BalanceNote(balance, currency)
 }
 
-// zeroDecimal are the currencies with no minor unit (ISO 4217), as Python's
-// _ZERO_DECIMAL_CURRENCIES.
-var zeroDecimal = map[string]bool{
-	"IDR": true, "JPY": true, "KRW": true, "VND": true, "CLP": true, "ISK": true, "HUF": true,
-	"PYG": true, "RWF": true, "UGX": true, "XAF": true, "XOF": true, "XPF": true,
-}
-
-// FormatAmount is Python's _fmt_amount (invoice_pdf.py): the amount rounded
-// half-even to 0 places for a zero-decimal currency (compared upper-cased)
-// and 2 otherwise, thousands grouped by commas, then a space and the currency
-// as given. A negative amount keeps its minus even when it rounds to zero
-// ("-0 IDR"), as Python's Decimal does.
+// FormatAmount is Python's _fmt_amount: pdf.FmtAmount, the one amount format
+// of PDFs and email bodies.
 func FormatAmount(amount decimal.Decimal, currency string) string {
-	places := int32(2)
-	if zeroDecimal[strings.ToUpper(currency)] {
-		places = 0
-	}
-	s := amount.RoundBank(places).Abs().StringFixed(places)
-	whole, frac, hasFrac := strings.Cut(s, ".")
-	var b strings.Builder
-	if amount.IsNegative() {
-		b.WriteByte('-')
-	}
-	for i, c := range whole {
-		if i > 0 && (len(whole)-i)%3 == 0 {
-			b.WriteByte(',')
-		}
-		b.WriteRune(c)
-	}
-	if hasFrac {
-		b.WriteString("." + frac)
-	}
-	return fmt.Sprintf("%s %s", b.String(), currency)
+	return pdf.FmtAmount(amount, currency)
 }

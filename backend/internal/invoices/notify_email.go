@@ -9,7 +9,7 @@ import (
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
-	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/pdf"
 )
 
 // EmailNotifier mails the recurring-drafts digest to every user
@@ -45,7 +45,7 @@ func (n EmailNotifier) NotifyNewDrafts(ctx context.Context, drafts []DraftSummar
 }
 
 // BuildDraftsDigest is build_recurring_drafts_email (email.py:152-193). The
-// amount is payments.FormatAmount (Go change 3: IDR has no decimals) and the
+// amount is pdf.FmtAmount (Go change 3: IDR has no decimals) and the
 // HTML escapes every value (Go change 7).
 func BuildDraftsDigest(drafts []DraftSummary, appBaseURL string) (subject, text, htmlBody string) {
 	n := len(drafts)
@@ -66,7 +66,7 @@ func BuildDraftsDigest(drafts []DraftSummary, appBaseURL string) (subject, text,
 			name = *d.CustomerName
 		}
 		link := fmt.Sprintf("%s/invoices/%s/edit", base, d.InvoiceID)
-		amount := payments.FormatAmount(d.Amount, d.Currency)
+		amount := pdf.FmtAmount(d.Amount, d.Currency)
 		lines = append(lines, fmt.Sprintf("- %s · %s · %s · cycle %s", d.InvoiceNumber, name, amount, d.CycleDate), "  "+link)
 		fmt.Fprintf(&rows, `<li><a href="%s">%s</a> — %s — %s — cycle %s</li>`,
 			html.EscapeString(link), html.EscapeString(d.InvoiceNumber), html.EscapeString(name),
