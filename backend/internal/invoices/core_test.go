@@ -722,9 +722,9 @@ func TestMilestoneCreate(t *testing.T) {
 	}
 }
 
-// TestLiteralPathsNotSwallowed: the literal paths this task serves reach
-// their own handlers, never {invoice_id}. The recurring-template paths come
-// with their routes (Task 5), /customers/balances with the customer views.
+// TestLiteralPathsNotSwallowed: the literal paths reach their own handlers,
+// never {invoice_id} (nor /recurring-templates/rows {template_id}).
+// /customers/balances comes with the customer views.
 func TestLiteralPathsNotSwallowed(t *testing.T) {
 	t.Parallel()
 	t.Run("milestone", func(t *testing.T) {
@@ -743,6 +743,28 @@ func TestLiteralPathsNotSwallowed(t *testing.T) {
 		a := newApp(t)
 		draft := post(t, a, map[string]any{"currency": "IDR", "line_items": []any{lineBody("1")}})
 		wantIDs(t, "awaiting-finalization", listIDs(t, a, "/awaiting-finalization"), draft.InvoiceID)
+	})
+	t.Run("recurring-template", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		if out := mkTemplate(t, a, monthly("2026-01-01")); !out.IsTemplate {
+			t.Errorf("not the template handler: %+v", out)
+		}
+	})
+	t.Run("recurring-templates", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		template := mkTemplate(t, a, monthly("2026-01-01"))
+		post(t, a, map[string]any{"currency": "IDR", "line_items": []any{lineBody("1")}})
+		wantIDs(t, "recurring-templates", listIDs(t, a, "/recurring-templates"), template.InvoiceID)
+	})
+	t.Run("recurring-templates/rows", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		template := mkTemplate(t, a, monthly("2026-01-01"))
+		if got := rows(t, a); len(got) != 1 || got[0].TemplateID != template.InvoiceID || got[0].Status != "ACTIVE" {
+			t.Errorf("rows = %+v", got)
+		}
 	})
 }
 
@@ -772,6 +794,12 @@ func TestInvoiceRoutesRequireAdmin(t *testing.T) {
 		{http.MethodPost, actionPath(id, "void")},
 		{http.MethodPost, actionPath(id, "mark-paid")},
 		{http.MethodDelete, invoicePath(id)},
+		{http.MethodPost, invoicesPath + "/recurring-template"},
+		{http.MethodGet, templatesPath},
+		{http.MethodGet, templatesPath + "/rows"},
+		{http.MethodGet, templatePath(id)},
+		{http.MethodPut, templatePath(id)},
+		{http.MethodPatch, templatePath(id)},
 	} {
 		wantProblem(t, a.Anon(t, c.method, c.p, map[string]any{}), http.StatusUnauthorized, "", "not authenticated", "", "")
 		wantProblem(t, staff.Do(t, c.method, c.p, map[string]any{}), http.StatusForbidden, "", "admin required", "", "")

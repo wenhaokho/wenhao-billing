@@ -83,3 +83,58 @@ UPDATE invoices SET status = @status, balance_due = @balance_due WHERE invoice_i
 -- name: DeleteInvoice :exec
 -- The lines go with it (ON DELETE CASCADE).
 DELETE FROM invoices WHERE invoice_id = $1;
+
+-- name: ListTemplates :many
+-- GET /invoices/recurring-templates (invoices.py:104-115): newest first,
+-- the id breaking ties.
+SELECT * FROM invoices
+WHERE is_template = true
+ORDER BY created_at DESC, invoice_id DESC;
+
+-- name: ListTemplateRows :many
+-- The templates of the rows view (invoices.py:215-284) with their
+-- customer's name, in ListTemplates' order.
+SELECT i.invoice_id, i.customer_id, c.name AS customer_name, i.currency, i.amount, i.payment_terms,
+       i.billing_cycle_ref
+FROM invoices i
+LEFT JOIN customers c ON c.customer_id = i.customer_id
+WHERE i.is_template = true
+ORDER BY i.created_at DESC, i.invoice_id DESC;
+
+-- name: ListLatestTemplateChildren :many
+-- The live generated children of templates (_generated_children,
+-- invoices.py:135-153: not templates, RECURRING, not VOID), one row per
+-- template: how many there are, and the cycle_key ("" when absent) and
+-- issue_date of the one with the latest issue_date (NULLs last; the newest
+-- breaks ties). A null template_id answers for every template.
+SELECT DISTINCT ON (c.template_invoice_id)
+    c.template_invoice_id::text AS template_invoice_id,
+    c.generated::bigint AS generated,
+    COALESCE(c.cycle_key, '')::text AS cycle_key,
+    c.issue_date
+FROM (
+    SELECT billing_cycle_ref->>'template_invoice_id' AS template_invoice_id,
+           billing_cycle_ref->>'cycle_key' AS cycle_key,
+           issue_date, created_at, invoice_id,
+           count(*) OVER (PARTITION BY billing_cycle_ref->>'template_invoice_id') AS generated
+    FROM invoices
+    WHERE is_template = false AND invoice_type = 'RECURRING' AND status <> 'VOID'
+      AND billing_cycle_ref->>'template_invoice_id' IS NOT NULL
+      AND (sqlc.narg(template_id)::text IS NULL
+           OR billing_cycle_ref->>'template_invoice_id' = sqlc.narg(template_id)::text)
+) c
+ORDER BY c.template_invoice_id, c.issue_date DESC NULLS LAST, c.created_at DESC, c.invoice_id DESC;
+
+-- name: UpdateTemplate :exec
+-- The columns a template PUT writes (invoicing.py:442-456).
+UPDATE invoices SET
+    customer_id = @customer_id, project_id = @project_id, currency = @currency,
+    po_so_number = @po_so_number, payment_terms = @payment_terms, notes = @notes, footer = @footer,
+    internal_note = @internal_note, discount_type = @discount_type, discount_value = @discount_value,
+    subtotal = @subtotal, wht_type = @wht_type, wht_rate = @wht_rate, wht_gross_up = @wht_gross_up,
+    wht_base = @wht_base, wht_amount = @wht_amount, amount = @amount, balance_due = @balance_due,
+    billing_cycle_ref = @billing_cycle_ref
+WHERE invoice_id = @invoice_id;
+
+-- name: SetBillingCycleRef :exec
+UPDATE invoices SET billing_cycle_ref = @billing_cycle_ref WHERE invoice_id = @invoice_id;

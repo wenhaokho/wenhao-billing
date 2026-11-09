@@ -27,9 +27,10 @@ type routes struct {
 // Register adds the invoice operations; every one is admin-only. notify
 // hears of generated recurring drafts; nil logs them (LogNotifier).
 //
-// The literal paths (/milestone, /awaiting-finalization) are their own
-// routes: chi matches a literal segment before {invoice_id}, whatever the
-// registration order.
+// The literal paths (/milestone, /awaiting-finalization, /recurring-template,
+// /recurring-templates, /recurring-templates/rows) are their own routes: chi
+// matches a literal segment before {invoice_id} or {template_id}, whatever
+// the registration order.
 func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, notify DraftNotifier) {
 	if notify == nil {
 		notify = LogNotifier{}
@@ -82,6 +83,34 @@ func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, notify Dra
 		OperationID: "invoices-mark-paid", Method: http.MethodPost, Path: prefix + "/{invoice_id}/mark-paid", Tags: tags,
 		Summary: "Settle an issued invoice with nothing outstanding to PAID", Errors: []int{http.StatusBadRequest},
 	}), r.markPaid)
+
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-create-recurring-template", Method: http.MethodPost, Path: prefix + "/recurring-template", Tags: tags,
+		Summary: "Add a recurring template (a DRAFT RECURRING invoice with a schedule)", DefaultStatus: http.StatusCreated,
+		Errors: []int{http.StatusBadRequest},
+	}), r.createTemplate)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-list-recurring-templates", Method: http.MethodGet, Path: prefix + "/recurring-templates", Tags: tags,
+		Summary: "List the recurring templates, newest first",
+	}), r.listTemplates)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-recurring-template-rows", Method: http.MethodGet, Path: prefix + "/recurring-templates/rows", Tags: tags,
+		Summary: "The recurring templates with their schedule, next and previous cycle and status, newest first",
+	}), r.templateRows)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-get-recurring-template", Method: http.MethodGet, Path: prefix + "/recurring-templates/{template_id}", Tags: tags,
+		Summary: "A recurring template", Errors: []int{http.StatusNotFound},
+	}), r.getTemplate)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-update-recurring-template", Method: http.MethodPut, Path: prefix + "/recurring-templates/{template_id}", Tags: tags,
+		Summary: "Replace a recurring template that has not ended (its pause is kept)",
+		Errors:  []int{http.StatusBadRequest, http.StatusConflict},
+	}), r.updateTemplate)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-act-on-recurring-template", Method: http.MethodPatch, Path: prefix + "/recurring-templates/{template_id}", Tags: tags,
+		Summary: "Pause, resume or end a recurring template",
+		Errors:  []int{http.StatusBadRequest, http.StatusNotFound, http.StatusConflict},
+	}), r.actOnTemplate)
 }
 
 // clientError is err as the client reads it: an ErrInvoicing refusal is a

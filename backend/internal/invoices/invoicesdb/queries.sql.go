@@ -437,6 +437,63 @@ func (q *Queries) ListInvoices(ctx context.Context, arg ListInvoicesParams) ([]I
 	return items, nil
 }
 
+const listLatestTemplateChildren = `-- name: ListLatestTemplateChildren :many
+SELECT DISTINCT ON (c.template_invoice_id)
+    c.template_invoice_id::text AS template_invoice_id,
+    c.generated::bigint AS generated,
+    COALESCE(c.cycle_key, '')::text AS cycle_key,
+    c.issue_date
+FROM (
+    SELECT billing_cycle_ref->>'template_invoice_id' AS template_invoice_id,
+           billing_cycle_ref->>'cycle_key' AS cycle_key,
+           issue_date, created_at, invoice_id,
+           count(*) OVER (PARTITION BY billing_cycle_ref->>'template_invoice_id') AS generated
+    FROM invoices
+    WHERE is_template = false AND invoice_type = 'RECURRING' AND status <> 'VOID'
+      AND billing_cycle_ref->>'template_invoice_id' IS NOT NULL
+      AND ($1::text IS NULL
+           OR billing_cycle_ref->>'template_invoice_id' = $1::text)
+) c
+ORDER BY c.template_invoice_id, c.issue_date DESC NULLS LAST, c.created_at DESC, c.invoice_id DESC
+`
+
+type ListLatestTemplateChildrenRow struct {
+	TemplateInvoiceID string
+	Generated         int64
+	CycleKey          string
+	IssueDate         pgtype.Date
+}
+
+// The live generated children of templates (_generated_children,
+// invoices.py:135-153: not templates, RECURRING, not VOID), one row per
+// template: how many there are, and the cycle_key ("" when absent) and
+// issue_date of the one with the latest issue_date (NULLs last; the newest
+// breaks ties). A null template_id answers for every template.
+func (q *Queries) ListLatestTemplateChildren(ctx context.Context, templateID *string) ([]ListLatestTemplateChildrenRow, error) {
+	rows, err := q.db.Query(ctx, listLatestTemplateChildren, templateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLatestTemplateChildrenRow
+	for rows.Next() {
+		var i ListLatestTemplateChildrenRow
+		if err := rows.Scan(
+			&i.TemplateInvoiceID,
+			&i.Generated,
+			&i.CycleKey,
+			&i.IssueDate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLinesOfInvoices = `-- name: ListLinesOfInvoices :many
 SELECT line_item_id, invoice_id, item_id, position, description, quantity, unit_price, amount, created_at FROM invoice_line_items
 WHERE invoice_id = ANY ($1::uuid[])
@@ -475,6 +532,115 @@ func (q *Queries) ListLinesOfInvoices(ctx context.Context, invoiceIds []uuid.UUI
 	return items, nil
 }
 
+const listTemplateRows = `-- name: ListTemplateRows :many
+SELECT i.invoice_id, i.customer_id, c.name AS customer_name, i.currency, i.amount, i.payment_terms,
+       i.billing_cycle_ref
+FROM invoices i
+LEFT JOIN customers c ON c.customer_id = i.customer_id
+WHERE i.is_template = true
+ORDER BY i.created_at DESC, i.invoice_id DESC
+`
+
+type ListTemplateRowsRow struct {
+	InvoiceID       uuid.UUID
+	CustomerID      pgtype.UUID
+	CustomerName    *string
+	Currency        string
+	Amount          decimal.Decimal
+	PaymentTerms    *string
+	BillingCycleRef json.RawMessage
+}
+
+// The templates of the rows view (invoices.py:215-284) with their
+// customer's name, in ListTemplates' order.
+func (q *Queries) ListTemplateRows(ctx context.Context) ([]ListTemplateRowsRow, error) {
+	rows, err := q.db.Query(ctx, listTemplateRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTemplateRowsRow
+	for rows.Next() {
+		var i ListTemplateRowsRow
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.CustomerName,
+			&i.Currency,
+			&i.Amount,
+			&i.PaymentTerms,
+			&i.BillingCycleRef,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTemplates = `-- name: ListTemplates :many
+SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
+WHERE is_template = true
+ORDER BY created_at DESC, invoice_id DESC
+`
+
+// GET /invoices/recurring-templates (invoices.py:104-115): newest first,
+// the id breaking ties.
+func (q *Queries) ListTemplates(ctx context.Context) ([]Invoice, error) {
+	rows, err := q.db.Query(ctx, listTemplates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.InvoiceType,
+			&i.Currency,
+			&i.Amount,
+			&i.BalanceDue,
+			&i.Status,
+			&i.BillingCycleRef,
+			&i.IssueDate,
+			&i.DueDate,
+			&i.CreatedAt,
+			&i.InvoiceNumber,
+			&i.PoSoNumber,
+			&i.Subtotal,
+			&i.DiscountType,
+			&i.DiscountValue,
+			&i.Notes,
+			&i.Footer,
+			&i.PaymentTerms,
+			&i.IsTemplate,
+			&i.ProjectID,
+			&i.SourceQuoteID,
+			&i.CoverageStart,
+			&i.CoverageEnd,
+			&i.InternalNote,
+			&i.WhtType,
+			&i.WhtRate,
+			&i.WhtGrossUp,
+			&i.WhtBase,
+			&i.WhtAmount,
+			&i.WhtBooked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockInvoiceNumbers = `-- name: LockInvoiceNumbers :exec
 SELECT pg_advisory_xact_lock(hashtextextended('invoice-number:' || $1::text, 0))
 `
@@ -482,6 +648,20 @@ SELECT pg_advisory_xact_lock(hashtextextended('invoice-number:' || $1::text, 0))
 // Held until the caller's transaction ends: one number at a time per year.
 func (q *Queries) LockInvoiceNumbers(ctx context.Context, year string) error {
 	_, err := q.db.Exec(ctx, lockInvoiceNumbers, year)
+	return err
+}
+
+const setBillingCycleRef = `-- name: SetBillingCycleRef :exec
+UPDATE invoices SET billing_cycle_ref = $1 WHERE invoice_id = $2
+`
+
+type SetBillingCycleRefParams struct {
+	BillingCycleRef json.RawMessage
+	InvoiceID       uuid.UUID
+}
+
+func (q *Queries) SetBillingCycleRef(ctx context.Context, arg SetBillingCycleRefParams) error {
+	_, err := q.db.Exec(ctx, setBillingCycleRef, arg.BillingCycleRef, arg.InvoiceID)
 	return err
 }
 
@@ -564,6 +744,67 @@ func (q *Queries) UpdateInvoice(ctx context.Context, arg UpdateInvoiceParams) er
 		arg.Notes,
 		arg.Footer,
 		arg.InternalNote,
+		arg.InvoiceID,
+	)
+	return err
+}
+
+const updateTemplate = `-- name: UpdateTemplate :exec
+UPDATE invoices SET
+    customer_id = $1, project_id = $2, currency = $3,
+    po_so_number = $4, payment_terms = $5, notes = $6, footer = $7,
+    internal_note = $8, discount_type = $9, discount_value = $10,
+    subtotal = $11, wht_type = $12, wht_rate = $13, wht_gross_up = $14,
+    wht_base = $15, wht_amount = $16, amount = $17, balance_due = $18,
+    billing_cycle_ref = $19
+WHERE invoice_id = $20
+`
+
+type UpdateTemplateParams struct {
+	CustomerID      pgtype.UUID
+	ProjectID       pgtype.UUID
+	Currency        string
+	PoSoNumber      *string
+	PaymentTerms    *string
+	Notes           *string
+	Footer          *string
+	InternalNote    *string
+	DiscountType    *string
+	DiscountValue   decimal.NullDecimal
+	Subtotal        decimal.NullDecimal
+	WhtType         string
+	WhtRate         decimal.NullDecimal
+	WhtGrossUp      bool
+	WhtBase         decimal.NullDecimal
+	WhtAmount       decimal.Decimal
+	Amount          decimal.Decimal
+	BalanceDue      decimal.Decimal
+	BillingCycleRef json.RawMessage
+	InvoiceID       uuid.UUID
+}
+
+// The columns a template PUT writes (invoicing.py:442-456).
+func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) error {
+	_, err := q.db.Exec(ctx, updateTemplate,
+		arg.CustomerID,
+		arg.ProjectID,
+		arg.Currency,
+		arg.PoSoNumber,
+		arg.PaymentTerms,
+		arg.Notes,
+		arg.Footer,
+		arg.InternalNote,
+		arg.DiscountType,
+		arg.DiscountValue,
+		arg.Subtotal,
+		arg.WhtType,
+		arg.WhtRate,
+		arg.WhtGrossUp,
+		arg.WhtBase,
+		arg.WhtAmount,
+		arg.Amount,
+		arg.BalanceDue,
+		arg.BillingCycleRef,
 		arg.InvoiceID,
 	)
 	return err
