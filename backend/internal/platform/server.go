@@ -35,6 +35,10 @@ type Deps struct {
 	Clock  Clock
 	// Sessions reads the billing_session cookie on every admin operation.
 	Sessions Sessions
+	// Root, when set, adds plain chi routes at the root (outside Huma and
+	// /api/v1), behind the same middleware and the same 404 and 405 answers.
+	// The MCP connector's OAuth routes are the one user.
+	Root func(chi.Router)
 }
 
 // NewServer builds the HTTP handler and the Huma API the features register
@@ -87,6 +91,9 @@ func NewServer(cfg Config, deps Deps) (http.Handler, huma.API) {
 
 	config.OnAddOperation = append(config.OnAddOperation, relaxOptionalRequestFields, markNullablePointers, nonNullableArrayBodies)
 	api := humachi.New(r, config)
+	if deps.Root != nil {
+		deps.Root(r)
+	}
 	api.UseMiddleware(authenticate(api, deps.Pool, deps.Sessions))
 
 	huma.Register(api, huma.Operation{

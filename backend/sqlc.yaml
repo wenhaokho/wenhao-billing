@@ -255,3 +255,14 @@ sql:
               pointer: true
           - column: invoices.billing_cycle_ref
             go_type: encoding/json.RawMessage
+  - engine: postgresql
+    schema: migrations
+    queries: internal/oauth/queries.sql
+    gen:
+      go:
+        package: oauthdb
+        out: internal/oauth/oauthdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides

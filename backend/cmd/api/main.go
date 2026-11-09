@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LOQATO/gokit/db"
@@ -45,6 +46,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/oauth"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/projects"
@@ -86,6 +88,17 @@ func register(api huma.API, f features) {
 		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.StubRenderer{}})
 	reports.Register(api, f.Pool, f.Config, f.Clock)
 	stats.Register(api, f.Pool, f.Config, f.Clock)
+}
+
+// oauthRoot mounts the MCP connector's OAuth server at the root, only when
+// MCP_ENABLED (nil mounts nothing, and its paths answer 404).
+func oauthRoot(cfg platform.Config, pool *pgxpool.Pool) func(chi.Router) {
+	if !cfg.MCPEnabled {
+		return nil
+	}
+	return func(r chi.Router) {
+		oauth.Mount(r, oauth.Deps{Pool: pool, PublicBaseURL: cfg.MCPPublicBaseURL})
+	}
 }
 
 func main() {
@@ -152,7 +165,7 @@ func serve() error {
 
 	clock := platform.SystemClock{}
 	sessions := platform.NewSessions(cfg)
-	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock})
+	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock, Root: oauthRoot(cfg, pool)})
 	register(api, features{
 		Pool: pool, Sessions: sessions, Mail: mailSender(cfg, logger), Config: cfg, Clock: clock,
 		Logger:   logger,
