@@ -8,11 +8,11 @@ Totals: 107 under /api/v1, 7 OAuth and discovery, /mcp
 
 | method | path | auth | status | python | frontend | go | port status | note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | /api/v1/accounting/chart-of-accounts | admin session | 200 | app/api/v1/routers/accounting.py:46 | yes |  | todo |  |
-| POST | /api/v1/accounting/chart-of-accounts | admin session | 201 | app/api/v1/routers/accounting.py:60 | yes |  | todo |  |
-| GET | /api/v1/accounting/chart-of-accounts/{account_id} | admin session | 200 | app/api/v1/routers/accounting.py:77 | yes |  | todo |  |
-| PATCH | /api/v1/accounting/chart-of-accounts/{account_id} | admin session | 200 | app/api/v1/routers/accounting.py:89 | yes |  | todo |  |
-| DELETE | /api/v1/accounting/chart-of-accounts/{account_id} | admin session | 200 | app/api/v1/routers/accounting.py:110 | yes |  | todo |  |
+| GET | /api/v1/accounting/chart-of-accounts | admin session | 200 | app/api/v1/routers/accounting.py:46 | yes | accounts | ported |  |
+| POST | /api/v1/accounting/chart-of-accounts | admin session | 201 | app/api/v1/routers/accounting.py:60 | yes | accounts | ported |  |
+| GET | /api/v1/accounting/chart-of-accounts/{account_id} | admin session | 200 | app/api/v1/routers/accounting.py:77 | yes | accounts | ported |  |
+| PATCH | /api/v1/accounting/chart-of-accounts/{account_id} | admin session | 200 | app/api/v1/routers/accounting.py:89 | yes | accounts | ported |  |
+| DELETE | /api/v1/accounting/chart-of-accounts/{account_id} | admin session | 200 | app/api/v1/routers/accounting.py:110 | yes | accounts | ported |  |
 | GET | /api/v1/accounting/base-currency | admin session | 200 | app/api/v1/routers/accounting.py:130 | yes |  | todo |  |
 | GET | /api/v1/accounting/fx-rates | admin session | 200 | app/api/v1/routers/accounting.py:135 | yes |  | todo |  |
 | POST | /api/v1/accounting/fx-rates | admin session | 201 | app/api/v1/routers/accounting.py:150 | yes |  | todo |  |
@@ -36,18 +36,18 @@ Totals: 107 under /api/v1, 7 OAuth and discovery, /mcp
 | PATCH | /api/v1/bills/{bill_id} | admin session | 200 | app/api/v1/routers/bills.py:65 | yes |  | todo |  |
 | POST | /api/v1/bills/{bill_id}/record-payment | admin session | 200 | app/api/v1/routers/bills.py:84 | yes |  | todo |  |
 | POST | /api/v1/bills/{bill_id}/void | admin session | 200 | app/api/v1/routers/bills.py:120 | no |  | todo |  |
-| GET | /api/v1/business-profile | admin session | 200 | app/api/v1/routers/business_profile.py:31 | yes |  | todo |  |
-| PUT | /api/v1/business-profile | admin session | 200 | app/api/v1/routers/business_profile.py:39 | yes |  | todo |  |
-| GET | /api/v1/business-profile/payment-accounts | admin session | 200 | app/api/v1/routers/business_profile.py:63 | yes |  | todo |  |
-| PUT | /api/v1/business-profile/payment-accounts | admin session | 200 | app/api/v1/routers/business_profile.py:72 | yes |  | todo |  |
-| GET | /api/v1/customers | admin session | 200 | app/api/v1/routers/customers.py:41 | yes |  | todo |  |
-| GET | /api/v1/customers/balances | admin session | 200 | app/api/v1/routers/customers.py:60 | yes |  | todo |  |
-| POST | /api/v1/customers | admin session | 201 | app/api/v1/routers/customers.py:78 | yes |  | todo |  |
-| GET | /api/v1/customers/{customer_id} | admin session | 200 | app/api/v1/routers/customers.py:93 | yes |  | todo |  |
-| PATCH | /api/v1/customers/{customer_id} | admin session | 200 | app/api/v1/routers/customers.py:105 | yes |  | todo |  |
-| DELETE | /api/v1/customers/{customer_id} | admin session | 200 | app/api/v1/routers/customers.py:123 | yes |  | todo |  |
-| GET | /api/v1/customers/{customer_id}/billing-summary | admin session | 200 | app/api/v1/routers/customers.py:148 | yes |  | todo |  |
-| GET | /api/v1/customers/{customer_id}/invoices | admin session | 200 | app/api/v1/routers/customers.py:205 | yes |  | todo |  |
+| GET | /api/v1/business-profile | admin session | 200 | app/api/v1/routers/business_profile.py:31 | yes | business | ported |  |
+| PUT | /api/v1/business-profile | admin session | 200 | app/api/v1/routers/business_profile.py:39 | yes | business | ported |  |
+| GET | /api/v1/business-profile/payment-accounts | admin session | 200 | app/api/v1/routers/business_profile.py:63 | yes | business | ported |  |
+| PUT | /api/v1/business-profile/payment-accounts | admin session | 200 | app/api/v1/routers/business_profile.py:72 | yes | business | ported |  |
+| GET | /api/v1/customers | admin session | 200 | app/api/v1/routers/customers.py:41 | yes | customers | ported |  |
+| GET | /api/v1/customers/balances | admin session | 200 | app/api/v1/routers/customers.py:60 | yes |  | todo | moves to the invoices plan (returns InvoiceOut) |
+| POST | /api/v1/customers | admin session | 201 | app/api/v1/routers/customers.py:78 | yes | customers | ported |  |
+| GET | /api/v1/customers/{customer_id} | admin session | 200 | app/api/v1/routers/customers.py:93 | yes | customers | ported |  |
+| PATCH | /api/v1/customers/{customer_id} | admin session | 200 | app/api/v1/routers/customers.py:105 | yes | customers | ported |  |
+| DELETE | /api/v1/customers/{customer_id} | admin session | 200 | app/api/v1/routers/customers.py:123 | yes | customers | ported |  |
+| GET | /api/v1/customers/{customer_id}/billing-summary | admin session | 200 | app/api/v1/routers/customers.py:148 | yes |  | todo | moves to the invoices plan (returns InvoiceOut) |
+| GET | /api/v1/customers/{customer_id}/invoices | admin session | 200 | app/api/v1/routers/customers.py:205 | yes |  | todo | moves to the invoices plan (returns InvoiceOut) |
 | POST | /api/v1/invoices | admin session | 201 | app/api/v1/routers/invoices.py:55 | yes |  | todo |  |
 | POST | /api/v1/invoices/milestone | admin session | 201 | app/api/v1/routers/invoices.py:70 | no |  | todo |  |
 | POST | /api/v1/invoices/recurring-template | admin session | 201 | app/api/v1/routers/invoices.py:90 | yes |  | todo |  |
@@ -71,11 +71,11 @@ Totals: 107 under /api/v1, 7 OAuth and discovery, /mcp
 | GET | /api/v1/invoices/{invoice_id}/pdf | admin session | 200 | app/api/v1/routers/invoices.py:700 | yes |  | todo |  |
 | POST | /api/v1/invoices/{invoice_id}/send | admin session | 200 | app/api/v1/routers/invoices.py:721 | yes |  | todo |  |
 | DELETE | /api/v1/invoices/{invoice_id} | admin session | 204 | app/api/v1/routers/invoices.py:782 | no |  | todo |  |
-| GET | /api/v1/items | admin session | 200 | app/api/v1/routers/items.py:18 | yes |  | todo |  |
-| POST | /api/v1/items | admin session | 201 | app/api/v1/routers/items.py:36 | yes |  | todo |  |
-| GET | /api/v1/items/{item_id} | admin session | 200 | app/api/v1/routers/items.py:48 | yes |  | todo |  |
-| PATCH | /api/v1/items/{item_id} | admin session | 200 | app/api/v1/routers/items.py:60 | yes |  | todo |  |
-| DELETE | /api/v1/items/{item_id} | admin session | 200 | app/api/v1/routers/items.py:76 | yes |  | todo |  |
+| GET | /api/v1/items | admin session | 200 | app/api/v1/routers/items.py:18 | yes | items | ported |  |
+| POST | /api/v1/items | admin session | 201 | app/api/v1/routers/items.py:36 | yes | items | ported |  |
+| GET | /api/v1/items/{item_id} | admin session | 200 | app/api/v1/routers/items.py:48 | yes | items | ported |  |
+| PATCH | /api/v1/items/{item_id} | admin session | 200 | app/api/v1/routers/items.py:60 | yes | items | ported |  |
+| DELETE | /api/v1/items/{item_id} | admin session | 200 | app/api/v1/routers/items.py:76 | yes | items | ported |  |
 | POST | /api/v1/payments/intake/webhook | webhook hmac | 201 | app/api/v1/routers/payments.py:19 | no |  | todo |  |
 | POST | /api/v1/payments/intake/email | email webhook token | 201 | app/api/v1/routers/payments.py:43 | no |  | todo |  |
 | POST | /api/v1/projects | admin session | 201 | app/api/v1/routers/projects.py:34 | yes |  | todo |  |
@@ -106,15 +106,15 @@ Totals: 107 under /api/v1, 7 OAuth and discovery, /mcp
 | GET | /api/v1/stats/dashboard | admin session | 200 | app/api/v1/routers/stats.py:119 | yes |  | todo |  |
 | GET | /api/v1/stats/revenue-monthly | admin session | 200 | app/api/v1/routers/stats.py:236 | yes |  | todo |  |
 | GET | /api/v1/stats/invoices-summary | admin session | 200 | app/api/v1/routers/stats.py:276 | yes |  | todo |  |
-| GET | /api/v1/users | admin session | 200 | app/api/v1/routers/users.py:19 | yes |  | todo |  |
-| PATCH | /api/v1/users/me | admin session | 200 | app/api/v1/routers/users.py:27 | yes |  | todo |  |
-| POST | /api/v1/users | admin session | 201 | app/api/v1/routers/users.py:50 | yes |  | todo |  |
-| POST | /api/v1/users/{user_id}/reset-password | admin session | 200 | app/api/v1/routers/users.py:70 | yes |  | todo |  |
-| GET | /api/v1/vendors | admin session | 200 | app/api/v1/routers/vendors.py:18 | yes |  | todo |  |
-| POST | /api/v1/vendors | admin session | 201 | app/api/v1/routers/vendors.py:30 | yes |  | todo |  |
-| GET | /api/v1/vendors/{vendor_id} | admin session | 200 | app/api/v1/routers/vendors.py:42 | yes |  | todo |  |
-| PATCH | /api/v1/vendors/{vendor_id} | admin session | 200 | app/api/v1/routers/vendors.py:54 | yes |  | todo |  |
-| DELETE | /api/v1/vendors/{vendor_id} | admin session | 200 | app/api/v1/routers/vendors.py:70 | yes |  | todo |  |
+| GET | /api/v1/users | admin session | 200 | app/api/v1/routers/users.py:19 | yes | auth | ported |  |
+| PATCH | /api/v1/users/me | admin session | 200 | app/api/v1/routers/users.py:27 | yes | auth | ported |  |
+| POST | /api/v1/users | admin session | 201 | app/api/v1/routers/users.py:50 | yes | auth | ported |  |
+| POST | /api/v1/users/{user_id}/reset-password | admin session | 200 | app/api/v1/routers/users.py:70 | yes | auth | ported |  |
+| GET | /api/v1/vendors | admin session | 200 | app/api/v1/routers/vendors.py:18 | yes | vendors | ported |  |
+| POST | /api/v1/vendors | admin session | 201 | app/api/v1/routers/vendors.py:30 | yes | vendors | ported |  |
+| GET | /api/v1/vendors/{vendor_id} | admin session | 200 | app/api/v1/routers/vendors.py:42 | yes | vendors | ported |  |
+| PATCH | /api/v1/vendors/{vendor_id} | admin session | 200 | app/api/v1/routers/vendors.py:54 | yes | vendors | ported |  |
+| DELETE | /api/v1/vendors/{vendor_id} | admin session | 200 | app/api/v1/routers/vendors.py:70 | yes | vendors | ported |  |
 
 ## OAuth and discovery
 
