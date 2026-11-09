@@ -192,3 +192,14 @@ func TestRateOnSameCurrency(t *testing.T) {
 		t.Errorf("rate = %s, asOf = %v, ok = %v, err = %v", rate, asOf, ok, err)
 	}
 }
+
+func TestRateOnExactDateIsIncluded(t *testing.T) {
+	t.Parallel()
+	q, a := newQueries(t)
+	insertRate(t, a, "EUR", "17000", 1, 1)
+	insertRate(t, a, "EUR", "18000", 1, 10)
+	rate, asOf, ok, err := fx.RateOn(context.Background(), q, "EUR", day(1, 10), "IDR")
+	if err != nil || !ok || !rate.Equal(dec("18000")) || !asOf.Equal(time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("rate = %s, asOf = %v, ok = %v, err = %v; want the 10th's 18000", rate, asOf, ok, err)
+	}
+}

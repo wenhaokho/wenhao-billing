@@ -64,10 +64,12 @@ func Convert(ctx context.Context, q *fxdb.Queries, amount decimal.Decimal, from 
 // RateOn is GetRate that also says which day's rate it found, and reports a
 // missing rate as ok=false rather than an error. It serves revaluation's own
 // query: the currency codes are used as given (no upper-casing), and the newest
-// as_of_date on or before on's calendar date wins. The same currency is 1, with
+// as_of_date on or before on's UTC calendar date wins (unlike GetRate, which
+// reads the date in on's own location). The same currency is 1, with
 // asOf equal to on's date.
 func RateOn(ctx context.Context, q *fxdb.Queries, from string, on time.Time, to string) (rate decimal.Decimal, asOf time.Time, ok bool, err error) {
-	day := time.Date(on.Year(), on.Month(), on.Day(), 0, 0, 0, 0, time.UTC)
+	u := on.UTC()
+	day := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 	if from == to {
 		return decimal.NewFromInt(1), day, true, nil
 	}
