@@ -37,8 +37,14 @@ func errInvalid(sentence string) error { return errors.New(sentence) }
 func invalidAt(path *huma.PathBuffer, sentence string) []error {
 	field, _ := strings.CutPrefix(path.String(), "body.")
 	field = strings.NewReplacer("[", ".", "]", "").Replace(field)
+	return []error{refusedAt(field, sentence)}
+}
+
+// refusedAt is the 422 for a refused value at field: sentence is the detail
+// and the one errors entry's message.
+func refusedAt(field, sentence string) error {
 	status := http.StatusUnprocessableEntity
-	return []error{apierr.New(status, apierr.Codes[status], i18n.T(sentence), apierr.Detail{Field: field, Message: i18n.T(sentence)})}
+	return apierr.New(status, apierr.Codes[status], i18n.T(sentence), apierr.Detail{Field: field, Message: i18n.T(sentence)})
 }
 
 // refusable is a value whose UnmarshalJSON may have refused its input;
@@ -250,6 +256,17 @@ func (o *Optional[T]) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, &o.Value)
 }
 
+// RefuseNull is the 422 "<field> cannot be null", at field, when the member
+// was sent as null; otherwise nil. Optional's schema is nullable (a null
+// clears a nullable column), so a PATCH handler calls this, before any query,
+// for each Optional whose column is NOT NULL; cmp.Or picks the first refusal.
+func (o Optional[T]) RefuseNull(field string) error {
+	if !o.Null {
+		return nil
+	}
+	return refusedAt(field, field+" cannot be null")
+}
+
 // MarshalJSON writes the value, or null.
 func (o Optional[T]) MarshalJSON() ([]byte, error) {
 	if !o.Set || o.Null {
@@ -273,4 +290,31 @@ func (Optional[T]) Schema(r huma.Registry) *huma.Schema {
 	s := *r.Schema(reflect.TypeFor[T](), true, "")
 	s.Nullable = true
 	return &s
+}
+
+// OptionalParam is a query parameter that may be left out, as Python's
+// `active: bool | None = None`: Huma refuses pointer parameters, and a plain
+// bool cannot tell false from absent. Huma parses and documents it as a T.
+type OptionalParam[T any] struct {
+	Value T
+	Set   bool
+}
+
+// Receiver is where Huma parses the parameter.
+func (o *OptionalParam[T]) Receiver() reflect.Value { return reflect.ValueOf(o).Elem().Field(0) }
+
+// OnParamSet records whether the parameter was sent.
+func (o *OptionalParam[T]) OnParamSet(isSet bool, _ any) { o.Set = isSet }
+
+// Schema describes and validates the parameter as a T.
+func (OptionalParam[T]) Schema(r huma.Registry) *huma.Schema {
+	return r.Schema(reflect.TypeFor[T](), true, "")
+}
+
+// Ptr is the value, or nil when the parameter was left out (a sqlc.narg).
+func (o OptionalParam[T]) Ptr() *T {
+	if !o.Set {
+		return nil
+	}
+	return &o.Value
 }

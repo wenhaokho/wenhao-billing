@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -125,6 +126,80 @@ func TestOptionalThreeStates(t *testing.T) {
 		if err := json.Unmarshal([]byte(in), &p); err != nil || p.Note != want {
 			t.Errorf("%s: %+v %v", in, p.Note, err)
 		}
+	}
+}
+
+type refuseNullIn struct {
+	Body struct {
+		Code   Optional[string] `json:"code"`
+		Active Optional[bool]   `json:"active"`
+	}
+}
+
+// RefuseNull answers a null as the client's 422 at the field; an omitted
+// member or a value passes.
+func TestOptionalRefuseNull(t *testing.T) {
+	h, api := NewServer(Config{Environment: "test"}, Deps{})
+	huma.Register(api, huma.Operation{OperationID: "refuse-null", Method: http.MethodPatch, Path: "/refuse-null", Tags: []string{PublicTag}},
+		func(_ context.Context, in *refuseNullIn) (*struct{}, error) {
+			return nil, cmp.Or(in.Body.Code.RefuseNull("code"), in.Body.Active.RefuseNull("active"))
+		})
+	for body, field := range map[string]string{
+		`{"code":null}`:               "code",
+		`{"active":null}`:             "active",
+		`{"code":null,"active":null}`: "code",
+		`{"code":"x","active":null}`:  "active",
+	} {
+		rec := do(t, h, http.MethodPatch, "/refuse-null", body)
+		p := decodeProblem(t, rec.Body.Bytes())
+		want := field + " cannot be null"
+		if rec.Code != 422 || p.Detail != want || len(p.Errors) != 1 || p.Errors[0].Location != field || p.Errors[0].Message != want {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+	for _, body := range []string{`{}`, `{"code":"x","active":false}`} {
+		if rec := do(t, h, http.MethodPatch, "/refuse-null", body); rec.Code != 204 {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+}
+
+type optionalParamIn struct {
+	Active OptionalParam[bool] `query:"active"`
+}
+
+type optionalParamOut struct {
+	Body struct {
+		Active *bool `json:"active"`
+	}
+}
+
+// OptionalParam tells an absent parameter from false, and refuses a value
+// that is not a T.
+func TestOptionalParam(t *testing.T) {
+	h, api := NewServer(Config{Environment: "test"}, Deps{})
+	huma.Register(api, huma.Operation{OperationID: "optional-param", Method: http.MethodGet, Path: "/optional-param", Tags: []string{PublicTag}},
+		func(_ context.Context, in *optionalParamIn) (*optionalParamOut, error) {
+			out := &optionalParamOut{}
+			out.Body.Active = in.Active.Ptr()
+			return out, nil
+		})
+	for query, want := range map[string]string{
+		"":              `{"active":null}`,
+		"?active=false": `{"active":false}`,
+		"?active=true":  `{"active":true}`,
+	} {
+		rec := get(t, h, "/optional-param"+query)
+		if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != want {
+			t.Errorf("%q: %d %s, want %s", query, rec.Code, rec.Body, want)
+		}
+	}
+	if rec := get(t, h, "/optional-param?active=maybe"); rec.Code != 422 {
+		t.Errorf("active=maybe: %d %s", rec.Code, rec.Body)
+	}
+	p := api.OpenAPI().Paths["/optional-param"].Get.Parameters[0]
+	if p.Name != "active" || p.In != "query" || p.Required || p.Schema.Type != huma.TypeBoolean {
+		t.Errorf("documented as %+v %+v", p, p.Schema)
 	}
 }
 
