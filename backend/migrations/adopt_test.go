@@ -253,6 +253,17 @@ func TestMigrationsAdditive(t *testing.T) {
 		AND indexdef LIKE '%(user_id)%')`) {
 		t.Error("no index on oauth_refresh_tokens(user_id)")
 	}
+	// The Alembic tables keep exactly their original columns.
+	for table, want := range map[string]string{
+		"oauth_clients":        "client_id,client_name,created_at,redirect_uris",
+		"oauth_refresh_tokens": "created_at,jti,revoked,user_id",
+	} {
+		got := scalar[string](t, pool, `SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = '`+table+`'`)
+		if got != want {
+			t.Errorf("%s columns = %s, want %s", table, got, want)
+		}
+	}
 	// Python's insert paths, written against the Alembic schema, still work.
 	for _, q := range []string{
 		`INSERT INTO oauth_clients (client_id, client_name, redirect_uris) VALUES ('c1', 'n', '["https://a.example/cb"]')`,

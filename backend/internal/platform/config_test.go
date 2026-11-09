@@ -237,15 +237,10 @@ const (
 	devMCPToken   = "dev-mcp-token-secret-change-me"
 )
 
-// mcpVars is baseVars with real MCP secrets (production by default).
-func mcpVars(extra map[string]string) map[string]string {
-	return baseVars(extra)
-}
-
 // Python's test_mcp_settings_have_secure_defaults_shape.
 func TestMCPSettingsHaveSecureDefaultsShape(t *testing.T) {
 	t.Parallel()
-	cfg, err := ParseConfig(mcpVars(nil))
+	cfg, err := ParseConfig(baseVars(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +257,7 @@ func TestMCPSettingsHaveSecureDefaultsShape(t *testing.T) {
 
 func TestMCPEnvOverrides(t *testing.T) {
 	t.Parallel()
-	cfg, err := ParseConfig(mcpVars(map[string]string{
+	cfg, err := ParseConfig(baseVars(map[string]string{
 		"MCP_ENABLED": "false", "MCP_ACCESS_TOKEN_TTL_SECONDS": "60", "MCP_REFRESH_TOKEN_TTL_SECONDS": "120",
 		"MCP_PUBLIC_BASE_URL": "https://billing.wenhao.id",
 	}))
@@ -298,6 +293,29 @@ func TestTransportAllowlistIncludesHostWithPort(t *testing.T) {
 	}
 }
 
+func TestTransportAllowlistLowercasesHost(t *testing.T) {
+	t.Parallel()
+	hosts, origins := TransportAllowlist("https://Billing.Wenhao.ID:8443")
+	if want := []string{"billing.wenhao.id", "billing.wenhao.id:8443"}; !reflect.DeepEqual(hosts, want) || origins[0] != "https://billing.wenhao.id:8443" {
+		t.Errorf("hosts = %v, origins = %v", hosts, origins)
+	}
+}
+
+func TestMCPRefusesNonPositiveTTL(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"MCP_ACCESS_TOKEN_TTL_SECONDS", "MCP_REFRESH_TOKEN_TTL_SECONDS"} {
+		for _, v := range []string{"0", "-1"} {
+			t.Run(name+"="+v, func(t *testing.T) {
+				t.Parallel()
+				_, err := ParseConfig(baseVars(map[string]string{name: v}))
+				if err == nil || !strings.Contains(err.Error(), name) {
+					t.Errorf("err = %v, want one naming %s", err, name)
+				}
+			})
+		}
+	}
+}
+
 func TestProductionRefusesDefaultMcpSecrets(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
@@ -320,7 +338,7 @@ func TestProductionRefusesDefaultMcpSecrets(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, err := ParseConfig(mcpVars(tc.vars))
+			_, err := ParseConfig(baseVars(tc.vars))
 			switch {
 			case tc.want == "" && err != nil:
 				t.Errorf("err = %v, want none", err)

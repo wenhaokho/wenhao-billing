@@ -162,8 +162,13 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 			return Config{}, fmt.Errorf("%s must be set to a secret of your own outside development and test", sec.name)
 		}
 	}
-	if r.MCPAccessTokenSeconds <= 0 || r.MCPRefreshTokenSeconds <= 0 {
-		return Config{}, fmt.Errorf("MCP_ACCESS_TOKEN_TTL_SECONDS and MCP_REFRESH_TOKEN_TTL_SECONDS must be greater than 0")
+	for _, ttl := range []struct {
+		name    string
+		seconds int
+	}{{"MCP_ACCESS_TOKEN_TTL_SECONDS", r.MCPAccessTokenSeconds}, {"MCP_REFRESH_TOKEN_TTL_SECONDS", r.MCPRefreshTokenSeconds}} {
+		if ttl.seconds <= 0 { // zero would mint tokens that are already expired
+			return Config{}, fmt.Errorf("%s must be greater than 0", ttl.name)
+		}
 	}
 	return Config{
 		Environment:            r.Environment,
@@ -200,13 +205,16 @@ func TransportAllowlist(baseURL string) (hosts, origins []string) {
 	if err != nil {
 		return nil, nil
 	}
-	for _, h := range []string{u.Hostname(), u.Host} {
+	// Lower-cased, as Python's urlparse hostname is, so a mixed-case base URL
+	// still matches the lower-case Host header a client sends.
+	host := strings.ToLower(u.Host)
+	for _, h := range []string{strings.ToLower(u.Hostname()), host} {
 		if h != "" && !slices.Contains(hosts, h) {
 			hosts = append(hosts, h)
 		}
 	}
 	if u.Scheme != "" && u.Host != "" {
-		origins = []string{u.Scheme + "://" + u.Host}
+		origins = []string{u.Scheme + "://" + host}
 	}
 	return hosts, origins
 }
