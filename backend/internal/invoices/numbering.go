@@ -23,7 +23,9 @@ import (
 // concurrent creates could take the same number. This first takes
 // pg_advisory_xact_lock(hashtextextended('invoice-number:<year>', 0)) in
 // tx, held until tx ends, so the caller must insert the invoice in the same
-// tx. And only ASCII digits count as a tail, where Python's isdigit also
+// tx. That tx must be READ COMMITTED (the default), so the scan after the
+// lock sees the numbers a transaction that held it before has committed.
+// And only ASCII digits count as a tail, where Python's isdigit also
 // took other scripts' digits.
 func NextInvoiceNumber(ctx context.Context, tx pgx.Tx, today time.Time) (string, error) {
 	year := strconv.Itoa(today.UTC().Year())

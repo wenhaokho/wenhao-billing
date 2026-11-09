@@ -111,14 +111,19 @@ func TestPaymentTermsDays(t *testing.T) {
 		{strPtr("Net30"), 14},
 		{strPtr("Net 30 days"), 14},
 		{strPtr("Monthly"), 14},
+		{strPtr("Net 99999999"), 99999999},
 	}
 	for _, c := range cases {
 		name := "nil"
 		if c.terms != nil {
 			name = *c.terms
 		}
-		if got := PaymentTermsDays(c.terms); got != c.want {
-			t.Errorf("PaymentTermsDays(%q) = %d, want %d", name, got, c.want)
+		if got, ok := PaymentTermsDays(c.terms); got != c.want || !ok {
+			t.Errorf("PaymentTermsDays(%q) = %d, %v, want %d, true", name, got, ok, c.want)
 		}
+	}
+	// A number beyond int is reported, not replaced by the default.
+	if _, ok := PaymentTermsDays(strPtr("Net 99999999999999999999")); ok {
+		t.Error("PaymentTermsDays(Net 99999999999999999999) ok, want overflow")
 	}
 }

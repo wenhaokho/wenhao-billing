@@ -16,11 +16,11 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
 )
 
-// newApp is a fresh migrated database (no routes: this package has none
-// yet), with apitest's clock.
+// newApp serves this package's routes on a fresh migrated database, with
+// apitest's clock and the default (logging) draft notifier.
 func newApp(t *testing.T) *apitest.App {
 	t.Helper()
-	return apitest.New(t, func(huma.API, apitest.Deps) {})
+	return apitest.New(t, func(api huma.API, d apitest.Deps) { Register(api, d.Pool, d.Clock, nil) })
 }
 
 // insertInvoice stores a minimal DRAFT invoice with the given number (nil

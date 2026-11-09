@@ -7,10 +7,21 @@ package invoicesdb
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
+
+const deleteInvoiceLines = `-- name: DeleteInvoiceLines :exec
+DELETE FROM invoice_line_items WHERE invoice_id = $1
+`
+
+func (q *Queries) DeleteInvoiceLines(ctx context.Context, invoiceID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteInvoiceLines, invoiceID)
+	return err
+}
 
 const getCustomerWHTDefaults = `-- name: GetCustomerWHTDefaults :one
 SELECT default_wht_type, default_wht_rate, default_wht_gross_up FROM customers WHERE customer_id = $1
@@ -70,6 +81,213 @@ func (q *Queries) GetInvoice(ctx context.Context, invoiceID uuid.UUID) (Invoice,
 		&i.WhtBooked,
 	)
 	return i, err
+}
+
+const getInvoiceForUpdate = `-- name: GetInvoiceForUpdate :one
+SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices WHERE invoice_id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetInvoiceForUpdate(ctx context.Context, invoiceID uuid.UUID) (Invoice, error) {
+	row := q.db.QueryRow(ctx, getInvoiceForUpdate, invoiceID)
+	var i Invoice
+	err := row.Scan(
+		&i.InvoiceID,
+		&i.CustomerID,
+		&i.InvoiceType,
+		&i.Currency,
+		&i.Amount,
+		&i.BalanceDue,
+		&i.Status,
+		&i.BillingCycleRef,
+		&i.IssueDate,
+		&i.DueDate,
+		&i.CreatedAt,
+		&i.InvoiceNumber,
+		&i.PoSoNumber,
+		&i.Subtotal,
+		&i.DiscountType,
+		&i.DiscountValue,
+		&i.Notes,
+		&i.Footer,
+		&i.PaymentTerms,
+		&i.IsTemplate,
+		&i.ProjectID,
+		&i.SourceQuoteID,
+		&i.CoverageStart,
+		&i.CoverageEnd,
+		&i.InternalNote,
+		&i.WhtType,
+		&i.WhtRate,
+		&i.WhtGrossUp,
+		&i.WhtBase,
+		&i.WhtAmount,
+		&i.WhtBooked,
+	)
+	return i, err
+}
+
+const insertInvoice = `-- name: InsertInvoice :exec
+INSERT INTO invoices (
+    invoice_id, customer_id, project_id, invoice_type, invoice_number, po_so_number, currency,
+    subtotal, discount_type, discount_value, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount,
+    amount, balance_due, status, billing_cycle_ref, issue_date, due_date, payment_terms, notes, footer,
+    internal_note, is_template
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7,
+    $8, $9, $10, $11, $12, $13, $14, $15,
+    $16, $17, $18, $19, $20, $21, $22, $23, $24,
+    $25, $26
+)
+`
+
+type InsertInvoiceParams struct {
+	InvoiceID       uuid.UUID
+	CustomerID      pgtype.UUID
+	ProjectID       pgtype.UUID
+	InvoiceType     string
+	InvoiceNumber   *string
+	PoSoNumber      *string
+	Currency        string
+	Subtotal        decimal.NullDecimal
+	DiscountType    *string
+	DiscountValue   decimal.NullDecimal
+	WhtType         string
+	WhtRate         decimal.NullDecimal
+	WhtGrossUp      bool
+	WhtBase         decimal.NullDecimal
+	WhtAmount       decimal.Decimal
+	Amount          decimal.Decimal
+	BalanceDue      decimal.Decimal
+	Status          string
+	BillingCycleRef json.RawMessage
+	IssueDate       pgtype.Date
+	DueDate         pgtype.Date
+	PaymentTerms    *string
+	Notes           *string
+	Footer          *string
+	InternalNote    *string
+	IsTemplate      bool
+}
+
+func (q *Queries) InsertInvoice(ctx context.Context, arg InsertInvoiceParams) error {
+	_, err := q.db.Exec(ctx, insertInvoice,
+		arg.InvoiceID,
+		arg.CustomerID,
+		arg.ProjectID,
+		arg.InvoiceType,
+		arg.InvoiceNumber,
+		arg.PoSoNumber,
+		arg.Currency,
+		arg.Subtotal,
+		arg.DiscountType,
+		arg.DiscountValue,
+		arg.WhtType,
+		arg.WhtRate,
+		arg.WhtGrossUp,
+		arg.WhtBase,
+		arg.WhtAmount,
+		arg.Amount,
+		arg.BalanceDue,
+		arg.Status,
+		arg.BillingCycleRef,
+		arg.IssueDate,
+		arg.DueDate,
+		arg.PaymentTerms,
+		arg.Notes,
+		arg.Footer,
+		arg.InternalNote,
+		arg.IsTemplate,
+	)
+	return err
+}
+
+const insertInvoiceLine = `-- name: InsertInvoiceLine :exec
+INSERT INTO invoice_line_items (line_item_id, invoice_id, item_id, position, description, quantity, unit_price, amount)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+`
+
+type InsertInvoiceLineParams struct {
+	LineItemID  uuid.UUID
+	InvoiceID   uuid.UUID
+	ItemID      pgtype.UUID
+	Position    int32
+	Description string
+	Quantity    decimal.Decimal
+	UnitPrice   decimal.Decimal
+	Amount      decimal.Decimal
+}
+
+func (q *Queries) InsertInvoiceLine(ctx context.Context, arg InsertInvoiceLineParams) error {
+	_, err := q.db.Exec(ctx, insertInvoiceLine,
+		arg.LineItemID,
+		arg.InvoiceID,
+		arg.ItemID,
+		arg.Position,
+		arg.Description,
+		arg.Quantity,
+		arg.UnitPrice,
+		arg.Amount,
+	)
+	return err
+}
+
+const listAwaitingFinalization = `-- name: ListAwaitingFinalization :many
+SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
+WHERE status = 'DRAFT' AND is_template = false
+ORDER BY created_at DESC, invoice_id DESC
+`
+
+// invoices.py:411-423: every DRAFT that is not a template, no limit.
+func (q *Queries) ListAwaitingFinalization(ctx context.Context) ([]Invoice, error) {
+	rows, err := q.db.Query(ctx, listAwaitingFinalization)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.InvoiceType,
+			&i.Currency,
+			&i.Amount,
+			&i.BalanceDue,
+			&i.Status,
+			&i.BillingCycleRef,
+			&i.IssueDate,
+			&i.DueDate,
+			&i.CreatedAt,
+			&i.InvoiceNumber,
+			&i.PoSoNumber,
+			&i.Subtotal,
+			&i.DiscountType,
+			&i.DiscountValue,
+			&i.Notes,
+			&i.Footer,
+			&i.PaymentTerms,
+			&i.IsTemplate,
+			&i.ProjectID,
+			&i.SourceQuoteID,
+			&i.CoverageStart,
+			&i.CoverageEnd,
+			&i.InternalNote,
+			&i.WhtType,
+			&i.WhtRate,
+			&i.WhtGrossUp,
+			&i.WhtBase,
+			&i.WhtAmount,
+			&i.WhtBooked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listInvoiceLines = `-- name: ListInvoiceLines :many
@@ -133,6 +351,120 @@ func (q *Queries) ListInvoiceNumbersWithPrefix(ctx context.Context, prefix strin
 	return items, nil
 }
 
+const listInvoices = `-- name: ListInvoices :many
+SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
+WHERE is_template = false
+  AND ($1::text[] IS NULL OR status = ANY ($1::text[]))
+  AND ($2::uuid IS NULL OR customer_id = $2::uuid)
+  AND ($3::text IS NULL OR invoice_type = $3::text)
+ORDER BY created_at DESC, invoice_id DESC
+LIMIT $4
+`
+
+type ListInvoicesParams struct {
+	Statuses    []string
+	CustomerID  pgtype.UUID
+	InvoiceType *string
+	RowLimit    int32
+}
+
+// GET /invoices (invoices.py:426-450): never templates; each filter applies
+// when given; newest first, the id breaking ties.
+func (q *Queries) ListInvoices(ctx context.Context, arg ListInvoicesParams) ([]Invoice, error) {
+	rows, err := q.db.Query(ctx, listInvoices,
+		arg.Statuses,
+		arg.CustomerID,
+		arg.InvoiceType,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.InvoiceType,
+			&i.Currency,
+			&i.Amount,
+			&i.BalanceDue,
+			&i.Status,
+			&i.BillingCycleRef,
+			&i.IssueDate,
+			&i.DueDate,
+			&i.CreatedAt,
+			&i.InvoiceNumber,
+			&i.PoSoNumber,
+			&i.Subtotal,
+			&i.DiscountType,
+			&i.DiscountValue,
+			&i.Notes,
+			&i.Footer,
+			&i.PaymentTerms,
+			&i.IsTemplate,
+			&i.ProjectID,
+			&i.SourceQuoteID,
+			&i.CoverageStart,
+			&i.CoverageEnd,
+			&i.InternalNote,
+			&i.WhtType,
+			&i.WhtRate,
+			&i.WhtGrossUp,
+			&i.WhtBase,
+			&i.WhtAmount,
+			&i.WhtBooked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLinesOfInvoices = `-- name: ListLinesOfInvoices :many
+SELECT line_item_id, invoice_id, item_id, position, description, quantity, unit_price, amount, created_at FROM invoice_line_items
+WHERE invoice_id = ANY ($1::uuid[])
+ORDER BY invoice_id, position, line_item_id
+`
+
+// The lines of a page of invoices in one query, each invoice's in
+// ListInvoiceLines' order.
+func (q *Queries) ListLinesOfInvoices(ctx context.Context, invoiceIds []uuid.UUID) ([]InvoiceLineItem, error) {
+	rows, err := q.db.Query(ctx, listLinesOfInvoices, invoiceIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InvoiceLineItem
+	for rows.Next() {
+		var i InvoiceLineItem
+		if err := rows.Scan(
+			&i.LineItemID,
+			&i.InvoiceID,
+			&i.ItemID,
+			&i.Position,
+			&i.Description,
+			&i.Quantity,
+			&i.UnitPrice,
+			&i.Amount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockInvoiceNumbers = `-- name: LockInvoiceNumbers :exec
 SELECT pg_advisory_xact_lock(hashtextextended('invoice-number:' || $1::text, 0))
 `
@@ -140,5 +472,73 @@ SELECT pg_advisory_xact_lock(hashtextextended('invoice-number:' || $1::text, 0))
 // Held until the caller's transaction ends: one number at a time per year.
 func (q *Queries) LockInvoiceNumbers(ctx context.Context, year string) error {
 	_, err := q.db.Exec(ctx, lockInvoiceNumbers, year)
+	return err
+}
+
+const updateInvoice = `-- name: UpdateInvoice :exec
+UPDATE invoices SET
+    customer_id = $1, project_id = $2, invoice_type = $3,
+    invoice_number = $4, po_so_number = $5, currency = $6,
+    subtotal = $7, discount_type = $8, discount_value = $9,
+    wht_type = $10, wht_rate = $11, wht_gross_up = $12, wht_base = $13,
+    wht_amount = $14, amount = $15, balance_due = $16,
+    issue_date = $17, due_date = $18, payment_terms = $19,
+    notes = $20, footer = $21, internal_note = $22
+WHERE invoice_id = $23
+`
+
+type UpdateInvoiceParams struct {
+	CustomerID    pgtype.UUID
+	ProjectID     pgtype.UUID
+	InvoiceType   string
+	InvoiceNumber *string
+	PoSoNumber    *string
+	Currency      string
+	Subtotal      decimal.NullDecimal
+	DiscountType  *string
+	DiscountValue decimal.NullDecimal
+	WhtType       string
+	WhtRate       decimal.NullDecimal
+	WhtGrossUp    bool
+	WhtBase       decimal.NullDecimal
+	WhtAmount     decimal.Decimal
+	Amount        decimal.Decimal
+	BalanceDue    decimal.Decimal
+	IssueDate     pgtype.Date
+	DueDate       pgtype.Date
+	PaymentTerms  *string
+	Notes         *string
+	Footer        *string
+	InternalNote  *string
+	InvoiceID     uuid.UUID
+}
+
+// The columns a PATCH writes (the editable fields, withholding and totals).
+func (q *Queries) UpdateInvoice(ctx context.Context, arg UpdateInvoiceParams) error {
+	_, err := q.db.Exec(ctx, updateInvoice,
+		arg.CustomerID,
+		arg.ProjectID,
+		arg.InvoiceType,
+		arg.InvoiceNumber,
+		arg.PoSoNumber,
+		arg.Currency,
+		arg.Subtotal,
+		arg.DiscountType,
+		arg.DiscountValue,
+		arg.WhtType,
+		arg.WhtRate,
+		arg.WhtGrossUp,
+		arg.WhtBase,
+		arg.WhtAmount,
+		arg.Amount,
+		arg.BalanceDue,
+		arg.IssueDate,
+		arg.DueDate,
+		arg.PaymentTerms,
+		arg.Notes,
+		arg.Footer,
+		arg.InternalNote,
+		arg.InvoiceID,
+	)
 	return err
 }

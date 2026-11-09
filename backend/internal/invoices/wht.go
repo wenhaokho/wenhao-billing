@@ -19,7 +19,7 @@ import (
 func normalizeWHT(whtType string, rate *decimal.Decimal, grossUp bool) (string, *decimal.Decimal, bool, error) {
 	t, r, g, err := withholding.Normalize(whtType, rate, grossUp)
 	if err != nil {
-		return "", nil, false, refuse("%s", err.Error())
+		return "", nil, false, refuse("invalid_withholding", "%s", err.Error())
 	}
 	return t, r, g, nil
 }

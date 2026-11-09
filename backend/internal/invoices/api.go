@@ -22,14 +22,24 @@ import (
 // refusals too (invoicing.py:76-82), with withholding's sentence.
 var ErrInvoicing = errors.New("invoicing")
 
-type invoicingError struct{ msg string }
+type invoicingError struct{ code, msg string }
 
 func (e invoicingError) Error() string        { return e.msg }
 func (e invoicingError) Is(target error) bool { return target == ErrInvoicing }
 
-// refuse is an ErrInvoicing whose text is the formatted sentence.
-func refuse(format string, args ...any) error {
-	return invoicingError{fmt.Sprintf(format, args...)}
+// refuse is an ErrInvoicing whose text is the formatted sentence and whose
+// code (the 400's stable snake_case code) is code.
+func refuse(code, format string, args ...any) error {
+	return invoicingError{code: code, msg: fmt.Sprintf(format, args...)}
+}
+
+// refusalCode is the code of an ErrInvoicing, "" for any other error.
+func refusalCode(err error) string {
+	var e invoicingError
+	if errors.As(err, &e) {
+		return e.code
+	}
+	return ""
 }
 
 // LineIn is one invoice line as a request gives it.

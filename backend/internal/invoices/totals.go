@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -63,22 +64,49 @@ var netTerms = regexp.MustCompile(`(?i)^\s*net\s+(\d+)\s*$`)
 // PaymentTermsDays is the days from the issue date to the due date that
 // payment terms give (invoicing.py:145-154): 0 for "on receipt" (and its
 // two spellings), N for "Net N", 14 for anything else, including none.
-func PaymentTermsDays(terms *string) int {
+// ok is false when N does not fit an int (payment_terms is varchar(30));
+// Python's date arithmetic failed there (a 500), the callers refuse it.
+func PaymentTermsDays(terms *string) (days int, ok bool) {
 	if terms == nil || *terms == "" {
-		return 14
+		return 14, true
 	}
 	t := strings.TrimSpace(*terms)
 	switch strings.ToLower(t) {
 	case "on receipt", "on-receipt", "due on receipt":
-		return 0
+		return 0, true
 	}
 	if m := netTerms.FindStringSubmatch(t); m != nil {
-		// payment_terms is varchar(30), so the number may not fit an int;
-		// Python's date arithmetic would then fail (a 500). Such terms get
-		// the default here.
-		if n, err := strconv.Atoi(m[1]); err == nil {
-			return n
-		}
+		n, err := strconv.Atoi(m[1])
+		return n, err == nil
 	}
-	return 14
+	return 14, true
+}
+
+// Python's date range: date.min and date.max.
+var (
+	minDate = time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
+	maxDate = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
+)
+
+// errDueOutOfRange refuses a due date outside Python's date range, where
+// Python's date arithmetic raised (a 500).
+func errDueOutOfRange() error { return refuse("due_date_out_of_range", "due date is out of range") }
+
+// addDays is day + days, refused when it leaves 0001-01-01..9999-12-31.
+func addDays(day time.Time, days int) (time.Time, error) {
+	// In days, so huge values never reach time arithmetic.
+	if days > int(maxDate.Sub(day).Hours()/24) || days < -int(day.Sub(minDate).Hours()/24) {
+		return time.Time{}, errDueOutOfRange()
+	}
+	return day.AddDate(0, 0, days), nil
+}
+
+// dueAfterTerms is the due date payment terms give an issue date
+// (invoicing.py:247-249, :335-338), refused when out of range.
+func dueAfterTerms(issue time.Time, terms *string) (time.Time, error) {
+	days, ok := PaymentTermsDays(terms)
+	if !ok {
+		return time.Time{}, errDueOutOfRange()
+	}
+	return addDays(issue, days)
 }
