@@ -321,3 +321,34 @@ func TestAgingRequiresAdminAndValidatesAsOf(t *testing.T) {
 		apitest.Decode[problem](t, a.Do(t, http.MethodGet, path+"?as_of=2026-13-45", nil), http.StatusUnprocessableEntity)
 	}
 }
+
+func TestAgingEmptyCustomerNameShowsNoCustomer(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "")
+	invoice(t, a, &c, "USD", "12", "OPEN", dueDays(1), false)
+	got, _ := getAging(t, a, arPath, "?as_of="+asOf)
+	// Python's `name or "(no customer)"`: an empty name falls back, the id stays.
+	if len(got.Rows) != 1 || got.Rows[0].PartyName != "(no customer)" || got.Rows[0].PartyID != c.String() {
+		t.Errorf("rows %+v", got.Rows)
+	}
+}
+
+func TestAgingSameCustomerCurrenciesOrderedByCurrency(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	// Several customers with three currencies each, so a missing tie-break
+	// cannot pass on map iteration order by luck.
+	for _, name := range []string{"Acme", "Beta", "Gamma", "Delta", "Eps"} {
+		c := newCustomer(t, a, name)
+		for _, cur := range []string{"USD", "SGD", "IDR"} {
+			invoice(t, a, &c, cur, "1", "OPEN", dueDays(0), false)
+		}
+	}
+	got, _ := getAging(t, a, arPath, "?as_of="+asOf)
+	for i := 0; i+2 < len(got.Rows); i += 3 {
+		if got.Rows[i].Currency != "IDR" || got.Rows[i+1].Currency != "SGD" || got.Rows[i+2].Currency != "USD" {
+			t.Fatalf("rows %d..%d: %+v", i, i+2, got.Rows[i:i+3])
+		}
+	}
+}
