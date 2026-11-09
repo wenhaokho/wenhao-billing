@@ -40,6 +40,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/auth"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/vendors"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
 
@@ -56,6 +57,7 @@ type features struct {
 func register(api huma.API, f features) {
 	auth.Register(api, f.Pool, f.Sessions, f.Mail, f.Config, f.Clock)
 	accounts.Register(api, f.Pool)
+	vendors.Register(api, f.Pool)
 }
 
 func main() {

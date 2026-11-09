@@ -41,3 +41,14 @@ sql:
         emit_enum_valid_method: true
         emit_pointers_for_null_types: true
         overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/vendors/queries.sql
+    gen:
+      go:
+        package: vendorsdb
+        out: internal/vendors/vendorsdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
