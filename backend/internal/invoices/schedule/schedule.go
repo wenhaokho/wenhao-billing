@@ -177,7 +177,7 @@ func repr(v any) string {
 		}
 		return "False"
 	case string:
-		return reprString(x)
+		return ReprString(x)
 	case int:
 		return strconv.Itoa(x)
 	case int32:
@@ -220,9 +220,9 @@ func reprFloat(f float64) string { //nolint:forbidigo // not money: Python repr 
 	return strconv.FormatFloat(f, 'e', -1, 64)
 }
 
-// reprString is repr(str): single quotes unless the text has a single quote and
+// ReprString is repr(str): single quotes unless the text has a single quote and
 // no double quote.
-func reprString(s string) string {
+func ReprString(s string) string {
 	q := byte('\'')
 	if strings.Contains(s, "'") && !strings.Contains(s, `"`) {
 		q = '"'
@@ -265,7 +265,9 @@ func dateOf(t time.Time) time.Time {
 // daysBetween is whole calendar days from a to b (both at UTC midnight).
 func daysBetween(a, b time.Time) int { return int((b.Unix() - a.Unix()) / 86400) }
 
-func addMonths(d time.Time, months int) time.Time {
+// AddMonths is _add_months: d moved by whole months, its day clamped to the
+// last day of the month it lands in.
+func AddMonths(d time.Time, months int) time.Time {
 	total := int(d.Month()) - 1 + months
 	year := d.Year() + total/12
 	month := total%12 + 1
@@ -281,9 +283,9 @@ func (s Schedule) startForIndex(index int) time.Time {
 	case "WEEKLY":
 		return s.Start.AddDate(0, 0, step*7)
 	case "MONTHLY":
-		return addMonths(s.Start, step)
+		return AddMonths(s.Start, step)
 	default: // YEARLY
-		return addMonths(s.Start, step*12)
+		return AddMonths(s.Start, step*12)
 	}
 }
 

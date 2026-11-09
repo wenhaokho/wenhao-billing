@@ -111,6 +111,12 @@ func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, notify Dra
 		Summary: "Pause, resume or end a recurring template",
 		Errors:  []int{http.StatusBadRequest, http.StatusNotFound, http.StatusConflict},
 	}), r.actOnTemplate)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-trigger-recurring-cycle", Method: http.MethodPost, Path: prefix + "/recurring/{template_id}/trigger", Tags: tags,
+		Summary:     "Generate a recurring template's DRAFT for one cycle (the existing one when it was generated)",
+		Description: "Paused or ended templates are not refused. The team is notified of a new draft only.",
+		Errors:      []int{http.StatusBadRequest},
+	}), r.trigger)
 }
 
 // clientError is err as the client reads it: an ErrInvoicing refusal is a

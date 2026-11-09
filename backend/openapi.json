@@ -2959,6 +2959,19 @@
         ],
         "type": "object"
       },
+      "RecurringTrigger": {
+        "additionalProperties": true,
+        "properties": {
+          "cycle_key": {
+            "description": "The cycle's first day, YYYY-MM-DD; it must be a cycle start of the template's schedule.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cycle_key"
+        ],
+        "type": "object"
+      },
       "ResetPasswordRequest": {
         "additionalProperties": true,
         "properties": {
@@ -5297,6 +5310,78 @@
           }
         },
         "summary": "Replace a recurring template that has not ended (its pause is kept)",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
+    "/api/v1/invoices/recurring/{template_id}/trigger": {
+      "post": {
+        "description": "Paused or ended templates are not refused. The team is notified of a new draft only.",
+        "operationId": "invoices-trigger-recurring-cycle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecurringTrigger"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvoiceOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Generate a recurring template's DRAFT for one cycle (the existing one when it was generated)",
         "tags": [
           "invoices"
         ]

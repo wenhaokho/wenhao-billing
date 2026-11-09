@@ -379,8 +379,11 @@ func list(ctx context.Context, q *invoicesdb.Queries, invs []invoicesdb.Invoice)
 
 // todayUTC is the clock's UTC calendar date (Python's date.today() in a UTC
 // container).
-func todayUTC(c platform.Clock) time.Time {
-	n := c.Now().UTC()
+func todayUTC(c platform.Clock) time.Time { return utcDate(c.Now()) }
+
+// utcDate is t's UTC calendar date, at midnight UTC.
+func utcDate(t time.Time) time.Time {
+	n := t.UTC()
 	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, time.UTC)
 }
 

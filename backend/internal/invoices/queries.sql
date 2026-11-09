@@ -138,3 +138,39 @@ WHERE invoice_id = @invoice_id;
 
 -- name: SetBillingCycleRef :exec
 UPDATE invoices SET billing_cycle_ref = @billing_cycle_ref WHERE invoice_id = @invoice_id;
+
+-- name: LockRecurringTemplate :exec
+-- Held until the caller's transaction ends: one trigger at a time per
+-- template, so a manual trigger and the scan cannot both create a cycle.
+SELECT pg_advisory_xact_lock(hashtextextended('recurring-template:' || @template_id::text, 0));
+
+-- name: FindCycleInvoice :one
+-- find_cycle_invoice (invoicing.py:477-498): the generated invoice of a
+-- template's cycle, its cycle_key compared as text; the oldest when there
+-- are several.
+SELECT * FROM invoices
+WHERE invoice_type = 'RECURRING' AND is_template = false
+  AND billing_cycle_ref->>'template_invoice_id' = @template_id::text
+  AND billing_cycle_ref->>'cycle_key' = @cycle_key::text
+ORDER BY created_at, invoice_id
+LIMIT 1;
+
+-- name: InvoiceHasHostingItem :one
+-- hosting_items_in_invoice (hosting.py:54-58): does any line's item host?
+SELECT EXISTS (
+    SELECT 1 FROM invoice_line_items l JOIN items i ON i.item_id = l.item_id
+    WHERE l.invoice_id = $1 AND i.is_hosting
+);
+
+-- name: SetInvoiceCoverage :exec
+UPDATE invoices SET coverage_start = @coverage_start, coverage_end = @coverage_end WHERE invoice_id = @invoice_id;
+
+-- name: GetCustomerName :one
+SELECT name FROM customers WHERE customer_id = $1;
+
+-- name: ListScanTemplates :many
+-- The templates the recurring scan visits (workers/tasks/recurring.py:52-56:
+-- no status filter), oldest first, the id breaking ties.
+SELECT invoice_id, billing_cycle_ref FROM invoices
+WHERE invoice_type = 'RECURRING' AND is_template = true
+ORDER BY created_at, invoice_id;

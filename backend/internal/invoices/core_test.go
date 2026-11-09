@@ -800,6 +800,7 @@ func TestInvoiceRoutesRequireAdmin(t *testing.T) {
 		{http.MethodGet, templatePath(id)},
 		{http.MethodPut, templatePath(id)},
 		{http.MethodPatch, templatePath(id)},
+		{http.MethodPost, triggerPath(id)},
 	} {
 		wantProblem(t, a.Anon(t, c.method, c.p, map[string]any{}), http.StatusUnauthorized, "", "not authenticated", "", "")
 		wantProblem(t, staff.Do(t, c.method, c.p, map[string]any{}), http.StatusForbidden, "", "admin required", "", "")

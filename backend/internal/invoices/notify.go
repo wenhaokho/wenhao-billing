@@ -29,6 +29,22 @@ type DraftNotifier interface {
 // the real sender. A nil Logger is slog's default.
 type LogNotifier struct{ Logger *slog.Logger }
 
+// notifyDrafts hands the drafts to n once they are committed; none is no
+// call (notify_users_of_new_drafts, draft_notifications.py:55-58). A notifier
+// that panics breaks its promise: the panic is logged, never the caller's
+// failure.
+func notifyDrafts(ctx context.Context, n DraftNotifier, drafts []DraftSummary) {
+	if len(drafts) == 0 {
+		return
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			slog.ErrorContext(ctx, "draft notifier failed", "drafts", len(drafts), "panic", p)
+		}
+	}()
+	n.NotifyNewDrafts(ctx, drafts)
+}
+
 // NotifyNewDrafts logs one line per draft; none is nothing.
 func (n LogNotifier) NotifyNewDrafts(ctx context.Context, drafts []DraftSummary) {
 	logger := n.Logger

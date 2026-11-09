@@ -33,6 +33,73 @@ func (q *Queries) DeleteInvoiceLines(ctx context.Context, invoiceID uuid.UUID) e
 	return err
 }
 
+const findCycleInvoice = `-- name: FindCycleInvoice :one
+SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
+WHERE invoice_type = 'RECURRING' AND is_template = false
+  AND billing_cycle_ref->>'template_invoice_id' = $1::text
+  AND billing_cycle_ref->>'cycle_key' = $2::text
+ORDER BY created_at, invoice_id
+LIMIT 1
+`
+
+type FindCycleInvoiceParams struct {
+	TemplateID string
+	CycleKey   string
+}
+
+// find_cycle_invoice (invoicing.py:477-498): the generated invoice of a
+// template's cycle, its cycle_key compared as text; the oldest when there
+// are several.
+func (q *Queries) FindCycleInvoice(ctx context.Context, arg FindCycleInvoiceParams) (Invoice, error) {
+	row := q.db.QueryRow(ctx, findCycleInvoice, arg.TemplateID, arg.CycleKey)
+	var i Invoice
+	err := row.Scan(
+		&i.InvoiceID,
+		&i.CustomerID,
+		&i.InvoiceType,
+		&i.Currency,
+		&i.Amount,
+		&i.BalanceDue,
+		&i.Status,
+		&i.BillingCycleRef,
+		&i.IssueDate,
+		&i.DueDate,
+		&i.CreatedAt,
+		&i.InvoiceNumber,
+		&i.PoSoNumber,
+		&i.Subtotal,
+		&i.DiscountType,
+		&i.DiscountValue,
+		&i.Notes,
+		&i.Footer,
+		&i.PaymentTerms,
+		&i.IsTemplate,
+		&i.ProjectID,
+		&i.SourceQuoteID,
+		&i.CoverageStart,
+		&i.CoverageEnd,
+		&i.InternalNote,
+		&i.WhtType,
+		&i.WhtRate,
+		&i.WhtGrossUp,
+		&i.WhtBase,
+		&i.WhtAmount,
+		&i.WhtBooked,
+	)
+	return i, err
+}
+
+const getCustomerName = `-- name: GetCustomerName :one
+SELECT name FROM customers WHERE customer_id = $1
+`
+
+func (q *Queries) GetCustomerName(ctx context.Context, customerID uuid.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, getCustomerName, customerID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const getCustomerWHTDefaults = `-- name: GetCustomerWHTDefaults :one
 SELECT default_wht_type, default_wht_rate, default_wht_gross_up FROM customers WHERE customer_id = $1
 `
@@ -239,6 +306,21 @@ func (q *Queries) InsertInvoiceLine(ctx context.Context, arg InsertInvoiceLinePa
 		arg.Amount,
 	)
 	return err
+}
+
+const invoiceHasHostingItem = `-- name: InvoiceHasHostingItem :one
+SELECT EXISTS (
+    SELECT 1 FROM invoice_line_items l JOIN items i ON i.item_id = l.item_id
+    WHERE l.invoice_id = $1 AND i.is_hosting
+)
+`
+
+// hosting_items_in_invoice (hosting.py:54-58): does any line's item host?
+func (q *Queries) InvoiceHasHostingItem(ctx context.Context, invoiceID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, invoiceHasHostingItem, invoiceID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const listAwaitingFinalization = `-- name: ListAwaitingFinalization :many
@@ -532,6 +614,39 @@ func (q *Queries) ListLinesOfInvoices(ctx context.Context, invoiceIds []uuid.UUI
 	return items, nil
 }
 
+const listScanTemplates = `-- name: ListScanTemplates :many
+SELECT invoice_id, billing_cycle_ref FROM invoices
+WHERE invoice_type = 'RECURRING' AND is_template = true
+ORDER BY created_at, invoice_id
+`
+
+type ListScanTemplatesRow struct {
+	InvoiceID       uuid.UUID
+	BillingCycleRef json.RawMessage
+}
+
+// The templates the recurring scan visits (workers/tasks/recurring.py:52-56:
+// no status filter), oldest first, the id breaking ties.
+func (q *Queries) ListScanTemplates(ctx context.Context) ([]ListScanTemplatesRow, error) {
+	rows, err := q.db.Query(ctx, listScanTemplates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListScanTemplatesRow
+	for rows.Next() {
+		var i ListScanTemplatesRow
+		if err := rows.Scan(&i.InvoiceID, &i.BillingCycleRef); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTemplateRows = `-- name: ListTemplateRows :many
 SELECT i.invoice_id, i.customer_id, c.name AS customer_name, i.currency, i.amount, i.payment_terms,
        i.billing_cycle_ref
@@ -651,6 +766,17 @@ func (q *Queries) LockInvoiceNumbers(ctx context.Context, year string) error {
 	return err
 }
 
+const lockRecurringTemplate = `-- name: LockRecurringTemplate :exec
+SELECT pg_advisory_xact_lock(hashtextextended('recurring-template:' || $1::text, 0))
+`
+
+// Held until the caller's transaction ends: one trigger at a time per
+// template, so a manual trigger and the scan cannot both create a cycle.
+func (q *Queries) LockRecurringTemplate(ctx context.Context, templateID string) error {
+	_, err := q.db.Exec(ctx, lockRecurringTemplate, templateID)
+	return err
+}
+
 const setBillingCycleRef = `-- name: SetBillingCycleRef :exec
 UPDATE invoices SET billing_cycle_ref = $1 WHERE invoice_id = $2
 `
@@ -662,6 +788,21 @@ type SetBillingCycleRefParams struct {
 
 func (q *Queries) SetBillingCycleRef(ctx context.Context, arg SetBillingCycleRefParams) error {
 	_, err := q.db.Exec(ctx, setBillingCycleRef, arg.BillingCycleRef, arg.InvoiceID)
+	return err
+}
+
+const setInvoiceCoverage = `-- name: SetInvoiceCoverage :exec
+UPDATE invoices SET coverage_start = $1, coverage_end = $2 WHERE invoice_id = $3
+`
+
+type SetInvoiceCoverageParams struct {
+	CoverageStart pgtype.Date
+	CoverageEnd   pgtype.Date
+	InvoiceID     uuid.UUID
+}
+
+func (q *Queries) SetInvoiceCoverage(ctx context.Context, arg SetInvoiceCoverageParams) error {
+	_, err := q.db.Exec(ctx, setInvoiceCoverage, arg.CoverageStart, arg.CoverageEnd, arg.InvoiceID)
 	return err
 }
 
