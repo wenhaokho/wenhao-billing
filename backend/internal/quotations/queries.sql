@@ -67,3 +67,14 @@ LIMIT @row_limit;
 -- name: DeleteQuotation :exec
 -- The lines go with it (ON DELETE CASCADE).
 DELETE FROM quotations WHERE quotation_id = $1;
+
+-- name: MarkQuotationSent :exec
+UPDATE quotations SET status = 'SENT', last_sent_at = @last_sent_at WHERE quotation_id = @quotation_id;
+
+-- name: AcceptQuotation :exec
+UPDATE quotations SET status = 'ACCEPTED', accepted_at = @accepted_at, accepted_by = @accepted_by
+WHERE quotation_id = @quotation_id;
+
+-- name: SetQuotationStatus :exec
+-- Decline and void: the status alone.
+UPDATE quotations SET status = @status WHERE quotation_id = @quotation_id;

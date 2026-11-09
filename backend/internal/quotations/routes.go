@@ -52,6 +52,7 @@ func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock) {
 		Summary: "Delete a DRAFT quotation and its lines", DefaultStatus: http.StatusNoContent,
 		Errors: []int{http.StatusBadRequest},
 	}), r.delete)
+	r.registerLifecycle(api, prefix, tags)
 }
 
 // inTx runs write in one transaction and answers its quotation.

@@ -694,6 +694,10 @@ func TestQuotationRoutesRequireAdmin(t *testing.T) {
 		{http.MethodGet, quotePath(id)},
 		{http.MethodPatch, quotePath(id)},
 		{http.MethodDelete, quotePath(id)},
+		{http.MethodPost, quotePath(id) + "/mark-sent"},
+		{http.MethodPost, quotePath(id) + "/accept"},
+		{http.MethodPost, quotePath(id) + "/decline"},
+		{http.MethodPost, quotePath(id) + "/void"},
 	} {
 		wantProblem(t, a.Anon(t, c.method, c.p, map[string]any{}), http.StatusUnauthorized, "", "not authenticated", "", "")
 		wantProblem(t, staff.Do(t, c.method, c.p, map[string]any{}), http.StatusForbidden, "", "admin required", "", "")

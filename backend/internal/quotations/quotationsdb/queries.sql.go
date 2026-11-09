@@ -7,11 +7,28 @@ package quotationsdb
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
+
+const acceptQuotation = `-- name: AcceptQuotation :exec
+UPDATE quotations SET status = 'ACCEPTED', accepted_at = $1, accepted_by = $2
+WHERE quotation_id = $3
+`
+
+type AcceptQuotationParams struct {
+	AcceptedAt  *time.Time
+	AcceptedBy  *string
+	QuotationID uuid.UUID
+}
+
+func (q *Queries) AcceptQuotation(ctx context.Context, arg AcceptQuotationParams) error {
+	_, err := q.db.Exec(ctx, acceptQuotation, arg.AcceptedAt, arg.AcceptedBy, arg.QuotationID)
+	return err
+}
 
 const deleteQuotation = `-- name: DeleteQuotation :exec
 DELETE FROM quotations WHERE quotation_id = $1
@@ -353,6 +370,35 @@ SELECT pg_advisory_xact_lock(hashtextextended('quotation-number:' || $1::text, 0
 // Held until the caller's transaction ends: one number at a time per year.
 func (q *Queries) LockQuotationNumbers(ctx context.Context, year string) error {
 	_, err := q.db.Exec(ctx, lockQuotationNumbers, year)
+	return err
+}
+
+const markQuotationSent = `-- name: MarkQuotationSent :exec
+UPDATE quotations SET status = 'SENT', last_sent_at = $1 WHERE quotation_id = $2
+`
+
+type MarkQuotationSentParams struct {
+	LastSentAt  *time.Time
+	QuotationID uuid.UUID
+}
+
+func (q *Queries) MarkQuotationSent(ctx context.Context, arg MarkQuotationSentParams) error {
+	_, err := q.db.Exec(ctx, markQuotationSent, arg.LastSentAt, arg.QuotationID)
+	return err
+}
+
+const setQuotationStatus = `-- name: SetQuotationStatus :exec
+UPDATE quotations SET status = $1 WHERE quotation_id = $2
+`
+
+type SetQuotationStatusParams struct {
+	Status      string
+	QuotationID uuid.UUID
+}
+
+// Decline and void: the status alone.
+func (q *Queries) SetQuotationStatus(ctx context.Context, arg SetQuotationStatusParams) error {
+	_, err := q.db.Exec(ctx, setQuotationStatus, arg.Status, arg.QuotationID)
 	return err
 }
 
