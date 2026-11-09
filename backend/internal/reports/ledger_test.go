@@ -344,7 +344,7 @@ func TestReportsRequireAdmin(t *testing.T) {
 	}
 	staff := *a
 	staff.Cookie = platform.SessionCookie + "=" + token
-	for _, path := range []string{tbPath, bsPath} {
+	for _, path := range []string{tbPath, bsPath, fxPath} {
 		if p := apitest.Decode[problem](t, a.Anon(t, http.MethodGet, path, nil), http.StatusUnauthorized); p.Detail != "not authenticated" {
 			t.Errorf("%s anon: %q", path, p.Detail)
 		}
@@ -376,10 +376,26 @@ func TestAsOfDefaultsToUTCToday(t *testing.T) {
 	}
 }
 
+func TestFXRevaluationAsOfDefaultsToUTCToday(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	// 03:00 on the 10th in Jakarta is 20:00 on the 9th in UTC.
+	jakarta := time.FixedZone("WIB", 7*3600)
+	a.Clock.Advance(time.Date(2026, 3, 10, 3, 0, 0, 0, jakarta).Sub(a.Clock.Now()))
+	token, _, err := a.Sessions.Issue(a.AdminID, 0, false) // the first session expired meanwhile
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Cookie = platform.SessionCookie + "=" + token
+	if got, _ := fxGet(t, a, ""); got.AsOf != "2026-03-09" {
+		t.Errorf("fx revaluation as_of %s", got.AsOf)
+	}
+}
+
 func TestBadAsOfIs422(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
-	for _, path := range []string{tbPath, bsPath} {
+	for _, path := range []string{tbPath, bsPath, fxPath} {
 		for _, q := range []string{"?as_of=2026-13-45", "?as_of=abc", "?as_of=2026-1-5"} {
 			t.Run(path+q, func(t *testing.T) {
 				t.Parallel()
