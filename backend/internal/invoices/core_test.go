@@ -768,6 +768,10 @@ func TestInvoiceRoutesRequireAdmin(t *testing.T) {
 		{http.MethodGet, invoicesPath + "/awaiting-finalization"},
 		{http.MethodGet, invoicePath(id)},
 		{http.MethodPatch, invoicePath(id)},
+		{http.MethodPost, actionPath(id, "finalize")},
+		{http.MethodPost, actionPath(id, "void")},
+		{http.MethodPost, actionPath(id, "mark-paid")},
+		{http.MethodDelete, invoicePath(id)},
 	} {
 		wantProblem(t, a.Anon(t, c.method, c.p, map[string]any{}), http.StatusUnauthorized, "", "not authenticated", "", "")
 		wantProblem(t, staff.Do(t, c.method, c.p, map[string]any{}), http.StatusForbidden, "", "admin required", "", "")

@@ -65,6 +65,23 @@ func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, notify Dra
 		Summary: "Change a DRAFT invoice's fields and recompute its totals",
 		Errors:  []int{http.StatusBadRequest, http.StatusConflict},
 	}), r.update)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-delete", Method: http.MethodDelete, Path: prefix + "/{invoice_id}", Tags: tags,
+		Summary: "Delete a DRAFT invoice and its lines", DefaultStatus: http.StatusNoContent,
+		Errors: []int{http.StatusBadRequest, http.StatusConflict},
+	}), r.delete)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-finalize", Method: http.MethodPost, Path: prefix + "/{invoice_id}/finalize", Tags: tags,
+		Summary: "Issue a DRAFT invoice (OPEN, or PAID when nothing is owed)", Errors: []int{http.StatusBadRequest},
+	}), r.finalize)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-void", Method: http.MethodPost, Path: prefix + "/{invoice_id}/void", Tags: tags,
+		Summary: "Void any invoice that is not PAID", Errors: []int{http.StatusBadRequest},
+	}), r.void)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-mark-paid", Method: http.MethodPost, Path: prefix + "/{invoice_id}/mark-paid", Tags: tags,
+		Summary: "Settle an issued invoice with nothing outstanding to PAID", Errors: []int{http.StatusBadRequest},
+	}), r.markPaid)
 }
 
 // clientError is err as the client reads it: an ErrInvoicing refusal is a

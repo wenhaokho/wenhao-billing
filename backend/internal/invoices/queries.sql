@@ -75,3 +75,11 @@ ORDER BY created_at DESC, invoice_id DESC;
 SELECT * FROM invoice_line_items
 WHERE invoice_id = ANY (@invoice_ids::uuid[])
 ORDER BY invoice_id, position, line_item_id;
+
+-- name: SetInvoiceStatus :exec
+-- The lifecycle transitions: the new status with the balance it leaves.
+UPDATE invoices SET status = @status, balance_due = @balance_due WHERE invoice_id = @invoice_id;
+
+-- name: DeleteInvoice :exec
+-- The lines go with it (ON DELETE CASCADE).
+DELETE FROM invoices WHERE invoice_id = $1;

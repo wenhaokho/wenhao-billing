@@ -14,6 +14,16 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const deleteInvoice = `-- name: DeleteInvoice :exec
+DELETE FROM invoices WHERE invoice_id = $1
+`
+
+// The lines go with it (ON DELETE CASCADE).
+func (q *Queries) DeleteInvoice(ctx context.Context, invoiceID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteInvoice, invoiceID)
+	return err
+}
+
 const deleteInvoiceLines = `-- name: DeleteInvoiceLines :exec
 DELETE FROM invoice_line_items WHERE invoice_id = $1
 `
@@ -472,6 +482,22 @@ SELECT pg_advisory_xact_lock(hashtextextended('invoice-number:' || $1::text, 0))
 // Held until the caller's transaction ends: one number at a time per year.
 func (q *Queries) LockInvoiceNumbers(ctx context.Context, year string) error {
 	_, err := q.db.Exec(ctx, lockInvoiceNumbers, year)
+	return err
+}
+
+const setInvoiceStatus = `-- name: SetInvoiceStatus :exec
+UPDATE invoices SET status = $1, balance_due = $2 WHERE invoice_id = $3
+`
+
+type SetInvoiceStatusParams struct {
+	Status     string
+	BalanceDue decimal.Decimal
+	InvoiceID  uuid.UUID
+}
+
+// The lifecycle transitions: the new status with the balance it leaves.
+func (q *Queries) SetInvoiceStatus(ctx context.Context, arg SetInvoiceStatusParams) error {
+	_, err := q.db.Exec(ctx, setInvoiceStatus, arg.Status, arg.BalanceDue, arg.InvoiceID)
 	return err
 }
 

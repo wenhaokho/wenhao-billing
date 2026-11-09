@@ -1,0 +1,141 @@
+package invoices
+
+import (
+	"context"
+	"errors"
+	"net/http"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
+
+	"github.com/LOQATO/gokit/db"
+
+	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
+)
+
+// lock reads invoice id FOR UPDATE; an unknown one is Python's refusal
+// (a 400 on every write route).
+func lock(ctx context.Context, q *invoicesdb.Queries, id uuid.UUID) (invoicesdb.Invoice, error) {
+	inv, err := q.GetInvoiceForUpdate(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return invoicesdb.Invoice{}, refuse("invoice_not_found", "invoice %s not found", id)
+	}
+	return inv, err
+}
+
+// finalizeInvoice is Python's finalize_invoice (invoicing.py:643-664): a
+// DRAFT that owes something is issued as OPEN (SENT is for the email); one
+// with nothing to collect is settled straight to PAID.
+func finalizeInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, error) {
+	q := invoicesdb.New(tx)
+	inv, err := lock(ctx, q, id)
+	if err != nil {
+		return InvoiceOut{}, err
+	}
+	if inv.Status != "DRAFT" {
+		return InvoiceOut{}, refuse("invoice_not_draft", "only DRAFT invoices can be finalized (got %s)", inv.Status)
+	}
+	if inv.IsTemplate {
+		return InvoiceOut{}, refuse("invoice_is_template", "cannot finalize a recurring template")
+	}
+	status, balance := "OPEN", inv.BalanceDue
+	if !balance.IsPositive() {
+		status, balance = "PAID", decimal.Zero
+	}
+	return transition(ctx, q, id, status, balance)
+}
+
+// settleInvoice is Python's settle_zero_value_invoice (invoicing.py:667-690):
+// an issued invoice with nothing outstanding becomes PAID; one that still
+// owes is refused, so a real receivable is never wiped out.
+func settleInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, error) {
+	q := invoicesdb.New(tx)
+	inv, err := lock(ctx, q, id)
+	if err != nil {
+		return InvoiceOut{}, err
+	}
+	switch inv.Status {
+	case "OPEN", "SENT", "PARTIAL":
+	default:
+		return InvoiceOut{}, refuse("invoice_not_settleable", "only OPEN, SENT or PARTIAL invoices can be settled this way (got %s)", inv.Status)
+	}
+	if inv.BalanceDue.IsPositive() {
+		return InvoiceOut{}, refuse("invoice_balance_outstanding",
+			"invoice has an outstanding balance of %s — record a payment instead", platform.NewDec4(inv.BalanceDue).Decimal().StringFixed(4))
+	}
+	return transition(ctx, q, id, "PAID", decimal.Zero)
+}
+
+// voidInvoice is Python's void_invoice (invoicing.py:693-700): anything but
+// a PAID invoice (a template included) becomes VOID with nothing owing.
+func voidInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, error) {
+	q := invoicesdb.New(tx)
+	inv, err := lock(ctx, q, id)
+	if err != nil {
+		return InvoiceOut{}, err
+	}
+	if inv.Status == "PAID" {
+		return InvoiceOut{}, refuse("invoice_paid", "cannot void a PAID invoice — reverse payments first")
+	}
+	return transition(ctx, q, id, "VOID", decimal.Zero)
+}
+
+func transition(ctx context.Context, q *invoicesdb.Queries, id uuid.UUID, status string, balance decimal.Decimal) (InvoiceOut, error) {
+	if err := q.SetInvoiceStatus(ctx, invoicesdb.SetInvoiceStatusParams{InvoiceID: id, Status: status, BalanceDue: balance}); err != nil {
+		return InvoiceOut{}, err
+	}
+	return Get(ctx, q, id)
+}
+
+// referenced is the 409 for deleting an invoice a payment or quotation
+// points to (Python answered 500).
+var referenced = map[string]platform.Constraint{
+	"payments_invoice_id_fkey":             {Status: http.StatusConflict, Code: "invoice_referenced", Detail: "invoice is referenced by a payment or quotation"},
+	"quotations_converted_invoice_id_fkey": {Status: http.StatusConflict, Code: "invoice_referenced", Detail: "invoice is referenced by a payment or quotation"},
+}
+
+// deleteInvoice is Python's delete_invoice (invoicing.py:467-474): only a
+// DRAFT goes, and its lines with it.
+func deleteInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	q := invoicesdb.New(tx)
+	inv, err := lock(ctx, q, id)
+	if err != nil {
+		return err
+	}
+	if inv.Status != "DRAFT" {
+		return refuse("invoice_not_draft", "only DRAFT invoices can be deleted (got %s)", inv.Status)
+	}
+	return platform.MapConstraint(q.DeleteInvoice(ctx, id), referenced)
+}
+
+func (r routes) finalize(ctx context.Context, in *idIn) (*invoiceBody, error) {
+	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return finalizeInvoice(ctx, tx, in.InvoiceID) })
+}
+
+func (r routes) markPaid(ctx context.Context, in *idIn) (*invoiceBody, error) {
+	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return settleInvoice(ctx, tx, in.InvoiceID) })
+}
+
+// VoidRequest is the body of a void (schemas/invoice.py:33-34).
+type VoidRequest struct {
+	Reason string `json:"reason" doc:"Required, and not stored."`
+}
+
+type voidIn struct {
+	InvoiceID uuid.UUID `path:"invoice_id"`
+	Body      VoidRequest
+}
+
+func (r routes) void(ctx context.Context, in *voidIn) (*invoiceBody, error) {
+	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return voidInvoice(ctx, tx, in.InvoiceID) })
+}
+
+func (r routes) delete(ctx context.Context, in *idIn) (*struct{}, error) {
+	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error { return deleteInvoice(ctx, tx, in.InvoiceID) })
+	if err != nil {
+		return nil, clientError(err)
+	}
+	return nil, nil
+}
