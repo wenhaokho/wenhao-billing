@@ -263,14 +263,14 @@ func updateInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID, b InvoiceUpdate
 	}
 
 	f := b.InvoiceFields
-	inv.CustomerID = mergeUUID(f.CustomerID, inv.CustomerID)
-	inv.ProjectID = mergeUUID(f.ProjectID, inv.ProjectID)
+	inv.CustomerID = platform.MergeUUID(f.CustomerID, inv.CustomerID)
+	inv.ProjectID = platform.MergeUUID(f.ProjectID, inv.ProjectID)
 	inv.InvoiceType = b.InvoiceType.Or(inv.InvoiceType)
 	inv.Currency = b.Currency.Or(inv.Currency)
 	inv.InvoiceNumber = f.InvoiceNumber.Merge(inv.InvoiceNumber)
 	inv.PoSoNumber = f.PoSoNumber.Merge(inv.PoSoNumber)
-	inv.IssueDate = mergeDate(f.IssueDate, inv.IssueDate)
-	inv.DueDate = mergeDate(f.DueDate, inv.DueDate)
+	inv.IssueDate = platform.MergeDate(f.IssueDate, inv.IssueDate)
+	inv.DueDate = platform.MergeDate(f.DueDate, inv.DueDate)
 	inv.PaymentTerms = f.PaymentTerms.Merge(inv.PaymentTerms)
 	inv.Notes = f.Notes.Merge(inv.Notes)
 	inv.Footer = f.Footer.Merge(inv.Footer)
@@ -434,21 +434,4 @@ func pgDate(t *time.Time) pgtype.Date {
 		return pgtype.Date{}
 	}
 	return pgtype.Date{Time: *t, Valid: true}
-}
-
-func mergeUUID(f platform.Optional[uuid.UUID], cur pgtype.UUID) pgtype.UUID {
-	if !f.Set {
-		return cur
-	}
-	return pgUUID(f.Merge(nil))
-}
-
-func mergeDate(f platform.Optional[platform.Date], cur pgtype.Date) pgtype.Date {
-	if !f.Set {
-		return cur
-	}
-	if f.Null {
-		return pgtype.Date{}
-	}
-	return pgDate(&f.Value.Time)
 }

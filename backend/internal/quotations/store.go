@@ -184,10 +184,10 @@ func updateQuotation(ctx context.Context, tx pgx.Tx, id uuid.UUID, b QuotationUp
 	t := totals(lines, discountType, storedDec(discountValue), currency)
 
 	err = q.UpdateQuotation(ctx, quotationsdb.UpdateQuotationParams{
-		QuotationID: id, CustomerID: b.CustomerID.Or(cur.CustomerID), ProjectID: mergeUUID(f.ProjectID, cur.ProjectID),
+		QuotationID: id, CustomerID: b.CustomerID.Or(cur.CustomerID), ProjectID: platform.MergeUUID(f.ProjectID, cur.ProjectID),
 		QuotationNumber: f.QuotationNumber.Merge(cur.QuotationNumber), PoSoNumber: f.PoSoNumber.Merge(cur.PoSoNumber),
 		Currency: currency, Subtotal: nullDec(&t.Subtotal), DiscountType: discountType, DiscountValue: discountValue,
-		Amount: t.Amount, IssueDate: mergeDate(f.IssueDate, cur.IssueDate), ValidUntil: mergeDate(f.ValidUntil, cur.ValidUntil),
+		Amount: t.Amount, IssueDate: platform.MergeDate(f.IssueDate, cur.IssueDate), ValidUntil: platform.MergeDate(f.ValidUntil, cur.ValidUntil),
 		PaymentTerms: f.PaymentTerms.Merge(cur.PaymentTerms), Notes: f.Notes.Merge(cur.Notes), Footer: f.Footer.Merge(cur.Footer),
 	})
 	if err != nil {
@@ -233,20 +233,3 @@ func nullDec(d *decimal.Decimal) decimal.NullDecimal {
 }
 
 func pgDate(t time.Time) pgtype.Date { return pgtype.Date{Time: t, Valid: true} }
-
-func mergeUUID(f platform.Optional[uuid.UUID], cur pgtype.UUID) pgtype.UUID {
-	if !f.Set {
-		return cur
-	}
-	return pgUUID(f.Merge(nil))
-}
-
-func mergeDate(f platform.Optional[platform.Date], cur pgtype.Date) pgtype.Date {
-	if !f.Set {
-		return cur
-	}
-	if f.Null {
-		return pgtype.Date{}
-	}
-	return pgDate(f.Value.Time)
-}

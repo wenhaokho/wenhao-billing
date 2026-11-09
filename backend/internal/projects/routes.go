@@ -115,8 +115,8 @@ func (r routes) create(ctx context.Context, in *createIn) (*projectBody, error) 
 		Currency:      currency,
 		ContractValue: budget,
 		Status:        b.Status.Or("ACTIVE"),
-		StartDate:     mergeDate(b.StartDate, pgtype.Date{}),
-		EndDate:       mergeDate(b.EndDate, pgtype.Date{}),
+		StartDate:     platform.MergeDate(b.StartDate, pgtype.Date{}),
+		EndDate:       platform.MergeDate(b.EndDate, pgtype.Date{}),
 		Notes:         b.Notes.Merge(nil),
 	})
 	if err != nil {
@@ -207,8 +207,8 @@ func (r routes) update(ctx context.Context, in *updateIn) (*projectBody, error) 
 			Currency:      currency,
 			ContractValue: budget,
 			Status:        b.Status.Or(cur.Status),
-			StartDate:     mergeDate(b.StartDate, cur.StartDate),
-			EndDate:       mergeDate(b.EndDate, cur.EndDate),
+			StartDate:     platform.MergeDate(b.StartDate, cur.StartDate),
+			EndDate:       platform.MergeDate(b.EndDate, cur.EndDate),
 			Notes:         b.Notes.Merge(cur.Notes),
 			Active:        b.Active.Or(cur.Active),
 		})

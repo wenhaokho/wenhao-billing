@@ -14,6 +14,7 @@ import (
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
 const base = "IDR"
@@ -590,8 +591,8 @@ func TestPyStr(t *testing.T) {
 		"-0.0001": "-0.0001", "1000": "1000", "1E+3": "1E+3", "0.0000001": "1E-7", "0.000001": "0.000001",
 		"1.5E+4": "1.5E+4",
 	} {
-		if got := pyStr(dec(in)); got != want {
-			t.Errorf("pyStr(%s) = %q, want %q", in, got, want)
+		if got := platform.PyDecimalStr(dec(in)); got != want {
+			t.Errorf("platform.PyDecimalStr(%s) = %q, want %q", in, got, want)
 		}
 	}
 }

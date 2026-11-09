@@ -13,6 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/shopspring/decimal"
 )
@@ -677,4 +680,83 @@ func TestDecimalBoundsListEveryField(t *testing.T) {
 	if rec.Code != 422 || !slices.Equal(got, []string{"d2", "d4", "d8"}) {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
+}
+
+func TestParseDec4(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ in, want, err string }{
+		{in: "100.5", want: "100.5"},
+		{in: "1.50000", want: "1.5"},
+		{in: "-0.0001", want: "-0.0001"},
+		{in: "999999999999999.9999", want: "999999999999999.9999"},
+		{in: "1.00001", err: "value has too many decimal places (max 4)"},
+		{in: "1000000000000000", err: "value has too many digits (max 15 before the point)"},
+		{in: "abc", err: "value is not a valid decimal"},
+		{in: "", err: "value is not a valid decimal"},
+		{in: "1e999999999", err: "value is not a valid decimal"},
+		{in: "1e-999999999", err: "value is not a valid decimal"},
+	} {
+		t.Run(c.in, func(t *testing.T) {
+			t.Parallel()
+			done := make(chan struct{})
+			var d decimal.Decimal
+			var err error
+			go func() { defer close(done); d, err = ParseDec4(c.in) }()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("ParseDec4 hung")
+			}
+			if c.err != "" {
+				if err == nil || err.Error() != c.err {
+					t.Fatalf("err = %v, want %q", err, c.err)
+				}
+				return
+			}
+			if err != nil || d.String() != c.want {
+				t.Fatalf("= %s, %v; want %s", d, err, c.want)
+			}
+		})
+	}
+}
+
+func TestMergeHelpers(t *testing.T) {
+	t.Parallel()
+	id := uuid.New()
+	cur := pgtype.UUID{Bytes: uuid.New(), Valid: true}
+	t.Run("uuid", func(t *testing.T) {
+		t.Parallel()
+		if got := MergeUUID(Optional[uuid.UUID]{}, cur); got != cur {
+			t.Errorf("omitted = %v, want kept", got)
+		}
+		if got := MergeUUID(Optional[uuid.UUID]{Set: true, Null: true}, cur); got.Valid {
+			t.Errorf("null = %v, want cleared", got)
+		}
+		if got := MergeUUID(Optional[uuid.UUID]{Set: true, Value: id}, cur); !got.Valid || got.Bytes != id {
+			t.Errorf("value = %v, want %s", got, id)
+		}
+	})
+	t.Run("date", func(t *testing.T) {
+		t.Parallel()
+		day := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+		curD := pgtype.Date{Time: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}
+		if got := MergeDate(Optional[Date]{}, curD); got != curD {
+			t.Errorf("omitted = %v, want kept", got)
+		}
+		if got := MergeDate(Optional[Date]{Set: true, Null: true}, curD); got.Valid {
+			t.Errorf("null = %v, want cleared", got)
+		}
+		if got := MergeDate(Optional[Date]{Set: true, Value: Date{Time: day}}, curD); !got.Valid || !got.Time.Equal(day) {
+			t.Errorf("value = %v, want %v", got, day)
+		}
+	})
+	t.Run("uuid pointer", func(t *testing.T) {
+		t.Parallel()
+		if UUIDPtr(pgtype.UUID{}) != nil {
+			t.Error("NULL should be nil")
+		}
+		if p := UUIDPtr(cur); p == nil || *p != uuid.UUID(cur.Bytes) {
+			t.Errorf("UUIDPtr = %v", p)
+		}
+	})
 }

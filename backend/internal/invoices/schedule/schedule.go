@@ -65,7 +65,7 @@ func Parse(cfg map[string]any) (Schedule, error) {
 	}
 	frequency, isStr := cfg["frequency"].(string)
 	if !isStr || !frequencies[frequency] {
-		return Schedule{}, fail("invalid frequency: " + repr(cfg["frequency"]))
+		return Schedule{}, fail("invalid frequency: " + platform.PyValueRepr(cfg["frequency"]))
 	}
 
 	interval := any(1)
@@ -74,7 +74,7 @@ func Parse(cfg map[string]any) (Schedule, error) {
 	}
 	n, ok := asInt(interval)
 	if !ok || n < 1 {
-		return Schedule{}, fail("interval must be a positive int, got " + repr(interval))
+		return Schedule{}, fail("interval must be a positive int, got " + platform.PyValueRepr(interval))
 	}
 
 	start, err := parseDate(cfg["start_date"], "start_date")
@@ -88,7 +88,7 @@ func Parse(cfg map[string]any) (Schedule, error) {
 	}
 	mode, isStr := endMode.(string)
 	if !isStr || (mode != "NEVER" && mode != "ON_DATE" && mode != "AFTER_N") {
-		return Schedule{}, fail("invalid end_mode: " + repr(endMode))
+		return Schedule{}, fail("invalid end_mode: " + platform.PyValueRepr(endMode))
 	}
 
 	s := Schedule{Frequency: frequency, Interval: n, Start: start, EndMode: mode}
@@ -121,7 +121,7 @@ func parseDate(v any, field string) (time.Time, error) {
 		if t, ok := parseISODate(x); ok {
 			return t, nil
 		}
-		return time.Time{}, fail("invalid ISO date for " + field + ": " + repr(x))
+		return time.Time{}, fail("invalid ISO date for " + field + ": " + platform.PyValueRepr(x))
 	}
 	return time.Time{}, fail("missing or invalid " + field)
 }
@@ -165,39 +165,6 @@ func asInt(v any) (int, bool) {
 		return int(n), true
 	}
 	return 0, false
-}
-
-// repr is Python's repr for the JSON-shaped values a config can hold.
-func repr(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return "None"
-	case bool:
-		if x {
-			return "True"
-		}
-		return "False"
-	case string:
-		return platform.PyRepr(x)
-	case int:
-		return strconv.Itoa(x)
-	case int32:
-		return strconv.Itoa(int(x))
-	case int64:
-		return strconv.FormatInt(x, 10)
-	case float64: //nolint:forbidigo // not money: Python repr of a JSON number
-		return platform.PyFloatRepr(x)
-	case json.Number: // an int when it has no fraction or exponent, else a float
-		s := x.String()
-		if _, err := strconv.ParseInt(s, 10, 64); err == nil {
-			return s
-		}
-		if f, err := x.Float64(); err == nil {
-			return platform.PyFloatRepr(f)
-		}
-		return s
-	}
-	return "<unsupported>"
 }
 
 // ---------------------------------------------------------------------------
