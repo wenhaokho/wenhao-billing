@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -17,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/auth"
+
+	"github.com/LOQATO/gokit/observe"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/oauth"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
@@ -44,8 +47,13 @@ func (v *verifier) verify(ctx context.Context, token string, _ *http.Request) (*
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: not an admin user", auth.ErrInvalidToken)
 		}
-		// An unexpected database error is a 500, not a 401.
-		return nil, fmt.Errorf("mcp verifier: %w", err)
+		// An unexpected database error is a 500, not a 401. Log it (the
+		// client only sees a generic message) and report it, so an outage
+		// is diagnosable without leaking the driver's text to the caller.
+		logger := observe.LoggerFrom(ctx)
+		logger.Error("mcp verifier: reading the user failed", "err", err)
+		observe.Report(err, map[string]string{"component": "mcp"})
+		return nil, errors.New("mcp verifier: could not read the user")
 	}
 	if role != "admin" {
 		return nil, fmt.Errorf("%w: not an admin user", auth.ErrInvalidToken)
@@ -58,16 +66,32 @@ func (v *verifier) verify(ctx context.Context, token string, _ *http.Request) (*
 	}, nil
 }
 
-// principal returns the authenticated admin from the request context, for
-// tool handlers. It is the TokenInfo the verifier put on the context.
-func principal(ctx context.Context) (uuid.UUID, bool) {
+// principalRef is the authenticated admin a tool runs as. A tool that gets
+// no principal runs nothing: the transport's verifier is the only way in, so
+// a missing principal means the call did not come through the transport.
+type principalRef struct {
+	UserID uuid.UUID
+}
+
+// principalFrom is the admin the request context carries.
+func principalFrom(ctx context.Context) (principalRef, bool) {
 	ti := auth.TokenInfoFromContext(ctx)
 	if ti == nil || ti.UserID == "" {
-		return uuid.Nil, false
+		return principalRef{}, false
 	}
 	id, err := uuid.Parse(ti.UserID)
 	if err != nil {
-		return uuid.Nil, false
+		return principalRef{}, false
 	}
-	return id, true
+	return principalRef{UserID: id}, true
 }
+
+// principal is the authenticated admin from the request context, for
+// tool handlers. It is the TokenInfo the verifier put on the context.
+func principal(ctx context.Context) (uuid.UUID, bool) {
+	p, ok := principalFrom(ctx)
+	return p.UserID, ok
+}
+
+// logger is the request's logger, or the process default.
+func logger(ctx context.Context) *slog.Logger { return observe.LoggerFrom(ctx) }

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/oauth2"
 
@@ -344,6 +342,26 @@ func TestWwwAuthenticateMatchesPython(t *testing.T) {
 	}
 }
 
+// TestVerifierDatabaseErrorIsGeneric: a database failure in the verifier is
+// a 500 whose body carries no driver text. The detail is logged, not sent.
+func TestVerifierDatabaseErrorIsGeneric(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	// A pool that is closed: the verifier's SELECT fails with a driver
+	// error, not with "no rows".
+	h.pool.Close()
+	rec := postInitialize(h.handler(t), h.accessToken(t, h.adminID))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500: %s", rec.Code, rec.Body)
+	}
+	body := rec.Body.String()
+	for _, leak := range []string{"closed pool", "pgx", "conn closed", "database"} {
+		if strings.Contains(strings.ToLower(body), leak) {
+			t.Fatalf("the driver text leaked into the 500 body (%q): %s", leak, body)
+		}
+	}
+}
+
 func TestPingShapeMatchesPython(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -382,33 +400,9 @@ func TestPingShapeMatchesPython(t *testing.T) {
 	}
 }
 
-var errBoom = errors.New("simulated failure mid-tool")
-
-func TestToolSessionRollsBackOnError(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-	ctx := t.Context()
-	email := "rollback-on-error@example.com"
-	if _, err := h.pool.Exec(ctx, `DELETE FROM users WHERE email=$1`, email); err != nil {
-		t.Fatal(err)
-	}
-	err := db.InTx(ctx, h.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO users (user_id, email, password_hash, role) VALUES ($1,$2,'x','admin')`, uuid.New(), email); err != nil {
-			return err
-		}
-		return errBoom
-	})
-	if !errors.Is(err, errBoom) {
-		t.Fatalf("want boom, got %v", err)
-	}
-	var n int
-	if err := h.pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE email=$1`, email).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	if n != 0 {
-		t.Fatalf("rollback left %d row(s)", n)
-	}
-}
+// The rollback of a failed tool is TestToolErrorRollsBackItsWrites in
+// tools_test.go: it drives the tool through the transport, so the tool's
+// writes really do go through the helper's transaction.
 
 const (
 	verifier    = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"

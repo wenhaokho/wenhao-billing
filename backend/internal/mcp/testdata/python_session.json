@@ -1,4 +1,5 @@
 {
+  "_note": "Recorded from the frozen Python server (FastMCP 3.4.3) with a real access token, on 2026-11-10. The 'unauthorized' entry is the RAW HTTP exchange: the status, the response headers (including www-authenticate) and the body, exactly as the server sent them. Every other entry is a PARSED, CLIENT-SIDE object, not the raw wire exchange: the values were read off the MCP client's pydantic models and dumped, so they carry pydantic's spellings and defaults (the wire's _meta appears here as 'meta', and members the wire omits appear here as null). The 'tools_list' entry is the client's parsed tool list, with the schemas the client inferred. Compare the shapes, not the byte-for-byte wire text.",
   "unauthorized": {
     "status": 401,
     "headers": {

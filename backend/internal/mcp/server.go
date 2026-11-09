@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -36,12 +37,22 @@ type pingOut struct {
 	Result string `json:"result" jsonschema:"the pong result"`
 }
 
-func pingTool(ctx context.Context, _ *mcp.CallToolRequest, _ pingIn) (*mcp.CallToolResult, pingOut, error) {
-	// Tools prove the transport authenticated them; the verifier already
-	// refused unauthenticated calls, so a missing principal is a bug, but
-	// ping still answers pong for direct (non-transport) calls.
+func pingTool(ctx context.Context, _ pgx.Tx, _ principalRef, _ pingIn) (pingOut, error) {
+	// The transport's verifier already refused unauthenticated calls and the
+	// registration helper refuses a call without a principal, so reaching
+	// here means the request was authenticated.
 	_, _ = principal(ctx)
-	return nil, pingOut{Result: "pong"}, nil
+	return pingOut{Result: "pong"}, nil
+}
+
+// bearer wraps a handler with the SDK's bearer-token middleware: the
+// verifier checks the access token and the admin on every request, and the
+// 401 carries the protected-resource metadata challenge.
+func bearer(next http.Handler, v *verifier, resourceURL string) http.Handler {
+	return auth.RequireBearerToken(v.verify, &auth.RequireBearerTokenOptions{
+		ResourceMetadataURL:    resourceURL,
+		AllowMissingExpiration: true,
+	})(next)
 }
 
 // NewHandler builds the /mcp endpoint. The bare /mcp path redirects to
@@ -55,18 +66,14 @@ func NewHandler(deps Deps) http.Handler {
 	}
 	tokens := oauth.NewTokens(deps.Cfg.MCPTokenSecret, deps.Cfg.MCPAccessTokenTTL, deps.Cfg.MCPRefreshTokenTTL)
 	server := mcp.NewServer(&mcp.Implementation{Name: "wenhao-billing", Version: "1.0.0"}, nil)
-	mcp.AddTool(server, &mcp.Tool{Name: "ping", Description: "Health check \u2014 returns 'pong'."}, pingTool)
+	addTool(server, deps, &mcp.Tool{Name: "ping", Description: "Health check \u2014 returns 'pong'."}, pingTool)
 	stream := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, DisableLocalhostProtection: true},
 	)
 	resourceURL := strings.TrimRight(deps.Cfg.MCPPublicBaseURL, "/") + "/.well-known/oauth-protected-resource"
 	verifier := newVerifier(deps.Pool, clock, tokens)
-	authed := auth.RequireBearerToken(verifier.verify, &auth.RequireBearerTokenOptions{
-		ResourceMetadataURL:    resourceURL,
-		AllowMissingExpiration: true,
-	})
-	guarded := newHostGuard(deps.Cfg).wrap(authed(stream))
+	guarded := newHostGuard(deps.Cfg).wrap(bearer(stream, verifier, resourceURL))
 	mcpHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/mcp/" {
 			http.NotFound(w, r)
