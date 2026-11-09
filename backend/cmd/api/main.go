@@ -94,8 +94,9 @@ func register(api huma.API, f features) {
 // oauthRoot mounts the MCP connector's OAuth server and the /mcp transport
 // at the root, only when MCP_ENABLED (nil mounts nothing, and its paths
 // answer 404). mail is the sender the connector's gated email tools use; it
-// is the same sender the API's routes use.
-func oauthRoot(cfg platform.Config, pool *pgxpool.Pool, sessions platform.Sessions, clock platform.Clock, mail email.Sender) func(chi.Router) {
+// is the same sender the API's routes use, and notify is the one the invoices
+// routes tell of new recurring drafts (trigger_recurring tells it too).
+func oauthRoot(cfg platform.Config, pool *pgxpool.Pool, sessions platform.Sessions, clock platform.Clock, mail email.Sender, notify invoices.DraftNotifier) func(chi.Router) {
 	if !cfg.MCPEnabled {
 		return nil
 	}
@@ -108,6 +109,7 @@ func oauthRoot(cfg platform.Config, pool *pgxpool.Pool, sessions platform.Sessio
 		handler := mcp.NewHandler(mcp.Deps{
 			Pool: pool, Clock: clock, Cfg: cfg,
 			Sender:   mail,
+			Notifier: notify,
 			Payments: payments.Service{BaseCurrency: cfg.BaseCurrency, Hosting: payments.NoHosting{}},
 		})
 		r.Handle("/mcp", handler)
@@ -182,7 +184,7 @@ func serve() error {
 	// One sender for the whole process: the API's routes and the MCP
 	// connector's gated email tools share it.
 	mail := mailSender(cfg, logger)
-	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock, Root: oauthRoot(cfg, pool, sessions, clock, mail)})
+	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock, Root: oauthRoot(cfg, pool, sessions, clock, mail, invoices.LogNotifier{Logger: logger})})
 	register(api, features{
 		Pool: pool, Sessions: sessions, Mail: mail, Config: cfg, Clock: clock,
 		Logger:   logger,

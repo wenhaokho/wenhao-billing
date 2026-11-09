@@ -16,9 +16,22 @@ type Object struct {
 	vals []json.RawMessage
 }
 
+// marshalLiteral is v's JSON with < > and & as they are (the encoder's
+// default writes each as a Unicode escape; Python's JSON does not), and no
+// trailing newline.
+func marshalLiteral(v any) ([]byte, error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(b.Bytes(), "\n"), nil
+}
+
 // set appends key with v's JSON.
 func (o *Object) set(key string, v any) error {
-	raw, err := json.Marshal(v)
+	raw, err := marshalLiteral(v)
 	if err != nil {
 		return fmt.Errorf("object key %q: %w", key, err)
 	}
@@ -53,7 +66,7 @@ func (o Object) MarshalJSON() ([]byte, error) {
 // existing response type; a name it has no key for is a bug in the field
 // list, so it is an error rather than a silent gap.
 func pick(v any, fields []string) (Object, error) {
-	raw, err := json.Marshal(v)
+	raw, err := marshalLiteral(v)
 	if err != nil {
 		return Object{}, fmt.Errorf("marshal: %w", err)
 	}

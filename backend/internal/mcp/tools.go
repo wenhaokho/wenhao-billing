@@ -49,7 +49,9 @@ func Refuse(format string, args ...any) error {
 // there and FastMCP answers an isError result, so the helper does the same,
 // with msg as its text: no structured content, logged at warn level and not
 // reported (it is the client's mistake, not a fault). A tool with the open
-// object returns Refuse instead.
+// object may return either: the helper answers a BadArg from such a tool as
+// the refusal {"error": msg} (Go change 11), so no dict tool can leak an
+// isError for a bad argument.
 type ArgError struct{ Msg string }
 
 func (a *ArgError) Error() string { return a.Msg }
@@ -68,6 +70,7 @@ type toolFn[In, Out any] func(ctx context.Context, tx pgx.Tx, p principalRef, in
 type toolOption func(*toolConfig)
 
 type toolConfig struct {
+	name      string
 	noTx      bool
 	outSchema bool
 }
@@ -157,8 +160,13 @@ func isOpenObject(declared any) bool {
 //     is that object's compact JSON, as FastMCP answers a tool's dict. A
 //     Refusal from a tool that declares any other schema (a withOutSchema
 //     tool: it must never refuse) is a bug and counts as any other error.
-//   - Bad argument to such a list tool (BadArg): an isError result whose text
-//     is the sentence, as Python's raise: not reported.
+//   - Bad argument (BadArg) from a tool that declares the open object: the
+//     same {"error": msg} refusal.
+//   - Bad argument to a list tool (BadArg from a withOutSchema tool): an
+//     isError result whose text is the sentence, as Python's raise: not
+//     reported.
+//   - After-commit hooks (afterCommit) run once the transaction committed,
+//     never after a refusal, an error or a panic, and never fail the result.
 //   - Any other error (driver, begin/commit, output marshalling) or a panic
 //     anywhere in the handler: the transaction rolls back, the cause is
 //     logged with slog (a panic with its stack) and reported with
@@ -179,7 +187,7 @@ func isOpenObject(declared any) bool {
 // marshal and validate a zero Out, and the SDK does not re-encode the output
 // (which would sort its keys).
 func addTool[In, Out any](s *mcp.Server, d Deps, tool *mcp.Tool, fn toolFn[In, Out], opts ...toolOption) mcp.ToolHandlerFor[In, any] {
-	var cfg toolConfig
+	cfg := toolConfig{name: tool.Name}
 	for _, o := range opts {
 		o(&cfg)
 	}
@@ -230,6 +238,11 @@ func addTool[In, Out any](s *mcp.Server, d Deps, tool *mcp.Tool, fn toolFn[In, O
 			switch {
 			case errors.As(err, &ref) && canRefuse:
 				return refusalResult(ref.Msg), nil, nil
+			case errors.As(err, &arg) && canRefuse:
+				// A dict tool answers every bad argument as {"error": msg}
+				// (Go change 11): the helper makes it uniform, so no dict tool
+				// can leak an isError for a bad argument.
+				return refusalResult(arg.Msg), nil, nil
 			case errors.As(err, &arg):
 				logger(ctx).WarnContext(ctx, "mcp tool bad argument", "tool", t.Name, "msg", arg.Msg)
 				res := &mcp.CallToolResult{}
@@ -265,12 +278,19 @@ func addTool[In, Out any](s *mcp.Server, d Deps, tool *mcp.Tool, fn toolFn[In, O
 // it back (the deferred rollback runs while a panic unwinds, before the
 // handler's recover).
 func runTool[In, Out any](ctx context.Context, d Deps, cfg toolConfig, schema *jsonschema.Resolved, p principalRef, in In, fn toolFn[In, Out]) (json.RawMessage, error) {
+	hooks := &commitHooks{}
+	ctx = context.WithValue(ctx, commitHooksKey{}, hooks)
 	if cfg.noTx {
 		o, err := fn(ctx, nil, p, in)
 		if err != nil {
 			return nil, err
 		}
-		return marshalOut(o, schema)
+		raw, err := marshalOut(o, schema)
+		if err != nil {
+			return nil, err
+		}
+		hooks.run(ctx, cfg.name)
+		return raw, nil
 	}
 	tx, err := d.Pool.Begin(ctx)
 	if err != nil {
@@ -298,7 +318,46 @@ func runTool[In, Out any](ctx context.Context, d Deps, cfg toolConfig, schema *j
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 	committed = true
+	hooks.run(ctx, cfg.name)
 	return raw, nil
+}
+
+// commitHooksKey carries a call's commitHooks in its context.
+type commitHooksKey struct{}
+
+// commitHooks are the functions a tool body asked to run once its
+// transaction has committed.
+type commitHooks struct{ fns []func(context.Context) }
+
+// afterCommit registers fn to run after the tool's transaction committed
+// (after marshalling, for a tool registered withoutTx, which has none): a
+// refusal, an error or a panic before the commit runs none of them. For the
+// side effects that must see the committed rows and must never fail a write
+// that already stands, such as the hosting restore after a payment clears.
+// fn gets the call's context without its cancellation; a panic in it is
+// logged and reported and never reaches the client. Only a tool body calls it.
+func afterCommit(ctx context.Context, fn func(context.Context)) {
+	h, ok := ctx.Value(commitHooksKey{}).(*commitHooks)
+	if !ok {
+		panic("mcp: afterCommit outside a tool call")
+	}
+	h.fns = append(h.fns, fn)
+}
+
+// run calls each hook in order, each one shielded from a panic.
+func (h *commitHooks) run(ctx context.Context, tool string) {
+	ctx = context.WithoutCancel(ctx)
+	for _, fn := range h.fns {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger(ctx).ErrorContext(ctx, "mcp after-commit hook panicked", "tool", tool, "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+					observe.Report(fmt.Errorf("mcp tool %s after-commit hook panic: %v", tool, r), map[string]string{"component": "mcp"})
+				}
+			}()
+			fn(ctx)
+		}()
+	}
 }
 
 // marshalOut marshals the tool's output and validates the JSON (not the Go
@@ -306,10 +365,15 @@ func runTool[In, Out any](ctx context.Context, d Deps, cfg toolConfig, schema *j
 // checked as the client sees it) against the declared outputSchema. The SDK
 // would validate it too, but only after the commit; failing here rolls back.
 func marshalOut(o any, schema *jsonschema.Resolved) (json.RawMessage, error) {
-	raw, err := json.Marshal(o)
-	if err != nil {
+	// No HTML escaping and no trailing newline: Python's JSON writes < > and &
+	// as they are (refusalResult does the same).
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(o); err != nil {
 		return nil, fmt.Errorf("marshal output: %w", err)
 	}
+	raw := json.RawMessage(bytes.TrimRight(buf.Bytes(), "\n"))
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return nil, fmt.Errorf("decode output: %w", err)

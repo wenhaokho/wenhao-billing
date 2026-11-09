@@ -1,7 +1,9 @@
 package mcp
 
 import (
+	"encoding/hex"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,15 +24,25 @@ func clampLimit(n int) *int32 {
 	return &l
 }
 
-// parseID is Python's UUID(x): it accepts the hyphenated form, braces, the
-// urn:uuid: prefix and the bare 32 hex digits, in either case. name is the
-// argument's name, for the sentence of the refusal.
+// parseID is Python's UUID(x): it removes every "urn:" and "uuid:", strips
+// braces from both ends, removes every hyphen, and then needs exactly 32 hex
+// digits, in either case. So the hyphenated form, braces, the urn:uuid:
+// prefix and the bare digits all parse, and so does a hyphen anywhere, as in
+// Python. Narrower than Python only where int(x, 16) is lenient (surrounding
+// whitespace, a sign, a "0x" prefix, underscores): those are refused. name is
+// the argument's name, for the sentence of the refusal.
 func parseID(name, raw string) (uuid.UUID, error) {
-	id, err := uuid.Parse(raw)
-	if err != nil {
+	s := strings.ReplaceAll(strings.ReplaceAll(raw, "urn:", ""), "uuid:", "")
+	s = strings.ReplaceAll(strings.Trim(s, "{}"), "-", "")
+	var b [16]byte
+	// len first: hex.Decode into b would run past it for a longer s.
+	if len(s) != 32 {
 		return uuid.Nil, errors.New("invalid " + name + ": " + raw + " is not a valid UUID")
 	}
-	return id, nil
+	if _, err := hex.Decode(b[:], []byte(s)); err != nil {
+		return uuid.Nil, errors.New("invalid " + name + ": " + raw + " is not a valid UUID")
+	}
+	return uuid.UUID(b), nil
 }
 
 // optID is parseID of an argument that filters only when given: nil and ""

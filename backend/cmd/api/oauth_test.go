@@ -18,7 +18,7 @@ func send(t *testing.T, cfg platform.Config, method, path string) *httptest.Resp
 // names an allowed host.
 func sendHost(t *testing.T, cfg platform.Config, method, path, host string) *httptest.ResponseRecorder {
 	t.Helper()
-	handler, _ := platform.NewServer(cfg, platform.Deps{Root: oauthRoot(cfg, nil, platform.Sessions{}, nil, nil)})
+	handler, _ := platform.NewServer(cfg, platform.Deps{Root: oauthRoot(cfg, nil, platform.Sessions{}, nil, nil, nil)})
 	req := httptest.NewRequest(method, path, nil)
 	if host != "" {
 		req.Host = host

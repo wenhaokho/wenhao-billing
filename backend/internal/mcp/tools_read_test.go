@@ -1156,8 +1156,8 @@ func asJSON(t *testing.T, v any) any {
 // Python's whole docstring, the input schema has Python's property names,
 // types, required and defaults, the output schema is the open object or the
 // {"result": ...} wrapper, and the tools come in Python's order. It covers
-// the read tools and ping now; each later task's tools join it as they are
-// registered.
+// ping, the read tools and the write tools now; each later task's tools join
+// it as they are registered.
 func TestToolsListMatchesPython(t *testing.T) {
 	t.Parallel()
 	h := newFix1Harness(t, func(*mcp.Server, Deps) {})
@@ -1202,8 +1202,8 @@ func TestToolsListMatchesPython(t *testing.T) {
 	if !slices.Equal(goOrder, wantOrder) {
 		t.Fatalf("tools/list order %v, want Python's order %v (every Go tool must be one of Python's)", goOrder, wantOrder)
 	}
-	if len(goOrder) < 18 {
-		t.Fatalf("tools/list has %d tools, want at least ping and the 17 read tools", len(goOrder))
+	if len(goOrder) < 37 {
+		t.Fatalf("tools/list has %d tools, want at least ping, the 17 read tools and the 19 write tools", len(goOrder))
 	}
 
 	for _, tool := range list.Tools {

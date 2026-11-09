@@ -16,13 +16,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/oauth"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/payments/paymentsdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
-// Deps are what NewHandler needs. Sender and Payments are used by the
-// gated email and reconciliation tools in later tasks; ping alone needs
+// Deps are what NewHandler needs. Sender is used by the gated email tools in
+// a later task; Payments by resolve_reconciliation_match; ping alone needs
 // Pool, Clock and Cfg.
 type Deps struct {
 	Pool     *pgxpool.Pool
@@ -30,6 +32,16 @@ type Deps struct {
 	Cfg      platform.Config
 	Sender   email.Sender
 	Payments payments.Service
+	// Notifier hears of the draft a trigger_recurring call generated, once it
+	// is committed (invoices.DraftNotifier: best effort, it never fails the
+	// tool). Nil logs the draft (invoices.LogNotifier).
+	Notifier invoices.DraftNotifier
+	// AfterPayment is called with the payment resolve_reconciliation_match
+	// cleared, once the transaction committed and never after a refusal: the
+	// seam for the hosting restore that must see the committed rows (plan 9
+	// sets it to payments.Service.AfterCommit). Nil does nothing; a panic in
+	// it is logged and reported, never the tool's failure.
+	AfterPayment func(ctx context.Context, p paymentsdb.Payment)
 }
 
 type pingIn struct{}
@@ -117,6 +129,7 @@ func NewHandler(deps Deps) http.Handler {
 	server.AddReceivingMiddleware(orderTools)
 	registerPing(server, deps)
 	registerReadTools(server, deps)
+	registerWriteTools(server, deps)
 	stream := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, DisableLocalhostProtection: true},
