@@ -25,7 +25,7 @@ import (
 // RecordPaymentRequest (schemas/payment.py:50-56). Only the amount is used:
 // no payment row is stored and nothing is posted (port note 8).
 type BillPaymentRequest struct {
-	Amount         platform.Dec4             `json:"amount" doc:"Above 0, at most 4 decimal places, at most the balance due."`
+	Amount         paymentAmount             `json:"amount" doc:"Above 0, at most 4 decimal places, at most the balance due."`
 	PaymentDate    platform.Date             `json:"payment_date" doc:"Required, but not stored."`
 	PayerName      platform.Optional[string] `json:"payer_name" doc:"Not stored."`
 	PayerReference platform.Optional[string] `json:"payer_reference" doc:"Not stored."`
@@ -72,15 +72,51 @@ func (r routes) recordPayment(ctx context.Context, in *paymentIn) (*billBody, er
 	if amount.Sign() <= 0 {
 		return nil, platform.FieldError("amount", notPositiveSentence)
 	}
-	return r.inTx(ctx, func(tx pgx.Tx) (BillOut, error) { return recordPayment(ctx, tx, in.BillID, amount) })
+	printed := in.Body.Amount.python()
+	return r.inTx(ctx, func(tx pgx.Tx) (BillOut, error) { return recordPayment(ctx, tx, in.BillID, amount, printed) })
+}
+
+// paymentAmount is the payment's Dec4 and the JSON text it was sent as,
+// which decides how Python printed it in the overpayment sentence.
+type paymentAmount struct {
+	platform.Dec4
+	raw string
+}
+
+// UnmarshalJSON keeps the text and parses it as Dec4 does.
+func (a *paymentAmount) UnmarshalJSON(b []byte) error {
+	a.raw = string(b)
+	return a.Dec4.UnmarshalJSON(b)
+}
+
+// python is str(Decimal(payload.amount)) as Python printed it. FastAPI
+// json.loads the body before pydantic sees it, so a JSON number with a
+// fraction or exponent is already a float, and Decimal gets its repr
+// (600.00 prints 600.0, 6e2 600.0); a JSON integer prints its digits; a
+// JSON string keeps the literal's digits and scale ("600.00", "6e2" as
+// 6E+2), which shopspring's parse keeps as Python's Decimal does.
+func (a paymentAmount) python() string {
+	d := a.Decimal()
+	if strings.HasPrefix(a.raw, `"`) || !strings.ContainsAny(a.raw, ".eE") {
+		return pythonDecimal(d)
+	}
+	f, err := strconv.ParseFloat(a.raw, 64)
+	if err != nil {
+		return pythonDecimal(d) // unreachable: Dec4 parsed the same text
+	}
+	r, err := decimal.NewFromString(pythonFloat(f))
+	if err != nil {
+		return pythonDecimal(d) // unreachable: a finite repr parses
+	}
+	return pythonDecimal(r)
 }
 
 // recordPayment is Python's record_bill_payment (bills.py:83-116) in tx,
 // with the bill read FOR UPDATE: two payments at once see each other's
 // balance (Python lost an update). A DRAFT, VOID or PAID bill is refused,
 // and so is more than the balance; the refusal prints the amount as
-// Python's Decimal did, with the literal's own digits ("600.00").
-func recordPayment(ctx context.Context, tx pgx.Tx, id uuid.UUID, amount decimal.Decimal) (BillOut, error) {
+// printed (paymentAmount.python).
+func recordPayment(ctx context.Context, tx pgx.Tx, id uuid.UUID, amount decimal.Decimal, printed string) (BillOut, error) {
 	q := billsdb.New(tx)
 	cur, err := lock(ctx, q, id)
 	if err != nil {
@@ -92,7 +128,7 @@ func recordPayment(ctx context.Context, tx pgx.Tx, id uuid.UUID, amount decimal.
 	}
 	if amount.GreaterThan(cur.BalanceDue) {
 		return BillOut{}, refuse("payment_exceeds_balance", "amount %s exceeds balance due %s",
-			pythonDecimal(amount), cur.BalanceDue.StringFixed(4))
+			printed, cur.BalanceDue.StringFixed(4))
 	}
 	balance, status := cur.BalanceDue.Sub(amount), "PARTIAL"
 	if balance.Sign() <= 0 {

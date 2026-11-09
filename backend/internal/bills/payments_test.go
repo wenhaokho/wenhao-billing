@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -86,9 +87,12 @@ func TestRecordPaymentExactBalancePays(t *testing.T) {
 		"bill_not_payable", "cannot record payment on PAID bill", "", "")
 }
 
-// The refused amount is printed as Python's str(Decimal(<sent>)): the
-// literal's own digits and scale, an exponent as Python writes it; the
-// balance at the column's four places.
+// The refused amount is printed as Python's str(Decimal(amount)), the
+// balance at the column's four places. FastAPI json.loads the body before
+// pydantic sees it, so a JSON number with a fraction or exponent is already
+// a float: it prints as str(Decimal(repr(float))) (600.00 is 600.0). A JSON
+// integer prints its digits, and a JSON string keeps its own digits and
+// scale. Verified against FastAPI 0.162.2 / pydantic 2.14.3.
 func TestRecordPaymentOverpaymentIs400(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
@@ -97,18 +101,19 @@ func TestRecordPaymentOverpaymentIs400(t *testing.T) {
 	for _, c := range []struct {
 		raw, printed string
 	}{
-		{`600.00`, "600.00"},
+		{`600.00`, "600.0"},
+		{`600.10`, "600.1"},
+		{`6e2`, "600.0"},
+		{`6.0E2`, "600.0"},
+		{`0.6e3`, "600.0"},
+		{`1.5e3`, "1500.0"},
+		{`60000e-2`, "600.0"},
 		{`600`, "600"},
 		{`600.5`, "600.5"},
-		{`600.10`, "600.10"},
+		{`500.0001`, "500.0001"},
 		{`"600.00"`, "600.00"},
 		{`"0600.5"`, "600.5"},
-		{`6e2`, "6E+2"},
-		{`6.0E2`, "6.0E+2"},
-		{`0.6e3`, "6E+2"},
-		{`1.5e3`, "1.5E+3"},
-		{`60000e-2`, "600.00"},
-		{`500.0001`, "500.0001"},
+		{`"6e2"`, "6E+2"},
 	} {
 		rec := a.Do(t, http.MethodPost, payPath(b.BillID), `{"amount": `+c.raw+`, "payment_date": "2026-01-15"}`)
 		wantProblem(t, rec, http.StatusBadRequest, "payment_exceeds_balance",
@@ -196,10 +201,23 @@ func TestRecordPaymentConcurrentNeverOverpays(t *testing.T) {
 	if _, err := hold.Exec(ctx, `SELECT 1 FROM bills WHERE bill_id = $1 FOR UPDATE`, b.BillID); err != nil {
 		t.Fatal(err)
 	}
+	// The goroutines serve the requests without t (a.Do may t.Fatal, which
+	// only the test goroutine may call). Should the test goroutine fail
+	// first, the deferred rollback releases the row and this cleanup, which
+	// runs after it, waits for both.
 	recs := make([]*httptest.ResponseRecorder, 2)
 	var wg sync.WaitGroup
+	t.Cleanup(wg.Wait)
 	for i := range recs {
-		wg.Go(func() { recs[i] = a.Do(t, http.MethodPost, payPath(b.BillID), payment(600)) })
+		wg.Go(func() {
+			req := httptest.NewRequestWithContext(context.WithoutCancel(ctx), http.MethodPost, payPath(b.BillID),
+				strings.NewReader(`{"amount": 600, "payment_date": "2026-01-15"}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Cookie", a.Cookie)
+			rec := httptest.NewRecorder()
+			a.Handler.ServeHTTP(rec, req)
+			recs[i] = rec
+		})
 	}
 	waited := waitForLockWaits(t, a.Pool, 2)
 	if err := hold.Commit(ctx); err != nil {
