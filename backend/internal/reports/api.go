@@ -56,3 +56,32 @@ type BalanceSheetReport struct {
 	IncomeTotalBase      platform.Dec4       `json:"income_total_base"`
 	ExpenseTotalBase     platform.Dec4       `json:"expense_total_base"`
 }
+
+// FxRevaluationLine is one monetary account's bucket in one foreign currency.
+// The revalued fields are null, and rate_missing true, when no rate exists on
+// or before the report date.
+type FxRevaluationLine struct {
+	AccountID          int32          `json:"account_id"`
+	Code               string         `json:"code"`
+	Name               string         `json:"name"`
+	Type               string         `json:"type"`
+	Currency           string         `json:"currency"`
+	FaceBalance        platform.Dec4  `json:"face_balance"`
+	OriginalBase       platform.Dec4  `json:"original_base"`
+	RevaluedBase       *platform.Dec4 `json:"revalued_base"`
+	Rate               *platform.Dec8 `json:"rate"`
+	RateAsOf           *platform.Date `json:"rate_as_of"`
+	UnrealisedGainLoss *platform.Dec4 `json:"unrealised_gain_loss"`
+	RateMissing        bool           `json:"rate_missing"`
+}
+
+// FxRevaluationReport is the unrealised FX gain or loss as of a date. It is
+// report-only and posts nothing.
+type FxRevaluationReport struct {
+	AsOf                platform.Date       `json:"as_of"`
+	BaseCurrency        string              `json:"base_currency"`
+	Lines               []FxRevaluationLine `json:"lines"`
+	TotalUnrealisedGain platform.Dec4       `json:"total_unrealised_gain"`
+	TotalUnrealisedLoss platform.Dec4       `json:"total_unrealised_loss"`
+	MissingRates        []string            `json:"missing_rates"`
+}

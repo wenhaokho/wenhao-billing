@@ -63,6 +63,72 @@ func (q *Queries) BalanceSheetRows(ctx context.Context, cutoff time.Time) ([]Bal
 	return items, nil
 }
 
+const revaluationRows = `-- name: RevaluationRows :many
+SELECT a.account_id, a.code, a.name, a.type, l.currency,
+       COALESCE(SUM(l.debit), 0)::numeric AS debit,
+       COALESCE(SUM(l.credit), 0)::numeric AS credit,
+       COALESCE(SUM(l.base_amount_debit), 0)::numeric AS base_debit,
+       COALESCE(SUM(l.base_amount_credit), 0)::numeric AS base_credit
+  FROM chart_of_accounts a
+  JOIN journal_lines l ON l.account_id = a.account_id
+  JOIN journal_entries e ON e.entry_id = l.entry_id
+ WHERE e.posted_at < $1::timestamp
+   AND a.type IN ('ASSET', 'LIABILITY')
+   AND l.currency <> $2::text
+ GROUP BY a.account_id, a.code, a.name, a.type, l.currency
+ ORDER BY a.code, l.currency
+`
+
+type RevaluationRowsParams struct {
+	Cutoff       time.Time
+	BaseCurrency string
+}
+
+type RevaluationRowsRow struct {
+	AccountID  int32
+	Code       string
+	Name       string
+	Type       string
+	Currency   string
+	Debit      decimal.Decimal
+	Credit     decimal.Decimal
+	BaseDebit  decimal.Decimal
+	BaseCredit decimal.Decimal
+}
+
+// Monetary buckets only: ASSET and LIABILITY accounts, lines whose currency
+// is not the base (compared as given, no case folding). The cutoff is in the
+// WHERE, so it filters here.
+func (q *Queries) RevaluationRows(ctx context.Context, arg RevaluationRowsParams) ([]RevaluationRowsRow, error) {
+	rows, err := q.db.Query(ctx, revaluationRows, arg.Cutoff, arg.BaseCurrency)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RevaluationRowsRow
+	for rows.Next() {
+		var i RevaluationRowsRow
+		if err := rows.Scan(
+			&i.AccountID,
+			&i.Code,
+			&i.Name,
+			&i.Type,
+			&i.Currency,
+			&i.Debit,
+			&i.Credit,
+			&i.BaseDebit,
+			&i.BaseCredit,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const trialBalanceRows = `-- name: TrialBalanceRows :many
 SELECT a.account_id, a.code, a.name, a.type, l.currency,
        COALESCE(SUM(l.debit), 0)::numeric AS debit,
