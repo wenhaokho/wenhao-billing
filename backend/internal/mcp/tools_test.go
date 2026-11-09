@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,7 +76,10 @@ func newFix1Harness(t *testing.T, register func(s *mcp.Server, d Deps)) *fix1Har
 
 	// The same wiring NewHandler uses, with the test's tools added.
 	server := mcp.NewServer(&mcp.Implementation{Name: "wenhao-billing", Version: "1.0.0"}, nil)
-	addTool(server, deps, &mcp.Tool{Name: "ping", Description: "Health check \u2014 returns 'pong'."}, pingTool)
+	// Ping gets no pool: it must not touch the database, so every ping call
+	// through this harness proves it (a nil pool would panic and answer
+	// isError).
+	registerPing(server, Deps{Clock: clock, Cfg: cfg})
 	register(server, deps)
 	stream := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
@@ -154,6 +158,9 @@ func TestToolPanicIsIsErrorAndServerKeepsServing(t *testing.T) {
 	if strings.Contains(text, "goroutine") || strings.Contains(text, ".go:") {
 		t.Fatalf("the stack reached the client: %q", text)
 	}
+	if res.StructuredContent != nil {
+		t.Fatalf("panicking tool: structuredContent %v, want none on isError", res.StructuredContent)
+	}
 
 	// The server keeps serving: the next call still works.
 	res = h.callTool(t, "ping")
@@ -183,6 +190,9 @@ func TestToolErrorRollsBackItsWrites(t *testing.T) {
 	res := h.callTool(t, "write_then_fail")
 	if !res.IsError {
 		t.Fatalf("failing tool: IsError = false, want true: %+v", res.Content)
+	}
+	if got := resultText(res); got != errUnexpected+"\n" {
+		t.Fatalf("failing tool: text %q, want the generic %q", got, errUnexpected)
 	}
 	var n int
 	if err := h.pool.QueryRow(t.Context(), `SELECT count(*) FROM users WHERE email='written-by-tool@example.com'`).Scan(&n); err != nil {
@@ -242,6 +252,128 @@ func TestToolWithoutPrincipalRunsNothing(t *testing.T) {
 	}
 	if ran {
 		t.Fatal("the tool body ran without a principal")
+	}
+}
+
+// TestToolRefusalIsErrorObjectAndRollsBack: a tool that writes a row and
+// then refuses answers FastMCP's dict result — not isError, structured
+// content exactly {"error": msg}, one text block holding that object's
+// compact JSON (python_session.json "error_result") — and its write rolls
+// back. The refusal is wrapped, and its text has characters Go's default
+// JSON would HTML-escape.
+func TestToolRefusalIsErrorObjectAndRollsBack(t *testing.T) {
+	t.Parallel()
+	const msg = `invalid default_wht_rate: 'abc' (must be <= 100 & >= 0)`
+	h := newFix1Harness(t, func(s *mcp.Server, d Deps) {
+		addTool(s, d, &mcp.Tool{Name: "write_then_refuse", Description: "writes, then refuses"}, func(ctx context.Context, tx pgx.Tx, _ principalRef, _ fix1In) (fix1Out, error) {
+			if _, err := tx.Exec(ctx, `INSERT INTO users (user_id, email, password_hash, role) VALUES ($1, 'written-by-refusing-tool@example.com', 'x', 'admin')`, uuid.New()); err != nil {
+				return fix1Out{}, err
+			}
+			return fix1Out{}, fmt.Errorf("create_customer: %w", Refuse("invalid default_wht_rate: %s (must be <= 100 & >= 0)", "'abc'"))
+		})
+	})
+
+	res := h.callTool(t, "write_then_refuse")
+	if res.IsError {
+		t.Fatalf("refusal: IsError = true, want false: %+v", res.Content)
+	}
+	sc, ok := res.StructuredContent.(map[string]any)
+	if !ok || len(sc) != 1 || sc["error"] != msg {
+		t.Fatalf("refusal: structuredContent %#v, want exactly {\"error\": %q}", res.StructuredContent, msg)
+	}
+	if len(res.Content) != 1 {
+		t.Fatalf("refusal: %d content blocks, want 1", len(res.Content))
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("refusal: content %T, want text", res.Content[0])
+	}
+	if want := `{"error":"` + msg + `"}`; tc.Text != want {
+		t.Fatalf("refusal: text %q, want %q", tc.Text, want)
+	}
+	var n int
+	if err := h.pool.QueryRow(t.Context(), `SELECT count(*) FROM users WHERE email='written-by-refusing-tool@example.com'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("the refusing tool left %d row(s) behind", n)
+	}
+}
+
+// TestToolDriverErrorDoesNotLeak: a tool returning a pgx error answers the
+// generic isError result, with no driver text and no structured content.
+func TestToolDriverErrorDoesNotLeak(t *testing.T) {
+	t.Parallel()
+	h := newFix1Harness(t, func(s *mcp.Server, d Deps) {
+		addTool(s, d, &mcp.Tool{Name: "bad_query", Description: "fails in the driver"}, func(ctx context.Context, tx pgx.Tx, _ principalRef, _ fix1In) (fix1Out, error) {
+			var n int
+			err := tx.QueryRow(ctx, `SELECT count(*) FROM no_such_table_fix2`).Scan(&n)
+			return fix1Out{}, err
+		})
+	})
+
+	res := h.callTool(t, "bad_query")
+	if !res.IsError {
+		t.Fatalf("driver error: IsError = false, want true: %+v", res.Content)
+	}
+	text := resultText(res)
+	for _, leak := range []string{"no_such_table_fix2", "SQLSTATE", "does not exist", "ERROR:"} {
+		if strings.Contains(text, leak) {
+			t.Fatalf("driver text %q reached the client: %q", leak, text)
+		}
+	}
+	if text != errUnexpected+"\n" {
+		t.Fatalf("driver error: text %q, want the generic %q", text, errUnexpected)
+	}
+	if res.StructuredContent != nil {
+		t.Fatalf("driver error: structuredContent %v, want none on isError", res.StructuredContent)
+	}
+}
+
+// panicOut panics when the helper marshals it.
+type panicOut struct{}
+
+func (panicOut) MarshalJSON() ([]byte, error) { panic("secret marshal detail") }
+
+// TestToolOutputPanicIsRecovered: the recover covers the whole handler, not
+// only the tool body: a panic while marshalling the output answers the
+// generic isError result and the server keeps serving.
+func TestToolOutputPanicIsRecovered(t *testing.T) {
+	t.Parallel()
+	h := newFix1Harness(t, func(s *mcp.Server, d Deps) {
+		addTool(s, d, &mcp.Tool{Name: "bad_output", Description: "output panics"}, func(context.Context, pgx.Tx, principalRef, fix1In) (panicOut, error) {
+			return panicOut{}, nil
+		})
+	})
+
+	res := h.callTool(t, "bad_output")
+	if !res.IsError {
+		t.Fatalf("output panic: IsError = false, want true: %+v", res.Content)
+	}
+	if text := resultText(res); text != errUnexpected+"\n" {
+		t.Fatalf("output panic: text %q, want the generic %q", text, errUnexpected)
+	}
+	if res := h.callTool(t, "ping"); res.IsError {
+		t.Fatalf("ping after an output panic: isError: %+v", res.Content)
+	}
+}
+
+// TestPingDoesNotTouchTheDatabase: ping is registered withoutTx; the
+// harness gives it no pool, so a ping that opened a transaction would panic
+// on the nil pool and answer isError.
+func TestPingDoesNotTouchTheDatabase(t *testing.T) {
+	t.Parallel()
+	h := newFix1Harness(t, func(*mcp.Server, Deps) {})
+	res := h.callTool(t, "ping")
+	if res.IsError {
+		t.Fatalf("ping: isError: %+v", res.Content)
+	}
+	sc, _ := json.Marshal(res.StructuredContent)
+	if string(sc) != `{"result":"pong"}` {
+		t.Fatalf("ping: structuredContent %s", sc)
+	}
+	if text := resultText(res); text != `{"result":"pong"}`+"\n" {
+		t.Fatalf("ping: text %q", text)
 	}
 }
 

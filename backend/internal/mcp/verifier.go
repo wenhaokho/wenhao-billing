@@ -86,12 +86,5 @@ func principalFrom(ctx context.Context) (principalRef, bool) {
 	return principalRef{UserID: id}, true
 }
 
-// principal is the authenticated admin from the request context, for
-// tool handlers. It is the TokenInfo the verifier put on the context.
-func principal(ctx context.Context) (uuid.UUID, bool) {
-	p, ok := principalFrom(ctx)
-	return p.UserID, ok
-}
-
 // logger is the request's logger, or the process default.
 func logger(ctx context.Context) *slog.Logger { return observe.LoggerFrom(ctx) }

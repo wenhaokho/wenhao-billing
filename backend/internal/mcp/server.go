@@ -37,12 +37,19 @@ type pingOut struct {
 	Result string `json:"result" jsonschema:"the pong result"`
 }
 
-func pingTool(ctx context.Context, _ pgx.Tx, _ principalRef, _ pingIn) (pingOut, error) {
-	// The transport's verifier already refused unauthenticated calls and the
-	// registration helper refuses a call without a principal, so reaching
-	// here means the request was authenticated.
-	_, _ = principal(ctx)
+// pingTool is registered withoutTx: a health check must not touch the
+// database, so it gets a nil tx and the helper never opens one. The
+// transport's verifier already refused unauthenticated calls and the
+// helper refuses a call without a principal, so reaching here means the
+// request was authenticated.
+func pingTool(context.Context, pgx.Tx, principalRef, pingIn) (pingOut, error) {
 	return pingOut{Result: "pong"}, nil
+}
+
+// registerPing adds the ping tool. It runs withoutTx, so it never touches
+// d.Pool.
+func registerPing(s *mcp.Server, d Deps) {
+	addTool(s, d, &mcp.Tool{Name: "ping", Description: "Health check — returns 'pong'."}, pingTool, withoutTx())
 }
 
 // bearer wraps a handler with the SDK's bearer-token middleware: the
@@ -66,7 +73,7 @@ func NewHandler(deps Deps) http.Handler {
 	}
 	tokens := oauth.NewTokens(deps.Cfg.MCPTokenSecret, deps.Cfg.MCPAccessTokenTTL, deps.Cfg.MCPRefreshTokenTTL)
 	server := mcp.NewServer(&mcp.Implementation{Name: "wenhao-billing", Version: "1.0.0"}, nil)
-	addTool(server, deps, &mcp.Tool{Name: "ping", Description: "Health check \u2014 returns 'pong'."}, pingTool)
+	registerPing(server, deps)
 	stream := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, DisableLocalhostProtection: true},
