@@ -198,11 +198,12 @@ func serve() error {
 // backend runs the jobs until the switch-over.
 //
 // The job list is built here, so a job whose work arrives later (the hosting
-// enforcement) is appended to it.
-func startScheduler(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config, clock platform.Clock, logger *slog.Logger, mail email.Sender) {
+// enforcement) is appended to it. It returns the jobs it started, nil when
+// the scheduler is off.
+func startScheduler(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config, clock platform.Clock, logger *slog.Logger, mail email.Sender) []jobs.Job {
 	if !cfg.SchedulerEnabled {
 		logger.Info("scheduler is off (SCHEDULER_ENABLED)")
-		return
+		return nil
 	}
 	jobList := []jobs.Job{
 		jobs.RecurringScan(pool, invoices.EmailNotifier{
@@ -215,6 +216,7 @@ func startScheduler(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config
 		logger.Error("scheduled job failed", "err", err)
 	}, jobList...)
 	logger.Info("scheduler started", "jobs", len(jobList))
+	return jobList
 }
 
 // prepareDatabase is serve's database step: refuse a database goose does not
