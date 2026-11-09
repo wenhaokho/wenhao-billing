@@ -60,7 +60,8 @@ type CustomerOut struct {
 func customerOut(c customersdb.Customer) CustomerOut {
 	var rate *platform.Dec4
 	if c.DefaultWhtRate.Valid {
-		rate = &platform.Dec4{Decimal: c.DefaultWhtRate.Decimal}
+		r := platform.NewDec4(c.DefaultWhtRate.Decimal)
+		rate = &r
 	}
 	return CustomerOut{
 		CustomerID: c.CustomerID, Name: c.Name, MatchingAliases: nonNil(c.MatchingAliases), Active: c.Active,

@@ -104,6 +104,18 @@
         },
         "type": "object"
       },
+      "BaseCurrencyOut": {
+        "additionalProperties": true,
+        "properties": {
+          "base_currency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_currency"
+        ],
+        "type": "object"
+      },
       "ChangePasswordRequest": {
         "additionalProperties": true,
         "properties": {
@@ -378,7 +390,7 @@
                 "examples": [
                   "1500000.0000"
                 ],
-                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
                 "type": "string"
               },
               {
@@ -597,20 +609,13 @@
             "type": "boolean"
           },
           "default_wht_rate": {
-            "oneOf": [
-              {
-                "examples": [
-                  "1500000.0000"
-                ],
-                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
             ]
           },
           "default_wht_type": {
@@ -864,7 +869,7 @@
                 "examples": [
                   "1500000.0000"
                 ],
-                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
                 "type": "string"
               },
               {
@@ -1055,7 +1060,7 @@
                 "examples": [
                   "1500000.0000"
                 ],
-                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
                 "type": "string"
               },
               {
@@ -1073,7 +1078,7 @@
                 "examples": [
                   "1500000.0000"
                 ],
-                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
                 "type": "string"
               },
               {
@@ -1193,37 +1198,23 @@
             "type": "string"
           },
           "default_purchase_price": {
-            "oneOf": [
-              {
-                "examples": [
-                  "1500000.0000"
-                ],
-                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
             ]
           },
           "default_unit_price": {
-            "oneOf": [
-              {
-                "examples": [
-                  "1500000.0000"
-                ],
-                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
-                "type": "string"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
             ]
           },
           "description": {
@@ -1382,7 +1373,7 @@
                 "examples": [
                   "1500000.0000"
                 ],
-                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
                 "type": "string"
               },
               {
@@ -1400,7 +1391,7 @@
                 "examples": [
                   "1500000.0000"
                 ],
-                "pattern": "^-?[0-9]+(\\.[0-9]{1,4})?$",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
                 "type": "string"
               },
               {
@@ -1781,6 +1772,105 @@
         },
         "type": "object"
       },
+      "RateCreate": {
+        "additionalProperties": true,
+        "properties": {
+          "as_of_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "from_currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          },
+          "rate": {
+            "description": "Greater than 0.",
+            "oneOf": [
+              {
+                "examples": [
+                  "16000.50000000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "source": {
+            "description": "Defaults to MANUAL.",
+            "maxLength": 50,
+            "minLength": 1,
+            "type": "string"
+          },
+          "to_currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_currency",
+          "to_currency",
+          "rate",
+          "as_of_date"
+        ],
+        "type": "object"
+      },
+      "RateOut": {
+        "additionalProperties": true,
+        "properties": {
+          "as_of_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "created_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "from_currency": {
+            "type": "string"
+          },
+          "rate": {
+            "examples": [
+              "16000.50000000"
+            ],
+            "pattern": "^-?[0-9]{1,11}\\.[0-9]{8}$",
+            "type": "string"
+          },
+          "rate_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          },
+          "to_currency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rate_id",
+          "from_currency",
+          "to_currency",
+          "rate",
+          "as_of_date",
+          "source",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "ResetPasswordRequest": {
         "additionalProperties": true,
         "properties": {
@@ -1796,6 +1886,43 @@
         "required": [
           "token",
           "new_password"
+        ],
+        "type": "object"
+      },
+      "SyncResult": {
+        "additionalProperties": true,
+        "properties": {
+          "created": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "fetched": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "pairs": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "updated": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "updated",
+          "fetched",
+          "pairs",
+          "source"
         ],
         "type": "object"
       },
@@ -2091,6 +2218,37 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/accounting/base-currency": {
+      "get": {
+        "operationId": "fx-base-currency",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BaseCurrencyOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The ledger's base currency",
+        "tags": [
+          "accounting"
+        ]
+      }
+    },
     "/api/v1/accounting/chart-of-accounts": {
       "get": {
         "operationId": "accounts-list",
@@ -2391,6 +2549,304 @@
           }
         },
         "summary": "Change an account's fields",
+        "tags": [
+          "accounting"
+        ]
+      }
+    },
+    "/api/v1/accounting/fx-rates": {
+      "get": {
+        "operationId": "fx-rates-list",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "from_currency",
+            "schema": {
+              "maxLength": 3,
+              "minLength": 3,
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "to_currency",
+            "schema": {
+              "maxLength": 3,
+              "minLength": 3,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RateOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List FX rates, newest first",
+        "tags": [
+          "accounting"
+        ]
+      },
+      "post": {
+        "operationId": "fx-rates-create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Add an FX rate",
+        "tags": [
+          "accounting"
+        ]
+      }
+    },
+    "/api/v1/accounting/fx-rates/latest": {
+      "get": {
+        "operationId": "fx-rates-latest",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "from_currency",
+            "required": true,
+            "schema": {
+              "maxLength": 3,
+              "minLength": 3,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Defaults to the base currency.",
+            "explode": false,
+            "in": "query",
+            "name": "to_currency",
+            "schema": {
+              "description": "Defaults to the base currency.",
+              "maxLength": 3,
+              "minLength": 3,
+              "type": "string"
+            }
+          },
+          {
+            "description": "The newest rate on or before this date; the newest of all when left out.",
+            "explode": false,
+            "in": "query",
+            "name": "on_date",
+            "schema": {
+              "description": "The newest rate on or before this date; the newest of all when left out.",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "The newest rate of a pair, optionally on or before a date",
+        "tags": [
+          "accounting"
+        ]
+      }
+    },
+    "/api/v1/accounting/fx-rates/sync": {
+      "post": {
+        "operationId": "fx-rates-sync",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "summary": "Pull the latest provider rates now",
+        "tags": [
+          "accounting"
+        ]
+      }
+    },
+    "/api/v1/accounting/fx-rates/{rate_id}": {
+      "delete": {
+        "operationId": "fx-rates-delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rate_id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Delete an FX rate",
         "tags": [
           "accounting"
         ]

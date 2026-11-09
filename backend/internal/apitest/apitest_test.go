@@ -23,3 +23,25 @@ func TestApitestAdminReachesAdminRoute(t *testing.T) {
 		t.Errorf("anonymous: %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestApitestSeedsPythonRates(t *testing.T) {
+	a := apitest.New(t, func(huma.API, apitest.Deps) {})
+	rows, err := a.Pool.Query(t.Context(),
+		`SELECT from_currency || '>' || to_currency || '=' || rate::text || '@' || as_of_date::text || '/' || source FROM fx_rates WHERE source = 'TEST' ORDER BY from_currency`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, s)
+	}
+	want := []string{"SGD>IDR=12000.00000000@2026-01-01/TEST", "USD>IDR=16000.00000000@2026-01-01/TEST"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("fx_rates = %v, want %v", got, want)
+	}
+}

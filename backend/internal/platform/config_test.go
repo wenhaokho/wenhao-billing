@@ -121,3 +121,59 @@ func TestConfigMalformedJSONCorsOriginsErrors(t *testing.T) {
 		t.Errorf("err = %v, want one naming CORS_ORIGINS", err)
 	}
 }
+
+func TestConfigFXDefaults(t *testing.T) {
+	cfg, err := ParseConfig(baseVars(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BaseCurrency != "IDR" || cfg.FXProviderBaseURL != "https://api.frankfurter.dev/v1" ||
+		cfg.FXProviderTimeout != 15*time.Second || !reflect.DeepEqual(cfg.FXSyncCurrencies, []string{"USD", "SGD"}) {
+		t.Errorf("defaults: %q %q %v %v", cfg.BaseCurrency, cfg.FXProviderBaseURL, cfg.FXProviderTimeout, cfg.FXSyncCurrencies)
+	}
+}
+
+func TestConfigReadsJSONFXSyncCurrencies(t *testing.T) {
+	cfg, err := ParseConfig(baseVars(map[string]string{"FX_SYNC_CURRENCIES": `["usd","eur"]`}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"USD", "EUR"}; !reflect.DeepEqual(cfg.FXSyncCurrencies, want) {
+		t.Errorf("FXSyncCurrencies = %v, want %v", cfg.FXSyncCurrencies, want)
+	}
+	cfg, err = ParseConfig(baseVars(map[string]string{"FX_SYNC_CURRENCIES": "usd, eur", "BASE_CURRENCY": "sgd", "FX_PROVIDER_TIMEOUT_SECONDS": "2.5"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"USD", "EUR"}; !reflect.DeepEqual(cfg.FXSyncCurrencies, want) || cfg.BaseCurrency != "SGD" || cfg.FXProviderTimeout != 2500*time.Millisecond {
+		t.Errorf("comma form: %v %q %v", cfg.FXSyncCurrencies, cfg.BaseCurrency, cfg.FXProviderTimeout)
+	}
+}
+
+func TestConfigRefusesBadBaseCurrency(t *testing.T) {
+	for _, bad := range []string{"RUPIAH", "ID", "12R", ""} {
+		_, err := ParseConfig(baseVars(map[string]string{"BASE_CURRENCY": bad}))
+		if err == nil || !strings.Contains(err.Error(), "BASE_CURRENCY") {
+			t.Errorf("%q: err = %v, want one naming BASE_CURRENCY", bad, err)
+		}
+	}
+}
+
+// 0 would mean no timeout at all, so it is refused with the negatives.
+func TestConfigRefusesNonPositiveFXTimeout(t *testing.T) {
+	for _, bad := range []string{"0", "-1", "-0.5"} {
+		_, err := ParseConfig(baseVars(map[string]string{"FX_PROVIDER_TIMEOUT_SECONDS": bad}))
+		if err == nil || !strings.Contains(err.Error(), "FX_PROVIDER_TIMEOUT_SECONDS") {
+			t.Errorf("%q: err = %v, want one naming FX_PROVIDER_TIMEOUT_SECONDS", bad, err)
+		}
+	}
+}
+
+func TestConfigRefusesBadFXSyncCurrency(t *testing.T) {
+	for _, bad := range []string{"US", `["usd","eurx"]`, "usd,12"} {
+		_, err := ParseConfig(baseVars(map[string]string{"FX_SYNC_CURRENCIES": bad}))
+		if err == nil || !strings.Contains(err.Error(), "FX_SYNC_CURRENCIES") {
+			t.Errorf("%q: err = %v, want one naming FX_SYNC_CURRENCIES", bad, err)
+		}
+	}
+}

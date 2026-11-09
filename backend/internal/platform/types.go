@@ -1,8 +1,10 @@
 package platform
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -49,29 +51,43 @@ func FieldError(location, sentence string) error {
 }
 
 // refusable is a value whose UnmarshalJSON may have refused its input;
-// takeRefusal reports the sentence once.
-type refusable interface{ takeRefusal() (string, bool) }
+// takeRefusal reports the refusal once.
+type refusable interface{ takeRefusal() (refusal, bool) }
 
 func resolveRefusal(v refusable, path *huma.PathBuffer) []error {
-	if sentence, refused := v.takeRefusal(); refused {
-		return invalidAt(path, sentence)
+	r, refused := v.takeRefusal()
+	switch {
+	case !refused:
+		return nil
+	case r.bound:
+		// Listed with every other validation error, as Huma's own are.
+		return []error{&huma.ErrorDetail{Location: path.String(), Message: r.sentence}}
+	default:
+		return invalidAt(path, r.sentence)
 	}
-	return nil
 }
 
 // refusal is embedded in the parsed types: the sentence UnmarshalJSON
-// refused the input with, if it did.
-type refusal struct{ sentence string }
+// refused the input with, if it did. A bound is a value that parsed but
+// does not fit the column: UnmarshalJSON returns no error for it (Huma
+// would report one at "body"), so decoding goes on and every field's
+// refusal is listed.
+type refusal struct {
+	sentence string
+	bound    bool
+}
 
 func (r *refusal) refuse(sentence string) error {
-	r.sentence = sentence
+	*r = refusal{sentence: sentence}
 	return errInvalid(sentence)
 }
 
-func (r *refusal) takeRefusal() (string, bool) {
-	s := r.sentence
-	r.sentence = ""
-	return s, s != ""
+func (r *refusal) refuseBound(sentence string) { *r = refusal{sentence: sentence, bound: true} }
+
+func (r *refusal) takeRefusal() (refusal, bool) {
+	out := *r
+	*r = refusal{}
+	return out, out.sentence != ""
 }
 
 // Resolve reports a refused input at its field.
@@ -79,102 +95,237 @@ func (r *refusal) Resolve(_ huma.Context, path *huma.PathBuffer) []error {
 	return resolveRefusal(r, path)
 }
 
-// decimalString reads a JSON number or string as a decimal.
-func decimalString(b []byte) (decimal.Decimal, bool) {
-	d, err := decimal.NewFromString(strings.Trim(string(b), `"`))
-	return d, err == nil
+// decimalBounds are a numeric(precision, places) column's: at most places
+// decimals and whole = precision − places digits before the point.
+type decimalBounds struct{ places, whole int32 }
+
+var (
+	dec2Bounds = decimalBounds{places: 2, whole: 3}  // numeric(5,2)
+	dec4Bounds = decimalBounds{places: 4, whole: 15} // numeric(19,4)
+	dec8Bounds = decimalBounds{places: 8, whole: 11} // numeric(19,8)
+)
+
+// fit is d as the column holds it, or why it does not fit. Trailing zeros
+// are not places ("1.50000" fits four). The exponent is bounded before
+// anything rescales: a JSON value as short as 1e-2000000000 would otherwise
+// make Round build a power of ten with two billion digits.
+func (b decimalBounds) fit(d decimal.Decimal) (decimal.Decimal, string) {
+	if d.IsZero() {
+		// 0e2000000000, 0e-9 and -0 are all zero.
+		return decimal.Zero, ""
+	}
+	digits, exp := int64(d.NumDigits()), int64(d.Exponent())
+	if digits+exp > int64(b.whole) {
+		return d, fmt.Sprintf("value has too many digits (max %d before the point)", b.whole)
+	}
+	// The digits past the allowed places are the coefficient's last
+	// extra = -exp-places. More of them than the coefficient has digits
+	// cannot all be zeros, so the value needs more places: refused without
+	// rounding. Otherwise Round rescales by at most the coefficient's digits.
+	extra := -exp - int64(b.places)
+	if extra > digits || (extra > 0 && !d.Equal(d.Round(b.places))) {
+		return d, fmt.Sprintf("value has too many decimal places (max %d)", b.places)
+	}
+	return d, ""
 }
 
-// decimalSchema accepts what UnmarshalJSON accepts, a string or a number (the
-// Vue app sends numbers); a string has at most places decimals. Responses
-// always write the string. A fresh value per call: Huma keeps the schema it
-// is given.
-func decimalSchema(places, example string) *huma.Schema {
-	str := &huma.Schema{Type: huma.TypeString, Pattern: `^-?[0-9]+(\.[0-9]{1,` + places + `})?$`, Examples: []any{example}}
+// parse reads a JSON number or string into *into, or records why not. An
+// out-of-bounds value is recorded, not returned: Huma would report an
+// UnmarshalJSON error at "body" and stop decoding the other fields. So
+// encoding/json alone does not refuse it (err is nil), and what is
+// guaranteed is that a refused value cannot be used: while its refusal is
+// pending, Decimal() panics (the recoverer answers 500) and MarshalJSON and
+// Value fail. Huma's Resolve takes the refusal to report it at the field,
+// and the request is then a 422 before any handler runs.
+func (b decimalBounds) parse(raw []byte, into *decimal.Decimal, r *refusal) error {
+	d, err := decimal.NewFromString(strings.Trim(string(raw), `"`))
+	if err != nil {
+		return r.refuse(decimalSentence)
+	}
+	d, sentence := b.fit(d)
+	if sentence != "" {
+		r.refuseBound(sentence)
+		return nil
+	}
+	*r = refusal{}
+	*into = d
+	return nil
+}
+
+// pending is the error for a refusal no Resolve has reported, or nil.
+func (r refusal) pending() error {
+	if r.sentence == "" {
+		return nil
+	}
+	return errInvalid(r.sentence)
+}
+
+// checked is d, or a panic for a refused value: a refused amount must never
+// be read as the zero it holds.
+func checked(d decimal.Decimal, r refusal) decimal.Decimal {
+	if err := r.pending(); err != nil {
+		panic(fmt.Sprintf("platform: read of a refused decimal: %v", err))
+	}
+	return d
+}
+
+// marshalFixed writes d with places decimals, or fails for a refused value.
+func marshalFixed(d decimal.Decimal, places int32, r refusal) ([]byte, error) {
+	if err := r.pending(); err != nil {
+		return nil, err
+	}
+	return json.Marshal(d.StringFixed(places))
+}
+
+// valueOf is the database value of d, or fails for a refused value.
+func valueOf(d decimal.Decimal, r refusal) (driver.Value, error) {
+	if err := r.pending(); err != nil {
+		return nil, err
+	}
+	return d.Value()
+}
+
+// decimalPattern is the decimal syntax a request string may use. The type,
+// not the schema, decides the bounds, so a string and the same number are
+// treated alike: "1.50000" fits four places as 1.50000 does, "1e3" is 1000,
+// and "1.23456" gets the type's one readable refusal.
+const decimalPattern = `^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$`
+
+// description documents the bounds on a request schema.
+func (b decimalBounds) description() string {
+	return fmt.Sprintf("At most %d decimal places and %d digits before the point.", b.places, b.whole)
+}
+
+// requestSchema accepts what UnmarshalJSON accepts, a string or a number
+// (the Vue app sends numbers). A fresh value per call: Huma keeps the schema
+// it is given.
+func (b decimalBounds) requestSchema(example string) *huma.Schema {
+	str := &huma.Schema{Type: huma.TypeString, Pattern: decimalPattern, Examples: []any{example}}
 	str.PrecomputeMessages()
 	num := &huma.Schema{Type: huma.TypeNumber}
 	num.PrecomputeMessages()
-	s := &huma.Schema{OneOf: []*huma.Schema{str, num}}
+	s := &huma.Schema{OneOf: []*huma.Schema{str, num}, Description: b.description()}
 	s.PrecomputeMessages()
 	return s
 }
 
+// responseString is what a response writes: always the string, with
+// exactly the column's places. The response walk (decimalResponse) puts it
+// in place of the request schema.
+func (b decimalBounds) responseString(example string) *huma.Schema {
+	return &huma.Schema{
+		Type:     huma.TypeString,
+		Pattern:  fmt.Sprintf(`^-?[0-9]{1,%d}\.[0-9]{%d}$`, b.whole, b.places),
+		Examples: []any{example},
+	}
+}
+
+// decimalType is Dec2, Dec4 and Dec8: their response schema is a string,
+// and their request schema's description is the bounds'.
+type decimalType interface {
+	responseString() *huma.Schema
+	boundsDescription() string
+}
+
 // Dec4 is numeric(19,4) and computed money in JSON: a string with exactly
-// four decimals ("1500.0000"), so no client parses it as a float.
+// four decimals ("1500.0000"), so no client parses it as a float. The value
+// is read only through Decimal(), which refuses a refused value.
 type Dec4 struct {
-	decimal.Decimal
+	d decimal.Decimal
 	refusal
 }
+
+// NewDec4 is d as a Dec4 (a response value; its bounds are not checked).
+func NewDec4(d decimal.Decimal) Dec4 { return Dec4{d: d} }
+
+const dec4Example = "1500000.0000"
+
+// Decimal is the value. It panics for a value UnmarshalJSON refused and no
+// Resolve has reported (see decimalBounds.parse).
+func (x Dec4) Decimal() decimal.Decimal { return checked(x.d, x.refusal) }
 
 // MarshalJSON writes "1500.0000".
-func (d Dec4) MarshalJSON() ([]byte, error) { return json.Marshal(d.StringFixed(4)) }
+func (x Dec4) MarshalJSON() ([]byte, error) { return marshalFixed(x.d, 4, x.refusal) }
 
-// UnmarshalJSON reads "12.5" or 12.5.
-func (d *Dec4) UnmarshalJSON(b []byte) error {
-	v, ok := decimalString(b)
-	if !ok {
-		return d.refuse(decimalSentence)
-	}
-	d.Decimal = v
-	return nil
-}
+// Value is the database value; it fails for a refused value.
+func (x Dec4) Value() (driver.Value, error) { return valueOf(x.d, x.refusal) }
 
-// Schema describes Dec4 to OpenAPI as a decimal string.
-func (Dec4) Schema(huma.Registry) *huma.Schema { return decimalSchema("4", "1500000.0000") }
+// UnmarshalJSON reads "12.5" or 12.5, refusing more than 4 places or 15
+// digits before the point (see decimalBounds.parse).
+func (x *Dec4) UnmarshalJSON(b []byte) error { return dec4Bounds.parse(b, &x.d, &x.refusal) }
 
-// PlacesSentence is pydantic's refusal of a decimal with more than four
-// places (`decimal_places=4`).
-const PlacesSentence = "Decimal input should have no more than 4 decimal places"
+// Schema describes Dec4 to OpenAPI as a decimal string or number.
+func (Dec4) Schema(huma.Registry) *huma.Schema { return dec4Bounds.requestSchema(dec4Example) }
 
-// MoreThanFourPlaces reports whether d needs more than four decimal places
-// to be exact. Dec4 takes any decimal sent as a JSON number (its schema's
-// pattern refuses only such a string), so a numeric(…,4) column checks this
-// before it would round.
-func MoreThanFourPlaces(d decimal.Decimal) bool { return !d.Equal(d.Round(4)) }
+func (Dec4) responseString() *huma.Schema { return dec4Bounds.responseString(dec4Example) }
 
-// Dec8 is numeric(19,8), the FX rates: eight decimals.
+func (Dec4) boundsDescription() string { return dec4Bounds.description() }
+
+// Dec8 is numeric(19,8), the FX rates: eight decimals. The value is read
+// only through Decimal(), which refuses a refused value.
 type Dec8 struct {
-	decimal.Decimal
+	d decimal.Decimal
 	refusal
 }
+
+// NewDec8 is d as a Dec8 (a response value; its bounds are not checked).
+func NewDec8(d decimal.Decimal) Dec8 { return Dec8{d: d} }
+
+const dec8Example = "16000.50000000"
+
+// Decimal is the value. It panics for a value UnmarshalJSON refused and no
+// Resolve has reported (see decimalBounds.parse).
+func (x Dec8) Decimal() decimal.Decimal { return checked(x.d, x.refusal) }
 
 // MarshalJSON writes "16000.50000000".
-func (d Dec8) MarshalJSON() ([]byte, error) { return json.Marshal(d.StringFixed(8)) }
+func (x Dec8) MarshalJSON() ([]byte, error) { return marshalFixed(x.d, 8, x.refusal) }
 
-// UnmarshalJSON reads "12.5" or 12.5.
-func (d *Dec8) UnmarshalJSON(b []byte) error {
-	v, ok := decimalString(b)
-	if !ok {
-		return d.refuse(decimalSentence)
-	}
-	d.Decimal = v
-	return nil
-}
+// Value is the database value; it fails for a refused value.
+func (x Dec8) Value() (driver.Value, error) { return valueOf(x.d, x.refusal) }
 
-// Schema describes Dec8 to OpenAPI as a decimal string.
-func (Dec8) Schema(huma.Registry) *huma.Schema { return decimalSchema("8", "16000.50000000") }
+// UnmarshalJSON reads "12.5" or 12.5, refusing more than 8 places or 11
+// digits before the point (see decimalBounds.parse).
+func (x *Dec8) UnmarshalJSON(b []byte) error { return dec8Bounds.parse(b, &x.d, &x.refusal) }
 
-// Dec2 is numeric(5,2), the match confidence: two decimals.
+// Schema describes Dec8 to OpenAPI as a decimal string or number.
+func (Dec8) Schema(huma.Registry) *huma.Schema { return dec8Bounds.requestSchema(dec8Example) }
+
+func (Dec8) responseString() *huma.Schema { return dec8Bounds.responseString(dec8Example) }
+
+func (Dec8) boundsDescription() string { return dec8Bounds.description() }
+
+// Dec2 is numeric(5,2), the match confidence: two decimals. The value is
+// read only through Decimal(), which refuses a refused value.
 type Dec2 struct {
-	decimal.Decimal
+	d decimal.Decimal
 	refusal
 }
 
+// NewDec2 is d as a Dec2 (a response value; its bounds are not checked).
+func NewDec2(d decimal.Decimal) Dec2 { return Dec2{d: d} }
+
+const dec2Example = "97.50"
+
+// Decimal is the value. It panics for a value UnmarshalJSON refused and no
+// Resolve has reported (see decimalBounds.parse).
+func (x Dec2) Decimal() decimal.Decimal { return checked(x.d, x.refusal) }
+
 // MarshalJSON writes "97.50".
-func (d Dec2) MarshalJSON() ([]byte, error) { return json.Marshal(d.StringFixed(2)) }
+func (x Dec2) MarshalJSON() ([]byte, error) { return marshalFixed(x.d, 2, x.refusal) }
 
-// UnmarshalJSON reads "12.5" or 12.5.
-func (d *Dec2) UnmarshalJSON(b []byte) error {
-	v, ok := decimalString(b)
-	if !ok {
-		return d.refuse(decimalSentence)
-	}
-	d.Decimal = v
-	return nil
-}
+// Value is the database value; it fails for a refused value.
+func (x Dec2) Value() (driver.Value, error) { return valueOf(x.d, x.refusal) }
 
-// Schema describes Dec2 to OpenAPI as a decimal string.
-func (Dec2) Schema(huma.Registry) *huma.Schema { return decimalSchema("2", "97.50") }
+// UnmarshalJSON reads "12.5" or 12.5, refusing more than 2 places or 3
+// digits before the point (see decimalBounds.parse).
+func (x *Dec2) UnmarshalJSON(b []byte) error { return dec2Bounds.parse(b, &x.d, &x.refusal) }
+
+// Schema describes Dec2 to OpenAPI as a decimal string or number.
+func (Dec2) Schema(huma.Registry) *huma.Schema { return dec2Bounds.requestSchema(dec2Example) }
+
+func (Dec2) responseString() *huma.Schema { return dec2Bounds.responseString(dec2Example) }
+
+func (Dec2) boundsDescription() string { return dec2Bounds.description() }
 
 // Date is a calendar date in JSON: "YYYY-MM-DD".
 type Date struct {

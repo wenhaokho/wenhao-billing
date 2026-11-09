@@ -41,6 +41,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/business"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/customers"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/vendors"
@@ -54,6 +55,8 @@ type features struct {
 	Mail     email.Sender
 	Config   platform.Config
 	Clock    platform.Clock
+	// FXClient is the FX provider's HTTP client (fx.NewClient).
+	FXClient *http.Client
 }
 
 // register adds every feature's operations. A new feature adds its line here.
@@ -64,6 +67,7 @@ func register(api huma.API, f features) {
 	items.Register(api, f.Pool)
 	customers.Register(api, f.Pool)
 	business.Register(api, f.Pool, f.Clock)
+	fx.Register(api, f.Pool, f.Config, f.FXClient)
 }
 
 func main() {
@@ -131,7 +135,10 @@ func serve() error {
 	clock := platform.SystemClock{}
 	sessions := platform.NewSessions(cfg)
 	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock})
-	register(api, features{Pool: pool, Sessions: sessions, Mail: mailSender(cfg, logger), Config: cfg, Clock: clock})
+	register(api, features{
+		Pool: pool, Sessions: sessions, Mail: mailSender(cfg, logger), Config: cfg, Clock: clock,
+		FXClient: fx.NewClient(cfg),
+	})
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

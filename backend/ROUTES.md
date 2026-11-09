@@ -13,17 +13,17 @@ Totals: 107 under /api/v1, 7 OAuth and discovery, /mcp
 | GET | /api/v1/accounting/chart-of-accounts/{account_id} | admin session | 200 | app/api/v1/routers/accounting.py:77 | yes | accounts | ported |  |
 | PATCH | /api/v1/accounting/chart-of-accounts/{account_id} | admin session | 200 | app/api/v1/routers/accounting.py:89 | yes | accounts | ported |  |
 | DELETE | /api/v1/accounting/chart-of-accounts/{account_id} | admin session | 200 | app/api/v1/routers/accounting.py:110 | yes | accounts | ported |  |
-| GET | /api/v1/accounting/base-currency | admin session | 200 | app/api/v1/routers/accounting.py:130 | yes |  | todo |  |
-| GET | /api/v1/accounting/fx-rates | admin session | 200 | app/api/v1/routers/accounting.py:135 | yes |  | todo |  |
-| POST | /api/v1/accounting/fx-rates | admin session | 201 | app/api/v1/routers/accounting.py:150 | yes |  | todo |  |
-| POST | /api/v1/accounting/fx-rates/sync | admin session | 200 | app/api/v1/routers/accounting.py:176 | yes |  | todo |  |
-| GET | /api/v1/accounting/fx-rates/latest | admin session | 200 | app/api/v1/routers/accounting.py:195 | no |  | todo |  |
-| DELETE | /api/v1/accounting/fx-rates/{rate_id} | admin session | 204 | app/api/v1/routers/accounting.py:219 | yes |  | todo |  |
-| GET | /api/v1/accounting/reports/trial-balance | admin session | 200 | app/api/v1/routers/accounting.py:242 | yes |  | todo |  |
-| GET | /api/v1/accounting/reports/balance-sheet | admin session | 200 | app/api/v1/routers/accounting.py:313 | yes |  | todo |  |
-| GET | /api/v1/accounting/reports/fx-revaluation | admin session | 200 | app/api/v1/routers/accounting.py:388 | yes |  | todo |  |
-| GET | /api/v1/accounting/reports/ar-aging | admin session | 200 | app/api/v1/routers/accounting.py:557 | yes |  | todo |  |
-| GET | /api/v1/accounting/reports/ap-aging | admin session | 200 | app/api/v1/routers/accounting.py:606 | yes |  | todo |  |
+| GET | /api/v1/accounting/base-currency | admin session | 200 | app/api/v1/routers/accounting.py:130 | yes | fx | ported |  |
+| GET | /api/v1/accounting/fx-rates | admin session | 200 | app/api/v1/routers/accounting.py:135 | yes | fx | ported |  |
+| POST | /api/v1/accounting/fx-rates | admin session | 201 | app/api/v1/routers/accounting.py:150 | yes | fx | ported |  |
+| POST | /api/v1/accounting/fx-rates/sync | admin session | 200 | app/api/v1/routers/accounting.py:176 | yes | fx | ported |  |
+| GET | /api/v1/accounting/fx-rates/latest | admin session | 200 | app/api/v1/routers/accounting.py:195 | no | fx | ported |  |
+| DELETE | /api/v1/accounting/fx-rates/{rate_id} | admin session | 204 | app/api/v1/routers/accounting.py:219 | yes | fx | ported |  |
+| GET | /api/v1/accounting/reports/trial-balance | admin session | 200 | app/api/v1/routers/accounting.py:242 | yes |  | todo | reports plan |
+| GET | /api/v1/accounting/reports/balance-sheet | admin session | 200 | app/api/v1/routers/accounting.py:313 | yes |  | todo | reports plan |
+| GET | /api/v1/accounting/reports/fx-revaluation | admin session | 200 | app/api/v1/routers/accounting.py:388 | yes |  | todo | reports plan |
+| GET | /api/v1/accounting/reports/ar-aging | admin session | 200 | app/api/v1/routers/accounting.py:557 | yes |  | todo | reports plan |
+| GET | /api/v1/accounting/reports/ap-aging | admin session | 200 | app/api/v1/routers/accounting.py:606 | yes |  | todo | reports plan |
 | POST | /api/v1/auth/login | none | 200 | app/api/v1/routers/auth.py:45 | yes | auth | ported | throttled per email and address (Go auth.TestThrottlePairLimit) |
 | POST | /api/v1/auth/logout | none | 204 | app/api/v1/routers/auth.py:64 | yes | auth | ported |  |
 | GET | /api/v1/auth/me | admin session | 200 | app/api/v1/routers/auth.py:69 | yes | auth | ported |  |

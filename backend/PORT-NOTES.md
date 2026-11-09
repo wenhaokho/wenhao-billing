@@ -132,5 +132,46 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
 
 25. **A customer `default_wht_rate` with more than four decimal places is 422.**
     Python: `default_wht_rate: Decimal | None` has no `decimal_places` (`app/schemas/customer.py:52`), so the value is rounded into `numeric(7,4)`; a rate such as `99.99999` passes the "below 100" check and is stored as `100.0000`.
-    Go: such a rate is refused before the withholding check with a 422 at `default_wht_rate`, detail `Decimal input should have no more than 4 decimal places` (a JSON number; a string with five places already fails the decimal schema), and nothing is stored (`customers.TestCustomerWhtRateFivePlacesIs422`).
+    Go: such a rate is refused before the withholding check with a 422, detail `Request validation failed`, and an error at `default_wht_rate` with message `value has too many decimal places (max 4)`, for a JSON string and a JSON number alike; nothing is stored (`customers.TestCustomerWhtRateFivePlacesIs422`).
     After the switch: none: Go's behaviour is the fix.
+
+26. **A payment amount of zero or below is a plain error in the ledger, as Python's crash is.**
+    Python: `_build_line` converts only a positive side, so a bank line for an amount of `0` or less has no conversion and `(conv_debit or conv_credit).rate` raises `AttributeError` (`app/services/ledger.py:86`), which no caller catches as a ledger refusal: a 500. API-created payments are validated `gt=0` by `app/schemas/payment.py:41,52`; the database has no CHECK on the amount.
+    Go: `ledger.PostPaymentCleared` returns a plain error (not `ErrLedger`), `ledger: payment <id> amount must be > 0 (got <amount>)`, before any line, conversion or insert, so it surfaces as a 500 and is never routed to manual review as a refusal would be (`ledger.TestRefusesNonPositiveAmount`).
+    After the switch: none; payments of zero or less never reach the ledger through the API or the matching flow.
+
+27. **Two concurrent reversals of one entry.**
+    Python: `post_reversal` reads the original with `db.get` and no lock (`app/services/ledger.py:223`), so two transactions can both see it unreversed and both post a reversal; the later one's `reversed_by_entry_id` wins.
+    Go: `ledger.PostReversal` reads the original `FOR UPDATE`; the second transaction waits for the first, then sees `reversed_by_entry_id` set and is refused `entry <id> already reversed` (`ledger.TestReverseConcurrentOnlyOnce`).
+    After the switch: none: Go's behaviour is the fix.
+
+28. **FX sync 502 `detail`: the trailing error text is Go's.**
+    Python: `fx provider request failed for SRC->TARGET: <httpx error>` for transport and HTTP failures, and `fx provider returned invalid JSON for SRC->TARGET: <error>` for a bad body (`app/services/fx_provider.py:63-70`), surfaced as a 502 (`app/api/v1/routers/accounting.py:185-189`).
+    Go: the leading sentence and the 502 are the same. A non-2xx keeps httpx's first line (`Server error '500 Internal Server Error' for url '...'`); httpx's later lines (`For more information check: …`, and for a redirect `Redirect location: …`) are dropped. A transport failure or timeout carries Go's `net/http` text (`Get "...": context deadline exceeded`) and invalid JSON carries `encoding/json`'s text, not httpx's or Python's.
+    After the switch: nothing may match on the trailing text; the frontend shows `detail` as is.
+
+29. **A failed sync writes nothing, in Go and in Python.**
+    Python: `run_fx_sync` fetches every pair first (`fetch_latest_rates`, `app/workers/tasks/fx_sync.py:23`) and only then adds rows to the session, so a provider failure raises before anything is added; the router rolls back and answers 502 (`app/api/v1/routers/accounting.py:185-189`), and the weekly job never commits. Python could not write a partial set.
+    Go: the same order: every pair is fetched, then all pairs are written in one transaction (`fx.TestSyncProviderErrorIs502WritesNothing`).
+    After the switch: none; the behaviour is identical.
+
+30. **An FX rate or money value with too many places or digits is 422 in Go.**
+    Python: an FX rate is `Field(gt=0, max_digits=19, decimal_places=8)` (`app/schemas/fx.py:10`), so too many places or digits are a 422 there too, with pydantic's own message. Money fields with no such bound behave in two ways: extra decimal places were silently rounded by Postgres into `numeric(19,4)` and the request answered 200; a value with too many integer digits overflowed the column and answered 500.
+    Go: `platform.Dec2/Dec4/Dec8` refuse a value with more places than the column holds, or more digits than it can store, as a 422 at the field (`fx.TestCreateRateNinePlacesIs422`).
+    After the switch: none: Go's behaviour is the fix; messages differ from pydantic's.
+
+31. **Concurrent "Sync now".**
+    Python: `run_fx_sync` selects each rate and then inserts it (`app/workers/tasks/fx_sync.py:29-49`), so two syncs in flight can both insert the same `(from, to, date)` and one hits `uq_fx_rates_triple`, a 500.
+    Go: each pair is one `INSERT ... ON CONFLICT ON CONSTRAINT uq_fx_rates_triple DO UPDATE ... WHERE <changed>`, so both succeed and the counts stay right (`fx.TestSyncConcurrentIsIdempotent`).
+    After the switch: none: Go's behaviour is the fix.
+
+32. **The sync's 502 also covers responses Python answered 500.**
+    Python: `Decimal(str(value))` accepts a numeric string such as `"16000"` (`app/services/fx_provider.py:91`) but raises `InvalidOperation` (500) for `"abc"`; a body that is not a JSON object fails at `body.get` (`:72`) and a `rates` that is not an object at `rates.get` (`:73`), both `AttributeError` (500).
+    Python also skipped a falsy `rates` (`[]`, `""`, `0`, `false`) silently with a 200, through `body.get("rates") or {}` (`:72`); and it stored a provider rate of `0` or below as given (the column has no CHECK), while one with more than 11 integer digits overflowed `numeric(19,8)` at commit, a 500.
+    Go: a provider rate that is not a JSON number (a string, a bool) is a 502 `fx provider returned invalid rate for SRC->TARGET: <raw>`, so Go refuses `"16000"` where Python stored it; a body or `rates` that is not a JSON object, falsy ones included, is a 502 reported as invalid JSON. A rate that is `0` or below, or does not fit `numeric(19,8)` (11 integer digits after rounding to 8 places), is the same `invalid rate` 502 and nothing is written (`fx.TestSyncInvalidRateIs502`).
+    After the switch: none, unless Frankfurter starts sending rates as strings; then the sync fails loudly with 502 instead of storing them.
+
+33. **The FX provider's redirects are not followed.**
+    Python: `httpx.Client(...)` (`app/services/fx_provider.py:51`) does not follow redirects by default, so a 3xx from the provider reaches `response.raise_for_status()` (`:61`), raises `Redirect response '302 Found' for url '...'` and is a 502 (`:63-66`).
+    Go: `fx.NewClient` sets `CheckRedirect` to `http.ErrUseLastResponse`, so a 3xx reaches the same non-2xx path and is the same 502, `fx provider request failed for SRC->TARGET: Redirect response '302 Found' for url '...'` (`fx.TestSyncRedirectIs502`); Go's default client would have followed it.
+    After the switch: if Frankfurter moves its API, update `FX_PROVIDER_BASE_URL` rather than following redirects.
