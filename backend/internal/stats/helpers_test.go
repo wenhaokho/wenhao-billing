@@ -11,12 +11,15 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/stats"
 )
 
-// newApp is a migrated database with the test FX rates; stats has no routes yet.
+// newApp is a migrated database with the test FX rates and the stats routes,
+// whose base currency is IDR.
 func newApp(t *testing.T) *apitest.App {
 	t.Helper()
-	return apitest.New(t, func(huma.API, apitest.Deps) {})
+	cfg := platform.Config{BaseCurrency: "IDR"}
+	return apitest.New(t, func(api huma.API, d apitest.Deps) { stats.Register(api, d.Pool, cfg, d.Clock) })
 }
 
 func exec(t *testing.T, a *apitest.App, sql string, args ...any) {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
 
@@ -124,6 +125,97 @@ func (q *Queries) ListRecurringTemplates(ctx context.Context) ([]ListRecurringTe
 	return items, nil
 }
 
+const listUpcomingRecurring = `-- name: ListUpcomingRecurring :many
+SELECT i.invoice_id, i.customer_id, c.name AS customer_name, i.currency, i.amount, i.billing_cycle_ref
+  FROM invoices i
+  LEFT JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.invoice_type = 'RECURRING' AND i.is_template = true
+ ORDER BY i.invoice_id
+`
+
+type ListUpcomingRecurringRow struct {
+	InvoiceID       uuid.UUID
+	CustomerID      pgtype.UUID
+	CustomerName    *string
+	Currency        string
+	Amount          decimal.Decimal
+	BillingCycleRef json.RawMessage
+}
+
+// The upcoming list's recurring rows: the same templates as the MRR scan with
+// the customer, whose name is null when the invoice has none.
+func (q *Queries) ListUpcomingRecurring(ctx context.Context) ([]ListUpcomingRecurringRow, error) {
+	rows, err := q.db.Query(ctx, listUpcomingRecurring)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUpcomingRecurringRow
+	for rows.Next() {
+		var i ListUpcomingRecurringRow
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.CustomerName,
+			&i.Currency,
+			&i.Amount,
+			&i.BillingCycleRef,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUpcomingUsage = `-- name: ListUpcomingUsage :many
+SELECT i.invoice_id, i.customer_id, c.name AS customer_name, i.currency, i.amount, i.billing_cycle_ref
+  FROM invoices i
+  LEFT JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.invoice_type = 'USAGE' AND i.status = 'DRAFT'
+ ORDER BY i.invoice_id
+`
+
+type ListUpcomingUsageRow struct {
+	InvoiceID       uuid.UUID
+	CustomerID      pgtype.UUID
+	CustomerName    *string
+	Currency        string
+	Amount          decimal.Decimal
+	BillingCycleRef json.RawMessage
+}
+
+// DRAFT usage invoices, no template filter (Python's compute_upcoming_invoices).
+func (q *Queries) ListUpcomingUsage(ctx context.Context) ([]ListUpcomingUsageRow, error) {
+	rows, err := q.db.Query(ctx, listUpcomingUsage)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUpcomingUsageRow
+	for rows.Next() {
+		var i ListUpcomingUsageRow
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.CustomerID,
+			&i.CustomerName,
+			&i.Currency,
+			&i.Amount,
+			&i.BillingCycleRef,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const openARByCurrency = `-- name: OpenARByCurrency :many
 SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
   FROM invoices
@@ -182,6 +274,85 @@ func (q *Queries) OpenQuotationPipeline(ctx context.Context) ([]OpenQuotationPip
 	for rows.Next() {
 		var i OpenQuotationPipelineRow
 		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recentActivity = `-- name: RecentActivity :many
+SELECT l.log_id, l.payment_id, l.action, l.reasons, l.actor_user_id, l.created_at,
+       p.payer_name, p.amount, p.currency, p.payment_date, p.payer_reference, p.wht_amount,
+       p.confidence_score, p.intake_source, p.invoice_id,
+       i.invoice_number, c.name AS customer_name,
+       u.display_name AS actor_display_name, u.email AS actor_email
+  FROM reconciliation_log l
+  LEFT JOIN payments p ON p.payment_id = l.payment_id
+  LEFT JOIN invoices i ON i.invoice_id = p.invoice_id
+  LEFT JOIN customers c ON c.customer_id = COALESCE(p.customer_id, i.customer_id)
+  LEFT JOIN users u ON u.user_id = l.actor_user_id
+ ORDER BY l.created_at DESC, l.log_id DESC
+ LIMIT 10
+`
+
+type RecentActivityRow struct {
+	LogID            uuid.UUID
+	PaymentID        uuid.UUID
+	Action           string
+	Reasons          []string
+	ActorUserID      pgtype.UUID
+	CreatedAt        *time.Time
+	PayerName        *string
+	Amount           decimal.NullDecimal
+	Currency         *string
+	PaymentDate      pgtype.Date
+	PayerReference   *string
+	WhtAmount        decimal.NullDecimal
+	ConfidenceScore  decimal.NullDecimal
+	IntakeSource     *string
+	InvoiceID        pgtype.UUID
+	InvoiceNumber    *string
+	CustomerName     *string
+	ActorDisplayName *string
+	ActorEmail       *string
+}
+
+// The newest reconciliation_log rows with their payment, invoice, customer
+// (the payment's own, else the invoice's) and actor. Python had no tie-break.
+func (q *Queries) RecentActivity(ctx context.Context) ([]RecentActivityRow, error) {
+	rows, err := q.db.Query(ctx, recentActivity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RecentActivityRow
+	for rows.Next() {
+		var i RecentActivityRow
+		if err := rows.Scan(
+			&i.LogID,
+			&i.PaymentID,
+			&i.Action,
+			&i.Reasons,
+			&i.ActorUserID,
+			&i.CreatedAt,
+			&i.PayerName,
+			&i.Amount,
+			&i.Currency,
+			&i.PaymentDate,
+			&i.PayerReference,
+			&i.WhtAmount,
+			&i.ConfidenceScore,
+			&i.IntakeSource,
+			&i.InvoiceID,
+			&i.InvoiceNumber,
+			&i.CustomerName,
+			&i.ActorDisplayName,
+			&i.ActorEmail,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

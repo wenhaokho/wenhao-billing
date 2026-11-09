@@ -50,6 +50,26 @@ func monthlyEquivalent(amount decimal.Decimal, frequency string, interval int) d
 	}
 }
 
+// activeSchedule is the schedule of a template's stored billing_cycle_ref when
+// the template counts on today: not paused, parseable, and with a current or a
+// later cycle (Python's _active_recurring_templates).
+func activeSchedule(raw json.RawMessage, today time.Time) (schedule.Schedule, bool) {
+	cfg := storedConfig(raw)
+	if schedule.IsPaused(cfg) {
+		return schedule.Schedule{}, false
+	}
+	s, err := schedule.Parse(cfg)
+	if err != nil {
+		return schedule.Schedule{}, false
+	}
+	if _, ok := s.Current(today); !ok {
+		if _, ok := s.NextAfter(today); !ok {
+			return schedule.Schedule{}, false
+		}
+	}
+	return s, true
+}
+
 // MRR is the monthly recurring revenue per currency of the active RECURRING
 // templates, never converted across currencies: a template is skipped when
 // its schedule is paused, unparseable or ended (no current and no later cycle
@@ -62,18 +82,9 @@ func MRR(ctx context.Context, db statsdb.DBTX, today time.Time) ([]invoices.Curr
 	}
 	totals := map[string]decimal.Decimal{}
 	for _, t := range rows {
-		cfg := storedConfig(t.BillingCycleRef)
-		if schedule.IsPaused(cfg) {
+		s, ok := activeSchedule(t.BillingCycleRef, today)
+		if !ok {
 			continue
-		}
-		s, err := schedule.Parse(cfg)
-		if err != nil {
-			continue
-		}
-		if _, ok := s.Current(today); !ok {
-			if _, ok := s.NextAfter(today); !ok {
-				continue
-			}
 		}
 		totals[t.Currency] = totals[t.Currency].Add(monthlyEquivalent(t.Amount, s.Frequency, s.Interval))
 	}

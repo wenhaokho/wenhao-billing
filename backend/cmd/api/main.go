@@ -50,6 +50,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/projects"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/quotations"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/reports"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/stats"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/vendors"
 	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
@@ -84,6 +85,7 @@ func register(api huma.API, f features) {
 	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: payments.NoHosting{}}, f.Config, f.Clock,
 		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.StubRenderer{}})
 	reports.Register(api, f.Pool, f.Config, f.Clock)
+	stats.Register(api, f.Pool, f.Config, f.Clock)
 }
 
 func main() {
