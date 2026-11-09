@@ -226,7 +226,19 @@ func startScheduler(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config
 		logger.Info("scheduler is off (SCHEDULER_ENABLED)")
 		return nil, nil
 	}
-	jobList := []jobs.Job{
+	jobList := scheduledJobs(pool, cfg, logger, mail)
+	wait := jobs.Start(ctx, pool, clock, func(err error) {
+		logger.Error("scheduled job failed", "err", err)
+	}, jobList...)
+	logger.Info("scheduler started", "jobs", len(jobList))
+	return jobList, wait
+}
+
+// scheduledJobs is the job list: the jobs' work is built from the
+// configuration here (the hosting job's Cloudflare client from CLOUDFLARE_*).
+// It is a variable so tests can replace the jobs' Run functions with no-ops.
+var scheduledJobs = func(pool *pgxpool.Pool, cfg platform.Config, logger *slog.Logger, mail email.Sender) []jobs.Job {
+	return []jobs.Job{
 		jobs.RecurringScan(pool, invoices.EmailNotifier{
 			Q: invoicesdb.New(pool), Sender: mail, AppBaseURL: cfg.AppBaseURL, Logger: logger,
 		}),
@@ -237,11 +249,6 @@ func startScheduler(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config
 		}),
 		jobs.FXRatesSync(pool, cfg, fx.NewClient(cfg)),
 	}
-	wait := jobs.Start(ctx, pool, clock, func(err error) {
-		logger.Error("scheduled job failed", "err", err)
-	}, jobList...)
-	logger.Info("scheduler started", "jobs", len(jobList))
-	return jobList, wait
 }
 
 // prepareDatabase is serve's database step: refuse a database goose does not

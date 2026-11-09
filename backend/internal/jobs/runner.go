@@ -74,8 +74,8 @@ func Start(ctx context.Context, pool *pgxpool.Pool, clock platform.Clock, report
 // short one.
 //
 // It returns a wait function: it blocks until the scheduler's goroutine has
-// stopped. The API does not need it (the process ends with the context),
-// but a test does: it must not assert while a tick is still running.
+// stopped. The API waits for it before it closes the database pool, and a
+// test needs it too: it must not assert while a tick is still running.
 func start(ctx context.Context, pool *pgxpool.Pool, clock platform.Clock, report func(error), interval time.Duration, jobs ...Job) func() {
 	r := newRunner(pool, clock, report)
 	stopped := make(chan struct{})
@@ -329,8 +329,7 @@ func (r *runner) runSlot(ctx context.Context, job Job, slot, now time.Time, conn
 			return fmt.Errorf("record the slot %s: %w", slot, err)
 		}
 	}
-	// A job without work (the hosting enforcement, whose work the
-	// integrations plan brings) is recorded and does nothing.
+	// A job without work (a nil Run) is recorded and does nothing.
 	var runErr error
 	if job.Run != nil {
 		runErr = r.runJob(ctx, job, slot)
