@@ -74,11 +74,8 @@ type quotationBody struct{ Body QuotationOut }
 type createIn struct{ Body QuotationCreate }
 
 func (r routes) create(ctx context.Context, in *createIn) (*quotationBody, error) {
-	if err := checkFields(in.Body.QuotationFields, in.Body.LineItems); err != nil {
-		return nil, err
-	}
 	today := platform.TodayUTC(r.clock)
-	return r.inTx(ctx, func(tx pgx.Tx) (QuotationOut, error) { return createQuotation(ctx, tx, in.Body, today) })
+	return r.inTx(ctx, func(tx pgx.Tx) (QuotationOut, error) { return CreateQuotation(ctx, tx, in.Body, today) })
 }
 
 type listIn struct {
@@ -91,17 +88,9 @@ type listIn struct {
 type listOut struct{ Body []QuotationOut }
 
 func (r routes) list(ctx context.Context, in *listIn) (*listOut, error) {
-	var statuses []string
-	if len(in.Status) > 0 {
-		statuses = in.Status
-	}
-	rows, err := r.q.ListQuotations(ctx, quotationsdb.ListQuotationsParams{
-		Statuses: statuses, CustomerID: pgUUID(in.CustomerID.Ptr()), ProjectID: pgUUID(in.ProjectID.Ptr()), RowLimit: in.Limit,
+	out, err := List(ctx, r.q, ListFilter{
+		Statuses: in.Status, CustomerID: in.CustomerID.Ptr(), ProjectID: in.ProjectID.Ptr(), Limit: &in.Limit,
 	})
-	if err != nil {
-		return nil, err
-	}
-	out, err := list(ctx, r.q, rows)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +102,7 @@ type idIn struct {
 }
 
 func (r routes) get(ctx context.Context, in *idIn) (*quotationBody, error) {
-	out, err := get(ctx, r.q, in.QuotationID)
+	out, err := Get(ctx, r.q, in.QuotationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, platform.Err(http.StatusNotFound, "quotation_not_found", "quotation not found")
 	}
@@ -129,18 +118,11 @@ type updateIn struct {
 }
 
 func (r routes) update(ctx context.Context, in *updateIn) (*quotationBody, error) {
-	var lines []QuotationLineItemIn
-	if in.Body.LineItems != nil {
-		lines = *in.Body.LineItems
-	}
-	if err := checkFields(in.Body.QuotationFields, lines); err != nil {
-		return nil, err
-	}
-	return r.inTx(ctx, func(tx pgx.Tx) (QuotationOut, error) { return updateQuotation(ctx, tx, in.QuotationID, in.Body) })
+	return r.inTx(ctx, func(tx pgx.Tx) (QuotationOut, error) { return UpdateQuotation(ctx, tx, in.QuotationID, in.Body) })
 }
 
 func (r routes) delete(ctx context.Context, in *idIn) (*struct{}, error) {
-	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error { return deleteQuotation(ctx, tx, in.QuotationID) })
+	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error { return DeleteQuotation(ctx, tx, in.QuotationID) })
 	if err != nil {
 		return nil, clientError(err)
 	}

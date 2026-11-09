@@ -230,18 +230,31 @@ SELECT item_id, sku, name, item_type, description, default_currency, default_uni
 WHERE ($1::boolean IS NULL OR active = $1::boolean)
   AND ($2::text = '' OR item_type = $2::text)
   AND ($3::boolean IS NULL OR is_hosting = $3::boolean)
+  AND ($4::text IS NULL OR name ILIKE '%' || $4::text || '%' ESCAPE '\')
 ORDER BY name, item_id
+LIMIT $5
 `
 
 type ListItemsParams struct {
 	Active    *bool
 	ItemType  string
 	IsHosting *bool
+	NameLike  *string
+	RowLimit  *int32
 }
 
-// A null active or is_hosting, and an empty item_type, do not filter.
+// A null active or is_hosting, an empty item_type, a null name_like and a
+// null row_limit do not filter. name_like is a name substring, already
+// escaped by the caller for LIKE (\, % and _ with a backslash, as the
+// payments audit log takes its payer).
 func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]Item, error) {
-	rows, err := q.db.Query(ctx, listItems, arg.Active, arg.ItemType, arg.IsHosting)
+	rows, err := q.db.Query(ctx, listItems,
+		arg.Active,
+		arg.ItemType,
+		arg.IsHosting,
+		arg.NameLike,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

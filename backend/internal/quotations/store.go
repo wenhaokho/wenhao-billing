@@ -86,6 +86,36 @@ const validityDays = 30
 // lastDate is Python's date.max.
 var lastDate = time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)
 
+// CreateQuotation is the create route's quotation: the field checks, then
+// createQuotation in tx. Exported for the MCP create_quotation tool
+// (inventory §4).
+func CreateQuotation(ctx context.Context, tx pgx.Tx, b QuotationCreate, today time.Time) (QuotationOut, error) {
+	if err := checkFields(b.QuotationFields, b.LineItems); err != nil {
+		return QuotationOut{}, err
+	}
+	return createQuotation(ctx, tx, b, today)
+}
+
+// UpdateQuotation is the update route's quotation: the field checks,
+// then updateQuotation in tx. Exported for the MCP update_quotation tool
+// (inventory §4).
+func UpdateQuotation(ctx context.Context, tx pgx.Tx, id uuid.UUID, b QuotationUpdate) (QuotationOut, error) {
+	var lines []QuotationLineItemIn
+	if b.LineItems != nil {
+		lines = *b.LineItems
+	}
+	if err := checkFields(b.QuotationFields, lines); err != nil {
+		return QuotationOut{}, err
+	}
+	return updateQuotation(ctx, tx, id, b)
+}
+
+// DeleteQuotation is the delete route's quotation: only a DRAFT goes, and
+// its lines with it. Exported for completeness (inventory §4).
+func DeleteQuotation(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	return deleteQuotation(ctx, tx, id)
+}
+
 // createQuotation is Python's create_quotation (quoting.py:110-142) in tx:
 // the number comes from NextQuotationNumber's lock, so the insert must be in
 // the same tx.

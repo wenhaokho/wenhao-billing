@@ -39,6 +39,10 @@ func refuse(code, format string, args ...any) error {
 // errNotFound is an unknown bill: a 404 on every bill route.
 var errNotFound = errors.New("bill not found")
 
+// ErrNotFound is errNotFound for the MCP bills tools: test a delete or a
+// write of an unknown id with errors.Is(err, ErrNotFound).
+var ErrNotFound = errNotFound
+
 // clientError is err as the client reads it: a refusal is a 400 with
 // Python's sentence, an unknown bill the 404; anything else is unchanged.
 func clientError(err error) error {
@@ -161,7 +165,7 @@ type BillOut struct {
 	LineItems     []BillLineItemOut `json:"line_items" nullable:"false"`
 }
 
-// get is bill id with its lines, or pgx.ErrNoRows when there is none.
+// Get is bill id with its lines, or pgx.ErrNoRows when there is none.
 func get(ctx context.Context, q *billsdb.Queries, id uuid.UUID) (BillOut, error) {
 	row, err := q.GetBill(ctx, id)
 	if err != nil {
@@ -172,6 +176,37 @@ func get(ctx context.Context, q *billsdb.Queries, id uuid.UUID) (BillOut, error)
 		return BillOut{}, err
 	}
 	return billOut(row, lines), nil
+}
+
+// Get is the bill id with its lines, exported for the MCP read tools
+// (inventory §4). An unknown id is pgx.ErrNoRows.
+func Get(ctx context.Context, q *billsdb.Queries, id uuid.UUID) (BillOut, error) {
+	return get(ctx, q, id)
+}
+
+// ListFilter narrows List; the zero value lists every bill. Statuses and
+// VendorID filter when set (an empty Statuses is no filter, as in Python);
+// Limit caps the page when set (nil is unlimited, 0 lists nothing).
+type ListFilter struct {
+	Statuses []string
+	VendorID *uuid.UUID
+	Limit    *int32
+}
+
+// List is the bills matching f, rendered as the routes render them, newest
+// first with the id breaking ties, never nil.
+func List(ctx context.Context, q *billsdb.Queries, f ListFilter) ([]BillOut, error) {
+	var statuses []string
+	if len(f.Statuses) > 0 {
+		statuses = f.Statuses
+	}
+	rows, err := q.ListBills(ctx, billsdb.ListBillsParams{
+		Statuses: statuses, VendorID: pgUUID(f.VendorID), RowLimit: f.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return list(ctx, q, rows)
 }
 
 // list renders bills, loading all their lines in one query.

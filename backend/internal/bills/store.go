@@ -85,6 +85,52 @@ func insertLines(ctx context.Context, q *billsdb.Queries, id uuid.UUID, lines []
 	return nil
 }
 
+// CreateBill is the create route's bill: the field checks, then createBill
+// in tx. Exported for the MCP create_bill tool (inventory §4).
+func CreateBill(ctx context.Context, tx pgx.Tx, b BillCreate) (BillOut, error) {
+	if err := checkFields(b.BillFields, b.LineItems); err != nil {
+		return BillOut{}, err
+	}
+	return createBill(ctx, tx, b)
+}
+
+// UpdateBill is the update route's bill: the field checks, then updateBill
+// in tx. Exported for the MCP update_bill tool (inventory §4).
+func UpdateBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, b BillUpdate) (BillOut, error) {
+	var lines []BillLineItemIn
+	if b.LineItems != nil {
+		lines = *b.LineItems
+	}
+	if err := checkFields(b.BillFields, lines); err != nil {
+		return BillOut{}, err
+	}
+	return updateBill(ctx, tx, id, b)
+}
+
+// DeleteBill is MCP delete_bill's delete (inventory §4): a DRAFT bill
+// locked, checked and deleted in tx. An unknown id is ErrNotFound; a bill
+// of any other status is an ErrBilling refusal with Python's sentence.
+func DeleteBill(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	q := billsdb.New(tx)
+	cur, err := lock(ctx, q, id)
+	if err != nil {
+		return err
+	}
+	if cur.Status != "DRAFT" {
+		return refuse("bill_not_draft", "only DRAFT bills can be deleted (got %s)", cur.Status)
+	}
+	n, err := q.DeleteBill(ctx, id)
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		// The row was locked above, so its status cannot have changed:
+		// nothing deleted means the row is gone another way.
+		return errNotFound
+	}
+	return nil
+}
+
 // createBill is Python's create_bill (billing_ap.py:45-81) in tx: a DRAFT
 // bill whose balance is its amount. Lines are optional (a bill of 0), and
 // no date is defaulted.

@@ -596,18 +596,35 @@ const listInvoicesBy = `-- name: ListInvoicesBy :many
 SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
 WHERE ($1::uuid IS NULL OR project_id = $1::uuid)
   AND (NOT $2::boolean OR is_template = false)
+  AND ($3::text[] IS NULL OR status = ANY ($3::text[]))
+  AND ($4::uuid IS NULL OR customer_id = $4::uuid)
+  AND ($5::text IS NULL OR invoice_type = $5::text)
 ORDER BY created_at DESC, invoice_id DESC
+LIMIT $6
 `
 
 type ListInvoicesByParams struct {
 	ProjectID        pgtype.UUID
 	ExcludeTemplates bool
+	Statuses         []string
+	CustomerID       pgtype.UUID
+	InvoiceType      *string
+	RowLimit         *int32
 }
 
-// ListBy's loader (the project routes): optionally one project's, optionally
-// without templates; ListInvoices' order.
+// ListBy's loader (the project routes, MCP list_invoices): optionally one
+// project's, optionally without templates, optionally by statuses,
+// customer, type and a row cap; ListInvoices' order. A null statuses,
+// customer_id, invoice_type or row_limit does not filter.
 func (q *Queries) ListInvoicesBy(ctx context.Context, arg ListInvoicesByParams) ([]Invoice, error) {
-	rows, err := q.db.Query(ctx, listInvoicesBy, arg.ProjectID, arg.ExcludeTemplates)
+	rows, err := q.db.Query(ctx, listInvoicesBy,
+		arg.ProjectID,
+		arg.ExcludeTemplates,
+		arg.Statuses,
+		arg.CustomerID,
+		arg.InvoiceType,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

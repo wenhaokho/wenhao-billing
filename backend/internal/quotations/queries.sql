@@ -56,13 +56,14 @@ DELETE FROM quotation_line_items WHERE quotation_id = $1;
 -- name: ListQuotations :many
 -- GET /quotations (quotations.py:46-65): each filter applies when given (a
 -- null or empty statuses list is no filter); newest first, the id breaking
--- ties.
+-- ties. A null row_limit is no limit (the HTTP route always passes one);
+-- a set one caps the page.
 SELECT * FROM quotations
 WHERE (sqlc.narg(statuses)::text[] IS NULL OR status = ANY (sqlc.narg(statuses)::text[]))
   AND (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)::uuid)
   AND (sqlc.narg(project_id)::uuid IS NULL OR project_id = sqlc.narg(project_id)::uuid)
 ORDER BY created_at DESC, quotation_id DESC
-LIMIT @row_limit;
+LIMIT sqlc.narg(row_limit);
 
 -- name: DeleteQuotation :exec
 -- The lines go with it (ON DELETE CASCADE).

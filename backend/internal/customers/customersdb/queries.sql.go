@@ -291,13 +291,23 @@ func (q *Queries) GetCustomerForUpdate(ctx context.Context, customerID uuid.UUID
 
 const listCustomers = `-- name: ListCustomers :many
 SELECT customer_id, name, matching_aliases, active, contact_email, contact_phone, billing_address, contact_first_name, contact_last_name, contact_phone_2, account_number, website, notes, default_currency, billing_address1, billing_address2, billing_country, billing_state, billing_city, billing_postal_code, ship_to_name, shipping_address1, shipping_address2, shipping_country, shipping_state, shipping_city, shipping_postal_code, shipping_phone, shipping_delivery_instructions, quotation_cc_emails, billing_cc_emails, default_wht_type, default_wht_rate, default_wht_gross_up FROM customers
-WHERE $1::boolean IS NULL OR active = $1::boolean
+WHERE ($1::boolean IS NULL OR active = $1::boolean)
+  AND ($2::text IS NULL OR name ILIKE '%' || $2::text || '%' ESCAPE '\')
 ORDER BY name, customer_id
+LIMIT $3
 `
 
-// A null active lists every customer.
-func (q *Queries) ListCustomers(ctx context.Context, active *bool) ([]Customer, error) {
-	rows, err := q.db.Query(ctx, listCustomers, active)
+type ListCustomersParams struct {
+	Active   *bool
+	NameLike *string
+	RowLimit *int32
+}
+
+// A null active, a null name_like and a null row_limit do not filter.
+// name_like is a name substring, already escaped by the caller for LIKE
+// (\, % and _ with a backslash, as the payments audit log does).
+func (q *Queries) ListCustomers(ctx context.Context, arg ListCustomersParams) ([]Customer, error) {
+	rows, err := q.db.Query(ctx, listCustomers, arg.Active, arg.NameLike, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

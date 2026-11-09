@@ -116,6 +116,16 @@ func templateLines(lines []LineItemIn) []LineIn {
 	return out
 }
 
+// CreateTemplate is the create-template route's template: the negative
+// checks, then createTemplate in tx. Exported for the MCP
+// create_recurring_template tool (inventory §4).
+func CreateTemplate(ctx context.Context, tx pgx.Tx, b RecurringTemplateCreate) (InvoiceOut, error) {
+	if err := checkTemplate(b); err != nil {
+		return InvoiceOut{}, err
+	}
+	return createTemplate(ctx, tx, b)
+}
+
 // createTemplate is Python's create_recurring_template (invoicing.py:364-412):
 // a DRAFT RECURRING template with no number and no dates, its schedule in
 // billing_cycle_ref.
@@ -414,10 +424,7 @@ func dateOrNil(d *time.Time) *platform.Date {
 type templateCreateIn struct{ Body RecurringTemplateCreate }
 
 func (r routes) createTemplate(ctx context.Context, in *templateCreateIn) (*invoiceBody, error) {
-	if err := checkTemplate(in.Body); err != nil {
-		return nil, err
-	}
-	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return createTemplate(ctx, tx, in.Body) })
+	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return CreateTemplate(ctx, tx, in.Body) })
 }
 
 // checkTemplate is checkFields for a template: the negative discount value,

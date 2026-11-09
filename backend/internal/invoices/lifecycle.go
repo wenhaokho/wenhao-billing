@@ -25,6 +25,12 @@ func lock(ctx context.Context, q *invoicesdb.Queries, id uuid.UUID) (invoicesdb.
 	return inv, err
 }
 
+// FinalizeInvoice is the finalize route's transition: a DRAFT invoice in
+// tx. Exported for the MCP finalize_invoice tool (inventory §4).
+func FinalizeInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, error) {
+	return finalizeInvoice(ctx, tx, id)
+}
+
 // finalizeInvoice is Python's finalize_invoice (invoicing.py:643-664): a
 // DRAFT that owes something is issued as OPEN (SENT is for the email); one
 // with nothing to collect is settled straight to PAID.
@@ -68,6 +74,12 @@ func settleInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, er
 	return transition(ctx, q, id, "PAID", decimal.Zero)
 }
 
+// VoidInvoice is the void route's transition: an invoice in tx. Exported
+// for the MCP void_invoice tool (inventory §4).
+func VoidInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, error) {
+	return voidInvoice(ctx, tx, id)
+}
+
 // voidInvoice is Python's void_invoice (invoicing.py:693-700): anything but
 // a PAID invoice (a template included) becomes VOID with nothing owing.
 func voidInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, error) {
@@ -96,6 +108,12 @@ var referenced = map[string]platform.Constraint{
 	"quotations_converted_invoice_id_fkey": {Status: http.StatusConflict, Code: "invoice_referenced", Detail: "invoice is referenced by a payment or quotation"},
 }
 
+// DeleteInvoice is the delete route's invoice: a DRAFT invoice in tx.
+// Exported for the MCP delete_invoice tool (inventory §4).
+func DeleteInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	return deleteInvoice(ctx, tx, id)
+}
+
 // deleteInvoice is Python's delete_invoice (invoicing.py:467-474): only a
 // DRAFT goes, and its lines with it.
 func deleteInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
@@ -111,7 +129,7 @@ func deleteInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
 }
 
 func (r routes) finalize(ctx context.Context, in *idIn) (*invoiceBody, error) {
-	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return finalizeInvoice(ctx, tx, in.InvoiceID) })
+	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return FinalizeInvoice(ctx, tx, in.InvoiceID) })
 }
 
 func (r routes) markPaid(ctx context.Context, in *idIn) (*invoiceBody, error) {
@@ -129,11 +147,11 @@ type voidIn struct {
 }
 
 func (r routes) void(ctx context.Context, in *voidIn) (*invoiceBody, error) {
-	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return voidInvoice(ctx, tx, in.InvoiceID) })
+	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return VoidInvoice(ctx, tx, in.InvoiceID) })
 }
 
 func (r routes) delete(ctx context.Context, in *idIn) (*struct{}, error) {
-	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error { return deleteInvoice(ctx, tx, in.InvoiceID) })
+	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error { return DeleteInvoice(ctx, tx, in.InvoiceID) })
 	if err != nil {
 		return nil, clientError(err)
 	}

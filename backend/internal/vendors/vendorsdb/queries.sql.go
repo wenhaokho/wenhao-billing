@@ -129,13 +129,23 @@ func (q *Queries) GetVendorForUpdate(ctx context.Context, vendorID uuid.UUID) (V
 
 const listVendors = `-- name: ListVendors :many
 SELECT vendor_id, name, contact_email, contact_name, default_currency, payment_terms_days, tax_id, notes, active, created_at FROM vendors
-WHERE $1::boolean IS NULL OR active = $1::boolean
+WHERE ($1::boolean IS NULL OR active = $1::boolean)
+  AND ($2::text IS NULL OR name ILIKE '%' || $2::text || '%' ESCAPE '\')
 ORDER BY name, vendor_id
+LIMIT $3
 `
 
-// A null active lists every vendor.
-func (q *Queries) ListVendors(ctx context.Context, active *bool) ([]Vendor, error) {
-	rows, err := q.db.Query(ctx, listVendors, active)
+type ListVendorsParams struct {
+	Active   *bool
+	NameLike *string
+	RowLimit *int32
+}
+
+// A null active, a null name_like and a null row_limit do not filter.
+// name_like is a name substring, already escaped by the caller for LIKE
+// (\, % and _ with a backslash, as the payments audit log does).
+func (q *Queries) ListVendors(ctx context.Context, arg ListVendorsParams) ([]Vendor, error) {
+	rows, err := q.db.Query(ctx, listVendors, arg.Active, arg.NameLike, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

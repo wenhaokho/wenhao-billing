@@ -168,6 +168,15 @@ func lineIn(ln LineItemIn) LineIn {
 	}
 }
 
+// CreateInvoice is the create route's invoice: the field checks, then
+// createInvoice in tx. Exported for the MCP invoice tools (inventory §4).
+func CreateInvoice(ctx context.Context, tx pgx.Tx, b InvoiceCreate, today time.Time) (InvoiceOut, error) {
+	if err := checkFields(b.InvoiceFields, b.LineItems); err != nil {
+		return InvoiceOut{}, err
+	}
+	return createInvoice(ctx, tx, b, today)
+}
+
 // createInvoice is Python's create_invoice (invoicing.py:228-280) in tx:
 // the number comes from NextInvoiceNumber's lock, so the insert must be in
 // the same tx.
@@ -235,6 +244,19 @@ func dueOr(sent *platform.Date, issue time.Time, terms *string) (time.Time, erro
 		return sent.Time, nil
 	}
 	return DueAfterTerms(issue, terms)
+}
+
+// UpdateInvoice is the update route's invoice: the field checks, then
+// updateInvoice in tx. Exported for the MCP update_invoice tool (§4).
+func UpdateInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID, b InvoiceUpdate) (InvoiceOut, error) {
+	var lines []LineItemIn
+	if b.LineItems != nil {
+		lines = *b.LineItems
+	}
+	if err := checkFields(b.InvoiceFields, lines); err != nil {
+		return InvoiceOut{}, err
+	}
+	return updateInvoice(ctx, tx, id, b)
 }
 
 // updateInvoice is Python's update_invoice (invoicing.py:283-341) in tx:

@@ -226,6 +226,12 @@ func draftSummary(ctx context.Context, q *invoicesdb.Queries, out InvoiceOut, cy
 	return s, nil
 }
 
+// TriggerAndSummarise is triggerAndSummarise, exported for the MCP
+// trigger_recurring tool (inventory §4).
+func TriggerAndSummarise(ctx context.Context, pool *pgxpool.Pool, templateID uuid.UUID, cycleKey string, today time.Time) (InvoiceOut, *DraftSummary, error) {
+	return triggerAndSummarise(ctx, pool, templateID, cycleKey, today)
+}
+
 // triggerAndSummarise runs Trigger in its own transaction and answers the
 // invoice and, when it was created, its draft summary.
 func triggerAndSummarise(ctx context.Context, pool *pgxpool.Pool, templateID uuid.UUID, cycleKey string, today time.Time) (InvoiceOut, *DraftSummary, error) {
@@ -260,7 +266,7 @@ type triggerIn struct {
 // trigger is the route (invoices.py:365-388): 200 with the new or existing
 // invoice; the new one's summary is notified after the commit.
 func (r routes) trigger(ctx context.Context, in *triggerIn) (*invoiceBody, error) {
-	out, summary, err := triggerAndSummarise(ctx, r.pool, in.TemplateID, in.Body.CycleKey, platform.TodayUTC(r.clock))
+	out, summary, err := TriggerAndSummarise(ctx, r.pool, in.TemplateID, in.Body.CycleKey, platform.TodayUTC(r.clock))
 	if err != nil {
 		return nil, clientError(err)
 	}

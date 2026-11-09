@@ -64,15 +64,11 @@ type listIn struct {
 type listOut struct{ Body []VendorOut }
 
 func (r routes) list(ctx context.Context, in *listIn) (*listOut, error) {
-	rows, err := r.q.ListVendors(ctx, in.Active.Ptr())
+	out, err := List(ctx, r.q, ListFilter{Active: in.Active.Ptr()})
 	if err != nil {
 		return nil, err
 	}
-	out := &listOut{Body: make([]VendorOut, 0, len(rows))}
-	for _, v := range rows {
-		out.Body = append(out.Body, vendorOut(v))
-	}
-	return out, nil
+	return &listOut{Body: out}, nil
 }
 
 type vendorBody struct{ Body VendorOut }
@@ -80,22 +76,11 @@ type vendorBody struct{ Body VendorOut }
 type createIn struct{ Body VendorCreate }
 
 func (r routes) create(ctx context.Context, in *createIn) (*vendorBody, error) {
-	b := in.Body
-	v, err := r.q.CreateVendor(ctx, vendorsdb.CreateVendorParams{
-		VendorID:         uuid.New(),
-		Name:             b.Name,
-		ContactEmail:     emailPtr(b.ContactEmail, nil),
-		ContactName:      b.ContactName.Merge(nil),
-		DefaultCurrency:  b.DefaultCurrency.Or("IDR"),
-		PaymentTermsDays: b.PaymentTermsDays.Or(30),
-		TaxID:            b.TaxID.Merge(nil),
-		Notes:            b.Notes.Merge(nil),
-		Active:           b.Active.Or(true),
-	})
+	out, err := Create(ctx, r.q, in.Body)
 	if err != nil {
 		return nil, err
 	}
-	return &vendorBody{Body: vendorOut(v)}, nil
+	return &vendorBody{Body: out}, nil
 }
 
 type idIn struct {
@@ -103,11 +88,11 @@ type idIn struct {
 }
 
 func (r routes) get(ctx context.Context, in *idIn) (*vendorBody, error) {
-	v, err := r.q.GetVendor(ctx, in.VendorID)
+	out, err := Get(ctx, r.q, in.VendorID)
 	if err != nil {
 		return nil, notFound(err)
 	}
-	return &vendorBody{Body: vendorOut(v)}, nil
+	return &vendorBody{Body: out}, nil
 }
 
 type updateIn struct {
@@ -115,35 +100,19 @@ type updateIn struct {
 	Body     VendorUpdate
 }
 
-// update is the PATCH pattern: read the row locked, overlay the fields sent
-// (a null never gets here for a NOT NULL column: NotNull refuses it), and
-// write every column back.
+// update is the PATCH pattern: the row locked, overlaid and written back
+// in one transaction (Update).
 func (r routes) update(ctx context.Context, in *updateIn) (*vendorBody, error) {
-	b := in.Body
-	var v vendorsdb.Vendor
+	var v VendorOut
 	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
-		q := r.q.WithTx(tx)
-		cur, err := q.GetVendorForUpdate(ctx, in.VendorID)
-		if err != nil {
-			return notFound(err)
-		}
-		v, err = q.UpdateVendor(ctx, vendorsdb.UpdateVendorParams{
-			VendorID:         cur.VendorID,
-			Name:             b.Name.Or(cur.Name),
-			ContactEmail:     emailPtr(b.ContactEmail, cur.ContactEmail),
-			ContactName:      b.ContactName.Merge(cur.ContactName),
-			DefaultCurrency:  b.DefaultCurrency.Or(cur.DefaultCurrency),
-			PaymentTermsDays: b.PaymentTermsDays.Or(cur.PaymentTermsDays),
-			TaxID:            b.TaxID.Merge(cur.TaxID),
-			Notes:            b.Notes.Merge(cur.Notes),
-			Active:           b.Active.Or(cur.Active),
-		})
+		var err error
+		v, err = Update(ctx, r.q.WithTx(tx), in.VendorID, in.Body)
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, notFound(err)
 	}
-	return &vendorBody{Body: vendorOut(v)}, nil
+	return &vendorBody{Body: v}, nil
 }
 
 func (r routes) deactivate(ctx context.Context, in *idIn) (*vendorBody, error) {

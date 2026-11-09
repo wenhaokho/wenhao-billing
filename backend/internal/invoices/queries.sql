@@ -66,12 +66,18 @@ ORDER BY created_at DESC, invoice_id DESC
 LIMIT @row_limit;
 
 -- name: ListInvoicesBy :many
--- ListBy's loader (the project routes): optionally one project's, optionally
--- without templates; ListInvoices' order.
+-- ListBy's loader (the project routes, MCP list_invoices): optionally one
+-- project's, optionally without templates, optionally by statuses,
+-- customer, type and a row cap; ListInvoices' order. A null statuses,
+-- customer_id, invoice_type or row_limit does not filter.
 SELECT * FROM invoices
 WHERE (sqlc.narg(project_id)::uuid IS NULL OR project_id = sqlc.narg(project_id)::uuid)
   AND (NOT @exclude_templates::boolean OR is_template = false)
-ORDER BY created_at DESC, invoice_id DESC;
+  AND (sqlc.narg(statuses)::text[] IS NULL OR status = ANY (sqlc.narg(statuses)::text[]))
+  AND (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)::uuid)
+  AND (sqlc.narg(invoice_type)::text IS NULL OR invoice_type = sqlc.narg(invoice_type)::text)
+ORDER BY created_at DESC, invoice_id DESC
+LIMIT sqlc.narg(row_limit);
 
 -- name: ListAwaitingFinalization :many
 -- invoices.py:411-423: every DRAFT that is not a template, no limit.
