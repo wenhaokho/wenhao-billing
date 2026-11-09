@@ -37,8 +37,8 @@ const (
 	csrfCookie = "oauth_csrf"
 	csrfTTL    = 10 * time.Minute
 	csrfPath   = "/oauth/"
-	// maxConsentBody bounds the consent form; a real one is under 1 KiB.
-	maxConsentBody = 64 << 10
+	// maxFormBody bounds a POSTed OAuth form; a real one is under 4 KiB.
+	maxFormBody = 64 << 10
 )
 
 // authorizeParams are the request parameters the authorize GET and the
@@ -209,6 +209,26 @@ func (h handler) csrfCookie(maxAge time.Duration) auth.CookieSpec {
 	return auth.CookieSpec{Name: csrfCookie, Path: csrfPath, Secure: h.sessions.Cookie.Secure, MaxAge: maxAge}
 }
 
+// readForm parses a POSTed form body (never the query string) and checks the
+// required fields are present. A bad body or a missing field is answered
+// 400 invalid_request and ok is false.
+func readForm(w http.ResponseWriter, r *http.Request, required ...string) (url.Values, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBody)
+	if err := r.ParseForm(); err != nil {
+		oauthError(w, http.StatusBadRequest, "invalid_request", "request body must be a form")
+		return nil, false
+	}
+	form := r.PostForm
+	for _, f := range required {
+		if _, ok := last(form, f); !ok {
+			// Go change 9: Python answered FastAPI's 422.
+			oauthError(w, http.StatusBadRequest, "invalid_request", "missing form field: "+f)
+			return nil, false
+		}
+	}
+	return form, true
+}
+
 // consentFields are the form fields the consent POST requires (FastAPI's
 // Form(...)); the others are optional.
 var consentFields = []string{"response_type", "client_id", "redirect_uri", "code_challenge", "decision"}
@@ -220,18 +240,9 @@ func (h handler) consent(w http.ResponseWriter, r *http.Request) {
 	cookie, _ := r.Cookie(csrfCookie)
 	auth.ClearCookie(w, h.csrfCookie(0))
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxConsentBody)
-	if err := r.ParseForm(); err != nil {
-		oauthError(w, http.StatusBadRequest, "invalid_request", "request body must be a form")
+	form, ok := readForm(w, r, consentFields...)
+	if !ok {
 		return
-	}
-	form := r.PostForm // never the query string
-	for _, f := range consentFields {
-		if _, ok := last(form, f); !ok {
-			// Go change 9: Python answered FastAPI's 422.
-			oauthError(w, http.StatusBadRequest, "invalid_request", "missing form field: "+f)
-			return
-		}
 	}
 
 	user, _, admin := h.adminSession(r)

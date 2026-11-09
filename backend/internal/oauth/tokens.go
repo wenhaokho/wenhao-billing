@@ -248,16 +248,25 @@ func (t *Tokens) VerifyRefresh(token string, now time.Time) (uuid.UUID, string, 
 
 // VerifyCode returns the claims of an authorization code.
 func (t *Tokens) VerifyCode(token string, now time.Time) (CodeClaims, error) {
+	c, _, err := t.verifyCode(token, now)
+	return c, err
+}
+
+// verifyCode is VerifyCode plus the code's expiry, which the token endpoint
+// keeps with the spent code so its row outlives the code.
+func (t *Tokens) verifyCode(token string, now time.Time) (CodeClaims, time.Time, error) {
 	c, err := t.decode(token, now)
 	if err != nil {
-		return CodeClaims{}, err
+		return CodeClaims{}, time.Time{}, err
 	}
 	if str(c, "typ") != typCode {
-		return CodeClaims{}, tokErr("not an authorization code")
+		return CodeClaims{}, time.Time{}, tokErr("not an authorization code")
 	}
 	sub, err := subject(c)
 	if err != nil {
-		return CodeClaims{}, err
+		return CodeClaims{}, time.Time{}, err
 	}
-	return CodeClaims{UserID: sub, ClientID: str(c, "client_id"), RedirectURI: str(c, "redirect_uri"), CodeChallenge: str(c, "code_challenge")}, nil
+	exp, _ := numeric(c["exp"]) // decode has checked it is there
+	return CodeClaims{UserID: sub, ClientID: str(c, "client_id"), RedirectURI: str(c, "redirect_uri"), CodeChallenge: str(c, "code_challenge")},
+		time.Unix(exp, 0).UTC(), nil
 }

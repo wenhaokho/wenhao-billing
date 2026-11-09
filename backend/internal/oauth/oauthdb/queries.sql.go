@@ -7,6 +7,7 @@ package oauthdb
 
 import (
 	"context"
+	"time"
 )
 
 const getOAuthClient = `-- name: GetOAuthClient :one
@@ -43,4 +44,95 @@ type InsertOAuthClientParams struct {
 func (q *Queries) InsertOAuthClient(ctx context.Context, arg InsertOAuthClientParams) error {
 	_, err := q.db.Exec(ctx, insertOAuthClient, arg.ClientID, arg.ClientName, arg.RedirectUris)
 	return err
+}
+
+const insertRefreshToken = `-- name: InsertRefreshToken :exec
+INSERT INTO oauth_refresh_tokens (jti, user_id, revoked) VALUES ($1, $2, false)
+`
+
+type InsertRefreshTokenParams struct {
+	Jti    string
+	UserID string
+}
+
+// user_id is the user UUID as text (Python's column).
+func (q *Queries) InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) error {
+	_, err := q.db.Exec(ctx, insertRefreshToken, arg.Jti, arg.UserID)
+	return err
+}
+
+const pruneSpentCodes = `-- name: PruneSpentCodes :exec
+DELETE FROM oauth_spent_codes WHERE expires_at < $1
+`
+
+// Spent codes past their expiry can no longer verify, so their rows go.
+func (q *Queries) PruneSpentCodes(ctx context.Context, now time.Time) error {
+	_, err := q.db.Exec(ctx, pruneSpentCodes, now)
+	return err
+}
+
+const refreshTokenExists = `-- name: RefreshTokenExists :one
+SELECT EXISTS (SELECT 1 FROM oauth_refresh_tokens WHERE jti = $1)
+`
+
+func (q *Queries) RefreshTokenExists(ctx context.Context, jti string) (bool, error) {
+	row := q.db.QueryRow(ctx, refreshTokenExists, jti)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const revokeRefreshToken = `-- name: RevokeRefreshToken :exec
+UPDATE oauth_refresh_tokens SET revoked = true WHERE jti = $1 AND NOT revoked
+`
+
+func (q *Queries) RevokeRefreshToken(ctx context.Context, jti string) error {
+	_, err := q.db.Exec(ctx, revokeRefreshToken, jti)
+	return err
+}
+
+const revokeUserRefreshTokens = `-- name: RevokeUserRefreshTokens :exec
+UPDATE oauth_refresh_tokens SET revoked = true WHERE user_id = $1 AND NOT revoked
+`
+
+// Reuse detection: every live refresh token of the user, across all clients.
+func (q *Queries) RevokeUserRefreshTokens(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, revokeUserRefreshTokens, userID)
+	return err
+}
+
+const rotateRefreshToken = `-- name: RotateRefreshToken :one
+UPDATE oauth_refresh_tokens SET revoked = true WHERE jti = $1 AND NOT revoked
+RETURNING user_id
+`
+
+// Revokes a live refresh token under its row lock. No row back means it is
+// unknown or already revoked: of two concurrent refreshes, the second waits
+// for the first to commit and then finds it revoked.
+func (q *Queries) RotateRefreshToken(ctx context.Context, jti string) (string, error) {
+	row := q.db.QueryRow(ctx, rotateRefreshToken, jti)
+	var user_id string
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
+const spendCode = `-- name: SpendCode :one
+INSERT INTO oauth_spent_codes (code_hash, expires_at) VALUES ($1, $2)
+ON CONFLICT (code_hash) DO NOTHING
+RETURNING code_hash
+`
+
+type SpendCodeParams struct {
+	CodeHash  string
+	ExpiresAt time.Time
+}
+
+// Records an exchanged code. No row back means the code was already spent:
+// a concurrent exchange of the same code waits on the primary key and then
+// conflicts, so exactly one wins.
+func (q *Queries) SpendCode(ctx context.Context, arg SpendCodeParams) (string, error) {
+	row := q.db.QueryRow(ctx, spendCode, arg.CodeHash, arg.ExpiresAt)
+	var code_hash string
+	err := row.Scan(&code_hash)
+	return code_hash, err
 }

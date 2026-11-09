@@ -22,7 +22,7 @@ type Deps struct {
 	AppBaseURL string
 	// Sessions reads the billing_session cookie on the authorize pages.
 	Sessions platform.Sessions
-	// Tokens mints the authorization codes.
+	// Tokens mints and verifies the codes and the access and refresh tokens.
 	Tokens *Tokens
 	Clock  platform.Clock
 }
@@ -36,8 +36,8 @@ type handler struct {
 	clock    platform.Clock
 }
 
-// Mount adds the discovery documents, the registration route and the
-// authorize and consent pages at the root.
+// Mount adds the discovery documents, the registration route, the authorize
+// and consent pages, and the token and revoke endpoints at the root.
 // They are plain chi handlers, not Huma operations: Huma answers a bad body
 // in problem+json, and OAuth clients need {"error", "error_description"}.
 // The caller mounts them only when MCP_ENABLED.
@@ -59,6 +59,8 @@ func Mount(r chi.Router, d Deps) {
 	r.Post("/oauth/register", h.register)
 	r.Get("/oauth/authorize", h.authorize)
 	r.Post("/oauth/authorize/consent", h.consent)
+	r.Post("/oauth/token", h.token)
+	r.Post("/oauth/revoke", h.revoke)
 }
 
 // writeJSON writes v as a JSON body with status.
