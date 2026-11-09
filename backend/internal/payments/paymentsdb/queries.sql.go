@@ -94,6 +94,17 @@ func (q *Queries) AuditLog(ctx context.Context, arg AuditLogParams) ([]AuditLogR
 	return items, nil
 }
 
+const businessName = `-- name: BusinessName :one
+SELECT name FROM business_profile WHERE id = 1
+`
+
+func (q *Queries) BusinessName(ctx context.Context) (*string, error) {
+	row := q.db.QueryRow(ctx, businessName)
+	var name *string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const getPayment = `-- name: GetPayment :one
 SELECT payment_id, invoice_id, customer_id, amount, currency, payer_name, payer_reference, payment_date, intake_source, external_ref, status, adjustment_type, confidence_score, created_at, wht_amount FROM payments WHERE payment_id = $1
 `
@@ -526,6 +537,39 @@ func (q *Queries) PaymentLog(ctx context.Context, paymentID uuid.UUID) ([]Reconc
 		return nil, err
 	}
 	return items, nil
+}
+
+const receiptInvoice = `-- name: ReceiptInvoice :one
+SELECT i.invoice_id, i.invoice_number, i.currency, i.balance_due,
+       c.name AS customer_name, c.contact_email AS customer_email
+  FROM invoices i
+  LEFT JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.invoice_id = $1
+`
+
+type ReceiptInvoiceRow struct {
+	InvoiceID     uuid.UUID
+	InvoiceNumber *string
+	Currency      string
+	BalanceDue    decimal.Decimal
+	CustomerName  *string
+	CustomerEmail *string
+}
+
+// What a payment receipt needs of its invoice and customer (Python
+// RI:650-662); the customer is NULL for an invoice without one.
+func (q *Queries) ReceiptInvoice(ctx context.Context, invoiceID uuid.UUID) (ReceiptInvoiceRow, error) {
+	row := q.db.QueryRow(ctx, receiptInvoice, invoiceID)
+	var i ReceiptInvoiceRow
+	err := row.Scan(
+		&i.InvoiceID,
+		&i.InvoiceNumber,
+		&i.Currency,
+		&i.BalanceDue,
+		&i.CustomerName,
+		&i.CustomerEmail,
+	)
+	return i, err
 }
 
 const setInvoiceSettlement = `-- name: SetInvoiceSettlement :exec

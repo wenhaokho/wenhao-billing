@@ -4918,6 +4918,38 @@
         ],
         "type": "object"
       },
+      "SendReceiptRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "cc_email": {
+            "description": "Copied addresses separated by commas, semicolons or spaces; each must be an email address.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to_email": {
+            "description": "The recipient, any text; empty or null falls back to the customer's contact email.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "SentTo": {
+        "additionalProperties": true,
+        "properties": {
+          "sent_to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sent_to"
+        ],
+        "type": "object"
+      },
       "SyncResult": {
         "additionalProperties": true,
         "properties": {
@@ -8372,6 +8404,106 @@
           }
         },
         "summary": "The invoice's CLEARED payments, newest first",
+        "tags": [
+          "payments"
+        ]
+      }
+    },
+    "/api/v1/invoices/{invoice_id}/payments/{payment_id}/send-receipt": {
+      "post": {
+        "description": "Writes nothing, so a failed send can be retried. A payment that is missing, on another invoice or not CLEARED is 404. The recipient is to_email, else the customer's contact email (400 when neither). Any sender error is 502.",
+        "operationId": "invoices-send-receipt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoice_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "payment_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendReceiptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SentTo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "summary": "Email a payment receipt (PDF attached) for a CLEARED payment of the invoice",
         "tags": [
           "payments"
         ]

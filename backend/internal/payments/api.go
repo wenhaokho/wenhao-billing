@@ -58,15 +58,17 @@ func PaymentOutFrom(p paymentsdb.Payment) PaymentOut {
 
 // Register adds the payment operations; every one is admin-only except the two
 // intake routes, which their secrets in cfg guard. svc is the
-// reconciliation service the clearing routes run (Base currency, Hosting).
-func Register(api huma.API, pool *pgxpool.Pool, svc Service, cfg platform.Config, clock platform.Clock) {
+// reconciliation service the clearing routes run (Base currency, Hosting);
+// receipts mail and render send-receipt.
+func Register(api huma.API, pool *pgxpool.Pool, svc Service, cfg platform.Config, clock platform.Clock, receipts ReceiptDeps) {
 	if clock == nil {
 		clock = platform.SystemClock{}
 	}
-	r := routes{pool: pool, q: paymentsdb.New(pool), svc: svc, clock: clock, webhookSecret: cfg.WebhookHMACSecret, emailToken: cfg.EmailWebhookToken}
+	r := routes{pool: pool, q: paymentsdb.New(pool), svc: svc, clock: clock, webhookSecret: cfg.WebhookHMACSecret, emailToken: cfg.EmailWebhookToken, receipts: receipts}
 	r.registerInvoice(api)
 	r.registerRecon(api)
 	r.registerIntake(api)
+	r.registerReceipt(api)
 }
 
 type routes struct {
@@ -77,6 +79,8 @@ type routes struct {
 	// two intake routes.
 	clock                     platform.Clock
 	webhookSecret, emailToken string
+	// receipts send and render send-receipt.
+	receipts ReceiptDeps
 }
 
 // clientRefusal is a request the routes answer with a problem+json error:

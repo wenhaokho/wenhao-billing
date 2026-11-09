@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -73,5 +74,41 @@ func TestEmailFieldIs422(t *testing.T) {
 	rec = do(t, h, http.MethodPost, "/email", `{"email":"A@X.COM"}`)
 	if rec.Code != 200 || rec.Body.String() != `{"email":"A@x.com"}`+"\n" {
 		t.Errorf("%d %q", rec.Code, rec.Body)
+	}
+}
+
+// Python's CcEmails (schemas/email.py) on the values of tests/integration/
+// test_customer_cc.py and the split rule.
+func TestParseCcEmails(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		" a@example.com;b@example.com,, A@example.com ": "a@example.com, b@example.com",
+		"a@example.com b@example.com	c@example.com":     "a@example.com, b@example.com, c@example.com",
+		"Me@Example.com":       "Me@Example.com",
+		"x@y.co,X@Y.CO,x@y.co": "x@y.co",
+	} {
+		t.Run(in, func(t *testing.T) {
+			t.Parallel()
+			got, err := ParseCcEmails(in)
+			if err != nil || got == nil || *got != want {
+				t.Errorf("%q: %v %v, want %q", in, got, err, want)
+			}
+		})
+	}
+	for _, in := range []string{"", "  ", " ,; "} {
+		t.Run("blank "+in, func(t *testing.T) {
+			t.Parallel()
+			if got, err := ParseCcEmails(in); err != nil || got != nil {
+				t.Errorf("%q: %v %v, want nil", in, got, err)
+			}
+		})
+	}
+}
+
+func TestParseCcEmailsRefusesTheFirstBadAddress(t *testing.T) {
+	t.Parallel()
+	_, err := ParseCcEmails("a@example.com, nope, worse")
+	if err == nil || !strings.Contains(err.Error(), "invalid email address: nope") {
+		t.Errorf("error %v", err)
 	}
 }

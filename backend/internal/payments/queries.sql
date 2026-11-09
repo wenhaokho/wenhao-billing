@@ -73,6 +73,18 @@ RETURNING *;
 -- name: InvoiceExists :one
 SELECT EXISTS (SELECT 1 FROM invoices WHERE invoice_id = $1);
 
+-- name: ReceiptInvoice :one
+-- What a payment receipt needs of its invoice and customer (Python
+-- RI:650-662); the customer is NULL for an invoice without one.
+SELECT i.invoice_id, i.invoice_number, i.currency, i.balance_due,
+       c.name AS customer_name, c.contact_email AS customer_email
+  FROM invoices i
+  LEFT JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.invoice_id = $1;
+
+-- name: BusinessName :one
+SELECT name FROM business_profile WHERE id = 1;
+
 -- name: ListInvoicePayments :many
 -- The CLEARED payments of an invoice, newest first (Python ordered by date
 -- and created_at only; the key breaks the tie of one transaction's rows).

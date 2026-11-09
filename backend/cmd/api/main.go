@@ -80,7 +80,8 @@ func register(api huma.API, f features) {
 	invoices.Register(api, f.Pool, f.Clock, invoices.LogNotifier{Logger: f.Logger})
 	quotations.Register(api, f.Pool, f.Clock)
 	bills.Register(api, f.Pool, f.Clock)
-	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: payments.NoHosting{}}, f.Config, f.Clock)
+	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: payments.NoHosting{}}, f.Config, f.Clock,
+		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.StubRenderer{}})
 }
 
 func main() {

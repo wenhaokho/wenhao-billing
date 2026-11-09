@@ -30,7 +30,9 @@ type api struct {
 func newAPI(t *testing.T, hosting HostingRestorer) *api {
 	t.Helper()
 	svc := Service{BaseCurrency: "IDR", Hosting: hosting}
-	a := apitest.New(t, func(h huma.API, d apitest.Deps) { Register(h, d.Pool, svc, intakeConfig(d.Config), d.Clock) })
+	a := apitest.New(t, func(h huma.API, d apitest.Deps) {
+		Register(h, d.Pool, svc, intakeConfig(d.Config), d.Clock, ReceiptDeps{Sender: d.Mail, Renderer: StubRenderer{}})
+	})
 	return &api{env: &env{pool: a.Pool, svc: svc, admin: a.AdminID}, app: a}
 }
 
