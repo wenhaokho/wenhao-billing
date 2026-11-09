@@ -330,3 +330,156 @@ func TestArrayBodiesAreNotNullable(t *testing.T) {
 		t.Error("no array body found")
 	}
 }
+
+var decimalTypes = []reflect.Type{reflect.TypeFor[platform.Dec2](), reflect.TypeFor[platform.Dec4](), reflect.TypeFor[platform.Dec8]()}
+
+// Every decimal a 2xx response writes is documented as the string it is
+// (`"type": "string"`, or `["string", "null"]` for a pointer), never as a
+// oneOf that also offers a number: a generated client must not type money
+// as a float. The Go types are walked from each response's component.
+func TestResponseDecimalsAreStringOnly(t *testing.T) {
+	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
+	register(api, features{Sessions: testSessions()})
+	doc, err := json.Marshal(api.OpenAPI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]map[string]any `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(doc, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	reg := api.OpenAPI().Components.Schemas
+	seen := map[reflect.Type]bool{}
+	var checked []string
+	var walk func(ref string)
+	walk = func(ref string) {
+		typ := reg.TypeFromRef(ref)
+		for typ != nil && (typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice) {
+			typ = typ.Elem()
+		}
+		if typ == nil || typ.Kind() != reflect.Struct || seen[typ] {
+			return
+		}
+		seen[typ] = true
+		name := strings.TrimPrefix(ref, "#/components/schemas/")
+		props := parsed.Components.Schemas[name].Properties
+		for f := range typ.Fields() {
+			field, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			ft := f.Type
+			for ft.Kind() == reflect.Pointer || ft.Kind() == reflect.Slice {
+				ft = ft.Elem()
+			}
+			if !slices.Contains(decimalTypes, ft) {
+				continue
+			}
+			p := props[field]
+			if f.Type.Kind() == reflect.Slice {
+				p, _ = p["items"].(map[string]any)
+			}
+			ok := p["oneOf"] == nil && p["anyOf"] == nil
+			switch typ := p["type"].(type) {
+			case string:
+				ok = ok && typ == "string"
+			case []any:
+				ok = ok && slices.Equal(typ, []any{"string", "null"})
+			default:
+				ok = false
+			}
+			if !ok || p["pattern"] == nil {
+				t.Errorf("%s.%s is a decimal but its schema is not a string: %v", name, field, p)
+			}
+			checked = append(checked, name+"."+field)
+		}
+		for _, p := range reg.SchemaFromRef(ref).Properties {
+			for _, s := range append([]*huma.Schema{p, p.Items}, p.AnyOf...) {
+				if s != nil && s.Ref != "" {
+					walk(s.Ref)
+				}
+			}
+		}
+	}
+	for _, op := range operations(api) {
+		for status, resp := range op.Responses {
+			if !strings.HasPrefix(status, "2") {
+				continue
+			}
+			for _, mt := range resp.Content {
+				if s := mt.Schema; s.Ref != "" {
+					walk(s.Ref)
+				} else if s.Items != nil && s.Items.Ref != "" {
+					walk(s.Items.Ref)
+				}
+			}
+		}
+	}
+	if !slices.Contains(checked, "ItemOut.default_unit_price") {
+		t.Errorf("ItemOut.default_unit_price was not checked; checked %v", checked)
+	}
+}
+
+// componentsReachable adds to into every component name reachable from s.
+func componentsReachable(reg huma.Registry, s *huma.Schema, into map[string]bool) {
+	if s == nil {
+		return
+	}
+	if s.Ref != "" {
+		name := strings.TrimPrefix(s.Ref, "#/components/schemas/")
+		if into[name] {
+			return
+		}
+		into[name] = true
+		s = reg.SchemaFromRef(s.Ref)
+		if s == nil {
+			return
+		}
+	}
+	for _, p := range s.Properties {
+		componentsReachable(reg, p, into)
+	}
+	componentsReachable(reg, s.Items, into)
+	if ap, ok := s.AdditionalProperties.(*huma.Schema); ok {
+		componentsReachable(reg, ap, into)
+	}
+	for _, list := range [][]*huma.Schema{s.OneOf, s.AnyOf, s.AllOf} {
+		for _, b := range list {
+			componentsReachable(reg, b, into)
+		}
+	}
+}
+
+// No component schema is reachable from both a request body and a response
+// body: the OpenAPI hooks rewrite the two sides differently (response
+// decimals become strings, response objects nullable), and a shared
+// component would carry the response's rewrite into the request.
+func TestNoComponentSharedByRequestAndResponse(t *testing.T) {
+	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
+	register(api, features{Sessions: testSessions()})
+	reg := api.OpenAPI().Components.Schemas
+	requests, responses := map[string]bool{}, map[string]bool{}
+	for _, op := range operations(api) {
+		if op.RequestBody != nil {
+			for _, mt := range op.RequestBody.Content {
+				componentsReachable(reg, mt.Schema, requests)
+			}
+		}
+		for _, resp := range op.Responses {
+			for _, mt := range resp.Content {
+				componentsReachable(reg, mt.Schema, responses)
+			}
+		}
+	}
+	if len(requests) == 0 || len(responses) == 0 {
+		t.Fatalf("walked %d request and %d response components", len(requests), len(responses))
+	}
+	for _, name := range slices.Sorted(maps.Keys(requests)) {
+		if responses[name] {
+			t.Errorf("component %s is in both a request and a response body", name)
+		}
+	}
+}

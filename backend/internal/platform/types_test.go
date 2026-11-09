@@ -263,9 +263,9 @@ func TestDecimalSchemaPatternPerScale(t *testing.T) {
 	_, api := NewServer(Config{Environment: "test"}, Deps{})
 	reg := api.OpenAPI().Components.Schemas
 	for typ, want := range map[reflect.Type]string{
-		reflect.TypeFor[Dec4](): `^-?[0-9]+(\.[0-9]{1,4})?$`,
-		reflect.TypeFor[Dec8](): `^-?[0-9]+(\.[0-9]{1,8})?$`,
-		reflect.TypeFor[Dec2](): `^-?[0-9]+(\.[0-9]{1,2})?$`,
+		reflect.TypeFor[Dec4](): `^-?[0-9]{1,15}(\.[0-9]{1,4})?$`,
+		reflect.TypeFor[Dec8](): `^-?[0-9]{1,11}(\.[0-9]{1,8})?$`,
+		reflect.TypeFor[Dec2](): `^-?[0-9]{1,3}(\.[0-9]{1,2})?$`,
 	} {
 		s := reg.Schema(typ, false, "")
 		var str *huma.Schema
@@ -335,5 +335,149 @@ func TestBadDecimalDateTimeIs422WithSentence(t *testing.T) {
 		if rec := do(t, h, http.MethodPost, "/parsed", body); rec.Code != 204 {
 			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
 		}
+	}
+}
+
+type boundsBody struct {
+	D4 *Dec4 `json:"d4"`
+	D8 *Dec8 `json:"d8"`
+	D2 *Dec2 `json:"d2"`
+}
+
+type boundsIn struct{ Body boundsBody }
+
+// boundsOutBody is its own type: a request and a response never share a
+// component (the response one's decimals are strings only).
+type boundsOutBody struct {
+	D4 *Dec4 `json:"d4"`
+	D8 *Dec8 `json:"d8"`
+	D2 *Dec2 `json:"d2"`
+}
+
+type boundsOut struct{ Body boundsOutBody }
+
+// boundsServer echoes the decimals it is sent.
+func boundsServer(t *testing.T) http.Handler {
+	t.Helper()
+	h, _ := boundsAPI(t)
+	return h
+}
+
+func boundsAPI(t *testing.T) (http.Handler, huma.API) {
+	t.Helper()
+	h, api := NewServer(Config{Environment: "test"}, Deps{})
+	huma.Register(api, huma.Operation{OperationID: "bounds", Method: http.MethodPost, Path: "/bounds", Tags: []string{PublicTag}},
+		func(_ context.Context, in *boundsIn) (*boundsOut, error) {
+			return &boundsOut{Body: boundsOutBody(in.Body)}, nil
+		})
+	return h, api
+}
+
+// A request decimal is a string or a number; a response decimal is the
+// string it is written as, with exactly its places, null for a pointer.
+func TestDecimalRequestOneOfResponseString(t *testing.T) {
+	_, api := boundsAPI(t)
+	op := api.OpenAPI().Paths["/bounds"].Post
+	reg := api.OpenAPI().Components.Schemas
+	req := reg.SchemaFromRef(op.RequestBody.Content["application/json"].Schema.Ref)
+	resp := reg.SchemaFromRef(op.Responses["200"].Content["application/json"].Schema.Ref)
+	for name, places := range map[string]string{"d4": `^-?[0-9]{1,15}\.[0-9]{4}$`, "d8": `^-?[0-9]{1,11}\.[0-9]{8}$`, "d2": `^-?[0-9]{1,3}\.[0-9]{2}$`} {
+		if r := req.Properties[name]; len(r.OneOf) != 3 || r.OneOf[0].Type != huma.TypeString || r.OneOf[1].Type != huma.TypeNumber || r.OneOf[2].Type != huma.TypeNull {
+			t.Errorf("request %s: %s", name, mustJSON(t, r))
+		}
+		if r := resp.Properties[name]; r.OneOf != nil || r.Type != huma.TypeString || !r.Nullable || r.Pattern != places {
+			t.Errorf("response %s: %s", name, mustJSON(t, r))
+		}
+	}
+}
+
+// wantBound: body is a 422 listing message at field, as Huma's own
+// validation errors are reported.
+func wantBound(t *testing.T, h http.Handler, body, field, message string) {
+	t.Helper()
+	rec := do(t, h, http.MethodPost, "/bounds", body)
+	p := decodeProblem(t, rec.Body.Bytes())
+	if rec.Code != 422 || p.Detail != "Request validation failed" {
+		t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		return
+	}
+	for _, e := range p.Errors {
+		if e.Location == field && e.Message == message {
+			return
+		}
+	}
+	t.Errorf("%s: no %q at %s: %s", body, message, field, rec.Body)
+}
+
+// wantEcho: body is accepted and the field is written back as want.
+func wantEcho(t *testing.T, h http.Handler, body, field, want string) {
+	t.Helper()
+	rec := do(t, h, http.MethodPost, "/bounds", body)
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if rec.Code != 200 || out[field] != want {
+		t.Errorf("%s: %d %s, want %s %q", body, rec.Code, rec.Body, field, want)
+	}
+}
+
+func TestDec4RefusesFivePlaces(t *testing.T) {
+	h := boundsServer(t)
+	for _, body := range []string{`{"d4":1.23456}`, `{"d4":"1.23456"}`, `{"d4":-0.00001}`} {
+		wantBound(t, h, body, "d4", "value has too many decimal places (max 4)")
+	}
+	wantEcho(t, h, `{"d4":1.2345}`, "d4", "1.2345")
+}
+
+func TestDec4AllowsTrailingZeros(t *testing.T) {
+	h := boundsServer(t)
+	wantEcho(t, h, `{"d4":1.50000}`, "d4", "1.5000")
+	wantEcho(t, h, `{"d4":999999999999999.99990000}`, "d4", "999999999999999.9999")
+}
+
+func TestDec4RefusesSixteenDigits(t *testing.T) {
+	h := boundsServer(t)
+	for _, body := range []string{`{"d4":1234567890123456}`, `{"d4":"1234567890123456"}`, `{"d4":-1000000000000000}`, `{"d4":1e15}`} {
+		wantBound(t, h, body, "d4", "value has too many digits (max 15 before the point)")
+	}
+	wantEcho(t, h, `{"d4":"-999999999999999.9999"}`, "d4", "-999999999999999.9999")
+}
+
+func TestDec8RefusesNinePlacesAndTwelveDigits(t *testing.T) {
+	h := boundsServer(t)
+	for _, body := range []string{`{"d8":1.123456789}`, `{"d8":"1.123456789"}`} {
+		wantBound(t, h, body, "d8", "value has too many decimal places (max 8)")
+	}
+	for _, body := range []string{`{"d8":123456789012}`, `{"d8":"123456789012"}`} {
+		wantBound(t, h, body, "d8", "value has too many digits (max 11 before the point)")
+	}
+	wantEcho(t, h, `{"d8":"99999999999.12345678"}`, "d8", "99999999999.12345678")
+	wantEcho(t, h, `{"d8":16000.500000000}`, "d8", "16000.50000000")
+}
+
+func TestDec2Bounds(t *testing.T) {
+	h := boundsServer(t)
+	wantEcho(t, h, `{"d2":999.99}`, "d2", "999.99")
+	wantEcho(t, h, `{"d2":"97.5"}`, "d2", "97.50")
+	for _, body := range []string{`{"d2":1000}`, `{"d2":"1000"}`} {
+		wantBound(t, h, body, "d2", "value has too many digits (max 3 before the point)")
+	}
+	for _, body := range []string{`{"d2":1.234}`, `{"d2":"1.234"}`} {
+		wantBound(t, h, body, "d2", "value has too many decimal places (max 2)")
+	}
+}
+
+// Every refused bound is listed, each at its field, with the other fields'
+// validation errors.
+func TestDecimalBoundsListEveryField(t *testing.T) {
+	h := boundsServer(t)
+	rec := do(t, h, http.MethodPost, "/bounds", `{"d4":1.23456,"d8":123456789012,"d2":1000}`)
+	p := decodeProblem(t, rec.Body.Bytes())
+	var got []string
+	for _, e := range p.Errors {
+		got = append(got, e.Location)
+	}
+	slices.Sort(got)
+	if rec.Code != 422 || !slices.Equal(got, []string{"d2", "d4", "d8"}) {
+		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
 }

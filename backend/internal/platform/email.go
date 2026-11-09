@@ -70,12 +70,12 @@ func (e *Email) UnmarshalJSON(b []byte) error {
 
 const refusedEmail Email = "\x00"
 
-func (e *Email) takeRefusal() (string, bool) {
+func (e *Email) takeRefusal() (refusal, bool) {
 	if *e != refusedEmail {
-		return "", false
+		return refusal{}, false
 	}
 	*e = ""
-	return emailSentence, true
+	return refusal{sentence: emailSentence}, true
 }
 
 // Resolve reports a refused address at its field.

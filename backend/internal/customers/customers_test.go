@@ -259,21 +259,27 @@ func TestCustomerNullWhtTypeAndGrossUpKeepStored(t *testing.T) {
 // rounded into numeric(7,4).
 func TestCustomerWhtRateFivePlacesIs422(t *testing.T) {
 	a := newApp(t)
-	const places = "Decimal input should have no more than 4 decimal places"
+	// Dec4 refuses it at the field, listed as Huma's own validation errors.
+	const (
+		invalid = "Request validation failed"
+		places  = "value has too many decimal places (max 4)"
+	)
 	for _, rate := range []any{99.99999, 2.00001} {
 		wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "Places Co", "default_wht_type": "PPH23", "default_wht_rate": rate}),
-			http.StatusUnprocessableEntity, "", places, "default_wht_rate", places)
+			http.StatusUnprocessableEntity, "", invalid, "default_wht_rate", places)
 	}
-	// A string with five places already fails Dec4's schema pattern, at the field.
-	wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "Places Co", "default_wht_type": "PPH23", "default_wht_rate": "99.99999"}),
-		http.StatusUnprocessableEntity, "", "Request validation failed", "default_wht_rate", "expected value to match exactly one schema but matched none")
+	// A string with five places also fails Dec4's schema pattern, at the field.
+	for _, msg := range []string{"expected value to match exactly one schema but matched none", places} {
+		wantProblem(t, a.Do(t, http.MethodPost, path, map[string]any{"name": "Places Co", "default_wht_type": "PPH23", "default_wht_rate": "99.99999"}),
+			http.StatusUnprocessableEntity, "", invalid, "default_wht_rate", msg)
+	}
 	if list := apitest.Decode[[]customers.CustomerOut](t, a.Do(t, http.MethodGet, path, nil), http.StatusOK); len(list) != 0 {
 		t.Errorf("stored %+v", list)
 	}
 	c := create(t, a, map[string]any{"name": "Kept Co", "default_wht_type": "PPH23", "default_wht_rate": "1.2345"})
 	wht(t, c, "PPH23", "1.2345", false)
 	wantProblem(t, a.Do(t, http.MethodPatch, customerPath(c.CustomerID), map[string]any{"default_wht_rate": 1.23456}),
-		http.StatusUnprocessableEntity, "", places, "default_wht_rate", places)
+		http.StatusUnprocessableEntity, "", invalid, "default_wht_rate", places)
 	back := apitest.Decode[customers.CustomerOut](t, a.Do(t, http.MethodGet, customerPath(c.CustomerID), nil), http.StatusOK)
 	wht(t, back, "PPH23", "1.2345", false)
 }

@@ -66,31 +66,14 @@ func list(ctx context.Context, q *itemsdb.Queries, p itemsdb.ListItemsParams) ([
 	return out, nil
 }
 
-// The sentences pydantic answers for a price outside
-// `Field(ge=0, max_digits=19, decimal_places=4)`.
-const (
-	negativeSentence = "Input should be greater than or equal to 0"
-	placesSentence   = platform.PlacesSentence
-	wholeSentence    = "Decimal input should have no more than 15 digits before the decimal point"
-)
+// negativeSentence is pydantic's refusal of a price below `Field(ge=0)`.
+// Dec4 itself refuses more than 4 places or 15 digits before the point.
+const negativeSentence = "Input should be greater than or equal to 0"
 
-// maxPrice is the smallest value numeric(19,4) cannot hold: 15 integer digits.
-var maxPrice = decimal.New(1, 15)
-
-// priceRefusal is why a price sent in f is refused, or "". The Dec4 type
-// takes any decimal, so the column's scale and precision are checked here.
+// priceRefusal is why a price sent in f is refused, or "".
 func priceRefusal(f platform.Optional[platform.Dec4]) string {
-	if !f.Set || f.Null {
-		return ""
-	}
-	d := f.Value.Decimal
-	switch {
-	case d.Sign() < 0:
+	if f.Set && !f.Null && f.Value.Sign() < 0 {
 		return negativeSentence
-	case platform.MoreThanFourPlaces(d):
-		return placesSentence
-	case d.Cmp(maxPrice) >= 0:
-		return wholeSentence
 	}
 	return ""
 }

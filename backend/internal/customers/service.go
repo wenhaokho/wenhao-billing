@@ -72,7 +72,7 @@ func cleanCC(f *CustomerFields) error {
 // default rate; a rate sent as null does too. A type or gross-up sent as
 // null counts as sent (Python tests `f in data`) but keeps the stored value
 // (Python's `data.get(f)` is None). A rate with more than four decimal
-// places is refused first: numeric(7,4) would round it.
+// places never gets here: Dec4 refuses it at the field.
 func normalizeWHT(f CustomerFields, c *customersdb.Customer) error {
 	if !f.DefaultWhtType.Set && !f.DefaultWhtRate.Set && !f.DefaultWhtGrossUp.Set {
 		return nil
@@ -89,9 +89,6 @@ func normalizeWHT(f CustomerFields, c *customersdb.Customer) error {
 	case f.DefaultWhtRate.Set:
 		if !f.DefaultWhtRate.Null {
 			rate = &f.DefaultWhtRate.Value.Decimal
-			if platform.MoreThanFourPlaces(*rate) {
-				return platform.FieldError("default_wht_rate", platform.PlacesSentence)
-			}
 		}
 	case typ != c.DefaultWhtType:
 		rate = nil

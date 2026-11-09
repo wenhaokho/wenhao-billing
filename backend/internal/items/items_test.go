@@ -383,19 +383,25 @@ func TestItemPatchHostingSetsActive(t *testing.T) {
 
 func TestItemPriceFivePlacesIs422(t *testing.T) {
 	a := newApp(t)
+	// Dec4 refuses these at the field, listed as Huma's own validation errors.
 	const (
-		places = "Decimal input should have no more than 4 decimal places"
-		whole  = "Decimal input should have no more than 15 digits before the decimal point"
+		invalid = "Request validation failed"
+		places  = "value has too many decimal places (max 4)"
+		whole   = "value has too many digits (max 15 before the point)"
 	)
 	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": 1.23456})),
-		http.StatusUnprocessableEntity, "", places, "default_unit_price", places)
-	// A string with five places already fails Dec4's schema pattern, at the field.
-	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_purchase_price": "1.23456"})),
-		http.StatusUnprocessableEntity, "", "Request validation failed", "default_purchase_price", "expected value to match exactly one schema but matched none")
+		http.StatusUnprocessableEntity, "", invalid, "default_unit_price", places)
+	// A string with five places also fails Dec4's schema pattern, at the field.
+	for _, msg := range []string{"expected value to match exactly one schema but matched none", places} {
+		wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_purchase_price": "1.23456"})),
+			http.StatusUnprocessableEntity, "", invalid, "default_purchase_price", msg)
+	}
 	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": -1})),
 		http.StatusUnprocessableEntity, "", "Input should be greater than or equal to 0", "default_unit_price", "Input should be greater than or equal to 0")
-	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": "1000000000000000"})),
-		http.StatusUnprocessableEntity, "", whole, "default_unit_price", whole)
+	for _, p := range []any{"1000000000000000", 1000000000000000} {
+		wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": p})),
+			http.StatusUnprocessableEntity, "", invalid, "default_unit_price", whole)
+	}
 	it := create(t, a, minimal(map[string]any{"default_unit_price": "999999999999999.9999", "default_purchase_price": json.Number("1.50000")}))
 	price(t, it.DefaultUnitPrice, "999999999999999.9999")
 	price(t, it.DefaultPurchasePrice, "1.5000") // trailing zeros are not places
@@ -403,7 +409,7 @@ func TestItemPriceFivePlacesIs422(t *testing.T) {
 	wantProblem(t, a.Do(t, http.MethodPost, path, minimal(map[string]any{"default_unit_price": -1, "default_purchase_price": -1})),
 		http.StatusUnprocessableEntity, "", "Input should be greater than or equal to 0", "default_unit_price", "Input should be greater than or equal to 0")
 	wantProblem(t, a.Do(t, http.MethodPatch, itemPath(it.ItemID), map[string]any{"default_purchase_price": 0.00001}),
-		http.StatusUnprocessableEntity, "", places, "default_purchase_price", places)
+		http.StatusUnprocessableEntity, "", invalid, "default_purchase_price", places)
 	if cleared := patch(t, a, it.ItemID, map[string]any{"default_unit_price": nil}); cleared.DefaultUnitPrice != nil {
 		t.Errorf("%+v", cleared.DefaultUnitPrice)
 	}

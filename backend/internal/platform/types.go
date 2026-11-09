@@ -3,6 +3,7 @@ package platform
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -49,29 +50,43 @@ func FieldError(location, sentence string) error {
 }
 
 // refusable is a value whose UnmarshalJSON may have refused its input;
-// takeRefusal reports the sentence once.
-type refusable interface{ takeRefusal() (string, bool) }
+// takeRefusal reports the refusal once.
+type refusable interface{ takeRefusal() (refusal, bool) }
 
 func resolveRefusal(v refusable, path *huma.PathBuffer) []error {
-	if sentence, refused := v.takeRefusal(); refused {
-		return invalidAt(path, sentence)
+	r, refused := v.takeRefusal()
+	switch {
+	case !refused:
+		return nil
+	case r.bound:
+		// Listed with every other validation error, as Huma's own are.
+		return []error{&huma.ErrorDetail{Location: path.String(), Message: r.sentence}}
+	default:
+		return invalidAt(path, r.sentence)
 	}
-	return nil
 }
 
 // refusal is embedded in the parsed types: the sentence UnmarshalJSON
-// refused the input with, if it did.
-type refusal struct{ sentence string }
+// refused the input with, if it did. A bound is a value that parsed but
+// does not fit the column: UnmarshalJSON returns no error for it (Huma
+// would report one at "body"), so decoding goes on and every field's
+// refusal is listed.
+type refusal struct {
+	sentence string
+	bound    bool
+}
 
 func (r *refusal) refuse(sentence string) error {
-	r.sentence = sentence
+	*r = refusal{sentence: sentence}
 	return errInvalid(sentence)
 }
 
-func (r *refusal) takeRefusal() (string, bool) {
-	s := r.sentence
-	r.sentence = ""
-	return s, s != ""
+func (r *refusal) refuseBound(sentence string) { *r = refusal{sentence: sentence, bound: true} }
+
+func (r *refusal) takeRefusal() (refusal, bool) {
+	out := *r
+	*r = refusal{}
+	return out, out.sentence != ""
 }
 
 // Resolve reports a refused input at its field.
@@ -79,18 +94,54 @@ func (r *refusal) Resolve(_ huma.Context, path *huma.PathBuffer) []error {
 	return resolveRefusal(r, path)
 }
 
-// decimalString reads a JSON number or string as a decimal.
-func decimalString(b []byte) (decimal.Decimal, bool) {
-	d, err := decimal.NewFromString(strings.Trim(string(b), `"`))
-	return d, err == nil
+// decimalBounds are a numeric(precision, places) column's: at most places
+// decimals and whole = precision − places digits before the point.
+type decimalBounds struct{ places, whole int32 }
+
+var (
+	dec2Bounds = decimalBounds{places: 2, whole: 3}  // numeric(5,2)
+	dec4Bounds = decimalBounds{places: 4, whole: 15} // numeric(19,4)
+	dec8Bounds = decimalBounds{places: 8, whole: 11} // numeric(19,8)
+)
+
+// check is why d does not fit, or "". Trailing zeros are not places
+// ("1.50000" fits four). The digits are counted from the coefficient and
+// exponent first, so a huge exponent is refused without being expanded.
+func (b decimalBounds) check(d decimal.Decimal) string {
+	if !d.IsZero() && int64(d.NumDigits())+int64(d.Exponent()) > int64(b.whole) {
+		return fmt.Sprintf("value has too many digits (max %d before the point)", b.whole)
+	}
+	if !d.Equal(d.Round(b.places)) {
+		return fmt.Sprintf("value has too many decimal places (max %d)", b.places)
+	}
+	return ""
 }
 
-// decimalSchema accepts what UnmarshalJSON accepts, a string or a number (the
-// Vue app sends numbers); a string has at most places decimals. Responses
-// always write the string. A fresh value per call: Huma keeps the schema it
-// is given.
-func decimalSchema(places, example string) *huma.Schema {
-	str := &huma.Schema{Type: huma.TypeString, Pattern: `^-?[0-9]+(\.[0-9]{1,` + places + `})?$`, Examples: []any{example}}
+// parse reads a JSON number or string into *into, or records why not.
+func (b decimalBounds) parse(raw []byte, into *decimal.Decimal, r *refusal) error {
+	d, err := decimal.NewFromString(strings.Trim(string(raw), `"`))
+	if err != nil {
+		return r.refuse(decimalSentence)
+	}
+	if s := b.check(d); s != "" {
+		r.refuseBound(s)
+		return nil
+	}
+	*into = d
+	return nil
+}
+
+// pattern is the decimal string a request may send: the column's digits,
+// and at most its places.
+func (b decimalBounds) pattern() string {
+	return fmt.Sprintf(`^-?[0-9]{1,%d}(\.[0-9]{1,%d})?$`, b.whole, b.places)
+}
+
+// requestSchema accepts what UnmarshalJSON accepts, a string or a number
+// (the Vue app sends numbers). A fresh value per call: Huma keeps the schema
+// it is given.
+func (b decimalBounds) requestSchema(example string) *huma.Schema {
+	str := &huma.Schema{Type: huma.TypeString, Pattern: b.pattern(), Examples: []any{example}}
 	str.PrecomputeMessages()
 	num := &huma.Schema{Type: huma.TypeNumber}
 	num.PrecomputeMessages()
@@ -99,6 +150,20 @@ func decimalSchema(places, example string) *huma.Schema {
 	return s
 }
 
+// responseString is what a response writes: always the string, with
+// exactly the column's places. The response walk (decimalResponse) puts it
+// in place of the request schema.
+func (b decimalBounds) responseString(example string) *huma.Schema {
+	return &huma.Schema{
+		Type:     huma.TypeString,
+		Pattern:  fmt.Sprintf(`^-?[0-9]{1,%d}\.[0-9]{%d}$`, b.whole, b.places),
+		Examples: []any{example},
+	}
+}
+
+// decimalType is Dec2, Dec4 and Dec8: their response schema is a string.
+type decimalType interface{ responseString() *huma.Schema }
+
 // Dec4 is numeric(19,4) and computed money in JSON: a string with exactly
 // four decimals ("1500.0000"), so no client parses it as a float.
 type Dec4 struct {
@@ -106,31 +171,19 @@ type Dec4 struct {
 	refusal
 }
 
+const dec4Example = "1500000.0000"
+
 // MarshalJSON writes "1500.0000".
 func (d Dec4) MarshalJSON() ([]byte, error) { return json.Marshal(d.StringFixed(4)) }
 
-// UnmarshalJSON reads "12.5" or 12.5.
-func (d *Dec4) UnmarshalJSON(b []byte) error {
-	v, ok := decimalString(b)
-	if !ok {
-		return d.refuse(decimalSentence)
-	}
-	d.Decimal = v
-	return nil
-}
+// UnmarshalJSON reads "12.5" or 12.5, refusing more than 4 places or 15
+// digits before the point.
+func (d *Dec4) UnmarshalJSON(b []byte) error { return dec4Bounds.parse(b, &d.Decimal, &d.refusal) }
 
-// Schema describes Dec4 to OpenAPI as a decimal string.
-func (Dec4) Schema(huma.Registry) *huma.Schema { return decimalSchema("4", "1500000.0000") }
+// Schema describes Dec4 to OpenAPI as a decimal string or number.
+func (Dec4) Schema(huma.Registry) *huma.Schema { return dec4Bounds.requestSchema(dec4Example) }
 
-// PlacesSentence is pydantic's refusal of a decimal with more than four
-// places (`decimal_places=4`).
-const PlacesSentence = "Decimal input should have no more than 4 decimal places"
-
-// MoreThanFourPlaces reports whether d needs more than four decimal places
-// to be exact. Dec4 takes any decimal sent as a JSON number (its schema's
-// pattern refuses only such a string), so a numeric(…,4) column checks this
-// before it would round.
-func MoreThanFourPlaces(d decimal.Decimal) bool { return !d.Equal(d.Round(4)) }
+func (Dec4) responseString() *huma.Schema { return dec4Bounds.responseString(dec4Example) }
 
 // Dec8 is numeric(19,8), the FX rates: eight decimals.
 type Dec8 struct {
@@ -138,21 +191,19 @@ type Dec8 struct {
 	refusal
 }
 
+const dec8Example = "16000.50000000"
+
 // MarshalJSON writes "16000.50000000".
 func (d Dec8) MarshalJSON() ([]byte, error) { return json.Marshal(d.StringFixed(8)) }
 
-// UnmarshalJSON reads "12.5" or 12.5.
-func (d *Dec8) UnmarshalJSON(b []byte) error {
-	v, ok := decimalString(b)
-	if !ok {
-		return d.refuse(decimalSentence)
-	}
-	d.Decimal = v
-	return nil
-}
+// UnmarshalJSON reads "12.5" or 12.5, refusing more than 8 places or 11
+// digits before the point.
+func (d *Dec8) UnmarshalJSON(b []byte) error { return dec8Bounds.parse(b, &d.Decimal, &d.refusal) }
 
-// Schema describes Dec8 to OpenAPI as a decimal string.
-func (Dec8) Schema(huma.Registry) *huma.Schema { return decimalSchema("8", "16000.50000000") }
+// Schema describes Dec8 to OpenAPI as a decimal string or number.
+func (Dec8) Schema(huma.Registry) *huma.Schema { return dec8Bounds.requestSchema(dec8Example) }
+
+func (Dec8) responseString() *huma.Schema { return dec8Bounds.responseString(dec8Example) }
 
 // Dec2 is numeric(5,2), the match confidence: two decimals.
 type Dec2 struct {
@@ -160,21 +211,19 @@ type Dec2 struct {
 	refusal
 }
 
+const dec2Example = "97.50"
+
 // MarshalJSON writes "97.50".
 func (d Dec2) MarshalJSON() ([]byte, error) { return json.Marshal(d.StringFixed(2)) }
 
-// UnmarshalJSON reads "12.5" or 12.5.
-func (d *Dec2) UnmarshalJSON(b []byte) error {
-	v, ok := decimalString(b)
-	if !ok {
-		return d.refuse(decimalSentence)
-	}
-	d.Decimal = v
-	return nil
-}
+// UnmarshalJSON reads "12.5" or 12.5, refusing more than 2 places or 3
+// digits before the point.
+func (d *Dec2) UnmarshalJSON(b []byte) error { return dec2Bounds.parse(b, &d.Decimal, &d.refusal) }
 
-// Schema describes Dec2 to OpenAPI as a decimal string.
-func (Dec2) Schema(huma.Registry) *huma.Schema { return decimalSchema("2", "97.50") }
+// Schema describes Dec2 to OpenAPI as a decimal string or number.
+func (Dec2) Schema(huma.Registry) *huma.Schema { return dec2Bounds.requestSchema(dec2Example) }
+
+func (Dec2) responseString() *huma.Schema { return dec2Bounds.responseString(dec2Example) }
 
 // Date is a calendar date in JSON: "YYYY-MM-DD".
 type Date struct {

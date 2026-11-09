@@ -68,7 +68,10 @@ func nullable(s *huma.Schema, objects bool) *huma.Schema {
 // markNullablePointers is a huma OnAddOperation hook: in every request and
 // response body, each pointer field's schema accepts null, except a request
 // object's (see nullable). Optional[T] does the same in its own Schema; it
-// is a request type.
+// is a request type. In a response body, a decimal is also documented as
+// the string it is written as (decimalResponse). The two sides never share
+// a component (cmd/api's TestNoComponentSharedByRequestAndResponse), so a
+// response's rewrite never reaches a request.
 func markNullablePointers(oapi *huma.OpenAPI, op *huma.Operation) {
 	reg := oapi.Components.Schemas
 	// One seen set per side: a component met in the request is still
@@ -87,13 +90,15 @@ func markNullablePointers(oapi *huma.OpenAPI, op *huma.Operation) {
 	}
 }
 
-func markNullable(reg huma.Registry, s *huma.Schema, t reflect.Type, objects bool, seen map[*huma.Schema]bool) {
+// response is set for a response body: objects are wrapped by nullable and
+// decimals become strings.
+func markNullable(reg huma.Registry, s *huma.Schema, t reflect.Type, response bool, seen map[*huma.Schema]bool) {
 	if s == nil {
 		return
 	}
 	if s.Ref == "" && s.Type == "" && s.AnyOf != nil {
 		for _, b := range s.AnyOf {
-			markNullable(reg, b, t, objects, seen)
+			markNullable(reg, b, t, response, seen)
 		}
 		return
 	}
@@ -119,23 +124,31 @@ func markNullable(reg huma.Registry, s *huma.Schema, t reflect.Type, objects boo
 	// A scalar has no fields to mark.
 	if k := t.Kind(); k == reflect.Slice || k == reflect.Array {
 		items := s.Items
-		if t.Elem().Kind() == reflect.Pointer {
-			s.Items = nullable(items, objects)
+		if response {
+			s.Items = decimalResponse(s.Items, t.Elem())
 		}
-		markNullable(reg, items, t.Elem(), objects, seen)
+		if t.Elem().Kind() == reflect.Pointer {
+			s.Items = nullable(s.Items, response)
+		}
+		markNullable(reg, items, t.Elem(), response, seen)
 	} else if k == reflect.Map {
 		if values, ok := s.AdditionalProperties.(*huma.Schema); ok {
-			if t.Elem().Kind() == reflect.Pointer {
-				s.AdditionalProperties = nullable(values, objects)
+			v := values
+			if response {
+				v = decimalResponse(v, t.Elem())
 			}
-			markNullable(reg, values, t.Elem(), objects, seen)
+			if t.Elem().Kind() == reflect.Pointer {
+				v = nullable(v, response)
+			}
+			s.AdditionalProperties = v
+			markNullable(reg, values, t.Elem(), response, seen)
 		}
 	} else if k == reflect.Struct {
-		markNullableStruct(reg, s, t, objects, seen)
+		markNullableStruct(reg, s, t, response, seen)
 	}
 }
 
-func markNullableStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, objects bool, seen map[*huma.Schema]bool) {
+func markNullableStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, response bool, seen map[*huma.Schema]bool) {
 	if s.Properties == nil {
 		return
 	}
@@ -146,7 +159,7 @@ func markNullableStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, objec
 				et = et.Elem()
 			}
 			if et.Kind() == reflect.Struct {
-				markNullableStruct(reg, s, et, objects, seen)
+				markNullableStruct(reg, s, et, response, seen)
 				continue
 			}
 		}
@@ -163,13 +176,37 @@ func markNullableStruct(reg huma.Registry, s *huma.Schema, t reflect.Type, objec
 		if name == "-" || !ok {
 			continue
 		}
+		if response {
+			s.Properties[name] = decimalResponse(s.Properties[name], f.Type)
+		}
 		// As Huma does, a pointer with omitempty is left out, never null.
 		if f.Type.Kind() == reflect.Pointer && !strings.Contains(f.Tag.Get("json"), "omitempty") {
-			s.Properties[name] = nullable(p, objects)
+			s.Properties[name] = nullable(s.Properties[name], response)
 		}
-		markNullable(reg, p, f.Type, objects, seen)
+		markNullable(reg, p, f.Type, response, seen)
 	}
 }
+
+// decimalResponse is s, or for a decimal t (Dec2, Dec4, Dec8, or a pointer
+// to one) whose schema is still the request's oneOf of string and number,
+// a copy that is the string alone: a response always writes the string.
+// The copy keeps s's own documentation (a field's doc tag).
+func decimalResponse(s *huma.Schema, t reflect.Type) *huma.Schema {
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if s == nil || t == nil || s.OneOf == nil || !t.Implements(decimalTypeIface) {
+		return s
+	}
+	str := reflect.Zero(t).Interface().(decimalType).responseString()
+	c := *s
+	c.OneOf = nil
+	c.Type, c.Pattern, c.Examples = str.Type, str.Pattern, str.Examples
+	c.PrecomputeMessages()
+	return &c
+}
+
+var decimalTypeIface = reflect.TypeFor[decimalType]()
 
 // nonNullableArrayBodies is a huma OnAddOperation hook: a request or
 // response body that is a bare JSON array is never null. Huma makes every
