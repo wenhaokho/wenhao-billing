@@ -263,3 +263,49 @@ func TestCheckAdoptedAcceptsGooseDatabase(t *testing.T) {
 		t.Fatalf("CheckAdopted on a goose-migrated database: %v", err)
 	}
 }
+
+// TestMigrationsAdditive: the three MCP migrations only add tables and an
+// index, so Python's code, which knows none of them, keeps working: its
+// inserts into the OAuth tables succeed and the new tables start empty.
+func TestMigrationsAdditive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	url := testkit.PostgresURL(t, migrations.FS)
+	pool := openPool(t, url)
+
+	for _, table := range []string{"oauth_spent_codes", "mcp_spent_confirm_tokens"} {
+		if !scalar[bool](t, pool, `SELECT to_regclass('public.`+table+`') IS NOT NULL`) {
+			t.Errorf("%s is missing", table)
+		}
+	}
+	if !scalar[bool](t, pool, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'oauth_refresh_tokens'
+		AND indexdef LIKE '%(user_id)%')`) {
+		t.Error("no index on oauth_refresh_tokens(user_id)")
+	}
+	// The Alembic tables keep exactly their original columns.
+	for table, want := range map[string]string{
+		"oauth_clients":        "client_id,client_name,created_at,redirect_uris",
+		"oauth_refresh_tokens": "created_at,jti,revoked,user_id",
+	} {
+		got := scalar[string](t, pool, `SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = '`+table+`'`)
+		if got != want {
+			t.Errorf("%s columns = %s, want %s", table, got, want)
+		}
+	}
+	// Python's insert paths, written against the Alembic schema, still work.
+	for _, q := range []string{
+		`INSERT INTO oauth_clients (client_id, client_name, redirect_uris) VALUES ('c1', 'n', '["https://a.example/cb"]')`,
+		`INSERT INTO oauth_refresh_tokens (jti, user_id, revoked) VALUES ('j1', 'u1', false)`,
+		`UPDATE oauth_refresh_tokens SET revoked = true WHERE user_id = 'u1'`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Errorf("%s: %v", q, err)
+		}
+	}
+	for _, table := range []string{"oauth_spent_codes", "mcp_spent_confirm_tokens"} {
+		if got := scalar[int64](t, pool, `SELECT count(*) FROM `+table); got != 0 {
+			t.Errorf("%s has %d rows, want none", table, got)
+		}
+	}
+}

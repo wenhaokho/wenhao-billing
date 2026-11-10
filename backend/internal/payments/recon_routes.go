@@ -89,9 +89,6 @@ type AuditRow struct {
 
 type auditOut struct{ Body []AuditRow }
 
-// likeEscaper makes s literal inside a LIKE pattern (escape character \).
-var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-
 func dateParam(p platform.OptionalParam[time.Time]) pgtype.Date {
 	if !p.Set {
 		return pgtype.Date{}
@@ -105,7 +102,7 @@ func (r routes) auditLog(ctx context.Context, in *auditIn) (*auditOut, error) {
 		arg.Action = &in.Action
 	}
 	if in.Payer != "" {
-		p := likeEscaper.Replace(in.Payer)
+		p := platform.LikeEscape(in.Payer)
 		arg.Payer = &p
 	}
 	rows, err := r.q.AuditLog(ctx, arg)
@@ -139,7 +136,7 @@ func nonNil(s []string) []string {
 }
 
 func (r routes) awaitingReview(ctx context.Context, _ *struct{}) (*listOut, error) {
-	rows, err := r.q.ListAwaitingReview(ctx)
+	rows, err := r.q.ListAwaitingReview(ctx, nil)
 	if err != nil {
 		return nil, err
 	}

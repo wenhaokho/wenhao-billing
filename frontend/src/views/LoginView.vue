@@ -8,6 +8,7 @@ import Message from "primevue/message";
 import Checkbox from "primevue/checkbox";
 import AuthLayout from "@/components/AuthLayout.vue";
 import { useAuthStore } from "@/stores/auth";
+import { oauthReturnTo } from "@/router/returnTo";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -49,6 +50,13 @@ async function submit() {
       localStorage.setItem(REMEMBER_KEY, email.value);
     } else {
       localStorage.removeItem(REMEMBER_KEY);
+    }
+    // The MCP connector's authorize page is served by the API: follow it
+    // with a full page load. Any other return_to is ignored.
+    const returnTo = oauthReturnTo(route.query.return_to, window.location.origin);
+    if (returnTo) {
+      window.location.assign(returnTo);
+      return;
     }
     const next = (route.query.next as string) || "/dashboard";
     router.push(next);

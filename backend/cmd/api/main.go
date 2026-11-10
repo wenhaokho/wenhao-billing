@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/LOQATO/gokit/db"
@@ -48,6 +49,8 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/items"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/jobs"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/mcp"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/oauth"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/projects"
@@ -69,10 +72,50 @@ type features struct {
 	Logger *slog.Logger
 	// FXClient is the FX provider's HTTP client (fx.NewClient).
 	FXClient *http.Client
+	// Services are the services the routes share with the MCP connector.
+	// Required: register panics without them, so the routes can never build
+	// a second set the connector does not share. wire builds them once;
+	// callers with no connector use withServices.
+	Services *services
+}
+
+// services are the feature services built once per process and shared by
+// the API's routes and the MCP connector, so a payment the connector clears
+// stamps and restores hosting exactly as one the routes clear, and
+// trigger_recurring mails the same draft digest the recurring routes do.
+type services struct {
+	Payments payments.Service
+	Notifier invoices.DraftNotifier
+}
+
+// newServices builds the shared services: payments with the real hosting
+// restorer (Cloudflare from CLOUDFLARE_*), and the emailing draft notifier.
+func newServices(cfg platform.Config, pool *pgxpool.Pool, logger *slog.Logger, mail email.Sender) services {
+	return services{
+		Payments: payments.Service{BaseCurrency: cfg.BaseCurrency, Hosting: hosting.Restorer{
+			Pool: pool, Client: hosting.NewClient(cfg), Logger: logger,
+		}},
+		Notifier: invoices.EmailNotifier{
+			Q: invoicesdb.New(pool), Sender: mail, AppBaseURL: cfg.AppBaseURL, Logger: logger,
+		},
+	}
+}
+
+// withServices is f with Services built from its own fields, for callers
+// that serve no MCP connector (printOpenAPI, tests); serve uses wire.
+func (f features) withServices() features {
+	svc := newServices(f.Config, f.Pool, f.Logger, f.Mail)
+	f.Services = &svc
+	return f
 }
 
 // register adds every feature's operations. A new feature adds its line here.
+// f.Services must be set (wire, or withServices).
 func register(api huma.API, f features) {
+	if f.Services == nil {
+		panic("register: features.Services is nil; build them once with wire (or withServices) so the routes and the MCP connector share them")
+	}
+	svc := *f.Services
 	auth.Register(api, f.Pool, f.Sessions, f.Mail, f.Config, f.Clock)
 	accounts.Register(api, f.Pool)
 	vendors.Register(api, f.Pool)
@@ -81,19 +124,65 @@ func register(api huma.API, f features) {
 	customers.Register(api, f.Pool)
 	business.Register(api, f.Pool, f.Clock)
 	fx.Register(api, f.Pool, f.Config, f.FXClient)
-	invoices.Register(api, f.Pool, f.Clock, invoices.EmailNotifier{
-		Q: invoicesdb.New(f.Pool), Sender: f.Mail, AppBaseURL: f.Config.AppBaseURL, Logger: f.Logger,
-	})
+	invoices.Register(api, f.Pool, f.Clock, svc.Notifier)
 	quotations.Register(api, f.Pool, f.Clock)
 	quotations.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
 	invoices.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
 	bills.Register(api, f.Pool, f.Clock)
-	payments.Register(api, f.Pool, payments.Service{BaseCurrency: f.Config.BaseCurrency, Hosting: hosting.Restorer{
-		Pool: f.Pool, Client: hosting.NewClient(f.Config), Logger: f.Logger,
-	}}, f.Config, f.Clock,
+	payments.Register(api, f.Pool, svc.Payments, f.Config, f.Clock,
 		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.PDFReceiptRenderer{DB: f.Pool}})
 	reports.Register(api, f.Pool, f.Config, f.Clock)
 	stats.Register(api, f.Pool, f.Config, f.Clock)
+}
+
+// wiring is what serve builds once: the routes' features and the MCP
+// connector's deps, sharing one mail sender and one set of services.
+type wiring struct {
+	features features
+	mcp      mcp.Deps
+}
+
+// wire builds serve's wiring. The MCP connector gets the routes' own
+// payments.Service (the real hosting restorer) with AfterPayment set to its
+// AfterCommit, the routes' draft notifier, and the routes' mail sender.
+func wire(cfg platform.Config, pool *pgxpool.Pool, sessions platform.Sessions, clock platform.Clock, logger *slog.Logger) wiring {
+	mail := pickSender(cfg, logger)
+	svc := newServices(cfg, pool, logger, mail)
+	return wiring{
+		features: features{
+			Pool: pool, Sessions: sessions, Mail: mail, Config: cfg, Clock: clock,
+			Logger:   logger,
+			FXClient: fx.NewClient(cfg),
+			Services: &svc,
+		},
+		mcp: mcp.Deps{
+			Pool: pool, Clock: clock, Cfg: cfg,
+			Sender:       mail,
+			Notifier:     svc.Notifier,
+			Payments:     svc.Payments,
+			AfterPayment: svc.Payments.AfterCommit,
+		},
+	}
+}
+
+// oauthRoot mounts the MCP connector's OAuth server and the /mcp transport
+// at the root, only when MCP_ENABLED (nil mounts nothing, and its paths
+// answer 404). d is the connector's deps (wire's), whose Pool and Clock the
+// OAuth server uses too.
+func oauthRoot(cfg platform.Config, sessions platform.Sessions, d mcp.Deps) func(chi.Router) {
+	if !cfg.MCPEnabled {
+		return nil
+	}
+	return func(r chi.Router) {
+		oauth.Mount(r, oauth.Deps{
+			Pool: d.Pool, PublicBaseURL: cfg.MCPPublicBaseURL, AppBaseURL: cfg.AppBaseURL,
+			Sessions: sessions, Clock: d.Clock,
+			Tokens: oauth.NewTokens(cfg.MCPTokenSecret, cfg.MCPAccessTokenTTL, cfg.MCPRefreshTokenTTL),
+		})
+		handler := mcp.NewHandler(d)
+		r.Handle("/mcp", handler)
+		r.Handle("/mcp/*", handler)
+	}
 }
 
 func main() {
@@ -175,14 +264,12 @@ func serve() error {
 
 	clock := platform.SystemClock{}
 	sessions := platform.NewSessions(cfg)
-	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock})
-	mail := pickSender(cfg, logger)
-	register(api, features{
-		Pool: pool, Sessions: sessions, Mail: mail, Config: cfg, Clock: clock,
-		Logger:   logger,
-		FXClient: fx.NewClient(cfg),
-	})
-	_, waitScheduler := startScheduler(ctx, pool, cfg, clock, logger, mail)
+	// One sender and one set of services for the whole process: the API's
+	// routes and the MCP connector share them.
+	w := wire(cfg, pool, sessions, clock, logger)
+	handler, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: sessions, Logger: logger, Clock: clock, Root: oauthRoot(cfg, sessions, w.mcp)})
+	register(api, w.features)
+	_, waitScheduler := startScheduler(ctx, pool, cfg, clock, logger, w.features.Mail)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -308,7 +395,7 @@ func healthcheck() int {
 // printOpenAPI builds the API with no database: routes are only described.
 func printOpenAPI() int {
 	_, api := platform.NewServer(platform.Config{Environment: "openapi"}, platform.Deps{})
-	register(api, features{})
+	register(api, features{}.withServices())
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(api.OpenAPI()); err != nil {

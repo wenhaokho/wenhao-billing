@@ -153,11 +153,8 @@ type invoiceBody struct{ Body InvoiceOut }
 type createIn struct{ Body InvoiceCreate }
 
 func (r routes) create(ctx context.Context, in *createIn) (*invoiceBody, error) {
-	if err := checkFields(in.Body.InvoiceFields, in.Body.LineItems); err != nil {
-		return nil, err
-	}
 	today := platform.TodayUTC(r.clock)
-	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return createInvoice(ctx, tx, in.Body, today) })
+	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return CreateInvoice(ctx, tx, in.Body, today) })
 }
 
 type milestoneIn struct{ Body MilestoneInvoiceCreate }
@@ -236,12 +233,5 @@ type updateIn struct {
 }
 
 func (r routes) update(ctx context.Context, in *updateIn) (*invoiceBody, error) {
-	var lines []LineItemIn
-	if in.Body.LineItems != nil {
-		lines = *in.Body.LineItems
-	}
-	if err := checkFields(in.Body.InvoiceFields, lines); err != nil {
-		return nil, err
-	}
-	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return updateInvoice(ctx, tx, in.InvoiceID, in.Body) })
+	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return UpdateInvoice(ctx, tx, in.InvoiceID, in.Body) })
 }

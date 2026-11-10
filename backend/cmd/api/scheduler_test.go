@@ -41,6 +41,7 @@ func TestSchedulerDoesNotStartWithoutTheVariable(t *testing.T) {
 	cfg, err := platform.ParseConfig(map[string]string{
 		"DATABASE_URL": "postgresql://u:p@h:5432/d", "SESSION_SECRET": "scheduler-test-secret-32-bytes-long",
 		"WEBHOOK_HMAC_SECRET": "a-real-webhook-secret", "EMAIL_WEBHOOK_TOKEN": "a-real-email-token",
+		"MCP_CONFIRM_SECRET": "a-real-mcp-confirm-secret", "MCP_TOKEN_SECRET": "a-real-mcp-token-secret",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +66,7 @@ func TestSchedulerStartsWithTheVariable(t *testing.T) {
 	cfg, err := platform.ParseConfig(map[string]string{
 		"DATABASE_URL": "postgresql://u:p@h:5432/d", "SESSION_SECRET": "scheduler-test-secret-32-bytes-long",
 		"WEBHOOK_HMAC_SECRET": "a-real-webhook-secret", "EMAIL_WEBHOOK_TOKEN": "a-real-email-token",
+		"MCP_CONFIRM_SECRET": "a-real-mcp-confirm-secret", "MCP_TOKEN_SECRET": "a-real-mcp-token-secret",
 		"SCHEDULER_ENABLED": "true",
 	})
 	if err != nil {
@@ -119,6 +121,7 @@ func TestSchedulerWaitJoinsTheScheduler(t *testing.T) {
 	cfg, err := platform.ParseConfig(map[string]string{
 		"DATABASE_URL": "postgresql://u:p@h:5432/d", "SESSION_SECRET": "scheduler-test-secret-32-bytes-long",
 		"WEBHOOK_HMAC_SECRET": "a-real-webhook-secret", "EMAIL_WEBHOOK_TOKEN": "a-real-email-token",
+		"MCP_CONFIRM_SECRET": "a-real-mcp-confirm-secret", "MCP_TOKEN_SECRET": "a-real-mcp-token-secret",
 		"SCHEDULER_ENABLED": "true",
 	})
 	if err != nil {
@@ -236,6 +239,7 @@ func schedulerConfig(t *testing.T, extra map[string]string) platform.Config {
 	env := map[string]string{
 		"DATABASE_URL": "postgresql://u:p@h:5432/d", "SESSION_SECRET": "scheduler-test-secret-32-bytes-long",
 		"WEBHOOK_HMAC_SECRET": "a-real-webhook-secret", "EMAIL_WEBHOOK_TOKEN": "a-real-email-token",
+		"MCP_CONFIRM_SECRET": "a-real-mcp-confirm-secret", "MCP_TOKEN_SECRET": "a-real-mcp-token-secret",
 		"SCHEDULER_ENABLED": "true",
 	}
 	maps.Copy(env, extra)

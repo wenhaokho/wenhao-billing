@@ -13,6 +13,21 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const deleteBill = `-- name: DeleteBill :execrows
+DELETE FROM bills WHERE bill_id = $1 AND status = 'DRAFT'
+`
+
+// MCP delete_bill: a DRAFT bill only. Callers read the row first (GetBill)
+// to tell "not found" from "not DRAFT"; the status in the DELETE is the
+// second lock.
+func (q *Queries) DeleteBill(ctx context.Context, billID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBill, billID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteBillLines = `-- name: DeleteBillLines :exec
 DELETE FROM bill_line_items WHERE bill_id = $1
 `
@@ -208,18 +223,21 @@ SELECT bill_id, vendor_id, bill_number, po_number, currency, subtotal, discount_
 WHERE ($1::text[] IS NULL OR status = ANY ($1::text[]))
   AND ($2::uuid IS NULL OR vendor_id = $2::uuid)
 ORDER BY created_at DESC, bill_id DESC
+LIMIT $3
 `
 
 type ListBillsParams struct {
 	Statuses []string
 	VendorID pgtype.UUID
+	RowLimit *int32
 }
 
 // GET /bills (bills.py:34-49): each filter applies when given (a null or
-// empty statuses list is no filter); newest first, the id breaking ties. No
-// limit, as Python.
+// empty statuses list is no filter); newest first, the id breaking ties. A
+// null row_limit is no limit (the HTTP route), a set one caps the page (MCP
+// list_bills).
 func (q *Queries) ListBills(ctx context.Context, arg ListBillsParams) ([]Bill, error) {
-	rows, err := q.db.Query(ctx, listBills, arg.Statuses, arg.VendorID)
+	rows, err := q.db.Query(ctx, listBills, arg.Statuses, arg.VendorID, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

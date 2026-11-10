@@ -291,11 +291,13 @@ const listAwaitingReview = `-- name: ListAwaitingReview :many
 SELECT payment_id, invoice_id, customer_id, amount, currency, payer_name, payer_reference, payment_date, intake_source, external_ref, status, adjustment_type, confidence_score, created_at, wht_amount FROM payments
  WHERE status = 'PENDING_MANUAL_REVIEW'
  ORDER BY created_at DESC, payment_id DESC
+ LIMIT $1
 `
 
-// Python ordered by created_at DESC only; the key breaks a tie.
-func (q *Queries) ListAwaitingReview(ctx context.Context) ([]Payment, error) {
-	rows, err := q.db.Query(ctx, listAwaitingReview)
+// Python ordered by created_at DESC only; the key breaks a tie. A null
+// row_limit lists them all (the route); the MCP queue tool caps it.
+func (q *Queries) ListAwaitingReview(ctx context.Context, rowLimit *int32) ([]Payment, error) {
+	rows, err := q.db.Query(ctx, listAwaitingReview, rowLimit)
 	if err != nil {
 		return nil, err
 	}

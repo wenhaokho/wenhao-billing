@@ -5,15 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/shopspring/decimal"
 
 	"github.com/LOQATO/gokit/db"
 
@@ -94,35 +91,11 @@ type projectBody struct{ Body ProjectOut }
 type createIn struct{ Body ProjectCreate }
 
 func (r routes) create(ctx context.Context, in *createIn) (*projectBody, error) {
-	b := in.Body
-	code, err := normCode(b.Code)
+	out, err := Create(ctx, r.q, in.Body)
 	if err != nil {
 		return nil, err
 	}
-	currency, err := normCurrency(b.Currency)
-	if err != nil {
-		return nil, err
-	}
-	budget, err := contractValue(b.ContractValue, decimal.NullDecimal{})
-	if err != nil {
-		return nil, err
-	}
-	p, err := r.q.CreateProject(ctx, projectsdb.CreateProjectParams{
-		ProjectID:     uuid.New(),
-		CustomerID:    b.CustomerID,
-		Code:          code,
-		Name:          strings.TrimSpace(b.Name),
-		Currency:      currency,
-		ContractValue: budget,
-		Status:        b.Status.Or("ACTIVE"),
-		StartDate:     platform.MergeDate(b.StartDate, pgtype.Date{}),
-		EndDate:       platform.MergeDate(b.EndDate, pgtype.Date{}),
-		Notes:         b.Notes.Merge(nil),
-	})
-	if err != nil {
-		return nil, mapWrite(err, code)
-	}
-	return &projectBody{Body: projectOut(p)}, nil
+	return &projectBody{Body: out}, nil
 }
 
 type listIn struct {
@@ -134,25 +107,11 @@ type listIn struct {
 type listOut struct{ Body []ProjectOut }
 
 func (r routes) list(ctx context.Context, in *listIn) (*listOut, error) {
-	var statuses []string
-	if len(in.Status) > 0 {
-		statuses = in.Status
-	}
-	var customer pgtype.UUID
-	if c := in.CustomerID.Ptr(); c != nil {
-		customer = pgtype.UUID{Bytes: *c, Valid: true}
-	}
-	rows, err := r.q.ListProjects(ctx, projectsdb.ListProjectsParams{
-		Statuses: statuses, CustomerID: customer, Active: in.Active.Ptr(),
-	})
+	out, err := List(ctx, r.q, ListFilter{Statuses: in.Status, CustomerID: in.CustomerID.Ptr(), Active: in.Active.Ptr()})
 	if err != nil {
 		return nil, err
 	}
-	out := &listOut{Body: make([]ProjectOut, 0, len(rows))}
-	for _, p := range rows {
-		out.Body = append(out.Body, projectOut(p))
-	}
-	return out, nil
+	return &listOut{Body: out}, nil
 }
 
 type idIn struct {
@@ -160,11 +119,11 @@ type idIn struct {
 }
 
 func (r routes) get(ctx context.Context, in *idIn) (*projectBody, error) {
-	p, err := r.q.GetProject(ctx, in.ProjectID)
+	out, err := Get(ctx, r.q, in.ProjectID)
 	if err != nil {
 		return nil, notFound(err)
 	}
-	return &projectBody{Body: projectOut(p)}, nil
+	return &projectBody{Body: out}, nil
 }
 
 type updateIn struct {
@@ -172,52 +131,19 @@ type updateIn struct {
 	Body      ProjectUpdate
 }
 
-// update is the PATCH pattern: read the row locked, overlay the fields sent
-// (a null never gets here for a NOT NULL column: NotNull refuses it), and
-// write every column back.
+// update is the PATCH pattern: the row locked, overlaid and written
+// back in one transaction (Update).
 func (r routes) update(ctx context.Context, in *updateIn) (*projectBody, error) {
-	b := in.Body
-	var out projectsdb.Project
+	var out ProjectOut
 	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
-		q := r.q.WithTx(tx)
-		cur, err := q.GetProjectForUpdate(ctx, in.ProjectID)
-		if err != nil {
-			return notFound(err)
-		}
-		code, currency := cur.Code, cur.Currency
-		if b.Code.Set {
-			if code, err = normCode(b.Code.Value); err != nil {
-				return err
-			}
-		}
-		if b.Currency.Set {
-			if currency, err = normCurrency(b.Currency.Value); err != nil {
-				return err
-			}
-		}
-		budget, err := contractValue(b.ContractValue, cur.ContractValue)
-		if err != nil {
-			return err
-		}
-		out, err = q.UpdateProject(ctx, projectsdb.UpdateProjectParams{
-			ProjectID:     cur.ProjectID,
-			CustomerID:    b.CustomerID.Or(cur.CustomerID),
-			Code:          code,
-			Name:          b.Name.Or(cur.Name),
-			Currency:      currency,
-			ContractValue: budget,
-			Status:        b.Status.Or(cur.Status),
-			StartDate:     platform.MergeDate(b.StartDate, cur.StartDate),
-			EndDate:       platform.MergeDate(b.EndDate, cur.EndDate),
-			Notes:         b.Notes.Merge(cur.Notes),
-			Active:        b.Active.Or(cur.Active),
-		})
-		return mapWrite(err, "")
+		var err error
+		out, err = Update(ctx, r.q.WithTx(tx), in.ProjectID, in.Body)
+		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, notFound(err)
 	}
-	return &projectBody{Body: projectOut(out)}, nil
+	return &projectBody{Body: out}, nil
 }
 
 // delete refuses a project anything points at, counted under the project

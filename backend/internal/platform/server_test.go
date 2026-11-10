@@ -262,6 +262,20 @@ func TestNoStoreOnApiPaths(t *testing.T) {
 	}
 }
 
+func TestNoStoreOnOauthMcpWellKnown(t *testing.T) {
+	t.Parallel()
+	h := probeServer(t)
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		for _, path := range []string{"/oauth/authorize", "/oauth/token", "/oauth/register", "/mcp", "/mcp/", "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource/mcp"} {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+			if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+				t.Errorf("%s %s: Cache-Control %q", method, path, got)
+			}
+		}
+	}
+}
+
 func TestSecurityHeaders(t *testing.T) {
 	t.Parallel()
 	if rec := get(t, probeServer(t), "/fail"); rec.Header().Get("X-Content-Type-Options") != "nosniff" {

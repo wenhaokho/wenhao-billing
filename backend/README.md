@@ -30,9 +30,14 @@ its own database from a template. Without it every database test skips.
 
 Tests run in parallel: every test calls `t.Parallel()` unless it changes package state
 that other tests read (a swapped function, a filled semaphore, a test hook); those say
-why next to the test. `./dev test` runs `-parallel 8 -timeout 60s` (plus `-race` with `GO_TEST_RACE=1`) and leaves `-p`
-at its default, the number of CPUs, since `-p` also limits how many test binaries build
-and link at once.
+why next to the test. `./dev test` runs `-p 8 -parallel 8 -timeout 60s` (plus `-race` with `GO_TEST_RACE=1`).
+`-p 8` caps how many packages run at once: each running package keeps its test databases
+on db-test's tmpfs (1.5 GB, see the comment on `db-test` in `docker-compose.yml`), and at
+go's default (`-p` = the number of CPUs, 32 on the dev machine) a full run fills it and
+Postgres stops with "No space left on device". Failed tests keep their databases too.
+If a full local `./dev test ./...` still fails that way (most often while other runs
+share db-test), restart db-test to clear the kept databases and pass `-p 2` (a later
+`-p` overrides the default).
 
 ## Checks
 

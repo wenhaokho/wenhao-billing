@@ -145,19 +145,32 @@ SELECT project_id, customer_id, code, name, currency, contract_value, status, st
 WHERE ($1::text[] IS NULL OR status = ANY ($1::text[]))
   AND ($2::uuid IS NULL OR customer_id = $2::uuid)
   AND ($3::boolean IS NULL OR active = $3::boolean)
+  AND ($4::text IS NULL OR name ILIKE '%' || $4::text || '%' ESCAPE '\')
 ORDER BY created_at DESC, project_id DESC
+LIMIT $5
 `
 
 type ListProjectsParams struct {
 	Statuses   []string
 	CustomerID pgtype.UUID
 	Active     *bool
+	NameLike   *string
+	RowLimit   *int32
 }
 
 // GET /projects (projects.py:48-66): each filter applies when given (a null
 // or empty statuses list is no filter); newest first, the id breaking ties.
+// A null name_like and a null row_limit do not filter. name_like is a name
+// substring, already escaped by the caller for LIKE (\, % and _ with a
+// backslash, as the payments audit log does).
 func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]Project, error) {
-	rows, err := q.db.Query(ctx, listProjects, arg.Statuses, arg.CustomerID, arg.Active)
+	rows, err := q.db.Query(ctx, listProjects,
+		arg.Statuses,
+		arg.CustomerID,
+		arg.Active,
+		arg.NameLike,
+		arg.RowLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

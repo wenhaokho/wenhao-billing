@@ -4,7 +4,6 @@ github.com/LOQATO/gokit/apierr
 github.com/LOQATO/gokit/auth
 github.com/LOQATO/gokit/db
 github.com/LOQATO/gokit/i18n
-github.com/LOQATO/gokit/i18n/i18ntest
 github.com/LOQATO/gokit/money
 github.com/LOQATO/gokit/observe
 github.com/LOQATO/gokit/testkit
@@ -77,6 +76,9 @@ github.com/go-chi/cors
 # github.com/golang-jwt/jwt/v5 v5.3.1
 ## explicit; go 1.21
 github.com/golang-jwt/jwt/v5
+# github.com/google/jsonschema-go v0.4.3
+## explicit; go 1.23.0
+github.com/google/jsonschema-go/jsonschema
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
@@ -164,6 +166,18 @@ github.com/mattn/go-runewidth
 # github.com/mfridman/interpolate v0.0.2
 ## explicit; go 1.19
 github.com/mfridman/interpolate
+# github.com/modelcontextprotocol/go-sdk v1.8.0
+## explicit; go 1.25.0
+github.com/modelcontextprotocol/go-sdk/auth
+github.com/modelcontextprotocol/go-sdk/internal/authutil
+github.com/modelcontextprotocol/go-sdk/internal/json
+github.com/modelcontextprotocol/go-sdk/internal/jsonrpc2
+github.com/modelcontextprotocol/go-sdk/internal/mcpgodebug
+github.com/modelcontextprotocol/go-sdk/internal/util
+github.com/modelcontextprotocol/go-sdk/internal/xcontext
+github.com/modelcontextprotocol/go-sdk/jsonrpc
+github.com/modelcontextprotocol/go-sdk/mcp
+github.com/modelcontextprotocol/go-sdk/oauthex
 # github.com/pdfcpu/pdfcpu v0.11.1
 ## explicit; go 1.24.0
 github.com/pdfcpu/pdfcpu/internal/corefont/metrics
@@ -231,12 +245,31 @@ github.com/redis/go-redis/v9/internal/routing
 github.com/redis/go-redis/v9/internal/util
 github.com/redis/go-redis/v9/maintnotifications
 github.com/redis/go-redis/v9/push
+# github.com/segmentio/asm v1.2.1
+## explicit; go 1.18
+github.com/segmentio/asm/ascii
+github.com/segmentio/asm/base64
+github.com/segmentio/asm/cpu
+github.com/segmentio/asm/cpu/arm
+github.com/segmentio/asm/cpu/arm64
+github.com/segmentio/asm/cpu/cpuid
+github.com/segmentio/asm/cpu/x86
+github.com/segmentio/asm/internal/unsafebytes
+github.com/segmentio/asm/keyset
+# github.com/segmentio/encoding v0.5.4
+## explicit; go 1.23
+github.com/segmentio/encoding/ascii
+github.com/segmentio/encoding/iso8601
+github.com/segmentio/encoding/json
 # github.com/sethvargo/go-retry v0.5.0
 ## explicit; go 1.25
 github.com/sethvargo/go-retry
 # github.com/shopspring/decimal v1.6.0
 ## explicit; go 1.10
 github.com/shopspring/decimal
+# github.com/yosida95/uritemplate/v3 v3.0.2
+## explicit; go 1.14
+github.com/yosida95/uritemplate/v3
 # github.com/yuin/gopher-lua v1.1.1
 ## explicit; go 1.17
 github.com/yuin/gopher-lua
@@ -261,6 +294,10 @@ golang.org/x/image/riff
 golang.org/x/image/vp8
 golang.org/x/image/vp8l
 golang.org/x/image/webp
+# golang.org/x/oauth2 v0.35.0
+## explicit; go 1.24.0
+golang.org/x/oauth2
+golang.org/x/oauth2/internal
 # golang.org/x/sync v0.24.0
 ## explicit; go 1.26.0
 golang.org/x/sync/errgroup
@@ -284,6 +321,9 @@ golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
 golang.org/x/text/width
+# golang.org/x/time v0.16.0
+## explicit; go 1.26.0
+golang.org/x/time/rate
 # gopkg.in/yaml.v2 v2.4.0
 ## explicit; go 1.15
 gopkg.in/yaml.v2

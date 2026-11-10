@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
+import { oauthReturnTo } from "@/router/returnTo";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -272,7 +273,16 @@ router.beforeEach(async (to) => {
 
   // /reset-password is deliberately not guestOnly: a valid token should still
   // work while signed in.
-  if (to.meta.guestOnly && auth.user) return { name: "dashboard" };
+  if (to.meta.guestOnly && auth.user) {
+    // Already signed in on the way back to the MCP connector's authorize
+    // page: go straight there instead of to the dashboard.
+    const returnTo = to.name === "login" ? oauthReturnTo(to.query.return_to, window.location.origin) : null;
+    if (returnTo) {
+      window.location.assign(returnTo);
+      return false;
+    }
+    return { name: "dashboard" };
+  }
   if (to.meta.public) return true;
   if (!auth.user) return { name: "login", query: { next: to.fullPath } };
   return true;

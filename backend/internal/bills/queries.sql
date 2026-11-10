@@ -21,12 +21,20 @@ ORDER BY bill_id, position, line_item_id;
 
 -- name: ListBills :many
 -- GET /bills (bills.py:34-49): each filter applies when given (a null or
--- empty statuses list is no filter); newest first, the id breaking ties. No
--- limit, as Python.
+-- empty statuses list is no filter); newest first, the id breaking ties. A
+-- null row_limit is no limit (the HTTP route), a set one caps the page (MCP
+-- list_bills).
 SELECT * FROM bills
 WHERE (sqlc.narg(statuses)::text[] IS NULL OR status = ANY (sqlc.narg(statuses)::text[]))
   AND (sqlc.narg(vendor_id)::uuid IS NULL OR vendor_id = sqlc.narg(vendor_id)::uuid)
-ORDER BY created_at DESC, bill_id DESC;
+ORDER BY created_at DESC, bill_id DESC
+LIMIT sqlc.narg(row_limit);
+
+-- name: DeleteBill :execrows
+-- MCP delete_bill: a DRAFT bill only. Callers read the row first (GetBill)
+-- to tell "not found" from "not DRAFT"; the status in the DELETE is the
+-- second lock.
+DELETE FROM bills WHERE bill_id = $1 AND status = 'DRAFT';
 
 -- name: InsertBill :exec
 INSERT INTO bills (

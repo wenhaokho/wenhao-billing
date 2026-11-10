@@ -13,6 +13,7 @@ func baseVars(extra map[string]string) map[string]string {
 	v := map[string]string{
 		"DATABASE_URL": "postgresql://u:p@h:5432/d", "SESSION_SECRET": configSecret,
 		"WEBHOOK_HMAC_SECRET": "a-real-webhook-secret", "EMAIL_WEBHOOK_TOKEN": "a-real-email-token",
+		"MCP_CONFIRM_SECRET": "x" + configSecret, "MCP_TOKEN_SECRET": "y" + configSecret,
 	}
 	for k, val := range extra {
 		v[k] = val
@@ -228,6 +229,137 @@ func TestIntakeSecretsDefaultToPythonDevValues(t *testing.T) {
 	}
 	if cfg.WebhookHMACSecret != "dev-webhook-secret-change-me" || cfg.EmailWebhookToken != "dev-email-token-change-me" {
 		t.Errorf("defaults = %q, %q", cfg.WebhookHMACSecret, cfg.EmailWebhookToken)
+	}
+}
+
+const (
+	devMCPConfirm = "dev-mcp-confirm-secret-change-me"
+	devMCPToken   = "dev-mcp-token-secret-change-me"
+)
+
+// Python's test_mcp_settings_have_secure_defaults_shape.
+func TestMCPSettingsHaveSecureDefaultsShape(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.MCPEnabled || cfg.MCPAccessTokenTTL != 3600*time.Second || cfg.MCPRefreshTokenTTL != 2592000*time.Second {
+		t.Errorf("cfg = %+v", cfg)
+	}
+	if cfg.MCPPublicBaseURL != "http://localhost:8000" {
+		t.Errorf("MCPPublicBaseURL = %q", cfg.MCPPublicBaseURL)
+	}
+	if len(cfg.MCPConfirmSecret) < 32 || len(cfg.MCPTokenSecret) < 32 {
+		t.Errorf("secrets %d, %d bytes", len(cfg.MCPConfirmSecret), len(cfg.MCPTokenSecret))
+	}
+}
+
+func TestMCPEnvOverrides(t *testing.T) {
+	t.Parallel()
+	cfg, err := ParseConfig(baseVars(map[string]string{
+		"MCP_ENABLED": "false", "MCP_ACCESS_TOKEN_TTL_SECONDS": "60", "MCP_REFRESH_TOKEN_TTL_SECONDS": "120",
+		"MCP_PUBLIC_BASE_URL": "https://billing.wenhao.id",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MCPEnabled || cfg.MCPAccessTokenTTL != time.Minute || cfg.MCPRefreshTokenTTL != 2*time.Minute || cfg.MCPPublicBaseURL != "https://billing.wenhao.id" {
+		t.Errorf("cfg = %+v", cfg)
+	}
+}
+
+// Python's test_transport_allowlist_public_https_host.
+func TestTransportAllowlistPublicHTTPSHost(t *testing.T) {
+	t.Parallel()
+	hosts, origins := TransportAllowlist("https://billing.wenhao.id")
+	if want := []string{"billing.wenhao.id"}; !reflect.DeepEqual(hosts, want) { // hostname == netloc without a port
+		t.Errorf("hosts = %v", hosts)
+	}
+	if want := []string{"https://billing.wenhao.id"}; !reflect.DeepEqual(origins, want) {
+		t.Errorf("origins = %v", origins)
+	}
+}
+
+// Python's test_transport_allowlist_includes_host_with_port.
+func TestTransportAllowlistIncludesHostWithPort(t *testing.T) {
+	t.Parallel()
+	hosts, origins := TransportAllowlist("http://localhost:8000")
+	if want := []string{"localhost", "localhost:8000"}; !reflect.DeepEqual(hosts, want) {
+		t.Errorf("hosts = %v", hosts)
+	}
+	if want := []string{"http://localhost:8000"}; !reflect.DeepEqual(origins, want) {
+		t.Errorf("origins = %v", origins)
+	}
+}
+
+func TestTransportAllowlistLowercasesHost(t *testing.T) {
+	t.Parallel()
+	hosts, origins := TransportAllowlist("https://Billing.Wenhao.ID:8443")
+	if want := []string{"billing.wenhao.id", "billing.wenhao.id:8443"}; !reflect.DeepEqual(hosts, want) || origins[0] != "https://billing.wenhao.id:8443" {
+		t.Errorf("hosts = %v, origins = %v", hosts, origins)
+	}
+}
+
+func TestMCPRefusesNonPositiveTTL(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"MCP_ACCESS_TOKEN_TTL_SECONDS", "MCP_REFRESH_TOKEN_TTL_SECONDS"} {
+		for _, v := range []string{"0", "-1"} {
+			t.Run(name+"="+v, func(t *testing.T) {
+				t.Parallel()
+				_, err := ParseConfig(baseVars(map[string]string{name: v}))
+				if err == nil || !strings.Contains(err.Error(), name) {
+					t.Errorf("err = %v, want one naming %s", err, name)
+				}
+			})
+		}
+	}
+}
+
+func TestProductionRefusesDefaultMcpSecrets(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		vars map[string]string
+		want string // the variable the error names; "" accepts
+	}{
+		"default confirm":      {map[string]string{"MCP_CONFIRM_SECRET": devMCPConfirm}, "MCP_CONFIRM_SECRET"},
+		"default token":        {map[string]string{"MCP_TOKEN_SECRET": devMCPToken}, "MCP_TOKEN_SECRET"},
+		"empty confirm":        {map[string]string{"MCP_CONFIRM_SECRET": ""}, "MCP_CONFIRM_SECRET"},
+		"empty token":          {map[string]string{"MCP_TOKEN_SECRET": ""}, "MCP_TOKEN_SECRET"},
+		"15 byte confirm":      {map[string]string{"MCP_CONFIRM_SECRET": strings.Repeat("a", 15)}, "MCP_CONFIRM_SECRET"},
+		"15 byte token":        {map[string]string{"MCP_TOKEN_SECRET": strings.Repeat("a", 15)}, "MCP_TOKEN_SECRET"},
+		"15 byte in test":      {map[string]string{"ENVIRONMENT": "test", "MCP_TOKEN_SECRET": strings.Repeat("a", 15)}, "MCP_TOKEN_SECRET"},
+		"16 byte":              {map[string]string{"MCP_TOKEN_SECRET": strings.Repeat("a", 16)}, ""},
+		"explicit production":  {map[string]string{"ENVIRONMENT": "production", "MCP_TOKEN_SECRET": devMCPToken}, "MCP_TOKEN_SECRET"},
+		"staging":              {map[string]string{"ENVIRONMENT": "staging", "MCP_CONFIRM_SECRET": devMCPConfirm}, "MCP_CONFIRM_SECRET"},
+		"real values":          {nil, ""},
+		"test defaults":        {map[string]string{"ENVIRONMENT": "test", "MCP_CONFIRM_SECRET": devMCPConfirm, "MCP_TOKEN_SECRET": devMCPToken}, ""},
+		"development defaults": {map[string]string{"ENVIRONMENT": "development", "MCP_CONFIRM_SECRET": devMCPConfirm, "MCP_TOKEN_SECRET": devMCPToken}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseConfig(baseVars(tc.vars))
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("err = %v, want none", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Errorf("err = %v, want one naming %s", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestMCPSecretsDefaultToPythonDevValues(t *testing.T) {
+	t.Parallel()
+	vars := baseVars(map[string]string{"ENVIRONMENT": "development"})
+	delete(vars, "MCP_CONFIRM_SECRET")
+	delete(vars, "MCP_TOKEN_SECRET")
+	cfg, err := ParseConfig(vars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MCPConfirmSecret != devMCPConfirm || cfg.MCPTokenSecret != devMCPToken {
+		t.Errorf("defaults = %q, %q", cfg.MCPConfirmSecret, cfg.MCPTokenSecret)
 	}
 }
 

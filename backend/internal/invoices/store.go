@@ -27,17 +27,30 @@ func Get(ctx context.Context, q *invoicesdb.Queries, id uuid.UUID) (InvoiceOut, 
 }
 
 // ListFilter narrows ListBy; the zero value lists every invoice and template.
+// Statuses, CustomerID and InvoiceType filter when set (an empty Statuses
+// is no filter, as in Python); Limit caps the page when set (nil is
+// unlimited, 0 lists nothing). Callers wanting no templates set
+// ExcludeTemplates.
 type ListFilter struct {
 	ProjectID        *uuid.UUID
 	ExcludeTemplates bool
+	Statuses         []string
+	CustomerID       *uuid.UUID
+	InvoiceType      *string
+	Limit            *int32
 }
 
 // ListBy is the invoices matching f, rendered as the list route renders
 // them (lines loaded in one query, expected_cash computed), newest first
 // with the id breaking ties, never nil.
 func ListBy(ctx context.Context, q *invoicesdb.Queries, f ListFilter) ([]InvoiceOut, error) {
+	var statuses []string
+	if len(f.Statuses) > 0 {
+		statuses = f.Statuses
+	}
 	invs, err := q.ListInvoicesBy(ctx, invoicesdb.ListInvoicesByParams{
 		ProjectID: pgUUID(f.ProjectID), ExcludeTemplates: f.ExcludeTemplates,
+		Statuses: statuses, CustomerID: pgUUID(f.CustomerID), InvoiceType: f.InvoiceType, RowLimit: f.Limit,
 	})
 	if err != nil {
 		return nil, err

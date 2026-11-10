@@ -1,11 +1,15 @@
-# Go backend, plan 10: MCP connector and OAuth server (DRAFT)
+# Go backend, plan 10: MCP connector and OAuth server
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Draft, written 2026-11-10 before plans 7–9 merged.** Before execution, a refresh pass checks every Go name below against `main`. This plan depends on:
-> - plan 7: `payments.Service.ApproveManual`, `matching.IsExactMatch`;
-> - plan 8: `stats.Dashboard`;
-> - plan 9: the invoice PDF renderer and the Resend `email.Sender`.
+> **Refreshed 2026-11-10 against `main` at 6895e8b (plans 7 and 8 merged; plan 9 still building).** Checked present:
+> - `payments.Service.ApproveManual(ctx, tx pgx.Tx, paymentID, invoiceID uuid.UUID, actor *uuid.UUID, adj string)` (payments/service.go:219);
+> - `matching.IsExactMatch(p Incoming, c Candidate) bool` (matching/engine.go:94);
+> - `stats.Dashboard(ctx, db statsdb.DBTX, base string, today, now time.Time) (DashboardCore, error)` (stats/core.go:46). It takes a `DBTX` (pool or tx) rather than `*statsdb.Queries`, per plan 8's ruling R1; Task 8 passes the tool's transaction.
+>
+> Still missing: plan 9's invoice PDF renderer and Resend sender. Task 10's two email tools wait for plan 9 to merge; Tasks 1–9 do not.
+>
+> **Running in parallel:** this runs alongside plan 9 in the worktree `D:/Development/wenhao-billing-plan10` (run `./dev` with `COMPOSE_PROJECT_NAME=wenhao-billing`). Plan 9 adds migration `00004_scheduled_job_runs`, so this plan's migrations are numbered from `00005`. Both plans edit `platform/config.go`, `cmd/api/main.go` and the docs, so this branch rebases on `main` after plan 9 merges.
 
 **Goal:** Go serves the OAuth 2.1 server (7 routes), the `/mcp` redirect and the `/mcp/` streamable-HTTP server with all 42 tools. Names, argument schemas, descriptions and result shapes are Python's, so the owner's Claude connector keeps working.
 

@@ -5,6 +5,7 @@
 package payments
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -35,6 +36,22 @@ type PaymentOut struct {
 	AdjustmentType  string         `json:"adjustment_type"`
 	ConfidenceScore *platform.Dec2 `json:"confidence_score"`
 	CreatedAt       platform.Time  `json:"created_at"`
+}
+
+// AwaitingReview is the payments awaiting manual review (status
+// PENDING_MANUAL_REVIEW), newest first with the id breaking ties, never nil.
+// limit caps the page when set (nil is unlimited, 0 lists nothing). Exported
+// for the MCP get_reconciliation_queue tool; q is a pool or a transaction.
+func AwaitingReview(ctx context.Context, q *paymentsdb.Queries, limit *int32) ([]PaymentOut, error) {
+	rows, err := q.ListAwaitingReview(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PaymentOut, 0, len(rows))
+	for _, p := range rows {
+		out = append(out, PaymentOutFrom(p))
+	}
+	return out, nil
 }
 
 // PaymentOutFrom renders a stored payment.

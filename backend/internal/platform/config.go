@@ -3,7 +3,9 @@ package platform
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,6 +33,12 @@ type Config struct {
 	FXSyncCurrencies       []string      // FX_SYNC_CURRENCIES: foreign currencies each sync pulls a base rate for
 	WebhookHMACSecret      string        // WEBHOOK_HMAC_SECRET: keys the HMAC of the payment webhook's body
 	EmailWebhookToken      string        // EMAIL_WEBHOOK_TOKEN: the token the inbound-email route requires
+	MCPEnabled             bool          // MCP_ENABLED: mounts the MCP connector and its OAuth server
+	MCPConfirmSecret       string        // MCP_CONFIRM_SECRET: keys the HMAC of confirm tokens
+	MCPTokenSecret         string        // MCP_TOKEN_SECRET: signs OAuth access, refresh and code tokens
+	MCPAccessTokenTTL      time.Duration // MCP_ACCESS_TOKEN_TTL_SECONDS
+	MCPRefreshTokenTTL     time.Duration // MCP_REFRESH_TOKEN_TTL_SECONDS
+	MCPPublicBaseURL       string        // MCP_PUBLIC_BASE_URL: the origin the connector is served from
 	ResendAPIKey           string        // RESEND_API_KEY: empty logs mail instead of sending it
 	ResendFromEmail        string        // RESEND_FROM_EMAIL
 	ResendFromName         string        // RESEND_FROM_NAME
@@ -49,8 +57,12 @@ type Config struct {
 // The development values of the two intake secrets, Python's defaults. They
 // are public, so a production API refuses them.
 const (
-	devWebhookHMACSecret = "dev-webhook-secret-change-me" //nolint:gosec // the published development default, which production refuses
-	devEmailWebhookToken = "dev-email-token-change-me"    //nolint:gosec // the published development default, which production refuses
+	devWebhookHMACSecret = "dev-webhook-secret-change-me"     //nolint:gosec // the published development default, which production refuses
+	devEmailWebhookToken = "dev-email-token-change-me"        //nolint:gosec // the published development default, which production refuses
+	devMCPConfirmSecret  = "dev-mcp-confirm-secret-change-me" //nolint:gosec // the published development default, which production refuses
+	devMCPTokenSecret    = "dev-mcp-token-secret-change-me"   //nolint:gosec // the published development default, which production refuses
+
+	minMCPSecretBytes = 16 // Python's min_length on both MCP secrets
 )
 
 // rawConfig is the environment as written; Config holds it parsed.
@@ -72,6 +84,12 @@ type rawConfig struct {
 	FXSyncCurrencies       string  `env:"FX_SYNC_CURRENCIES" envDefault:"USD,SGD"`
 	WebhookHMACSecret      string  `env:"WEBHOOK_HMAC_SECRET" envDefault:"dev-webhook-secret-change-me"`
 	EmailWebhookToken      string  `env:"EMAIL_WEBHOOK_TOKEN" envDefault:"dev-email-token-change-me"`
+	MCPEnabled             bool    `env:"MCP_ENABLED" envDefault:"true"`
+	MCPConfirmSecret       string  `env:"MCP_CONFIRM_SECRET" envDefault:"dev-mcp-confirm-secret-change-me"`
+	MCPTokenSecret         string  `env:"MCP_TOKEN_SECRET" envDefault:"dev-mcp-token-secret-change-me"`
+	MCPAccessTokenSeconds  int     `env:"MCP_ACCESS_TOKEN_TTL_SECONDS" envDefault:"3600"`
+	MCPRefreshTokenSeconds int     `env:"MCP_REFRESH_TOKEN_TTL_SECONDS" envDefault:"2592000"`
+	MCPPublicBaseURL       string  `env:"MCP_PUBLIC_BASE_URL" envDefault:"http://localhost:8000"`
 	ResendAPIKey           string  `env:"RESEND_API_KEY"`
 	ResendFromEmail        string  `env:"RESEND_FROM_EMAIL" envDefault:"noreply@wenhao.id"`
 	ResendFromName         string  `env:"RESEND_FROM_NAME" envDefault:"Wenhao Dev Billing"`
@@ -167,6 +185,27 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 			return Config{}, fmt.Errorf("EMAIL_WEBHOOK_TOKEN must be set to a secret of your own outside development and test")
 		}
 	}
+	// Short MCP secrets sign tokens anyone can forge, in every environment
+	// (Python's min_length); the published defaults only outside production.
+	for _, sec := range []struct{ name, val, dev string }{
+		{"MCP_CONFIRM_SECRET", r.MCPConfirmSecret, devMCPConfirmSecret},
+		{"MCP_TOKEN_SECRET", r.MCPTokenSecret, devMCPTokenSecret},
+	} {
+		if len(sec.val) < minMCPSecretBytes {
+			return Config{}, fmt.Errorf("%s must be at least %d bytes", sec.name, minMCPSecretBytes)
+		}
+		if sec.val == sec.dev && r.Environment != "development" && r.Environment != "test" {
+			return Config{}, fmt.Errorf("%s must be set to a secret of your own outside development and test", sec.name)
+		}
+	}
+	for _, ttl := range []struct {
+		name    string
+		seconds int
+	}{{"MCP_ACCESS_TOKEN_TTL_SECONDS", r.MCPAccessTokenSeconds}, {"MCP_REFRESH_TOKEN_TTL_SECONDS", r.MCPRefreshTokenSeconds}} {
+		if ttl.seconds <= 0 { // zero would mint tokens that are already expired
+			return Config{}, fmt.Errorf("%s must be greater than 0", ttl.name)
+		}
+	}
 	return Config{
 		Environment:            r.Environment,
 		DatabaseURL:            pgxURL(r.DatabaseURL),
@@ -185,6 +224,12 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 		FXSyncCurrencies:       syncCurrencies,
 		WebhookHMACSecret:      r.WebhookHMACSecret,
 		EmailWebhookToken:      r.EmailWebhookToken,
+		MCPEnabled:             r.MCPEnabled,
+		MCPConfirmSecret:       r.MCPConfirmSecret,
+		MCPTokenSecret:         r.MCPTokenSecret,
+		MCPAccessTokenTTL:      time.Duration(r.MCPAccessTokenSeconds) * time.Second,
+		MCPRefreshTokenTTL:     time.Duration(r.MCPRefreshTokenSeconds) * time.Second,
+		MCPPublicBaseURL:       r.MCPPublicBaseURL,
 		ResendAPIKey:           strings.TrimSpace(r.ResendAPIKey),
 		ResendFromEmail:        r.ResendFromEmail,
 		ResendFromName:         r.ResendFromName,
@@ -196,6 +241,28 @@ func (r rawConfig) build(isSet func(name string) bool) (Config, error) {
 		CloudflareTimeout:      time.Duration(r.CloudflareSeconds * float64(time.Second)), //nolint:forbidigo // not money: a timeout
 		SchedulerEnabled:       r.SchedulerEnabled,
 	}, nil
+}
+
+// TransportAllowlist derives the Host values and the origin the /mcp/ guard
+// accepts from the public base URL (Python's _transport_allowlist): the bare
+// hostname and host:port (one entry when they are equal), and scheme://host:port.
+func TransportAllowlist(baseURL string) (hosts, origins []string) {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, nil
+	}
+	// Lower-cased, as Python's urlparse hostname is, so a mixed-case base URL
+	// still matches the lower-case Host header a client sends.
+	host := strings.ToLower(u.Host)
+	for _, h := range []string{strings.ToLower(u.Hostname()), host} {
+		if h != "" && !slices.Contains(hosts, h) {
+			hosts = append(hosts, h)
+		}
+	}
+	if u.Scheme != "" && u.Host != "" {
+		origins = []string{u.Scheme + "://" + host}
+	}
+	return hosts, origins
 }
 
 // pgxURL rewrites the schemes Python deployments use to the one pgx reads.

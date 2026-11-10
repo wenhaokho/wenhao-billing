@@ -310,12 +310,13 @@ type ListQuotationsParams struct {
 	Statuses   []string
 	CustomerID pgtype.UUID
 	ProjectID  pgtype.UUID
-	RowLimit   int32
+	RowLimit   *int32
 }
 
 // GET /quotations (quotations.py:46-65): each filter applies when given (a
 // null or empty statuses list is no filter); newest first, the id breaking
-// ties.
+// ties. A null row_limit is no limit (the HTTP route always passes one);
+// a set one caps the page.
 func (q *Queries) ListQuotations(ctx context.Context, arg ListQuotationsParams) ([]Quotation, error) {
 	rows, err := q.db.Query(ctx, listQuotations,
 		arg.Statuses,

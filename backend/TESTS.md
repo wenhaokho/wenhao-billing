@@ -97,165 +97,165 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_items_sell_buy.py | test_item_create_schema_accepts_purchase_fields | items.TestItemCreateAcceptsPurchaseFields | ported |  | — |
 | tests/integration/test_items_sell_buy.py | test_item_out_serializes_new_fields | items.TestItemOutSerializesNewFields | ported |  | — |
 | tests/integration/test_items_sell_buy.py | test_item_update_can_toggle_purchased | items.TestItemUpdateCanTogglePurchased | ported |  | — |
-| tests/integration/test_mcp_e2e.py | test_e2e_oauth_then_authenticated_tool_calls |  | todo |  |  |
-| tests/integration/test_mcp_e2e.py | test_e2e_bad_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_e2e.py | test_e2e_send_invoice_email_requires_confirmation_over_transport |  | todo |  |  |
-| tests/integration/test_mcp_e2e.py | test_e2e_non_admin_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_preview_does_not_delete |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_previews_then_deletes |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_invoice_errors |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_tampered_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_bill_preview_does_not_delete |  | todo | mcp plan |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_bill_previews_then_deletes |  | todo | mcp plan |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_bill_errors |  | todo | mcp plan |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_bill_tampered_token_rejected |  | todo | mcp plan |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_customer_preview_does_not_deactivate |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_customer_previews_then_deactivates |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_customer_tampered_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_first_call_returns_preview_and_sends_nothing |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_second_call_with_token_sends |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_tampered_token_refuses |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_draft_invoice_promoted_to_sent_after_send |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_void_invoice_refuses |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_no_recipient_refuses |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_reminder_first_call_returns_preview_and_sends_nothing |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_reminder_second_call_with_token_sends |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_reminder_tampered_token_refuses |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_oauth.py | test_access_token_roundtrip |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_expired_access_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_tampered_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_refresh_token_not_accepted_as_access_token |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_authorization_server_metadata |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_protected_resource_metadata |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_authorize_redirects_to_login_when_anonymous |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_authorize_get_renders_consent_and_mints_no_code |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_consent_post_without_csrf_mints_nothing |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_consent_post_with_wrong_csrf_mints_nothing |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_consent_post_deny_mints_nothing |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_full_consent_flow_mints_code |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_authorize_refuses_non_admin_session |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_authorize_rejects_unknown_client |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_authorize_rejects_unregistered_redirect_uri |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_register_authorize_token_refresh_revoke |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_token_verifier_accepts_valid_access_token_for_admin |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_token_verifier_rejects_non_admin_subject |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_token_verifier_rejects_deleted_subject |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_token_verifier_rejects_bad_token |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_token_verifier_rejects_refresh_token |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_token_rejects_wrong_pkce_verifier |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_token_requires_client_id |  | todo |  |  |
-| tests/integration/test_mcp_oauth.py | test_refresh_reuse_revokes_successor_family |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_resolve_unique_match |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_resolve_ambiguous_returns_candidates |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_resolve_no_match_returns_empty_candidates |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_list_customers_filters_by_name_substring |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_list_customers_no_query_returns_all |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_get_customer_found |  | todo |  |  |
-| tests/integration/test_mcp_read_customers.py | test_get_customer_not_found_returns_empty_dict |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_excludes_templates |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_status |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_customer_id |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_invoice_type |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_limit_clamped_to_500 |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_list_invoices_returns_money_as_decimal_strings |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_get_invoice_found |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_get_invoice_not_found_returns_empty_dict |  | todo |  |  |
-| tests/integration/test_mcp_read_invoices.py | test_get_and_list_invoices_include_withholding_fields |  | todo |  |  |
-| tests/integration/test_mcp_read_misc.py | test_get_business_profile_returns_dict |  | todo |  |  |
-| tests/integration/test_mcp_read_misc.py | test_get_business_profile_omits_inline_logo |  | todo |  |  |
-| tests/integration/test_mcp_read_misc.py | test_get_business_profile_keeps_regular_logo_url |  | todo |  |  |
-| tests/integration/test_mcp_read_misc.py | test_get_stats_returns_dict_with_expected_keys |  | todo | stats plan |  |
-| tests/integration/test_mcp_read_misc.py | test_get_stats_renders_money_as_exact_decimal_strings |  | todo | stats plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_bills_returns_list |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_status |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_vendor_id |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_bill_found |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_bill_not_found_returns_empty_dict |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_quotations_returns_list |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_status |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_customer_id |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_quotation_found |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_quotation_not_found_returns_empty_dict |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_projects_returns_list |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_projects_filters_by_customer_id |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_project_found |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_get_project_not_found_returns_empty_dict |  | todo | mcp plan |  |
-| tests/integration/test_mcp_reads_all.py | test_list_items_returns_list |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_items_filters_by_query |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_vendors_returns_list |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_list_vendors_filters_by_query |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_unique_match |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_ambiguous_returns_candidates |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_no_match_returns_empty_candidates |  | todo |  |  |
-| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_returns_list |  | todo | mcp plan (plan 10) |  |
-| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_excludes_other_statuses |  | todo | mcp plan (plan 10) |  |
-| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_respects_limit |  | todo | mcp plan (plan 10) |  |
-| tests/integration/test_mcp_server.py | test_tool_session_uses_injected_factory |  | todo |  |  |
-| tests/integration/test_mcp_server.py | test_mcp_app_importable |  | todo |  |  |
-| tests/integration/test_mcp_server.py | test_tool_session_without_mcp_tool_db_fails_loud |  | todo |  |  |
-| tests/integration/test_mcp_server.py | test_tool_session_rolls_back_on_error |  | todo |  |  |
-| tests/integration/test_mcp_server.py | test_mcp_tool_db_composes_with_client_http_commits |  | todo |  |  |
-| tests/integration/test_mcp_server.py | test_mcp_requires_auth |  | todo |  |  |
-| tests/integration/test_mcp_server.py | test_mcp_bare_path_redirects_to_trailing_slash |  | todo |  |  |
-| tests/integration/test_mcp_write_customers.py | test_customer_default_withholding_roundtrip |  | todo |  |  |
-| tests/integration/test_mcp_write_customers.py | test_create_customer_invalid_wht_type_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_write_customers.py | test_create_customer_out_of_range_wht_rate_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_write_customers.py | test_create_customer_unparseable_wht_rate_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_write_customers.py | test_update_customer_unparseable_wht_rate_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_create_invoice_makes_draft |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_create_invoice_applies_percent_discount |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_finalize_moves_draft_to_open |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_void_invoice_sets_void_and_zeroes_balance |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_update_invoice_edits_draft |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_create_invoice_without_line_items_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_finalize_non_draft_returns_error_and_leaves_state_unchanged |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_update_invoice_on_non_draft_returns_error_and_leaves_notes_unchanged |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_create_recurring_template_and_trigger_recurring |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_trigger_recurring_on_non_recurring_template_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_mcp_create_invoice_with_pph23_gross_up |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_mcp_create_invoice_invalid_wht_rate_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_write_invoices.py | test_mcp_update_invoice_sets_withholding |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_customer_sets_fields |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_customer_edits_fields |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_customer_not_found_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_customer_stores_phone_and_address_in_their_own_columns |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_customer_echoes_back_contact_and_address |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_customer_rejects_unknown_field_names |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_customer_writes_address_fields |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_project_normalizes_code_and_currency |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_create_project_duplicate_code_returns_error_and_persists_only_one |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_project_edits_fields |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_project_rejects_unknown_field_names |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_create_project_echoes_notes |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_create_item_sets_fields |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_item_edits_fields |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_item_not_found_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_item_rejects_unknown_field_names |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_item_sets_account_ids |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_item_echoes_description_and_flags |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_vendor_sets_fields |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_vendor_can_set_active |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_vendor_echoes_tax_id_and_notes |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_vendor_edits_fields |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_vendor_rejects_unknown_field_names |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_item_duplicate_sku_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_vendor_integrity_error_returns_error |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_create_bill_makes_draft |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_bill_edits_open_bill |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_bill_not_found_returns_error |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_bill_rejects_unknown_field_names |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_bill_unknown_field_check_precedes_not_found |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_bill_echoes_notes |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_create_quotation_makes_draft |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_quotation_edits_draft |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_create_quotation_without_line_items_returns_error |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_quotation_rejects_unknown_field_names |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_quotation_echoes_notes |  | todo | mcp plan |  |
-| tests/integration/test_mcp_writes_all.py | test_update_invoice_rejects_unknown_field_names |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_update_invoice_echoes_notes |  | todo |  |  |
-| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_exact_match_clears |  | todo | mcp plan (plan 10) |  |
-| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_currency_mismatch_refuses |  | todo | mcp plan (plan 10) |  |
-| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_amount_mismatch_refuses |  | todo | mcp plan (plan 10) |  |
+| tests/integration/test_mcp_e2e.py | test_e2e_oauth_then_authenticated_tool_calls | mcp.TestE2EOAuthThenAuthenticatedToolCalls | ported |  | — |
+| tests/integration/test_mcp_e2e.py | test_e2e_bad_token_rejected | mcp.TestE2EBadTokenRejected | ported |  | — |
+| tests/integration/test_mcp_e2e.py | test_e2e_send_invoice_email_requires_confirmation_over_transport | mcp.TestE2ESendInvoiceEmailRequiresConfirmationOverTransport | ported |  | — |
+| tests/integration/test_mcp_e2e.py | test_e2e_non_admin_token_rejected | mcp.TestE2ENonAdminTokenRejected | ported |  | — |
+| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_preview_does_not_delete | mcp.TestDeleteInvoicePreviewDoesNotDelete | ported |  | — |
+| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_previews_then_deletes | mcp.TestDeleteInvoicePreviewsThenDeletes | ported |  | — |
+| tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_invoice_errors | mcp.TestDeleteNonDraftInvoiceErrors | ported |  | — |
+| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_tampered_token_rejected | mcp.TestDeleteInvoiceTamperedTokenRejected | ported |  | Skipped `VerifyConfirm`: TestDeleteInvoiceTamperedTokenRejected red (`delete_invoice: answer map[deleted:true ...]`) (task 10) |
+| tests/integration/test_mcp_gated_delete.py | test_delete_bill_preview_does_not_delete | mcp.TestDeleteBillPreviewDoesNotDelete | ported | mcp plan | — |
+| tests/integration/test_mcp_gated_delete.py | test_delete_bill_previews_then_deletes | mcp.TestDeleteBillPreviewsThenDeletes | ported | mcp plan | — |
+| tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_bill_errors | mcp.TestDeleteNonDraftBillErrors | ported | mcp plan | — |
+| tests/integration/test_mcp_gated_delete.py | test_delete_bill_tampered_token_rejected | mcp.TestDeleteBillTamperedTokenRejected | ported | mcp plan | — |
+| tests/integration/test_mcp_gated_delete.py | test_delete_customer_preview_does_not_deactivate | mcp.TestDeleteCustomerPreviewDoesNotDeactivate | ported |  | — |
+| tests/integration/test_mcp_gated_delete.py | test_delete_customer_previews_then_deactivates | mcp.TestDeleteCustomerPreviewsThenDeactivates | ported |  | — |
+| tests/integration/test_mcp_gated_delete.py | test_delete_customer_tampered_token_rejected | mcp.TestDeleteCustomerTamperedTokenRejected | ported |  | — |
+| tests/integration/test_mcp_gated_email.py | test_first_call_returns_preview_and_sends_nothing | mcp.TestFirstCallReturnsPreviewAndSendsNothing | ported | mcp plan (plan 10: gated email) | — |
+| tests/integration/test_mcp_gated_email.py | test_second_call_with_token_sends | mcp.TestSecondCallWithTokenSends | ported | mcp plan (plan 10: gated email) | — |
+| tests/integration/test_mcp_gated_email.py | test_tampered_token_refuses | mcp.TestTamperedTokenRefuses | ported | mcp plan (plan 10: gated email) | — |
+| tests/integration/test_mcp_gated_email.py | test_draft_invoice_promoted_to_sent_after_send | mcp.TestDraftInvoicePromotedToSentAfterSend | ported | mcp plan (plan 10: gated email) | — |
+| tests/integration/test_mcp_gated_email.py | test_void_invoice_refuses | mcp.TestVoidInvoiceRefuses | ported | mcp plan (plan 10: gated email) | — |
+| tests/integration/test_mcp_gated_email.py | test_no_recipient_refuses | mcp.TestNoRecipientRefuses | ported | mcp plan (plan 10: gated email) | — |
+| tests/integration/test_mcp_gated_email.py | test_reminder_first_call_returns_preview_and_sends_nothing | mcp.TestReminderFirstCallReturnsPreviewAndSendsNothing | ported | mcp plan (plan 10: gated email) | — |
+| tests/integration/test_mcp_gated_email.py | test_reminder_second_call_with_token_sends | mcp.TestReminderSecondCallWithTokenSends | ported | mcp plan (plan 10: gated email) | — |
+| tests/integration/test_mcp_gated_email.py | test_reminder_tampered_token_refuses | mcp.TestReminderTamperedTokenRefuses | ported | mcp plan (plan 10: gated email) | Skipped `VerifyConfirm`: TestReminderTamperedTokenRefuses red (recipient changed, `sent:true`) (task 10) |
+| tests/integration/test_mcp_oauth.py | test_access_token_roundtrip | oauth.TestAccessTokenRoundTrip | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_expired_access_token_rejected | oauth.TestExpiredAccessTokenRejected | ported |  | Skipped the expiry check: TestExpiredAccessTokenRejected red (want error "Signature has expired", got nil) (task 2) |
+| tests/integration/test_mcp_oauth.py | test_tampered_token_rejected | oauth.TestTamperedTokenRejected | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_refresh_token_not_accepted_as_access_token | oauth.TestRefreshTokenNotAcceptedAsAccess | ported |  | Skipped the typ check in VerifyAccess: TestRefreshTokenNotAcceptedAsAccess red (want error "not an access token", got nil) (task 2) |
+| tests/integration/test_mcp_oauth.py | test_authorization_server_metadata | oauth.TestAuthorizationServerMetadata | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_protected_resource_metadata | oauth.TestProtectedResourceMetadata | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_authorize_redirects_to_login_when_anonymous | oauth.TestAuthorizeRedirectsToLoginWhenAnonymous | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_authorize_get_renders_consent_and_mints_no_code | oauth.TestAuthorizeGetRendersConsentAndMintsNoCode | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_consent_post_without_csrf_mints_nothing | oauth.TestConsentPostWithoutCsrfMintsNothing | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_consent_post_with_wrong_csrf_mints_nothing | oauth.TestConsentPostWithWrongCsrfMintsNothing | ported |  | Skipped the CSRF compare: TestConsentPostWithWrongCsrfMintsNothing red (`status = 302, want 400`) (task 4) |
+| tests/integration/test_mcp_oauth.py | test_consent_post_deny_mints_nothing | oauth.TestDenyRedirectsWithAccessDenied | ported | changed (Go change 6): a deny is a 302 to the client with `error=access_denied` and `state`, not a JSON 400 (PN 151) | Redirected a deny before validating: TestDenyToUnregisteredRedirectIsRefused and TestDenyRedirectsWithAccessDenied red (`status = 302, want 400`) (task 4) |
+| tests/integration/test_mcp_oauth.py | test_full_consent_flow_mints_code | oauth.TestFullConsentFlowMintsCode | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_authorize_refuses_non_admin_session | oauth.TestAuthorizeRefusesNonAdminSession | ported |  | Dropped the admin check: TestAuthorizeRefusesNonAdminSession red (`status = 200, want 403`) (task 4) |
+| tests/integration/test_mcp_oauth.py | test_authorize_rejects_unknown_client | oauth.TestAuthorizeRejectsUnknownClient | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_authorize_rejects_unregistered_redirect_uri | oauth.TestAuthorizeRejectsUnregisteredRedirectUri | ported |  | Accepted any registered-prefix redirect: TestAuthorizeRejectsUnregisteredRedirectUri red (`/cb/more`, `/cb?x=1`: `status = 200, want 400`) (task 4) |
+| tests/integration/test_mcp_oauth.py | test_register_authorize_token_refresh_revoke | oauth.TestRegisterAuthorizeTokenRefreshRevoke | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_token_verifier_accepts_valid_access_token_for_admin | mcp.TestTokenVerifierAcceptsValidAccessTokenForAdmin | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_token_verifier_rejects_non_admin_subject | mcp.TestTokenVerifierRejectsNonAdminSubject | ported |  | Skipped the admin re-check in verifier.go: TestTokenVerifierRejectsNonAdminSubject red (`status 200, want 401`) (task 6) |
+| tests/integration/test_mcp_oauth.py | test_token_verifier_rejects_deleted_subject | mcp.TestTokenVerifierRejectsDeletedSubject | ported |  | Skipped the admin re-check in verifier.go: TestTokenVerifierRejectsDeletedSubject red (`status 200, want 401`) (task 6) |
+| tests/integration/test_mcp_oauth.py | test_token_verifier_rejects_bad_token | mcp.TestTokenVerifierRejectsBadToken | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_token_verifier_rejects_refresh_token | mcp.TestTokenVerifierRejectsRefreshToken | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_token_rejects_wrong_pkce_verifier | oauth.TestTokenRejectsWrongPkceVerifier | ported |  | Skipped the PKCE compare: TestTokenRejectsWrongPkceVerifier red (`status = 200, want 400`) (task 5) |
+| tests/integration/test_mcp_oauth.py | test_token_requires_client_id | oauth.TestTokenRequiresClientID | ported |  | — |
+| tests/integration/test_mcp_oauth.py | test_refresh_reuse_revokes_successor_family | oauth.TestRefreshReuseRevokesSuccessorFamily | ported |  | Skipped the family revoke: TestRefreshReuseRevokesSuccessorFamily red (`status = 200, want 400`) (task 5) |
+| tests/integration/test_mcp_read_customers.py | test_resolve_unique_match | mcp.TestResolveCustomerUniqueMatch | ported |  | — |
+| tests/integration/test_mcp_read_customers.py | test_resolve_ambiguous_returns_candidates | mcp.TestResolveCustomerAmbiguousReturnsCandidates | ported |  | — |
+| tests/integration/test_mcp_read_customers.py | test_resolve_no_match_returns_empty_candidates | mcp.TestResolveCustomerNoMatchReturnsEmptyCandidates | ported |  | — |
+| tests/integration/test_mcp_read_customers.py | test_list_customers_filters_by_name_substring | mcp.TestListCustomersFiltersByNameSubstring | ported |  | Dropped platform.LikeEscape on the name filter: TestListToolsTieBreakAndEscape red (query "100%" matched 100% Co and 100X Co) (task 8) |
+| tests/integration/test_mcp_read_customers.py | test_list_customers_no_query_returns_all | mcp.TestListCustomersNoQueryReturnsAll | ported |  | — |
+| tests/integration/test_mcp_read_customers.py | test_get_customer_found | mcp.TestGetCustomerFound | ported |  | — |
+| tests/integration/test_mcp_read_customers.py | test_get_customer_not_found_returns_empty_dict | mcp.TestGetCustomerNotFoundReturnsEmptyDict | ported |  | — |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_excludes_templates | mcp.TestListInvoicesExcludesTemplates | ported |  | Dropped `ExcludeTemplates: true` in list_invoices: TestListInvoicesExcludesTemplates red (task 8) |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_status | mcp.TestListInvoicesFiltersByStatus | ported |  | — |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_customer_id | mcp.TestListInvoicesFiltersByCustomerID | ported |  | — |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_filters_by_invoice_type | mcp.TestListInvoicesFiltersByInvoiceType | ported |  | — |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_limit_clamped_to_500 | mcp.TestListInvoicesLimitClampedTo500 and mcp.TestListLimitIsClamped | ported |  | Dropped the min(limit, 500) clamp: TestListLimitIsClamped red (limit 10000 returned 501 rows, want 500) (task 8) |
+| tests/integration/test_mcp_read_invoices.py | test_list_invoices_returns_money_as_decimal_strings | mcp.TestListInvoicesReturnsMoneyAsDecimalStrings | ported |  | — |
+| tests/integration/test_mcp_read_invoices.py | test_get_invoice_found | mcp.TestGetInvoiceFound | ported |  | — |
+| tests/integration/test_mcp_read_invoices.py | test_get_invoice_not_found_returns_empty_dict | mcp.TestGetInvoiceNotFoundReturnsEmptyDict | ported |  | — |
+| tests/integration/test_mcp_read_invoices.py | test_get_and_list_invoices_include_withholding_fields | mcp.TestGetAndListInvoicesIncludeWithholdingFields | ported |  | — |
+| tests/integration/test_mcp_read_misc.py | test_get_business_profile_returns_dict | mcp.TestGetBusinessProfileReturnsDict | ported |  | — |
+| tests/integration/test_mcp_read_misc.py | test_get_business_profile_omits_inline_logo | mcp.TestGetBusinessProfileOmitsInlineLogo | ported |  | — |
+| tests/integration/test_mcp_read_misc.py | test_get_business_profile_keeps_regular_logo_url | mcp.TestGetBusinessProfileKeepsRegularLogoURL | ported |  | — |
+| tests/integration/test_mcp_read_misc.py | test_get_stats_returns_dict_with_expected_keys | mcp.TestGetStatsReturnsDictWithExpectedKeys | ported |  | — |
+| tests/integration/test_mcp_read_misc.py | test_get_stats_renders_money_as_exact_decimal_strings | mcp.TestGetStatsRendersMoneyAsExactDecimalStrings | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_bills_returns_list | mcp.TestListBillsReturnsList | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_status | mcp.TestListBillsFiltersByStatus | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_bills_filters_by_vendor_id | mcp.TestListBillsFiltersByVendorID | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_get_bill_found | mcp.TestGetBillFound | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_get_bill_not_found_returns_empty_dict | mcp.TestGetBillNotFoundReturnsEmptyDict | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_quotations_returns_list | mcp.TestListQuotationsReturnsList | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_status | mcp.TestListQuotationsFiltersByStatus | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_quotations_filters_by_customer_id | mcp.TestListQuotationsFiltersByCustomerID | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_get_quotation_found | mcp.TestGetQuotationFound | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_get_quotation_not_found_returns_empty_dict | mcp.TestGetQuotationNotFoundReturnsEmptyDict | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_projects_returns_list | mcp.TestListProjectsReturnsList | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_projects_filters_by_customer_id | mcp.TestListProjectsFiltersByCustomerID | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_get_project_found | mcp.TestGetProjectFound | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_get_project_not_found_returns_empty_dict | mcp.TestGetProjectNotFoundReturnsEmptyDict | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_items_returns_list | mcp.TestListItemsReturnsList | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_items_filters_by_query | mcp.TestListItemsFiltersByQuery | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_vendors_returns_list | mcp.TestListVendorsReturnsList | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_list_vendors_filters_by_query | mcp.TestListVendorsFiltersByQuery | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_unique_match | mcp.TestResolveVendorUniqueMatch | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_ambiguous_returns_candidates | mcp.TestResolveVendorAmbiguousReturnsCandidates | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_resolve_vendor_no_match_returns_empty_candidates | mcp.TestResolveVendorNoMatchReturnsEmptyCandidates | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_returns_list | mcp.TestGetReconciliationQueueReturnsList | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_excludes_other_statuses | mcp.TestGetReconciliationQueueExcludesOtherStatuses | ported |  | — |
+| tests/integration/test_mcp_reads_all.py | test_get_reconciliation_queue_respects_limit | mcp.TestGetReconciliationQueueRespectsLimit | ported |  | — |
+| tests/integration/test_mcp_server.py | test_tool_session_uses_injected_factory |  | not ported | Python fixture plumbing (`set_tool_session_factory`); Go tools take the pool from `Deps` |  |
+| tests/integration/test_mcp_server.py | test_mcp_app_importable |  | not ported | import smoke test; Go compiles the package |  |
+| tests/integration/test_mcp_server.py | test_tool_session_without_mcp_tool_db_fails_loud |  | not ported | Python fixture guard (`MCP_TOOL_DB`); Go has no such switch |  |
+| tests/integration/test_mcp_server.py | test_tool_session_rolls_back_on_error | mcp.TestToolErrorRollsBackItsWrites and mcp.TestToolPanicRollsBackItsWrites | ported | tool helper rolls back a refusal, an error and a panic (PN 154) | Removed the rollback: TestToolErrorRollsBackItsWrites and TestToolPanicRollsBackItsWrites red (`the failed tool left 1 row(s) behind`) (task 6 fix round 1) |
+| tests/integration/test_mcp_server.py | test_mcp_tool_db_composes_with_client_http_commits |  | not ported | Python SAVEPOINT fixture composition; Go tests use pgtestdb databases |  |
+| tests/integration/test_mcp_server.py | test_mcp_requires_auth | mcp.TestMCPRequiresAuth | ported |  | — |
+| tests/integration/test_mcp_server.py | test_mcp_bare_path_redirects_to_trailing_slash | mcp.TestMCPBarePathRedirectsToTrailingSlash | ported |  | — |
+| tests/integration/test_mcp_write_customers.py | test_customer_default_withholding_roundtrip | mcp.TestCustomerDefaultWithholdingRoundtrip | ported |  | — |
+| tests/integration/test_mcp_write_customers.py | test_create_customer_invalid_wht_type_returns_error | mcp.TestCreateCustomerInvalidWhtTypeReturnsError | ported |  | — |
+| tests/integration/test_mcp_write_customers.py | test_create_customer_out_of_range_wht_rate_returns_error | mcp.TestCreateCustomerOutOfRangeWhtRateReturnsError | ported |  | — |
+| tests/integration/test_mcp_write_customers.py | test_create_customer_unparseable_wht_rate_returns_error | mcp.TestCreateCustomerUnparseableWhtRateReturnsError | ported |  | — |
+| tests/integration/test_mcp_write_customers.py | test_update_customer_unparseable_wht_rate_returns_error | mcp.TestUpdateCustomerUnparseableWhtRateReturnsError | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_create_invoice_makes_draft | mcp.TestCreateInvoiceMakesDraft | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_create_invoice_applies_percent_discount | mcp.TestCreateInvoiceAppliesPercentDiscount | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_finalize_moves_draft_to_open | mcp.TestFinalizeMovesDraftToOpen | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_void_invoice_sets_void_and_zeroes_balance | mcp.TestVoidInvoiceSetsVoidAndZeroesBalance | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_update_invoice_edits_draft | mcp.TestUpdateInvoiceEditsDraft | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_create_invoice_without_line_items_returns_error | mcp.TestCreateInvoiceWithoutLineItemsReturnsError | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_finalize_non_draft_returns_error_and_leaves_state_unchanged | mcp.TestFinalizeNonDraftReturnsErrorAndLeavesStateUnchanged | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_update_invoice_on_non_draft_returns_error_and_leaves_notes_unchanged | mcp.TestUpdateInvoiceOnNonDraftReturnsErrorAndLeavesNotesUnchanged | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_create_recurring_template_and_trigger_recurring | mcp.TestCreateRecurringTemplateAndTriggerRecurring | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_trigger_recurring_on_non_recurring_template_returns_error | mcp.TestTriggerRecurringOnNonRecurringTemplateReturnsError | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_mcp_create_invoice_with_pph23_gross_up | mcp.TestMCPCreateInvoiceWithPph23GrossUp | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_mcp_create_invoice_invalid_wht_rate_returns_error | mcp.TestMCPCreateInvoiceInvalidWhtRateReturnsError | ported |  | — |
+| tests/integration/test_mcp_write_invoices.py | test_mcp_update_invoice_sets_withholding | mcp.TestMCPUpdateInvoiceSetsWithholding | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_customer_sets_fields | mcp.TestCreateCustomerSetsFields | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_update_customer_edits_fields | mcp.TestUpdateCustomerEditsFields | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_update_customer_not_found_returns_error | mcp.TestUpdateCustomerNotFoundReturnsError | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_customer_stores_phone_and_address_in_their_own_columns | mcp.TestCreateCustomerStoresPhoneAndAddressInTheirOwnColumns | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_customer_echoes_back_contact_and_address | mcp.TestCreateCustomerEchoesBackContactAndAddress | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_update_customer_rejects_unknown_field_names | mcp.TestUpdateCustomerRejectsUnknownFieldNames | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_update_customer_writes_address_fields | mcp.TestUpdateCustomerWritesAddressFields | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_project_normalizes_code_and_currency | mcp.TestCreateProjectNormalizesCodeAndCurrency | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_create_project_duplicate_code_returns_error_and_persists_only_one | mcp.TestCreateProjectDuplicateCodeReturnsErrorAndPersistsOnlyOne | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_update_project_edits_fields | mcp.TestUpdateProjectEditsFields | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_update_project_rejects_unknown_field_names | mcp.TestUpdateProjectRejectsUnknownFieldNames | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_create_project_echoes_notes | mcp.TestCreateProjectEchoesNotes | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_create_item_sets_fields | mcp.TestCreateItemSetsFields | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_update_item_edits_fields | mcp.TestUpdateItemEditsFields | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_update_item_not_found_returns_error | mcp.TestUpdateItemNotFoundReturnsError | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_update_item_rejects_unknown_field_names | mcp.TestUpdateItemRejectsUnknownFieldNames | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_item_sets_account_ids | mcp.TestCreateItemSetsAccountIDs | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_item_echoes_description_and_flags | mcp.TestCreateItemEchoesDescriptionAndFlags | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_vendor_sets_fields | mcp.TestCreateVendorSetsFields | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_vendor_can_set_active | mcp.TestCreateVendorCanSetActive | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_vendor_echoes_tax_id_and_notes | mcp.TestCreateVendorEchoesTaxIDAndNotes | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_update_vendor_edits_fields | mcp.TestUpdateVendorEditsFields | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_update_vendor_rejects_unknown_field_names | mcp.TestUpdateVendorRejectsUnknownFieldNames | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_item_duplicate_sku_returns_error | mcp.TestCreateItemDuplicateSkuReturnsError | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_create_vendor_integrity_error_returns_error | mcp.TestRefusedWriteBecomesErrorResult | ported | ported with a real constraint, not a patched service (PN 141) | — |
+| tests/integration/test_mcp_writes_all.py | test_create_bill_makes_draft | mcp.TestCreateBillMakesDraft | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_update_bill_edits_open_bill | mcp.TestUpdateBillEditsOpenBill | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_update_bill_not_found_returns_error | mcp.TestUpdateBillNotFoundReturnsError | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_update_bill_rejects_unknown_field_names | mcp.TestUpdateBillRejectsUnknownFieldNames | ported | mcp plan | `jsonNames` skipped embedded structs: TestUpdateBillRejectsUnknownFieldNames red (Valid fields list short) (task 9) |
+| tests/integration/test_mcp_writes_all.py | test_update_bill_unknown_field_check_precedes_not_found | mcp.TestUpdateBillUnknownFieldCheckPrecedesNotFound | ported | mcp plan | Ran the unknown-key check after the lookup: TestUpdateBillUnknownFieldCheckPrecedesNotFound red (sentence "bill <id> not found") (task 9) |
+| tests/integration/test_mcp_writes_all.py | test_update_bill_echoes_notes | mcp.TestUpdateBillEchoesNotes | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_create_quotation_makes_draft | mcp.TestCreateQuotationMakesDraft | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_update_quotation_edits_draft | mcp.TestUpdateQuotationEditsDraft | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_create_quotation_without_line_items_returns_error | mcp.TestCreateQuotationWithoutLineItemsReturnsError | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_update_quotation_rejects_unknown_field_names | mcp.TestUpdateQuotationRejectsUnknownFieldNames | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_update_quotation_echoes_notes | mcp.TestUpdateQuotationEchoesNotes | ported | mcp plan | — |
+| tests/integration/test_mcp_writes_all.py | test_update_invoice_rejects_unknown_field_names | mcp.TestUpdateInvoiceRejectsUnknownFieldNames | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_update_invoice_echoes_notes | mcp.TestUpdateInvoiceEchoesNotes | ported |  | — |
+| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_exact_match_clears | mcp.TestResolveReconciliationMatchExactMatchClears | ported | mcp plan (plan 10) | — |
+| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_currency_mismatch_refuses | mcp.TestResolveReconciliationMatchCurrencyMismatchRefuses | ported | mcp plan (plan 10) | Skipped `IsExactMatch`: TestResolveReconciliationMatchCurrencyMismatchRefuses red (the mismatched payment went on to post) (task 9) |
+| tests/integration/test_mcp_writes_all.py | test_resolve_reconciliation_match_amount_mismatch_refuses | mcp.TestResolveReconciliationMatchAmountMismatchRefuses | ported | mcp plan (plan 10) | Skipped `IsExactMatch`: TestResolveReconciliationMatchAmountMismatchRefuses red (the mismatched payment went on to post) (task 9) |
 | tests/integration/test_mrr_stats.py | test_empty_db_returns_no_rows | stats.TestMRREmptyDBReturnsNoRows | ported |  | — |
 | tests/integration/test_mrr_stats.py | test_monthly_interval_1_is_full_amount | stats.TestMRRMonthlyInterval1IsFullAmount | ported |  | — |
 | tests/integration/test_mrr_stats.py | test_yearly_divided_by_twelve | stats.TestMRRYearlyDividedByTwelve | ported |  | — |
@@ -307,7 +307,7 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_record_payment_withholding.py | test_zero_amount_and_zero_withheld_400 | payments.TestZeroAmountAndZeroWithheldIs400 | ported |  | — |
 | tests/integration/test_record_payment_withholding.py | test_send_invoice_body_quotes_amount_to_transfer | invoices.TestSendInvoiceBodyQuotesAmountToTransfer | ported |  | — |
 | tests/integration/test_record_payment_withholding.py | test_send_invoice_body_without_wht_unchanged | invoices.TestSendInvoiceBodyWithoutWHTUnchanged | ported |  | No idempotency key: TestSendInvoiceBodyWithoutWHTUnchanged red (plan 9 task 4) |
-| tests/integration/test_record_payment_withholding.py | test_payment_reminder_quotes_expected_cash |  | todo | mcp plan (plan 10: payment reminder) |  |
+| tests/integration/test_record_payment_withholding.py | test_payment_reminder_quotes_expected_cash | mcp.TestPaymentReminderQuotesExpectedCash | ported | mcp plan (plan 10: payment reminder) | — |
 | tests/integration/test_record_payment_withholding.py | test_bill_payment_schema_still_requires_positive_amount |  | todo | bills schema (plan 6 area, not plan 7) |  |
 | tests/integration/test_recurring_scheduling.py | test_create_template_stores_schedule_in_billing_cycle_ref | invoices.TestCreateTemplateStoresScheduleInBillingCycleRef | ported |  | — |
 | tests/integration/test_recurring_scheduling.py | test_create_template_persists_end_condition | invoices.TestCreateTemplatePersistsEndCondition | ported |  | — |
@@ -408,13 +408,13 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_matching_engine.py | test_date_outside_window_still_holds_if_payer_weak | matching.TestDateOutsideWindowStillHoldsIfPayerWeak | ported |  | — |
 | tests/unit/test_matching_engine.py | test_withholding_net_payment_is_exact_match | matching.TestWithholdingNetPaymentIsExactMatch | ported |  | — |
 | tests/unit/test_matching_engine.py | test_gross_payment_on_withholding_invoice_goes_to_review | matching.TestGrossPaymentOnWithholdingInvoiceGoesToReview | ported |  | — |
-| tests/unit/test_mcp_config.py | test_mcp_settings_have_secure_defaults_shape |  | todo |  |  |
-| tests/unit/test_mcp_config.py | test_transport_allowlist_public_https_host |  | todo |  |  |
-| tests/unit/test_mcp_config.py | test_transport_allowlist_includes_host_with_port |  | todo |  |  |
-| tests/unit/test_mcp_confirm.py | test_roundtrip_ok |  | todo |  |  |
-| tests/unit/test_mcp_confirm.py | test_rejects_wrong_action |  | todo |  |  |
-| tests/unit/test_mcp_confirm.py | test_rejects_mutated_payload |  | todo |  |  |
-| tests/unit/test_mcp_confirm.py | test_rejects_expired |  | todo |  |  |
+| tests/unit/test_mcp_config.py | test_mcp_settings_have_secure_defaults_shape | platform.TestMCPSettingsHaveSecureDefaultsShape | ported |  | — |
+| tests/unit/test_mcp_config.py | test_transport_allowlist_public_https_host | platform.TestTransportAllowlistPublicHTTPSHost | ported |  | — |
+| tests/unit/test_mcp_config.py | test_transport_allowlist_includes_host_with_port | platform.TestTransportAllowlistIncludesHostWithPort | ported |  | — |
+| tests/unit/test_mcp_confirm.py | test_roundtrip_ok | mcp.TestConfirmRoundTripOK | ported |  | — |
+| tests/unit/test_mcp_confirm.py | test_rejects_wrong_action | mcp.TestConfirmRejectsWrongAction | ported |  | — |
+| tests/unit/test_mcp_confirm.py | test_rejects_mutated_payload | mcp.TestConfirmRejectsMutatedPayload | ported |  | Signed the confirm token over a message without the payload: TestConfirmRejectsMutatedPayload red (want "confirm_token does not match this action/payload", got nil) (task 2) |
+| tests/unit/test_mcp_confirm.py | test_rejects_expired | mcp.TestConfirmRejectsExpired | ported |  | — |
 | tests/unit/test_pdf_assets.py | test_font_face_css_embeds_all_families | pdf.TestFontsEmbedAllFamilies | ported | Go asserts the three TTF families register, not font-face CSS | — |
 | tests/unit/test_pdf_assets.py | test_default_logo_is_data_uri | pdf.TestDefaultLogoIsPNG | ported | Go default logo bytes embedded, PNG | — |
 | tests/unit/test_pdf_config.py | test_pdf_settings_defaults |  | not ported | PDF_ENGINE is gone |  |

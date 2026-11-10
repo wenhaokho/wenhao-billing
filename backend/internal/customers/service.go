@@ -24,6 +24,34 @@ func Get(ctx context.Context, q *customersdb.Queries, id uuid.UUID) (CustomerOut
 	return customerOut(c), nil
 }
 
+// ListFilter narrows List; the zero value lists every customer. Active
+// filters when set (nil is every customer, active and inactive); NameLike
+// is a name substring, already escaped by the caller for LIKE (nil is no
+// filter); Limit caps the page when set (nil is unlimited, 0 lists
+// nothing).
+type ListFilter struct {
+	Active   *bool
+	NameLike *string
+	Limit    *int32
+}
+
+// List is the customers matching f, rendered as the routes render them,
+// never nil. Exported for the MCP list_customers and resolve_customer
+// tools (inventory §4).
+func List(ctx context.Context, q *customersdb.Queries, f ListFilter) ([]CustomerOut, error) {
+	rows, err := q.ListCustomers(ctx, customersdb.ListCustomersParams{
+		Active: f.Active, NameLike: f.NameLike, RowLimit: f.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CustomerOut, 0, len(rows))
+	for _, c := range rows {
+		out = append(out, customerOut(c))
+	}
+	return out, nil
+}
+
 // ccList is Python's EmailList: blank entries dropped, each address trimmed
 // and checked, a repeat (compared case-insensitively) dropped so the first
 // stays. An address is stored as sent after trimming: Python validated it
@@ -140,6 +168,16 @@ func overlay(c customersdb.Customer, f CustomerFields) (customersdb.Customer, er
 	return c, err
 }
 
+// Create writes a new customer: the fields sent over Python's defaults.
+// Exported for the MCP create_customer tool (inventory §4). It checks the
+// CC lists, then normalises the withholding and writes the customer.
+func Create(ctx context.Context, q *customersdb.Queries, b CustomerCreate) (CustomerOut, error) {
+	if err := cleanCC(&b.CustomerFields); err != nil {
+		return CustomerOut{}, err
+	}
+	return create(ctx, q, b)
+}
+
 // create writes a new customer: the fields sent over Python's defaults.
 func create(ctx context.Context, q *customersdb.Queries, b CustomerCreate) (CustomerOut, error) {
 	row, err := overlay(customersdb.Customer{
@@ -153,6 +191,16 @@ func create(ctx context.Context, q *customersdb.Queries, b CustomerCreate) (Cust
 		return CustomerOut{}, err
 	}
 	return customerOut(c), nil
+}
+
+// Update is the update route's customer: it checks the CC lists before
+// looking the customer up, then updates on q, a transaction. Exported for
+// the MCP update_customer tool (inventory §4).
+func Update(ctx context.Context, q *customersdb.Queries, id uuid.UUID, b CustomerUpdate) (CustomerOut, error) {
+	if err := cleanCC(&b.CustomerFields); err != nil {
+		return CustomerOut{}, err
+	}
+	return update(ctx, q, id, b)
 }
 
 // update is the PATCH pattern on q, a transaction: read the row locked,

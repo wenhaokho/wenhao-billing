@@ -64,29 +64,20 @@ type listIn struct {
 type listOut struct{ Body []CustomerOut }
 
 func (r routes) list(ctx context.Context, in *listIn) (*listOut, error) {
-	rows, err := r.q.ListCustomers(ctx, in.Active.Ptr())
+	out, err := List(ctx, r.q, ListFilter{Active: in.Active.Ptr()})
 	if err != nil {
 		return nil, err
 	}
-	out := &listOut{Body: make([]CustomerOut, 0, len(rows))}
-	for _, c := range rows {
-		out.Body = append(out.Body, customerOut(c))
-	}
-	return out, nil
+	return &listOut{Body: out}, nil
 }
 
 type customerBody struct{ Body CustomerOut }
 
 type createIn struct{ Body CustomerCreate }
 
-// create checks the CC lists (pydantic's field validation), then normalises
-// the withholding and writes the customer.
+// create writes the customer.
 func (r routes) create(ctx context.Context, in *createIn) (*customerBody, error) {
-	b := in.Body
-	if err := cleanCC(&b.CustomerFields); err != nil {
-		return nil, err
-	}
-	out, err := create(ctx, r.q, b)
+	out, err := Create(ctx, r.q, in.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -110,17 +101,12 @@ type updateIn struct {
 	Body       CustomerUpdate
 }
 
-// update checks the CC lists before looking the customer up, as Python's
-// request validation came before its 404.
+// update updates the customer in one transaction.
 func (r routes) update(ctx context.Context, in *updateIn) (*customerBody, error) {
-	b := in.Body
-	if err := cleanCC(&b.CustomerFields); err != nil {
-		return nil, err
-	}
 	var out CustomerOut
 	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var err error
-		out, err = update(ctx, r.q.WithTx(tx), in.CustomerID, b)
+		out, err = Update(ctx, r.q.WithTx(tx), in.CustomerID, in.Body)
 		return err
 	})
 	if err != nil {

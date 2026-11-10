@@ -1,11 +1,16 @@
 -- name: ListProjects :many
 -- GET /projects (projects.py:48-66): each filter applies when given (a null
 -- or empty statuses list is no filter); newest first, the id breaking ties.
+-- A null name_like and a null row_limit do not filter. name_like is a name
+-- substring, already escaped by the caller for LIKE (\, % and _ with a
+-- backslash, as the payments audit log does).
 SELECT * FROM projects
 WHERE (sqlc.narg(statuses)::text[] IS NULL OR status = ANY (sqlc.narg(statuses)::text[]))
   AND (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)::uuid)
   AND (sqlc.narg(active)::boolean IS NULL OR active = sqlc.narg(active)::boolean)
-ORDER BY created_at DESC, project_id DESC;
+  AND (sqlc.narg(name_like)::text IS NULL OR name ILIKE '%' || sqlc.narg(name_like)::text || '%' ESCAPE '\')
+ORDER BY created_at DESC, project_id DESC
+LIMIT sqlc.narg(row_limit);
 
 -- name: GetProject :one
 SELECT * FROM projects WHERE project_id = $1;

@@ -940,6 +940,8 @@ func schedulerVars(extra map[string]string) map[string]string {
 		"SESSION_SECRET":      "0123456789abcdef0123456789abcdef",
 		"WEBHOOK_HMAC_SECRET": "a-real-webhook-secret",
 		"EMAIL_WEBHOOK_TOKEN": "a-real-email-token",
+		"MCP_CONFIRM_SECRET":  "a-real-mcp-confirm-secret",
+		"MCP_TOKEN_SECRET":    "a-real-mcp-token-secret",
 	}
 	for k, v := range extra {
 		vars[k] = v

@@ -67,10 +67,7 @@ type billBody struct{ Body BillOut }
 type createIn struct{ Body BillCreate }
 
 func (r routes) create(ctx context.Context, in *createIn) (*billBody, error) {
-	if err := checkFields(in.Body.BillFields, in.Body.LineItems); err != nil {
-		return nil, err
-	}
-	return r.inTx(ctx, func(tx pgx.Tx) (BillOut, error) { return createBill(ctx, tx, in.Body) })
+	return r.inTx(ctx, func(tx pgx.Tx) (BillOut, error) { return CreateBill(ctx, tx, in.Body) })
 }
 
 type listIn struct {
@@ -81,15 +78,7 @@ type listIn struct {
 type listOut struct{ Body []BillOut }
 
 func (r routes) list(ctx context.Context, in *listIn) (*listOut, error) {
-	var statuses []string
-	if len(in.Status) > 0 {
-		statuses = in.Status
-	}
-	rows, err := r.q.ListBills(ctx, billsdb.ListBillsParams{Statuses: statuses, VendorID: pgUUID(in.VendorID.Ptr())})
-	if err != nil {
-		return nil, err
-	}
-	out, err := list(ctx, r.q, rows)
+	out, err := List(ctx, r.q, ListFilter{Statuses: in.Status, VendorID: in.VendorID.Ptr()})
 	if err != nil {
 		return nil, err
 	}
@@ -117,12 +106,5 @@ type updateIn struct {
 }
 
 func (r routes) update(ctx context.Context, in *updateIn) (*billBody, error) {
-	var lines []BillLineItemIn
-	if in.Body.LineItems != nil {
-		lines = *in.Body.LineItems
-	}
-	if err := checkFields(in.Body.BillFields, lines); err != nil {
-		return nil, err
-	}
-	return r.inTx(ctx, func(tx pgx.Tx) (BillOut, error) { return updateBill(ctx, tx, in.BillID, in.Body) })
+	return r.inTx(ctx, func(tx pgx.Tx) (BillOut, error) { return UpdateBill(ctx, tx, in.BillID, in.Body) })
 }

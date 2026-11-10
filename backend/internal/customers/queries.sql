@@ -1,8 +1,12 @@
 -- name: ListCustomers :many
--- A null active lists every customer.
+-- A null active, a null name_like and a null row_limit do not filter.
+-- name_like is a name substring, already escaped by the caller for LIKE
+-- (\, % and _ with a backslash, as the payments audit log does).
 SELECT * FROM customers
-WHERE sqlc.narg(active)::boolean IS NULL OR active = sqlc.narg(active)::boolean
-ORDER BY name, customer_id;
+WHERE (sqlc.narg(active)::boolean IS NULL OR active = sqlc.narg(active)::boolean)
+  AND (sqlc.narg(name_like)::text IS NULL OR name ILIKE '%' || sqlc.narg(name_like)::text || '%' ESCAPE '\')
+ORDER BY name, customer_id
+LIMIT sqlc.narg(row_limit);
 
 -- name: GetCustomer :one
 SELECT * FROM customers WHERE customer_id = $1;

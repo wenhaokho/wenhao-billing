@@ -38,7 +38,7 @@ func newCLIApp(t *testing.T) cliApp {
 	cfg := platform.Config{Environment: "test", SessionSecret: testSecret, SessionMaxAge: 8 * time.Hour, SessionRememberMaxAge: 30 * 24 * time.Hour}
 	s := platform.NewSessions(cfg)
 	h, api := platform.NewServer(cfg, platform.Deps{Pool: pool, Sessions: s})
-	register(api, features{Pool: pool, Sessions: s, Mail: email.LogSender{}, Config: cfg, Clock: platform.SystemClock{}})
+	register(api, features{Pool: pool, Sessions: s, Mail: email.LogSender{}, Config: cfg, Clock: platform.SystemClock{}}.withServices())
 	return cliApp{pool: pool, sessions: s, h: h}
 }
 

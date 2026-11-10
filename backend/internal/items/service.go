@@ -66,6 +66,35 @@ func list(ctx context.Context, q *itemsdb.Queries, p itemsdb.ListItemsParams) ([
 	return out, nil
 }
 
+// List is the items matching p, exported for the MCP list_items tool
+// (inventory §4): p's active, item_type and is_hosting filters, its
+// NameLike name substring and its RowLimit cap (nil is unlimited).
+func List(ctx context.Context, q *itemsdb.Queries, p itemsdb.ListItemsParams) ([]ItemOut, error) {
+	return list(ctx, q, p)
+}
+
+// Create is the create route's item: the price and hosting checks, then
+// create on q (a transaction). Exported for the MCP create_item tool
+// (inventory §4).
+func Create(ctx context.Context, q *itemsdb.Queries, b ItemCreate) (ItemOut, error) {
+	if err := checkPrices(b.DefaultUnitPrice, b.DefaultPurchasePrice); err != nil {
+		return ItemOut{}, err
+	}
+	if err := checkHosting(b); err != nil {
+		return ItemOut{}, err
+	}
+	return create(ctx, q, b)
+}
+
+// Update is the update route's item: the price check, then update on q (a
+// transaction). Exported for the MCP update_item tool (inventory §4).
+func Update(ctx context.Context, q *itemsdb.Queries, id uuid.UUID, b ItemUpdate) (ItemOut, error) {
+	if err := checkPrices(b.DefaultUnitPrice, b.DefaultPurchasePrice); err != nil {
+		return ItemOut{}, err
+	}
+	return update(ctx, q, id, b)
+}
+
 // negativeSentence is pydantic's refusal of a price below `Field(ge=0)`.
 // Dec4 itself refuses more than 4 places or 15 digits before the point.
 const negativeSentence = "Input should be greater than or equal to 0"

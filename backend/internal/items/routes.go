@@ -74,7 +74,7 @@ type listIn struct {
 type listOut struct{ Body []ItemOut }
 
 func (r routes) list(ctx context.Context, in *listIn) (*listOut, error) {
-	out, err := list(ctx, r.q, itemsdb.ListItemsParams{Active: in.Active.Ptr(), ItemType: in.ItemType, IsHosting: in.IsHosting.Ptr()})
+	out, err := List(ctx, r.q, itemsdb.ListItemsParams{Active: in.Active.Ptr(), ItemType: in.ItemType, IsHosting: in.IsHosting.Ptr()})
 	if err != nil {
 		return nil, err
 	}
@@ -85,21 +85,13 @@ type itemBody struct{ Body ItemOut }
 
 type createIn struct{ Body ItemCreate }
 
-// create checks the prices, then the hosting fields (pydantic's field
-// errors come before its model validator), and writes the item and its
-// target in one transaction.
+// create writes the item and its target in one transaction.
 func (r routes) create(ctx context.Context, in *createIn) (*itemBody, error) {
 	b := in.Body
-	if err := checkPrices(b.DefaultUnitPrice, b.DefaultPurchasePrice); err != nil {
-		return nil, err
-	}
-	if err := checkHosting(b); err != nil {
-		return nil, err
-	}
 	var out ItemOut
 	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var err error
-		out, err = create(ctx, r.q.WithTx(tx), b)
+		out, err = Create(ctx, r.q.WithTx(tx), b)
 		return err
 	})
 	if err != nil {
@@ -127,13 +119,10 @@ type updateIn struct {
 
 func (r routes) update(ctx context.Context, in *updateIn) (*itemBody, error) {
 	b := in.Body
-	if err := checkPrices(b.DefaultUnitPrice, b.DefaultPurchasePrice); err != nil {
-		return nil, err
-	}
 	var out ItemOut
 	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var err error
-		out, err = update(ctx, r.q.WithTx(tx), in.ItemID, b)
+		out, err = Update(ctx, r.q.WithTx(tx), in.ItemID, b)
 		return err
 	})
 	if err != nil {

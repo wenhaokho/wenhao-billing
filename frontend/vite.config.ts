@@ -21,6 +21,15 @@ export default defineConfig(({ mode }) => {
           target: apiTarget,
           changeOrigin: true,
         },
+        // The MCP connector's OAuth server and transport sit at the API's
+        // root, as behind nginx in production, so the login bounce
+        // (/login?return_to=/oauth/authorize?...) works in development too.
+        // The Host is kept (no changeOrigin): the consent POST checks that
+        // Origin names it. Regex keys: a plain "/mcp" prefix would also take
+        // the SPA's /mcp-integration page.
+        "^/oauth/": { target: apiTarget },
+        "^/\\.well-known/": { target: apiTarget },
+        "^/mcp(/|\\?|$)": { target: apiTarget },
       },
       watch: {
         // Polling for reliable file watching across the Docker bind mount on Windows.

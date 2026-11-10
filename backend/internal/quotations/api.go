@@ -176,6 +176,40 @@ func get(ctx context.Context, q *quotationsdb.Queries, id uuid.UUID) (QuotationO
 	return quotationOut(row, lines), nil
 }
 
+// Get is the quotation id with its lines, exported for the MCP read tools
+// (inventory §4). An unknown id is pgx.ErrNoRows.
+func Get(ctx context.Context, q *quotationsdb.Queries, id uuid.UUID) (QuotationOut, error) {
+	return get(ctx, q, id)
+}
+
+// ListFilter narrows List; the zero value lists every quotation. Statuses
+// filters when set (an empty Statuses is no filter, as in Python);
+// CustomerID and ProjectID filter when set; Limit caps the page when set
+// (nil is unlimited, 0 lists nothing; the HTTP route defaults it to 200,
+// MCP list_quotations to 200).
+type ListFilter struct {
+	Statuses   []string
+	CustomerID *uuid.UUID
+	ProjectID  *uuid.UUID
+	Limit      *int32
+}
+
+// List is the quotations matching f, rendered as the routes render them,
+// newest first with the id breaking ties, never nil.
+func List(ctx context.Context, q *quotationsdb.Queries, f ListFilter) ([]QuotationOut, error) {
+	var statuses []string
+	if len(f.Statuses) > 0 {
+		statuses = f.Statuses
+	}
+	rows, err := q.ListQuotations(ctx, quotationsdb.ListQuotationsParams{
+		Statuses: statuses, CustomerID: pgUUID(f.CustomerID), ProjectID: pgUUID(f.ProjectID), RowLimit: f.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return list(ctx, q, rows)
+}
+
 // list renders a page of quotations, loading all their lines in one query.
 func list(ctx context.Context, q *quotationsdb.Queries, rows []quotationsdb.Quotation) ([]QuotationOut, error) {
 	out := make([]QuotationOut, 0, len(rows))
