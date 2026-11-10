@@ -457,10 +457,21 @@ const markPaid = useMutation({
 
 const showSendDialog = ref(false);
 const sendError = ref<string | null>(null);
+// Only a finalized invoice can be sent (owner decision 2026-11-10): the API
+// refuses a DRAFT and a recurring template, so the button stays visible for
+// them but disabled.
+const sendBlockedReason = computed(() => {
+  const inv = existing.value;
+  if (!inv) return null;
+  if (inv.is_template) return "A recurring template cannot be sent";
+  if (inv.status === "DRAFT") return "Finalize the invoice before sending it";
+  return null;
+});
 const canSendInvoice = computed(() => {
   const s = existing.value?.status;
-  return s === "DRAFT" || s === "OPEN" || s === "SENT" || s === "PARTIAL";
+  return sendBlockedReason.value === null && (s === "OPEN" || s === "SENT" || s === "PARTIAL");
 });
+const showSendInvoice = computed(() => canSendInvoice.value || sendBlockedReason.value !== null);
 
 function openPdfPreview() {
   if (!props.id) return;
@@ -475,6 +486,7 @@ const sendInvoice = useMutation({
     message: string;
   }) => {
     if (!props.id) throw new Error("no invoice id");
+    if (!canSendInvoice.value) throw new Error("only a finalized invoice can be sent");
     return (await api.post(`/invoices/${props.id}/send`, payload)).data;
   },
   onSuccess: () => {
@@ -814,13 +826,15 @@ const canSave = computed(() => {
           :title="isEdit ? 'Preview PDF' : 'Save first to preview'"
           @click="openPdfPreview"
         />
+        <Button
+          v-if="showSendInvoice"
+          label="Send invoice"
+          icon="pi pi-send"
+          :disabled="!canSendInvoice"
+          :title="sendBlockedReason ?? 'Email the invoice PDF'"
+          @click="canSendInvoice && ((sendError = null), (showSendDialog = true))"
+        />
         <template v-if="readOnly">
-          <Button
-            v-if="canSendInvoice"
-            label="Send invoice"
-            icon="pi pi-send"
-            @click="sendError = null; showSendDialog = true"
-          />
           <Button
             v-if="canRecordPayment"
             label="Record payment"
@@ -1265,7 +1279,7 @@ const canSave = computed(() => {
     />
 
     <SendInvoiceDialog
-      v-if="existing"
+      v-if="existing && canSendInvoice"
       v-model:visible="showSendDialog"
       :default-to="sendDefaults.to"
       :default-cc="selectedCustomer?.billing_cc_emails ?? null"

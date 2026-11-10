@@ -364,6 +364,15 @@ func (g gate) sendInvoiceEmail(ctx context.Context, tx pgx.Tx, _ principalRef, i
 	if inv.Status == "VOID" {
 		return Object{}, Refuse("cannot send a voided invoice")
 	}
+	// Owner decision 2026-11-10 (Go change): only a finalized invoice can be
+	// sent, on the preview as well as the confirm, so a refused invoice never
+	// gets a token. A template is checked first, as it is a DRAFT too.
+	if inv.IsTemplate {
+		return Object{}, Refuse("cannot send a recurring template")
+	}
+	if inv.Status == "DRAFT" {
+		return Object{}, Refuse("finalize the invoice before sending it")
+	}
 	recipient, err := recipientFor(ctx, tx, inv, in.ToEmail)
 	if err != nil {
 		return Object{}, err

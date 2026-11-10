@@ -588,10 +588,10 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Go: a send failure is 502 `failed to send invoice email` / `failed to send quotation email` and the status stays (`invoices.TestSendFailure502LeavesStatus`, `quotations.TestQuotationSendFailure502LeavesRow`); a bad `to_email` is 422 at `to_email` `invalid email address: <addr>` (`TestBadToEmail422`, `TestQuotationBadToEmail422`); the quotation body uses `pdf.FmtAmount` (`for 5,000.00 SGD.`); each message carries `email.IdempotencyKey` (the document id and a SHA-256 of recipients, subject and body), and the status changes only after a successful send, in a transaction that re-reads the row.
     After the switch: none.
 
-112. **Kept: sending a DRAFT or OPEN invoice makes it SENT without finalizing; a quotation send stamps `last_sent_at` in any sendable status.**
+112. **Only a finalized invoice can be sent (a change, owner decision 2026-11-10); a quotation send stamps `last_sent_at` in any sendable status (kept).**
     Python: `send_invoice` sets DRAFT/OPEN to SENT with no finalize checks, so a DRAFT with no number goes out as `invoice  for` (`routers/invoices.py:774-775`); the quotation send stamps `last_sent_at` for ACCEPTED, DECLINED, EXPIRED and SENT too, and says `cannot send a INVOICED quotation` (`quotations.py:196-199, 233-236`).
-    Go: kept (owner ruling R3; `invoices.TestSendDraftBecomesSent`, `quotations.TestQuotationSendBodyAndLastSentAt`, `TestQuotationSendRefusals`).
-    After the switch: refuse DRAFT and templates, or finalize first, if the owner wants.
+    Go: a DRAFT invoice is 400 `invoice_not_finalized` / `finalize the invoice before sending it` and a recurring template is 400 `invoice_template` / `cannot send a recurring template` (checked first, as a template is a DRAFT too), before anything is rendered or sent; VOID stays `invoice_void`. The `send_invoice_email` MCP tool refuses both with the same sentences on the preview and on the confirm, so a refused invoice never gets a token. Only OPEN becomes SENT on a send; SENT, PARTIAL and PAID stay as they are (`invoices.TestSendDraftInvoiceRefused`, `invoices.TestSendTemplateRefused`, `invoices.TestSendOpenBecomesSent`, `mcp.TestSendDraftInvoiceRefusedOnPreviewAndConfirm`, `mcp.TestSendTemplateRefusedOnPreviewAndConfirm`). The tool's description still says a DRAFT is promoted to SENT: it is Python's text, kept for `TestToolsListMatchesPython`. The invoice form shows Send invoice disabled for a DRAFT or a template. The quotation send is kept as in Python (owner ruling R3; `quotations.TestQuotationSendBodyAndLastSentAt`, `TestQuotationSendRefusals`).
+    After the switch: reword the tool description (and the parity golden) to say only a finalized invoice can be sent.
 
 113. **The PDF `Content-Disposition` is escaped.**
     Python: `inline; filename="{name}"` with the number as stored, so a quote or non-ASCII character in a number (a PATCH can set one) breaks the header (`routers/invoices.py:716`, `quotations.py:182`).
@@ -705,7 +705,7 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
 
 135. **Ruling R3: the owner's three questions are unanswered, so the plan defaults stand.**
     Python: sending promotes DRAFT straight to SENT without finalizing (`app/api/v1/routers/invoices.py:774-775`), the HTML design drops the footer and the PO/SO number (note 126), and `to_email` is unvalidated (`app/schemas/invoice.py:126-134`).
-    Go: the defaults are kept and are reversible: a DRAFT or OPEN invoice send makes it SENT without finalizing and the quotation send stamps `last_sent_at` in any sendable status (note 112); the footer and the PO/SO number are shown (note 126); a bad `to_email` is 422 at `to_email` with `invalid email address: <addr>` (note 111).
+    Go: the defaults are kept and are reversible: an invoice send needs a finalized invoice (a change, note 112) and the quotation send stamps `last_sent_at` in any sendable status (note 112); the footer and the PO/SO number are shown (note 126); a bad `to_email` is 422 at `to_email` with `invalid email address: <addr>` (note 111).
     After the switch: if the owner answers, each is a small change: refuse DRAFT and templates or finalize first, drop the fourth meta cell and the footer line, or keep the 422 and rely on 502.
 
 136. **Kept and small choices: an empty `wht_type`, the dash, and the render-data loaders.**

@@ -9930,7 +9930,7 @@
     },
     "/api/v1/invoices/{invoice_id}/send": {
       "post": {
-        "description": "Refuses a VOID invoice and a send with no recipient (400). A send failure is 502 and changes nothing. The status moves without finalizing the invoice.",
+        "description": "Refuses a VOID invoice, a DRAFT invoice (finalize it first), a recurring template and a send with no recipient (400). A send failure is 502 and changes nothing. An OPEN invoice becomes SENT; every other status stays.",
         "operationId": "invoices-send",
         "parameters": [
           {
@@ -10014,7 +10014,7 @@
             "description": "Bad Gateway"
           }
         },
-        "summary": "Email the invoice PDF; a DRAFT or OPEN invoice becomes SENT once it is sent",
+        "summary": "Email the invoice PDF; an OPEN invoice becomes SENT once it is sent",
         "tags": [
           "invoices"
         ]

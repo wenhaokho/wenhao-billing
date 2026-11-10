@@ -62,6 +62,7 @@ type docInv struct {
 	whtAmt   string
 	customer *uuid.UUID
 	due      string
+	template bool
 }
 
 func (a docInv) insert(t *testing.T, app *apitest.App) uuid.UUID {
@@ -90,8 +91,8 @@ func (a docInv) insert(t *testing.T, app *apitest.App) uuid.UUID {
 		due = &a.due
 	}
 	if _, err := app.Pool.Exec(t.Context(), `INSERT INTO invoices (invoice_id, customer_id, invoice_type, invoice_number, currency, amount,
-balance_due, status, wht_type, wht_amount, due_date) VALUES ($1, $2, 'MILESTONE', $3, 'IDR', $4, $5, $6, $7, $8, $9)`,
-		id, a.customer, a.number, a.amount, a.balance, a.status, a.wht, a.whtAmt, due); err != nil {
+balance_due, status, wht_type, wht_amount, due_date, is_template) VALUES ($1, $2, 'MILESTONE', $3, 'IDR', $4, $5, $6, $7, $8, $9, $10)`,
+		id, a.customer, a.number, a.amount, a.balance, a.status, a.wht, a.whtAmt, due, a.template); err != nil {
 		t.Fatal(err)
 	}
 	return id
@@ -281,20 +282,20 @@ func TestSendNoRecipient400(t *testing.T) {
 func TestSendFailure502LeavesStatus(t *testing.T) {
 	t.Parallel()
 	app := newDocApp(t, true)
-	id := docInv{status: "DRAFT"}.insert(t, app)
+	id := docInv{status: "OPEN"}.insert(t, app)
 	rec := app.Do(t, http.MethodPost, sendPath(id), map[string]any{"to_email": "a@acme.example"})
 	if p := apitest.Decode[struct{ Detail string }](t, rec, http.StatusBadGateway); p.Detail != "failed to send invoice email" {
 		t.Errorf("detail %q", p.Detail)
 	}
-	if got := status(t, app, id); got != "DRAFT" {
+	if got := status(t, app, id); got != "OPEN" {
 		t.Errorf("status %s after a failed send", got)
 	}
 }
 
-func TestSendDraftBecomesSent(t *testing.T) {
+func TestSendOpenBecomesSent(t *testing.T) {
 	t.Parallel()
 	app := newDocApp(t, false)
-	for from, want := range map[string]string{"DRAFT": "SENT", "OPEN": "SENT", "PARTIAL": "PARTIAL", "PAID": "PAID", "SENT": "SENT"} {
+	for from, want := range map[string]string{"OPEN": "SENT", "PARTIAL": "PARTIAL", "PAID": "PAID", "SENT": "SENT"} {
 		t.Run(from, func(t *testing.T) {
 			t.Parallel()
 			id := docInv{status: from}.insert(t, app)
@@ -302,6 +303,37 @@ func TestSendDraftBecomesSent(t *testing.T) {
 			out := apitest.Decode[InvoiceOut](t, rec, http.StatusOK)
 			if out.Status != want || status(t, app, id) != want {
 				t.Errorf("%s -> %s (stored %s), want %s", from, out.Status, status(t, app, id), want)
+			}
+		})
+	}
+}
+
+// Owner decision 2026-11-10: only a finalized invoice can be sent.
+func TestSendDraftInvoiceRefused(t *testing.T) {
+	t.Parallel()
+	app := newDocApp(t, false)
+	id := docInv{status: "DRAFT"}.insert(t, app)
+	rec := app.Do(t, http.MethodPost, sendPath(id), map[string]any{"to_email": "a@acme.example"})
+	wantProblem(t, rec, http.StatusBadRequest, "invoice_not_finalized", "finalize the invoice before sending it", "", "")
+	if n := len(app.Mail.Messages()); n != 0 {
+		t.Errorf("%d emails for a refused send, want 0", n)
+	}
+	if got := status(t, app, id); got != "DRAFT" {
+		t.Errorf("status %s after a refused send, want DRAFT", got)
+	}
+}
+
+func TestSendTemplateRefused(t *testing.T) {
+	t.Parallel()
+	app := newDocApp(t, false)
+	for _, st := range []string{"DRAFT", "OPEN"} {
+		t.Run(st, func(t *testing.T) {
+			t.Parallel()
+			id := docInv{status: st, template: true}.insert(t, app)
+			rec := app.Do(t, http.MethodPost, sendPath(id), map[string]any{"to_email": "a@acme.example"})
+			wantProblem(t, rec, http.StatusBadRequest, "invoice_template", "cannot send a recurring template", "", "")
+			if got := status(t, app, id); got != st {
+				t.Errorf("status %s after a refused send, want %s", got, st)
 			}
 		})
 	}

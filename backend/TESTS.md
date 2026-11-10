@@ -115,7 +115,7 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_mcp_gated_email.py | test_first_call_returns_preview_and_sends_nothing | mcp.TestFirstCallReturnsPreviewAndSendsNothing | ported | mcp plan (plan 10: gated email) | — |
 | tests/integration/test_mcp_gated_email.py | test_second_call_with_token_sends | mcp.TestSecondCallWithTokenSends | ported | mcp plan (plan 10: gated email) | — |
 | tests/integration/test_mcp_gated_email.py | test_tampered_token_refuses | mcp.TestTamperedTokenRefuses | ported | mcp plan (plan 10: gated email) | — |
-| tests/integration/test_mcp_gated_email.py | test_draft_invoice_promoted_to_sent_after_send | mcp.TestDraftInvoicePromotedToSentAfterSend | ported | mcp plan (plan 10: gated email) | — |
+| tests/integration/test_mcp_gated_email.py | test_draft_invoice_promoted_to_sent_after_send | mcp.TestOpenInvoicePromotedToSentAfterSend | ported | changed (owner decision 2026-11-10, PN 112): the invoice is OPEN, because a DRAFT cannot be sent; the DRAFT refusals are `mcp.TestSendDraftInvoiceRefusedOnPreviewAndConfirm` | — |
 | tests/integration/test_mcp_gated_email.py | test_void_invoice_refuses | mcp.TestVoidInvoiceRefuses | ported | mcp plan (plan 10: gated email) | — |
 | tests/integration/test_mcp_gated_email.py | test_no_recipient_refuses | mcp.TestNoRecipientRefuses | ported | mcp plan (plan 10: gated email) | — |
 | tests/integration/test_mcp_gated_email.py | test_reminder_first_call_returns_preview_and_sends_nothing | mcp.TestReminderFirstCallReturnsPreviewAndSendsNothing | ported | mcp plan (plan 10: gated email) | — |

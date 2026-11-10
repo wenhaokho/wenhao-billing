@@ -259,6 +259,6 @@ ORDER BY issue_date DESC NULLS FIRST, created_at DESC, invoice_id DESC;
 SELECT email FROM users ORDER BY created_at, email;
 
 -- name: MarkInvoiceSent :exec
--- Sending: a DRAFT or OPEN invoice becomes SENT (no finalize); any other
--- status stays as it is.
-UPDATE invoices SET status = 'SENT' WHERE invoice_id = @invoice_id AND status IN ('DRAFT', 'OPEN');
+-- Sending: an OPEN invoice becomes SENT; any other status stays as it is.
+-- A DRAFT cannot be sent at all (owner decision 2026-11-10).
+UPDATE invoices SET status = 'SENT' WHERE invoice_id = @invoice_id AND status = 'OPEN';
