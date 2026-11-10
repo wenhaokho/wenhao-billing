@@ -21,6 +21,8 @@
 # Coolify, mail, Cloudflare or Frankfurter.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Git Bash would rewrite container paths such as /api and /src into Windows paths.
+[[ -n "${MSYSTEM:-}" ]] && export MSYS_NO_PATHCONV=1
 export COMPOSE_PROJECT_NAME=wenhao-billing
 
 MODE=${1:-}
@@ -34,7 +36,7 @@ PY_DB=billing_cmp_py
 GO_DB=billing_cmp_go
 export PY_CMP_DATABASE_URL="postgresql+psycopg://billing:billing@db:5432/$PY_DB"
 export GO_DATABASE_URL="postgresql://billing:billing@db:5432/$GO_DB"
-PW=${PY_CMP_PASSWORD:-$(openssl rand -base64 48 | tr -d '\n')}
+PW=${PY_CMP_PASSWORD:-$(openssl rand -base64 48 | tr -d '\r\n')}
 [[ -n "$PW" ]] || { echo "FAIL: no password" >&2; exit 1; }
 # The report goes through the repo-mounted /src (no host bind mount, so it works
 # on Windows too) and is removed on exit.
@@ -120,7 +122,11 @@ GOTOKEN=$(dc exec -T api-go /api issue-session "$EMAIL" | tail -n1)
 
 compare() {
   # stdin carries the Python password (first line) then the Go token (second).
-  printf '%s\n%s\n' "$PW" "$GOTOKEN" | dc run --rm -T go \
+  # The webhook scenario signs with the backends' shared WEBHOOK_HMAC_SECRET:
+  # the published dev default, which api-py-cmp sets and api-go (development
+  # mode) falls back to. It is not a secret.
+  printf '%s\n%s\n' "$PW" "$GOTOKEN" | dc run --rm -T \
+    -e WEBHOOK_HMAC_SECRET=dev-webhook-secret-change-me go \
     go run ./cmd/compare "$@"
 }
 

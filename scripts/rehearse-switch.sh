@@ -37,7 +37,10 @@
 #   bash scripts/rehearse-switch.sh
 #
 # Knobs (all optional):
-#   REHEARSE_DUMP      a `pg_dump -Fc` to restore instead of dumping the dev db
+#   REHEARSE_SOURCE    migrate (default: Python's alembic builds an empty
+#                      database, then its seed scripts fill it) or dev (restore
+#                      a pg_dump of the dev `billing`; see the adopt note below)
+#   REHEARSE_DUMP      a `pg_dump -Fc` to restore instead
 #   REHEARSE_HTTP_PORT the published nginx port (default 8080)
 #   REHEARSE_EMAIL     the admin email to sign in as (default admin@example.com)
 #   REHEARSE_KEEP=1    leave the containers up at the end
@@ -47,6 +50,8 @@
 # line, in a shell history, or on the screen.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Git Bash would rewrite container paths such as /api into Windows paths.
+[[ -n "${MSYSTEM:-}" ]] && export MSYS_NO_PATHCONV=1
 
 export COMPOSE_PROJECT_NAME=wenhao-billing-rehearsal
 HTTP_PORT=${REHEARSE_HTTP_PORT:-8080}
@@ -54,8 +59,11 @@ BASE="http://localhost:${HTTP_PORT}"
 EMAIL=${REHEARSE_EMAIL:-admin@example.com}
 umask 077
 WORK=$(mktemp -d)
+# docker needs a Windows path for the env file when Git Bash does not convert.
+[[ -n "${MSYSTEM:-}" ]] && WORK=$(cygpath -m "$WORK")
 ENVFILE="$WORK/rehearse.env"
 JAR="$WORK/jar"
+DISCARD="$WORK/discard"   # curl's -o target (a native curl cannot open /dev/null)
 
 step() { printf '\n== %s\n' "$*"; }
 ok()   { printf '   ok: %s\n' "$*"; }
@@ -84,7 +92,9 @@ cleanup() {
 trap cleanup EXIT
 
 psqlq() { dc exec -T shared-postgres psql -U billing -d billing -v ON_ERROR_STOP=1 -At -c "$1"; }
-secret() { openssl rand -base64 48 | tr -d '\n'; }
+# openssl on Windows ends its line with CRLF: strip both, or the CR becomes
+# part of the password.
+secret() { openssl rand -base64 48 | tr -d '\r\n'; }
 
 # set_flag rewrites one line of the env file (no sed -i, so it works on GNU and
 # BSD). The file is 0600 and the value never touches a command line.
@@ -144,7 +154,7 @@ assert_schedulers() { # expected_py expected_go
 }
 
 # --- HTTP helpers -----------------------------------------------------------
-code_of() { curl -sS -o /dev/null -w '%{http_code}' "$@"; }
+code_of() { curl -sS -o "$DISCARD" -w '%{http_code}' "$@"; }
 
 # assert_backend: /redoc through nginx is 200 from Python and 404 from Go.
 assert_backend() { # python|go
@@ -215,7 +225,7 @@ mcp_code() { # client_id verifier
   [[ -n "$csrf" ]] || fail "consent page carried no csrf_token"
   body=$(printf 'response_type=code&client_id=%s&redirect_uri=%s&code_challenge=%s&code_challenge_method=S256&state=%s&csrf_token=%s&decision=approve' \
     "$cid" "https://localhost/callback" "$challenge" "$state" "$csrf")
-  loc=$(printf '%s' "$body" | curl -sS -o /dev/null -D - -b "$JAR" -c "$JAR" -X POST \
+  loc=$(printf '%s' "$body" | curl -sS -o "$DISCARD" -D - -b "$JAR" -c "$JAR" -X POST \
     "$BASE/oauth/authorize/consent" --data @- | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
   printf '%s' "$loc" | sed -n 's/.*[?&]code=\([^&]*\).*/\1/p'
 }
@@ -294,14 +304,24 @@ ok "env file written to a 0600 temp file; secrets generated"
 # A leftover from an interrupted run would make the counts meaningless.
 dc down -v --remove-orphans >/dev/null 2>&1 || true
 dc up -d --wait shared-postgres provider-stub >/dev/null
+# The database: by default Python's own `alembic upgrade head` builds it on its
+# first start (step 1), the way a database Python created has its schema, and
+# Python's seed scripts fill it. REHEARSE_SOURCE=dev restores a pg_dump of the
+# dev `billing` instead, and REHEARSE_DUMP restores a given dump. Note: a
+# pg_dump/pg_restore round trip rewrites the text of the ck_items_type CHECK,
+# and `api adopt-baseline` (step 2) then refuses the copy as drifted — a known
+# Go issue (task 5 report), not a rehearsal fault.
 if [[ -n "${REHEARSE_DUMP:-}" ]]; then
   dc exec -T shared-postgres pg_restore -U billing -d billing --no-owner --no-privileges < "$REHEARSE_DUMP"
-else
+  ok "restored $REHEARSE_DUMP into shared-postgres"
+elif [[ "${REHEARSE_SOURCE:-migrate}" == dev ]]; then
   devd up -d --wait db >/dev/null
   devd exec -T db pg_dump -U billing -Fc --no-owner --no-privileges billing \
     | dc exec -T shared-postgres pg_restore -U billing -d billing --no-owner --no-privileges
+  ok "restored the dev database into shared-postgres (read-only pg_dump of the dev db)"
+else
+  ok "empty shared-postgres: Python's alembic upgrade head builds the schema at its first start"
 fi
-ok "restored the dev database into shared-postgres (read-only pg_dump of the dev db)"
 
 # ===========================================================================
 step "step 1: Python serves (PY_SCHEDULER_ENABLED=true)"
@@ -392,7 +412,7 @@ ok "after Python's run: child invoices=$INVOICES_PY digests=$DIGESTS_PY cloudfla
 
 # MCP carry-over, part 1: a client and a refresh token minted by Python.
 MCP_CID=$(mcp_register)
-MCP_VERIFIER=$(openssl rand -base64 48 | tr -d '\n=+/' | cut -c1-64)
+MCP_VERIFIER=$(openssl rand -base64 48 | tr -d '\r\n=+/' | cut -c1-64)
 PY_REFRESH=$(mcp_token "$(mcp_code "$MCP_CID" "$MCP_VERIFIER")" "$MCP_VERIFIER" "$MCP_CID")
 [[ -n "$PY_REFRESH" ]] || fail "Python issued no refresh token"
 ok "registered an MCP client and got a Python refresh token"
@@ -419,7 +439,9 @@ for _ in $(seq 1 45); do
 done
 expect_eq 3 "$SLOTS" "each daily job recorded its latest slot"
 psqlq "SELECT job_id || ' slot=' || to_char(slot AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') || 'Z error=' || coalesce(error, '-') FROM scheduled_job_runs ORDER BY job_id" | sed 's/^/   go run: /'
-expect_eq 0 "$(psqlq "SELECT count(*) FROM scheduled_job_runs WHERE error IS NOT NULL")" "no Go job recorded an error"
+# A slot older than 24 h is recorded as skipped (its error says so); any other
+# error is a failed run.
+expect_eq 0 "$(psqlq "SELECT count(*) FROM scheduled_job_runs WHERE error IS NOT NULL AND error NOT LIKE '%is older than%: skipped'")" "no Go job recorded a failure"
 
 expect_eq "$INVOICES_PY" "$(count_child_invoices)" "Go's catch-up added no child invoice"
 expect_eq 0 "$(count_go_digests)" "Go's catch-up sent no digest mail"
@@ -450,13 +472,13 @@ ok "the rotated token is invalid_grant after set-password (PN 157)"
 # A fresh authorize through Go's login works. Without a session, authorize
 # bounces to the SPA login carrying return_to back to this same path/query.
 CHALLENGE="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-RETURN_LOC=$(curl -sS -o /dev/null -D - "$BASE/oauth/authorize?response_type=code&client_id=$MCP_CID&redirect_uri=https%3A%2F%2Flocalhost%2Fcallback&code_challenge=$CHALLENGE&code_challenge_method=S256" \
+RETURN_LOC=$(curl -sS -o "$DISCARD" -D - "$BASE/oauth/authorize?response_type=code&client_id=$MCP_CID&redirect_uri=https%3A%2F%2Flocalhost%2Fcallback&code_challenge=$CHALLENGE&code_challenge_method=S256" \
   | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
 printf '%s' "$RETURN_LOC" | grep -q 'return_to=%2Foauth%2Fauthorize' \
   || fail "authorize without a session did not bounce to /login with return_to"
 ok "authorize without a session bounces to the login with return_to"
 login "$PW"
-GO_LIVE_VERIFIER=$(openssl rand -base64 48 | tr -d '\n=+/' | cut -c1-64)
+GO_LIVE_VERIFIER=$(openssl rand -base64 48 | tr -d '\r\n=+/' | cut -c1-64)
 GO_LIVE_REFRESH=$(mcp_token "$(mcp_code "$MCP_CID" "$GO_LIVE_VERIFIER")" "$GO_LIVE_VERIFIER" "$MCP_CID")
 [[ -n "$GO_LIVE_REFRESH" ]] || fail "a fresh authorize through Go issued no refresh token"
 ok "a fresh authorize through Go's login issued a live refresh token"
