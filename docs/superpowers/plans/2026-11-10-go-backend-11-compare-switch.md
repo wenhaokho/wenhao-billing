@@ -392,7 +392,7 @@ Each response's created ids map Python → Go, and later requests use each backe
   - the same `MCP_TOKEN_SECRET`;
   - the same `oauth_clients` and `oauth_refresh_tokens` rows;
   - the same issuer, as long as `MCP_PUBLIC_BASE_URL` is the same.
-- So an existing connector would carry over. The owner's `set-password` in step 2 is unavoidable, because Go cannot read bcrypt, and it revokes every refresh token of the owner. The connector's access token works for at most one more hour (`MCP_ACCESS_TOKEN_TTL_SECONDS=3600`), then its refresh fails with `invalid_grant`, and the owner reconnects once.
+- So an existing connector would carry over. The owner's `set-password` in step 2 is unavoidable, because Go cannot read bcrypt, and it revokes every refresh token of the owner. The connector's access token works for at most one more hour (`MCP_ACCESS_TOKEN_TTL_SECONDS=3600`), then its refresh fails with `invalid_grant`, and the owner reconnects once. Owner accepted this one reconnect (2026-11-10); no token-keeping option for `set-password`.
 - Clients registered with a plain `http://` or custom-scheme redirect URI must register again (PN 150). Claude's HTTPS callback is unaffected.
 - On the way back, Python accepts Go-issued tokens, and `seed_admin` revokes nothing, so the connector keeps working.
 
@@ -472,7 +472,7 @@ Every `After the switch:` line in `backend/PORT-NOTES.md` that is not "none" (15
 | 107 | AR aging filters `issue_date <= as_of`; place NULL due dates | Backlog |
 | 108 | `nullif(display_name, '')` in recent activity | Backlog. Task 2 allows the `Z` |
 | 116 | Drop or write the two unused hosting item columns | Backlog |
-| 126, 135 | Owner's remaining answers: the PO/SO fourth cell and footer; the 422 vs 502 on a bad `to_email` (the send-finalized answer has landed) | Backlog (owner decision) |
+| 126, 135 | Answered 2026-11-10: keep the PO/SO cell and footer; keep the 422 on a bad `to_email`; only finalized invoices can be sent (landed) | Done, nothing to do |
 | 127 | Iterate the PDF design toward the HTML | Backlog (owner review in Task 9.3) |
 | 129 | Split an item taller than a page | Backlog |
 | 132 | Draft digest only to active or admin users | Backlog (owner decision) |
