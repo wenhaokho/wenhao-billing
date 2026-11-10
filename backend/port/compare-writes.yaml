@@ -1,0 +1,348 @@
+# The write comparison scenarios (plan 11, Task 4).
+#
+# `compare writes --python URL --python-db DSN --go URL --go-db DSN ...` runs
+# these ordered flows against both backends, then compares the rows the run
+# touched and every step's answers.
+#
+# Both databases MUST be restored from ONE dump just before the run. The runner
+# snapshots every listed table first and then compares only the rows the run
+# created, changed or deleted: a pre-existing row is paired by its primary key,
+# which is only the same row on both sides when both came from the same dump.
+# The scenarios create rows with fixed codes and numbers (account codes 9900
+# and 9901, project codes CMP and CMP-DEL, quotation Q-CMP-1, bill B-CMP-1,
+# webhook external_ref compare-webhook), so restore both databases again before
+# a second run.
+#
+# Both databases must be local: the runner refuses a database or a backend URL
+# whose host is not localhost, 127.0.0.1, ::1, or a compose service name.
+#
+# Both backends must run with RESEND_API_KEY and CLOUDFLARE_API_TOKEN unset.
+# The runner can check only its OWN environment: it refuses to run when that
+# has RESEND_API_KEY, but it cannot see the backends' environments, so starting
+# them without the keys is the operator's job. (trigger-template also notifies
+# admins of the new draft, which mails when RESEND_API_KEY is set.) Every send
+# route is excluded: /auth/forgot-password, /invoices/{id}/send,
+# /quotations/{id}/send and /invoices/{id}/payments/{pid}/send-receipt.
+# fx-rates/sync is excluded too. No PAID transition is requested on an invoice
+# with hosting lines: that would call the Cloudflare restore.
+#
+# A step's `extract` maps a placeholder name to a JSONPath in the response.
+# The JSONPath's last key names the table (customer_id is customers, and so
+# on). Each name is extracted once; a later step never overwrites it. The
+# Python id and the Go id are stored separately and every later step uses each
+# backend's own id. A DELETE deletes or deactivates the row it names, so the
+# rows a scenario deletes are scratch rows created for that purpose; no later
+# step uses them.
+#
+# A scenario's `classify` names the PORT-NOTES note a difference under it
+# belongs to. It never hides a difference: PN 6 (two identical open invoices)
+# is classified by scenario id, not by an allowance.
+#
+# The webhook body is signed with the shared local WEBHOOK_HMAC_SECRET in the
+# X-Signature header. The webhook pays the invoice-lifecycle invoice's amount;
+# after reverse-payment that invoice is OPEN again, and approve-intake applies
+# the intake payment to it.
+#
+# None of these steps has run against the real backends yet (plan 11 Task 4
+# fix round 1): the first real run may still find a body field to adjust.
+
+scenarios:
+  # --- master data CRUD ---------------------------------------------------
+  # The kept rows (account_id, customer_id, vendor_id, item_id, project_id)
+  # are used by the later scenarios and are never deleted. Each delete runs
+  # on a scratch row of its own.
+  - id: master-data
+    tables:
+      - chart_of_accounts
+      - customers
+      - vendors
+      - items
+      - projects
+      - business_profile
+      - payment_account
+      - fx_rates
+    steps:
+      - id: create-account
+        method: POST
+        path: /api/v1/accounting/chart-of-accounts
+        body: {code: "9900", name: "Compare expense", type: "EXPENSE", active: true}
+        extract: {account_id: "$.account_id"}
+      - id: update-account
+        method: PATCH
+        path: /api/v1/accounting/chart-of-accounts/{account_id}
+        body: {name: "Compare expense 2"}
+      - id: create-scratch-account
+        method: POST
+        path: /api/v1/accounting/chart-of-accounts
+        body: {code: "9901", name: "Compare scratch account", type: "ASSET", active: true}
+        extract: {scratch_account_id: "$.account_id"}
+      - id: deactivate-scratch-account
+        method: DELETE
+        path: /api/v1/accounting/chart-of-accounts/{scratch_account_id}
+
+      - id: create-customer
+        method: POST
+        path: /api/v1/customers
+        body: {name: "Compare customer", default_currency: "IDR", active: true}
+        extract: {customer_id: "$.customer_id"}
+      - id: update-customer
+        method: PATCH
+        path: /api/v1/customers/{customer_id}
+        body: {name: "Compare customer 2"}
+      - id: create-scratch-customer
+        method: POST
+        path: /api/v1/customers
+        body: {name: "Compare scratch customer", default_currency: "IDR", active: true}
+        extract: {scratch_customer_id: "$.customer_id"}
+      - id: deactivate-scratch-customer
+        method: DELETE
+        path: /api/v1/customers/{scratch_customer_id}
+
+      - id: create-vendor
+        method: POST
+        path: /api/v1/vendors
+        body: {name: "Compare vendor", active: true}
+        extract: {vendor_id: "$.vendor_id"}
+      - id: update-vendor
+        method: PATCH
+        path: /api/v1/vendors/{vendor_id}
+        body: {name: "Compare vendor 2"}
+      - id: create-scratch-vendor
+        method: POST
+        path: /api/v1/vendors
+        body: {name: "Compare scratch vendor", active: true}
+        extract: {scratch_vendor_id: "$.vendor_id"}
+      - id: deactivate-scratch-vendor
+        method: DELETE
+        path: /api/v1/vendors/{scratch_vendor_id}
+
+      - id: create-item
+        method: POST
+        path: /api/v1/items
+        body: {name: "Compare item", item_type: "SERVICE", default_currency: "IDR", active: true, is_sold: true, is_purchased: false}
+        extract: {item_id: "$.item_id"}
+      - id: update-item
+        method: PATCH
+        path: /api/v1/items/{item_id}
+        body: {name: "Compare item 2"}
+      - id: create-scratch-item
+        method: POST
+        path: /api/v1/items
+        body: {name: "Compare scratch item", item_type: "SERVICE", default_currency: "IDR", active: true, is_sold: true, is_purchased: false}
+        extract: {scratch_item_id: "$.item_id"}
+      - id: deactivate-scratch-item
+        method: DELETE
+        path: /api/v1/items/{scratch_item_id}
+
+      - id: create-project
+        method: POST
+        path: /api/v1/projects
+        body: {customer_id: "{customer_id}", code: "CMP", name: "Compare project", currency: "IDR", status: "ACTIVE", contract_value: "1000.00"}
+        extract: {project_id: "$.project_id"}
+      - id: update-project
+        method: PATCH
+        path: /api/v1/projects/{project_id}
+        body: {name: "Compare project 2"}
+      - id: create-scratch-project
+        method: POST
+        path: /api/v1/projects
+        body: {customer_id: "{customer_id}", code: "CMP-DEL", name: "Compare scratch project", currency: "IDR", status: "ACTIVE"}
+        extract: {scratch_project_id: "$.project_id"}
+      - id: delete-scratch-project
+        method: DELETE
+        path: /api/v1/projects/{scratch_project_id}
+
+      - id: update-business-profile
+        method: PUT
+        path: /api/v1/business-profile
+        body: {name: "Compare business", address: "Compare address"}
+      - id: update-payment-accounts
+        method: PUT
+        path: /api/v1/business-profile/payment-accounts
+        body:
+          - {currency: "IDR", instructions: "Compare bank 0000000000", is_default: true}
+
+      # 2001-01-01 keeps clear of the dump's own USD/IDR rates (one per date).
+      - id: create-fx-rate
+        method: POST
+        path: /api/v1/accounting/fx-rates
+        body: {from_currency: "USD", to_currency: "IDR", rate: "16000.0000", as_of_date: "2001-01-01", source: "COMPARE"}
+        extract: {rate_id: "$.rate_id"}
+      - id: delete-fx-rate
+        method: DELETE
+        path: /api/v1/accounting/fx-rates/{rate_id}
+
+  # --- invoice lifecycle --------------------------------------------------
+  # The invoice ends OPEN again (reverse-payment reopens it); webhook-intake
+  # pays it.
+  - id: invoice-lifecycle
+    tables:
+      - invoices
+      - invoice_line_items
+      - payments
+      - reconciliation_log
+      - journal_entries
+      - journal_lines
+    steps:
+      - id: create-invoice
+        method: POST
+        path: /api/v1/invoices
+        body:
+          customer_id: "{customer_id}"
+          project_id: "{project_id}"
+          invoice_type: "MILESTONE"
+          currency: "IDR"
+          issue_date: "2026-01-01"
+          due_date: "2026-02-01"
+          payment_terms: "Net 30"
+          wht_type: "NONE"
+          wht_rate: "0.0000"
+          wht_gross_up: false
+          line_items:
+            - {item_id: "{item_id}", description: "Compare service", quantity: "1.0000", unit_price: "1000.0000", position: 1}
+        extract: {invoice_id: "$.invoice_id"}
+      - id: finalize-invoice
+        method: POST
+        path: /api/v1/invoices/{invoice_id}/finalize
+      - id: record-payment
+        method: POST
+        path: /api/v1/invoices/{invoice_id}/record-payment
+        body: {amount: "1000.0000", payment_date: "2026-01-02", payer_name: "Compare payer", payer_reference: "compare-payment", notes: "compare"}
+        extract: {payment_id: "$.payment_id"}
+      - id: list-payments
+        method: GET
+        path: /api/v1/invoices/{invoice_id}/payments
+      - id: reverse-payment
+        method: POST
+        path: /api/v1/payments/{payment_id}/reverse
+        body: {reason: "compare"}
+
+  # --- recurring template -------------------------------------------------
+  - id: recurring-template
+    tables:
+      - invoices
+      - invoice_line_items
+    steps:
+      - id: create-template
+        method: POST
+        path: /api/v1/invoices/recurring-template
+        body:
+          customer_id: "{customer_id}"
+          project_id: "{project_id}"
+          invoice_type: "RECURRING"
+          currency: "IDR"
+          issue_date: "2026-01-01"
+          due_date: "2026-02-01"
+          payment_terms: "Net 30"
+          line_items:
+            - {item_id: "{item_id}", description: "Compare recurring", quantity: "1.0000", unit_price: "1000.0000", position: 1}
+          schedule: {frequency: "MONTHLY", interval: 1, start_date: "2026-01-01", end_mode: "AFTER_N", end_after_cycles: 1}
+        extract: {template_id: "$.invoice_id"}
+      - id: trigger-template
+        method: POST
+        path: /api/v1/invoices/recurring/{template_id}/trigger
+        body: {cycle_key: "2026-01-01"}
+        extract: {recurring_invoice_id: "$.invoice_id"}
+
+  # --- quotation ----------------------------------------------------------
+  - id: quotation
+    tables:
+      - quotations
+      - quotation_line_items
+      - invoices
+      - invoice_line_items
+    steps:
+      - id: create-quotation
+        method: POST
+        path: /api/v1/quotations
+        body:
+          customer_id: "{customer_id}"
+          project_id: "{project_id}"
+          currency: "IDR"
+          quotation_number: "Q-CMP-1"
+          issue_date: "2026-01-01"
+          valid_until: "2026-02-01"
+          payment_terms: "Net 30"
+          line_items:
+            - {item_id: "{item_id}", description: "Compare quote", quantity: "1.0000", unit_price: "1000.0000", position: 1}
+        extract: {quotation_id: "$.quotation_id"}
+      - id: accept-quotation
+        method: POST
+        path: /api/v1/quotations/{quotation_id}/accept
+        body: {accepted_by: null}
+      - id: convert-quotation
+        method: POST
+        path: /api/v1/quotations/{quotation_id}/convert-to-invoice
+        body: {}
+        extract: {quote_invoice_id: "$.invoice_id"}
+
+  # --- bill ---------------------------------------------------------------
+  # The expense account is the kept, active account_id (code 9900). A bill
+  # payment has no table of its own: it only updates the bill row.
+  - id: bill
+    tables:
+      - bills
+      - bill_line_items
+    steps:
+      - id: create-bill
+        method: POST
+        path: /api/v1/bills
+        body:
+          vendor_id: "{vendor_id}"
+          project_id: "{project_id}"
+          bill_number: "B-CMP-1"
+          currency: "IDR"
+          issue_date: "2026-01-01"
+          due_date: "2026-02-01"
+          payment_terms: "Net 30"
+          line_items:
+            - {expense_account_id: "{account_id}", description: "Compare bill", quantity: "1.0000", unit_price: "1000.0000", position: 1}
+        extract: {bill_id: "$.bill_id"}
+      - id: update-bill
+        method: PATCH
+        path: /api/v1/bills/{bill_id}
+        body: {status: "OPEN"}
+      - id: record-bill-payment
+        method: POST
+        path: /api/v1/bills/{bill_id}/record-payment
+        body: {amount: "500.0000", payment_date: "2026-01-02", payer_reference: "compare-bill", notes: "compare"}
+      - id: void-bill
+        method: POST
+        path: /api/v1/bills/{bill_id}/void
+        body: {reason: "compare"}
+
+  # --- webhook intake, approve and reverse --------------------------------
+  # The intake payment goes to manual review (the payer name is not the
+  # customer's, so the confidence stays under 95); approve-intake applies it to
+  # the invoice-lifecycle invoice, {invoice_id}, which reverse-payment left
+  # OPEN. {intake_payment_id} never overwrites {payment_id}.
+  - id: webhook-intake
+    classify: PN 6
+    tables:
+      - payments
+      - reconciliation_log
+      - journal_entries
+      - journal_lines
+      - invoices
+      - invoice_line_items
+    steps:
+      - id: intake-webhook
+        method: POST
+        path: /api/v1/payments/intake/webhook
+        sign: true
+        body:
+          amount: "1000.0000"
+          currency: "IDR"
+          payer_name: "Compare payer"
+          payer_reference: "compare-webhook"
+          payment_date: "2026-01-02"
+          external_ref: "compare-webhook"
+        extract: {intake_payment_id: "$.payment_id"}
+      - id: approve-intake
+        method: POST
+        path: /api/v1/payments/{intake_payment_id}/manual-review
+        body: {invoice_id: "{invoice_id}", adjustment_type: "NONE"}
+      - id: reverse-intake
+        method: POST
+        path: /api/v1/payments/{intake_payment_id}/reverse
+        body: {reason: "compare"}

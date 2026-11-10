@@ -308,7 +308,7 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_record_payment_withholding.py | test_send_invoice_body_quotes_amount_to_transfer | invoices.TestSendInvoiceBodyQuotesAmountToTransfer | ported |  | — |
 | tests/integration/test_record_payment_withholding.py | test_send_invoice_body_without_wht_unchanged | invoices.TestSendInvoiceBodyWithoutWHTUnchanged | ported |  | No idempotency key: TestSendInvoiceBodyWithoutWHTUnchanged red (plan 9 task 4) |
 | tests/integration/test_record_payment_withholding.py | test_payment_reminder_quotes_expected_cash | mcp.TestPaymentReminderQuotesExpectedCash | ported | mcp plan (plan 10: payment reminder) | — |
-| tests/integration/test_record_payment_withholding.py | test_bill_payment_schema_still_requires_positive_amount |  | todo | bills schema (plan 6 area, not plan 7) |  |
+| tests/integration/test_record_payment_withholding.py | test_bill_payment_schema_still_requires_positive_amount | bills.TestRecordPaymentValidation | ported |  | Dropped the `amount.Sign() <= 0` guard in `recordPayment` (`internal/bills/payments.go`): TestRecordPaymentValidation red (payments_test.go:145, amount 0 answered 200, want 422) (plan 11 task 1) |
 | tests/integration/test_recurring_scheduling.py | test_create_template_stores_schedule_in_billing_cycle_ref | invoices.TestCreateTemplateStoresScheduleInBillingCycleRef | ported |  | — |
 | tests/integration/test_recurring_scheduling.py | test_create_template_persists_end_condition | invoices.TestCreateTemplatePersistsEndCondition | ported |  | — |
 | tests/integration/test_recurring_scheduling.py | test_create_template_rejects_inconsistent_end_condition | invoices.TestCreateTemplateRejectsInconsistentEndCondition | ported |  | — |
@@ -325,9 +325,9 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_recurring_scheduling.py | test_trigger_accepts_valid_cycle_start | invoices.TestTriggerAcceptsValidCycleStart | ported |  | — |
 | tests/integration/test_recurring_scheduling.py | test_manual_trigger_notifies_users_once | invoices.TestManualTriggerNotifiesUsersOnce | ported |  | Notified on a replay as well as on a new child: TestManualTriggerNotifiesUsersOnce red (task 6) |
 | tests/integration/test_recurring_scheduling.py | test_find_cycle_invoice_none_before_trigger_then_found | invoices.TestFindCycleInvoiceNoneBeforeTriggerThenFound | ported |  | — |
-| tests/integration/test_recurring_scheduling.py | test_fix_recurring_cycle_keys_plan_and_apply |  | todo | scripts plan (scripts/fix_recurring_cycle_keys) |  |
+| tests/integration/test_recurring_scheduling.py | test_fix_recurring_cycle_keys_plan_and_apply |  | not ported | Not ported: Python's one-off repair script `scripts/fix_recurring_cycle_keys.py`. Go's trigger takes one key spelling under a lock (PN 35); the script's dry run on the production copy is plan 11 task 6 step 5 |  |
 | tests/integration/test_recurring_scheduling.py | test_rows_excludes_void_children | invoices.TestRowsExcludesVoidChildren | ported |  | — |
-| tests/integration/test_recurring_scheduling.py | test_fix_script_ignores_void_and_fixes_live_key |  | todo | scripts plan (scripts/fix_recurring_cycle_keys) |  |
+| tests/integration/test_recurring_scheduling.py | test_fix_script_ignores_void_and_fixes_live_key |  | not ported | Not ported: Python's one-off repair script `scripts/fix_recurring_cycle_keys.py`. Go's trigger takes one key spelling under a lock (PN 35); the script's dry run on the production copy is plan 11 task 6 step 5 |  |
 | tests/integration/test_recurring_scheduling.py | test_end_now_ends_template_with_overdue_cycle | invoices.TestEndNowEndsTemplateWithOverdueCycle | ported |  | Dropped the `next_run - 1` cap in END_NOW: TestEndNowEndsTemplateWithOverdueCycle red (task 5) |
 | tests/integration/test_recurring_scheduling.py | test_end_now_ends_template_that_never_generated | invoices.TestEndNowEndsTemplateThatNeverGenerated | ported |  | Dropped the `next_run - 1` cap in END_NOW: TestEndNowEndsTemplateThatNeverGenerated red (task 5) |
 | tests/integration/test_recurring_scheduling.py | test_end_now_with_future_next_cycle_ends_yesterday | invoices.TestEndNowWithFutureNextCycleEndsYesterday | ported |  | — |
@@ -513,7 +513,7 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/unit/test_recurring_schedule.py | test_next_cycle_after_returns_none_past_end_date | schedule.TestNextCycleAfterReturnsNonePastEndDate | ported |  | — |
 | tests/unit/test_recurring_schedule.py | test_next_cycle_after_returns_none_past_count_cap | schedule.TestNextCycleAfterReturnsNonePastCountCap | ported |  | — |
 | tests/unit/test_recurring_schedule.py | test_paused_flag_roundtrips | schedule.TestPausedFlagRoundtrips | ported |  | — |
-| tests/unit/test_sentry_disabled_in_tests.py | test_create_app_does_not_enable_sentry_under_pytest |  | todo |  |  |
+| tests/unit/test_sentry_disabled_in_tests.py | test_create_app_does_not_enable_sentry_under_pytest | platform.TestNewServerDoesNotEnableSentry | ported |  | Added `observe.InitSentry(cfg)` to `platform.NewServer` (`internal/platform/server.go`): TestNewServerDoesNotEnableSentry red (sentry_test.go:31, client active with dsn) (plan 11 task 1) |
 | tests/unit/test_vendors_service.py | test_create_vendor_sets_fields | vendors.TestCreateVendorSetsFields | ported |  | — |
 | tests/unit/test_vendors_service.py | test_update_vendor_edits_fields | vendors.TestUpdateVendorEditsFields | ported |  | Omitted `name` written as the zero value instead of `.Or(cur.Name)`: TestUpdateVendorEditsFields red (task 4) |
 | tests/unit/test_vendors_service.py | test_update_vendor_not_found_raises | vendors.TestUpdateVendorNotFound | ported |  | — |
