@@ -317,6 +317,15 @@ func registerGatedTools(s *mcp.Server, d Deps) {
 			if inv.Status == "VOID" || inv.Status == "PAID" {
 				return Object{}, Refuse("cannot remind on a %s invoice", inv.Status)
 			}
+			// As for send_invoice_email (PORT-NOTES 112): nothing goes out
+			// for an unfinalized invoice, on the preview as well as the
+			// confirm. A template is checked first, as it is a DRAFT too.
+			if inv.IsTemplate {
+				return Object{}, Refuse("cannot send a recurring template")
+			}
+			if inv.Status == "DRAFT" {
+				return Object{}, Refuse("finalize the invoice before sending it")
+			}
 			recipient, err := recipientFor(ctx, tx, inv, in.ToEmail)
 			if err != nil {
 				return Object{}, err
@@ -435,7 +444,7 @@ func (g gate) sendInvoiceEmail(ctx context.Context, tx pgx.Tx, _ principalRef, i
 	// client that hangs up now must not roll back the status and the
 	// spent token of an email the provider already accepted.
 	ctx = context.WithoutCancel(ctx)
-	// The email is out; a DRAFT or OPEN invoice becomes SENT.
+	// The email is out; an OPEN invoice becomes SENT.
 	if err := invoicesdb.New(tx).MarkInvoiceSent(ctx, id); err != nil {
 		return Object{}, err
 	}

@@ -507,6 +507,52 @@ func TestSendTemplateRefusedOnPreviewAndConfirm(t *testing.T) {
 	}
 }
 
+func TestReminderDraftRefusedOnPreviewAndConfirm(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	id := g.seedDraftInvoice(t)
+	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
+	const want = "finalize the invoice before sending it"
+	if msg := g.refused(t, "send_payment_reminder", args); msg != want {
+		t.Fatalf("preview refusal %q, want %q", msg, want)
+	}
+	g.exec(t, `UPDATE invoices SET status = 'OPEN' WHERE invoice_id = $1`, id)
+	_, tok := g.preview(t, "send_payment_reminder", args)
+	g.exec(t, `UPDATE invoices SET status = 'DRAFT' WHERE invoice_id = $1`, id)
+	if msg := g.refused(t, "send_payment_reminder", with(args, "confirm_token", tok)); msg != want {
+		t.Fatalf("confirm refusal %q, want %q", msg, want)
+	}
+	if n := len(g.mail.messages()); n != 0 {
+		t.Fatalf("%d emails, want 0", n)
+	}
+	if n := g.spentTokens(t); n != 0 {
+		t.Fatalf("spent tokens %d after a refused reminder, want 0", n)
+	}
+}
+
+func TestReminderTemplateRefusedOnPreviewAndConfirm(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	id := g.invoice(t, g.seedCustomer(t), "INV-TPL-REMIND", "RECURRING", "DRAFT", "100.0000", true)
+	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
+	const want = "cannot send a recurring template"
+	if msg := g.refused(t, "send_payment_reminder", args); msg != want {
+		t.Fatalf("preview refusal %q, want %q", msg, want)
+	}
+	g.exec(t, `UPDATE invoices SET is_template = false, status = 'OPEN' WHERE invoice_id = $1`, id)
+	_, tok := g.preview(t, "send_payment_reminder", args)
+	g.exec(t, `UPDATE invoices SET is_template = true WHERE invoice_id = $1`, id)
+	if msg := g.refused(t, "send_payment_reminder", with(args, "confirm_token", tok)); msg != want {
+		t.Fatalf("confirm refusal %q, want %q", msg, want)
+	}
+	if n := len(g.mail.messages()); n != 0 {
+		t.Fatalf("%d emails, want 0", n)
+	}
+	if n := g.spentTokens(t); n != 0 {
+		t.Fatalf("spent tokens %d after a refused reminder, want 0", n)
+	}
+}
+
 func TestVoidInvoiceRefuses(t *testing.T) {
 	t.Parallel()
 	g := newGatedHarness(t)

@@ -471,6 +471,11 @@ const canSendInvoice = computed(() => {
   const s = existing.value?.status;
   return sendBlockedReason.value === null && (s === "OPEN" || s === "SENT" || s === "PARTIAL");
 });
+function openSendDialog() {
+  if (!canSendInvoice.value) return;
+  sendError.value = null;
+  showSendDialog.value = true;
+}
 const showSendInvoice = computed(() => canSendInvoice.value || sendBlockedReason.value !== null);
 
 function openPdfPreview() {
@@ -832,7 +837,7 @@ const canSave = computed(() => {
           icon="pi pi-send"
           :disabled="!canSendInvoice"
           :title="sendBlockedReason ?? 'Email the invoice PDF'"
-          @click="canSendInvoice && ((sendError = null), (showSendDialog = true))"
+          @click="openSendDialog"
         />
         <template v-if="readOnly">
           <Button
