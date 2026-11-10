@@ -7,6 +7,10 @@
 //	  --corpus FILE --allowed FILE [--python-tz ZONE] [--allow-skips] \
 //	  --out report.json
 //
+//	compare writes --python URL --python-db DSN --go URL --go-db DSN \
+//	  --python-email E [--python-password-stdin | --python-cookie-stdin] \
+//	  --go-token-stdin --scenarios FILE --out report.json
+//
 // stdin carries the credentials in a fixed order, one line each: the FIRST line
 // is the Python credential (the password with --python-password-stdin, or the
 // billing_session cookie with --python-cookie-stdin), the SECOND line is the Go
@@ -57,6 +61,8 @@ func main() {
 	switch os.Args[1] {
 	case "reads":
 		os.Exit(readsCommand(os.Args[2:], commandIO{os.Stdin, os.Stdout, os.Stderr}))
+	case "writes":
+		os.Exit(writesCommand(os.Args[2:], commandIO{os.Stdin, os.Stdout, os.Stderr}))
 	default:
 		slog.Error("compare: unknown subcommand", "subcommand", os.Args[1])
 		os.Exit(2)
@@ -158,6 +164,118 @@ func readsCommand(args []string, cio commandIO) int {
 	return code
 }
 
+// writesCommand runs `compare writes`. stdin carries the credentials in the
+// same fixed order as reads: first the Python credential (the password or the
+// cookie), then the Go token. The two DSNs are never printed, logged or written
+// to the report. The run refuses to contact a remote database and refuses to
+// run when its own environment has RESEND_API_KEY.
+func writesCommand(args []string, cio commandIO) int {
+	logger := slog.New(slog.NewTextHandler(cio.stderr, nil))
+	fs := flag.NewFlagSet("writes", flag.ContinueOnError)
+	fs.SetOutput(cio.stderr)
+	fs.Usage = func() {
+		_, _ = fmt.Fprintf(fs.Output(), "usage: compare writes --python URL --python-db DSN --go URL --go-db DSN --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --scenarios FILE --out report.json\n\n")
+		_, _ = fmt.Fprintln(fs.Output(), "Both databases must be local (localhost, 127.0.0.1, ::1, or a compose service name without a dot). Both backends must run with RESEND_API_KEY and CLOUDFLARE_API_TOKEN unset. The webhook body is signed with WEBHOOK_HMAC_SECRET. stdin carries the credentials in order, one line each: first the Python credential, then the Go token. Pipe them in; never type them at a terminal.")
+		fs.PrintDefaults()
+	}
+	var (
+		pythonURL      = fs.String("python", "", "Python base URL")
+		pythonDB       = fs.String("python-db", "", "Python database DSN (local only)")
+		goURL          = fs.String("go", "", "Go base URL")
+		goDB           = fs.String("go-db", "", "Go database DSN (local only)")
+		pythonEmail    = fs.String("python-email", "", "Python admin email")
+		pythonPassword = fs.Bool("python-password-stdin", false, "read the Python password from the FIRST stdin line; sends one POST")
+		pythonCookie   = fs.Bool("python-cookie-stdin", false, "read the Python billing_session cookie from the FIRST stdin line; sends no POST")
+		goToken        = fs.Bool("go-token-stdin", false, "read the Go session token from the SECOND stdin line")
+		scenariosFile  = fs.String("scenarios", "", "the compare-writes.yaml path")
+		outFile        = fs.String("out", "", "the report JSON path")
+	)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if err := checkWriteFlags(*pythonURL, *pythonDB, *goURL, *goDB, *pythonEmail, *scenariosFile, *outFile, *pythonPassword, *pythonCookie, *goToken); err != nil {
+		logger.Error("compare writes: " + err.Error())
+		return 2
+	}
+	if isTerminal(cio.stdin) {
+		logger.Error("compare writes: pipe the secrets on stdin; do not type them into a terminal")
+		return 2
+	}
+
+	reader := bufio.NewReader(cio.stdin)
+	var password, cookie, token string
+	var err error
+	if *pythonPassword {
+		if password, err = readLine(reader); err != nil {
+			logger.Error("compare writes: reading the Python password", "err", err)
+			return 2
+		}
+	}
+	if *pythonCookie {
+		if cookie, err = readLine(reader); err != nil {
+			logger.Error("compare writes: reading the Python cookie", "err", err)
+			return 2
+		}
+	}
+	if token, err = readLine(reader); err != nil {
+		logger.Error("compare writes: reading the Go token", "err", err)
+		return 2
+	}
+
+	scenarios, err := compare.LoadWritesFile(*scenariosFile)
+	if err != nil {
+		logger.Error("compare writes: loading the scenarios", "err", err)
+		return 2
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	report, runErr := compare.RunWrites(ctx, compare.WritesOptions{
+		PythonURL: *pythonURL, GoURL: *goURL, PythonDB: *pythonDB, GoDB: *goDB,
+		PythonEmail: *pythonEmail, PythonPassword: password, PythonCookie: cookie,
+		GoToken: token, Scenarios: scenarios,
+	})
+	code := compare.WritesExitCode(report, runErr)
+	if err := writeReport(*outFile, report); err != nil {
+		logger.Error("compare writes: writing the report", "err", err)
+		return 2
+	}
+	if runErr != nil {
+		logger.Error("compare writes: the run failed", "err", runErr, "report", *outFile)
+		return code
+	}
+	_, _ = fmt.Fprintf(cio.stdout, "compare writes: scenarios=%d differences=%d report=%s\n",
+		len(report.Scenarios), report.Differences, *outFile)
+	return code
+}
+
+// checkWriteFlags refuses a run with a missing or contradictory flag.
+func checkWriteFlags(pythonURL, pythonDB, goURL, goDB, email, scenarios, out string, password, cookie, token bool) error {
+	switch {
+	case pythonURL == "":
+		return errors.New("--python is required")
+	case pythonDB == "":
+		return errors.New("--python-db is required")
+	case goURL == "":
+		return errors.New("--go is required")
+	case goDB == "":
+		return errors.New("--go-db is required")
+	case email == "":
+		return errors.New("--python-email is required")
+	case scenarios == "":
+		return errors.New("--scenarios is required")
+	case out == "":
+		return errors.New("--out is required")
+	case password && cookie:
+		return errors.New("--python-password-stdin and --python-cookie-stdin are mutually exclusive")
+	case !password && !cookie:
+		return errors.New("one of --python-password-stdin or --python-cookie-stdin is required")
+	case !token:
+		return errors.New("--go-token-stdin is required")
+	}
+	return nil
+}
+
 // isTerminal reports whether r is a terminal: an *os.File whose mode has
 // os.ModeCharDevice. The secrets must arrive on a pipe, so a run whose stdin is
 // a terminal is refused before any secret is read.
@@ -220,7 +338,7 @@ func loadZone(zone string) (*time.Location, error) {
 }
 
 // writeReport writes the run's report. It never holds a credential.
-func writeReport(path string, report compare.Report) error {
+func writeReport(path string, report any) error {
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)

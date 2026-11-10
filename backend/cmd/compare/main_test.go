@@ -10,6 +10,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LOQATO/gokit/testkit"
+
+	"github.com/wenhaokho/wenhao-billing/backend/migrations"
 )
 
 // TestReadsKeepsSecretsOutOfOutput drives the whole reads command with the two
@@ -69,6 +73,65 @@ func TestReadsKeepsSecretsOutOfOutput(t *testing.T) {
 		for _, secret := range []string{pySecret, goSecret} {
 			if bytes.Contains(blob, []byte(secret)) {
 				t.Fatalf("%s contains the secret %q: %s", name, secret, blob)
+			}
+		}
+	}
+}
+
+// TestWritesKeepsSecretsOutOfOutput drives the whole writes command with the
+// two credentials on stdin and asserts neither secret nor either DSN reaches
+// the report, stdout or stderr.
+func TestWritesKeepsSecretsOutOfOutput(t *testing.T) {
+	t.Parallel()
+	const pySecret = "PY-PASSWORD-SECRET-7f3a"
+	const goSecret = "GO-TOKEN-SECRET-91bd"
+	pyDB := testkit.PostgresURL(t, migrations.FS)
+	goDB := testkit.PostgresURL(t, migrations.FS)
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/login" {
+			http.SetCookie(w, &http.Cookie{Name: "billing_session", Value: "py-session", Path: "/"})
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	})
+	py := httptest.NewServer(handler)
+	t.Cleanup(py.Close)
+	gov := httptest.NewServer(handler)
+	t.Cleanup(gov.Close)
+
+	dir := t.TempDir()
+	scenariosPath := filepath.Join(dir, "scenarios.yaml")
+	if err := os.WriteFile(scenariosPath, []byte("scenarios:\n  - id: command\n    steps:\n      - id: write\n        method: POST\n        path: /api/v1/things\n"), 0o600); err != nil {
+		t.Fatalf("writing the scenarios: %v", err)
+	}
+	outPath := filepath.Join(dir, "report.json")
+
+	args := []string{
+		"--python", py.URL, "--python-db", pyDB,
+		"--go", gov.URL, "--go-db", goDB,
+		"--python-email", "owner@example.test",
+		"--python-password-stdin", "--go-token-stdin",
+		"--scenarios", scenariosPath, "--out", outPath,
+	}
+	stdin := strings.NewReader(pySecret + "\n" + goSecret + "\n")
+	var stdout, stderr bytes.Buffer
+	if code := writesCommand(args, commandIO{stdin: stdin, stdout: &stdout, stderr: &stderr}); code != 0 {
+		t.Fatalf("writesCommand exit %d, want 0; stderr: %s", code, stderr.String())
+	}
+	report, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("reading the report: %v", err)
+	}
+	for name, blob := range map[string][]byte{
+		"the report": report,
+		"stdout":     stdout.Bytes(),
+		"stderr":     stderr.Bytes(),
+	} {
+		for _, secret := range []string{pySecret, goSecret, pyDB, goDB} {
+			if bytes.Contains(blob, []byte(secret)) {
+				t.Fatalf("%s contains a secret or DSN: %s", name, blob)
 			}
 		}
 	}
