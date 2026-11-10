@@ -662,7 +662,7 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
 126. **The invoice and quotation PDFs show the footer and PO/SO number (Go change 10).**
     Python: the HTML design drops the footer, the PO/SO number and the invoice summary tagline, and forces the invoice terms to None (Net N is not customer-facing) (`app/services/pdf/context.py:211-213`; `app/services/invoice_pdf.py:314-315, 325-329, 572-582`), while the reportlab fallback showed the footer and the PO/SO, so the same invoice could render two ways.
     Go: one renderer shows them: the PO/SO number is a fourth meta cell labelled PO / SO when it is set, and the document footer text prints under Notes and Terms on invoices and quotations (`pdf.TestInvoiceAndQuotationShowFooterAndPOSO`, `pdf.TestDocumentsCarryPOSONumberAndFooter`). The invoice title, the issue and due dates and the `Net N` terms rule are as Python's (`pdf.TestInvoiceDocumentDiscountAndPaid`). Owner ruling R3 keeps the plan default (show them).
-    After the switch: if the owner answers otherwise, drop the fourth cell and the footer line; the reportlab footer text comes from the same fields.
+    After the switch: none. Owner decision (2026-11-10): keep the PO/SO cell and the footer.
 
 127. **PDF design simplifications against the HTML (Maroto limits).**
     Python: the HTML and WeasyPrint design is the reference (palette navy blue azure cyan, fonts Inter Manrope JetBrains Mono as vendored woff2, a header and footer on every page, table rows that never split, 12 px rounded boxes, a 135 degree gradient, a status pill with a tinted background, letter-spacing, a 1 px rule above the NPWP line; `app/services/pdf/templates/document.html.j2:8-16, 23-44, 50-91, 99-132, 144-230` and `app/services/pdf/assets.py:16-20`).
@@ -704,10 +704,10 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Go: an import cycle would form if pdf imported payments for `ReceiptData` while payments imports pdf for `FmtAmount`. The receipt adapter therefore lives in payments (`payments.PDFReceiptRenderer` builds a `pdf.Document` with `pdf.ReceiptDocument` and calls `pdf.RenderReceipt`); pdf owns `ReceiptReference` and `BalanceNote` and payments delegates to the pdf copies. The amount formatting moved the same way (ruling R2: `payments.FormatAmount` delegates to `pdf.FmtAmount` and the digest uses `pdf.FmtAmount`).
     After the switch: none; the adapter sits in payments rather than pdf, which is the cost of R1.
 
-135. **Ruling R3: the owner's three questions are unanswered, so the plan defaults stand.**
+135. **Ruling R3: the plan defaults stood until the owner answered (2026-11-10).**
     Python: sending promotes DRAFT straight to SENT without finalizing (`app/api/v1/routers/invoices.py:774-775`), the HTML design drops the footer and the PO/SO number (note 126), and `to_email` is unvalidated (`app/schemas/invoice.py:126-134`).
     Go: the defaults are kept and are reversible: an invoice send needs a finalized invoice (a change, note 112) and the quotation send stamps `last_sent_at` in any sendable status (note 112); the footer and the PO/SO number are shown (note 126); a bad `to_email` is 422 at `to_email` with `invalid email address: <addr>` (note 111).
-    After the switch: the invoice send refusal is done (note 112); if the owner answers the rest, each is a small change: drop the fourth meta cell and the footer line, or keep the 422 and rely on 502.
+    After the switch: none. Owner decisions (2026-11-10): only finalized invoices can be sent (done, note 112); keep the PO/SO cell and the footer (note 126); keep refusing a bad `to_email` with 422 before anything is sent.
 
 136. **Kept and small choices: an empty `wht_type`, the dash, and the render-data loaders.**
     Python: the invoice context tests `wht_type != "NONE"` with no None guard (`app/services/pdf/context.py:178`) while other places use `(wht_type or "NONE")` (`app/services/invoice_pdf.py:224, 458`); the column is NOT NULL DEFAULT 'NONE' (`backend/migrations/00001_baseline.sql:254`), so the guard is harmless; `_fmt_amount(None)` is a dash (`app/services/invoice_pdf.py:78-84`); the business profile is read as `db.get(BusinessProfile, 1)` and may be None (`app/api/v1/routers/invoices.py:710, 744`).
