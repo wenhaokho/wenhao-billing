@@ -339,6 +339,31 @@ func TestRowsComparesOnlyTouchedRows(t *testing.T) {
 	}
 }
 
+// TestRowsDeletedOnBothSidesAgree is review round 2: a seeded row deleted on
+// both sides (PUT /business-profile/payment-accounts replaces the seeded
+// rows) is agreement, not a difference; a seeded row deleted on one side only
+// is reported.
+func TestRowsDeletedOnBothSidesAgree(t *testing.T) {
+	t.Parallel()
+	f := newRowsFixture(t, "payment_account")
+	for _, pool := range []*pgxpool.Pool{f.py, f.gov} {
+		mustExec(t, pool, `INSERT INTO payment_account (id, business_profile_id, currency, instructions) VALUES (1, 1, 'IDR', 'Bank'), (2, 1, 'USD', 'Bank')`)
+	}
+	f.snapshot(t)
+	for _, pool := range []*pgxpool.Pool{f.py, f.gov} {
+		mustExec(t, pool, `DELETE FROM payment_account WHERE id = 1`)
+	}
+	if diffs := f.compare(t, IDMaps{}); len(diffs) != 0 {
+		t.Fatalf("diffs %+v, want none: both sides deleted the row", diffs)
+	}
+
+	mustExec(t, f.py, `DELETE FROM payment_account WHERE id = 2`)
+	diffs := f.compare(t, IDMaps{})
+	if len(diffs) != 1 || diffs[0].Key != "2" || diffs[0].Python != "" || diffs[0].Go == "" {
+		t.Fatalf("diffs %+v, want the row Python deleted and Go kept", diffs)
+	}
+}
+
 // accountServer is a fake backend that writes the real chart_of_accounts
 // table on its own database, the way the real backends do.
 func accountServer(t *testing.T, pool *pgxpool.Pool, login bool) *recorder {

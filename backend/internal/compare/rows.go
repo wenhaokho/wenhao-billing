@@ -564,6 +564,9 @@ func (c *rowComparer) comparePaired(st *tableState) []RowDiff {
 	for _, key := range st.prePKs {
 		py, pyOK := st.pyPre[key]
 		gov, goOK := st.goPre[key]
+		if !pyOK && !goOK {
+			continue // deleted on both sides: the backends agree
+		}
 		diffs = append(diffs, c.pair(st.table, key, py, pyOK, gov, goOK, nil)...)
 	}
 	goByPK := map[string]Row{}
