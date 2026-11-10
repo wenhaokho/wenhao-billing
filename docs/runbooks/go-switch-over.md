@@ -314,6 +314,33 @@ cookie formats.
 **Rollback point B (the way back):** section 12. It is rehearsed locally first
 (plan Task 5).
 
+**Contingency — only if the local rehearsal showed a second, non-idempotent
+run.** Go's first start with the scheduler on runs each job's latest slot from
+the past 24 hours even though Python already ran it; that is safe only because
+every job is idempotent, and the rehearsal proves it. If the rehearsal instead
+showed a slot doing real work a second time, do not switch. Insert today's
+`slot` rows for the four jobs **before** the switch (**OWNER YES**, its own
+step, the fallback from the plan), so Go's catch-up finds them and skips:
+
+```sh
+docker exec "$DB" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
+WITH jobs(job_id, hour) AS (
+  VALUES ('recurring-scan-and-generate', 2),
+         ('usage-lock-cutoff-scan', 3),
+         ('hosting-overdue-enforcement', 4)
+), today AS (SELECT (now() AT TIME ZONE 'UTC')::date AS d)
+INSERT INTO scheduled_job_runs (job_id, slot, started_at, finished_at)
+SELECT j.job_id,
+       ((t.d + make_time(j.hour, 0, 0)) AT TIME ZONE 'UTC')
+         - CASE WHEN ((t.d + make_time(j.hour, 0, 0)) AT TIME ZONE 'UTC') > now()
+                THEN interval '1 day' ELSE interval '0' END,
+       now(), now()
+FROM jobs j CROSS JOIN today t
+ON CONFLICT (job_id, slot) DO NOTHING;"
+```
+
+(The FX job has no daily slot and runs only on a Monday.)
+
 ## 9. Set the password (plan Task 9.2) — **OWNER YES** (P9)
 
 The owner's hash is argon2id after the switch; Python cannot read it, and Go
