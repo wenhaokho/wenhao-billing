@@ -1,0 +1,40 @@
+# Overlay for the local switch rehearsal (plan 11, Task 5 step 2). Combine it
+# with the Coolify compose, which expects a shared Postgres it does not ship:
+#
+#   docker compose -f docker-compose.coolify.yml \
+#     -f scripts/rehearse-switch.compose.yml --env-file <rehearsal.env> up -d
+#
+# scripts/rehearse-switch.sh builds that env file and drives the whole run; this
+# file only supplies what a single machine needs beside the Coolify stack:
+#
+#   * shared-postgres — the hostname the example env's DATABASE_URL uses. It is
+#     the restored dev database the rehearsal runs against.
+#   * a published port for wenhao-billing-web — the Coolify service has no
+#     published port (Coolify points Traefik at it), so locally nginx needs one
+#     to be reachable. curl treats http://localhost as a secure context, so the
+#     Secure session cookie is sent over it.
+#
+# It adds no project of its own: the caller sets COMPOSE_PROJECT_NAME. Nothing
+# here is used in production.
+services:
+  shared-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: billing
+      POSTGRES_PASSWORD: billing
+      POSTGRES_DB: billing
+    # Over TCP: the image's first-start setup server listens on the socket only.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "billing"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - rehearse_pgdata:/var/lib/postgresql/data
+
+  wenhao-billing-web:
+    ports:
+      - "${REHEARSE_HTTP_PORT:-8080}:80"
+
+volumes:
+  rehearse_pgdata:
