@@ -145,14 +145,15 @@ services:
       # service on container port 80 and wire up the Traefik route + TLS.
       SERVICE_FQDN_WEB_80: ${SERVICE_FQDN_WEB_80:-billing.wenhao.id}
       # Where nginx proxies the API paths (compose service name + port). The
-      # switch flips this between the two API services; nginx resolves it at
-      # start-up, so a switch is always a redeploy.
+      # switch flips this between the two API services. It is written into the
+      # nginx config at start-up, so a switch is always a redeploy; nginx
+      # resolves the host per request (Docker DNS), so it starts and serves
+      # even while the other API container is down.
       BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-wenhao-billing-api:8000}
     depends_on:
-      # nginx fails to start if the upstream host does not resolve, so it waits
-      # for the API that is certain to run. This stays on Python only until
-      # Python is removed (Task 10): Go may legitimately be unhealthy while the
-      # compare runs, and nginx must keep serving.
+      # Start after the API that is certain to run. This stays on Python only
+      # until Python is removed (Task 10): Go may legitimately be unhealthy or
+      # stopped while the compare runs, and nginx must keep serving.
       wenhao-billing-api:
         condition: service_healthy
     healthcheck:

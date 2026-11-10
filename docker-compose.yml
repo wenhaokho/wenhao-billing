@@ -153,7 +153,7 @@ services:
       CORS_ORIGINS: '["http://localhost:5173"]'
       ENVIRONMENT: development
       # Local FX calls go to the stub below, never Frankfurter (plan 11).
-      FX_PROVIDER_BASE_URL: http://fx-stub
+      FX_PROVIDER_BASE_URL: http://fx-stub:8080
     ports:
       - "${GO_API_HOST_PORT:-8001}:8000"
     depends_on:
