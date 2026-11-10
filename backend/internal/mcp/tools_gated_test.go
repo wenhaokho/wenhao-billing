@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
@@ -879,5 +880,47 @@ func TestConfirmPruneDoesNotWaitBehindASend(t *testing.T) {
 	free()
 	if s := g.invoiceStatus(t, inv); s != "SENT" || g.spentTokens(t) != 2 {
 		t.Fatalf("send after release: status %s, %d spent tokens; want SENT and 2", s, g.spentTokens(t))
+	}
+}
+
+// A confirm holds one connection at a time: on a pool of a single
+// connection it still spends its token, acts, commits and prunes expired
+// spent rows (after the commit has released the connection). A deadline
+// turns a confirm that waits for a second connection into a failure.
+func TestConfirmSucceedsOnSingleConnectionPool(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	g.exec(t, `INSERT INTO mcp_spent_confirm_tokens (token_hash, expires_at) VALUES ('old', $1)`,
+		g.clock.Now().Add(-spentConfirmGrace-time.Second))
+	id := g.seedDraftInvoice(t)
+	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
+	_, tok := g.preview(t, "send_invoice_email", args)
+
+	cfg := g.pool.Config().Copy()
+	cfg.MaxConns = 1
+	cfg.MinConns = 0
+	one, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(one.Close)
+	gt := gate{pool: one, confirm: NewConfirmer(g.cfg.MCPConfirmSecret), clock: g.clock, mail: g.mail}
+	schema, err := resolveSchema(openObjectSchema())
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := "a@b.com"
+	in := sendInvoiceIn{InvoiceID: id.String(), ToEmail: &to, ConfirmToken: &tok}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	d := Deps{Pool: one, Clock: g.clock, Cfg: g.cfg}
+	if _, err := runTool(ctx, d, toolConfig{name: actSendInvoice}, schema, principalRef{UserID: g.adminID}, in, gt.sendInvoiceEmail); err != nil {
+		t.Fatalf("send_invoice_email on a one-connection pool: %v", err)
+	}
+	if s := g.invoiceStatus(t, id); s != "SENT" || g.spentTokens(t) != 1 {
+		t.Fatalf("status %s, %d spent tokens; want SENT and 1", s, g.spentTokens(t))
+	}
+	if n := g.count(t, `SELECT count(*) FROM mcp_spent_confirm_tokens WHERE token_hash = 'old'`); n != 0 {
+		t.Fatalf("expired spent row still there (%d)", n)
 	}
 }

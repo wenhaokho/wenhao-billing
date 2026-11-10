@@ -128,12 +128,18 @@ func (g gate) spend(ctx context.Context, tx pgx.Tx, token, action string, payloa
 	if err != nil {
 		return Refuse("%s", err.Error())
 	}
-	// The prune runs on the pool, outside the action's transaction: inside
-	// it, the deleted rows would stay locked until that transaction ends
-	// (after a slow send), and every other confirm's prune would wait on them.
-	if err := oauthdb.New(g.pool).PruneSpentConfirmTokens(ctx, now.Add(-spentConfirmGrace)); err != nil {
-		return err
-	}
+	// The prune is best effort and runs after the action's commit, which has
+	// already released its connection: inside the transaction the deleted
+	// rows would stay locked until it ends (after a slow send) and every
+	// other confirm's prune would wait on them; on a second connection while
+	// the transaction holds one, enough concurrent confirms would exhaust
+	// the pool and wait on each other forever. A failed prune is logged and
+	// fails nothing; the next confirm retries it.
+	afterCommit(ctx, func(ctx context.Context) {
+		if err := oauthdb.New(g.pool).PruneSpentConfirmTokens(ctx, now.Add(-spentConfirmGrace)); err != nil {
+			logger(ctx).WarnContext(ctx, "mcp: prune of spent confirm tokens failed", "err", err)
+		}
+	})
 	q := oauthdb.New(tx)
 	if _, err := q.SpendConfirmToken(ctx, oauthdb.SpendConfirmTokenParams{TokenHash: key, ExpiresAt: expires}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
