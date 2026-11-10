@@ -26,18 +26,21 @@ type Report struct {
 	Summary     Summary      `json:"summary"`
 }
 
-// Summary counts the run's skipped cases. A skip is a case that expanded to no
-// request because a discovered id list was empty or its list call failed; a
-// run with any skip is not clean unless --allow-skips is given.
+// Summary counts the run's skipped request variants. A skip is one variant that
+// expanded to no request because a discovered id list was empty or its list
+// call failed, or a case whose route path itself could not be built; a run with
+// any skip is not clean unless --allow-skips is given.
 type Summary struct {
 	Skipped int `json:"skipped"`
 }
 
-// CaseResult is one request's answer pair, or one skipped case. Difference
-// carries the differences the allowed entries did not cover; Classify names the
-// PORT-NOTES note the case is known for (a difference is still reported, never
-// hidden). A skipped case has Skipped set to why no request was made, and no
-// status or differences.
+// CaseResult is one request's answer pair, or one skipped request variant.
+// Difference carries the differences the allowed entries did not cover;
+// Classify names the PORT-NOTES note the case is known for (a difference is
+// still reported, never hidden). A skipped variant has Skipped set to why no
+// request was made, and no status or differences; a case with several query
+// variants yields one CaseResult per variant sent, plus one per variant that
+// could not be built.
 type CaseResult struct {
 	ID          string       `json:"id"`
 	Request     string       `json:"request,omitempty"`
@@ -77,8 +80,8 @@ type ReadOptions struct {
 // sign-in check is a run error (exit 2), so a run where everything 401s can
 // never look clean. The two backends' own hosts are set on the Allowed entries
 // so a redirect's Location compares equal, and every request failure is a run
-// error (exit 2). A case whose discovered id list is empty is recorded as
-// skipped, never dropped.
+// error (exit 2). A request variant whose placeholders cannot be filled is
+// recorded as skipped, never dropped, and the case's other variants still run.
 func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 	now := o.Now
 	if now == nil {
@@ -107,17 +110,7 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 	discovered := map[string][]string{}
 	for _, cs := range o.Corpus.Cases {
 		route := "GET " + routePath(cs.Route)
-		targets, missing := expandCase(cs, discovered, today)
-		if len(targets) == 0 {
-			// The case's id list was empty (or its list call failed), so the
-			// detail case has nothing to read: record the skip, never drop it.
-			report.Cases = append(report.Cases, CaseResult{
-				ID: cs.ID, Request: route, Classify: cs.Classify,
-				Skipped: fmt.Sprintf("no {%s}: list empty or failed", missing),
-			})
-			report.Summary.Skipped++
-			continue
-		}
+		targets, skips := expandCase(cs, discovered, today)
 		for _, target := range targets {
 			py, err := get(ctx, client, o.PythonURL, target, session)
 			if err != nil {
@@ -137,6 +130,15 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 				Python: py.Status, Go: gov.Status, Differences: diffs,
 			})
 			report.Differences += len(diffs)
+		}
+		// A variant that cannot be built is recorded, never dropped, and the
+		// case's other variants still ran above.
+		for _, s := range skips {
+			report.Cases = append(report.Cases, CaseResult{
+				ID: cs.ID, Request: s.request(route), Classify: cs.Classify,
+				Skipped: s.message(),
+			})
+			report.Summary.Skipped++
 		}
 	}
 	return report, nil
@@ -273,28 +275,61 @@ func hostOf(raw string) string {
 	return u.Host
 }
 
-// expandCase is the case's requests: one per query variant (the bare route
-// when it names none), with every {name} filled from the discovered ids and
-// {today} from the run's date. When a placeholder has no value — its list was
-// empty or its list call failed — it returns a missing name and no requests, so
-// the caller can record a skip instead of dropping the case silently.
-func expandCase(cs Case, discovered map[string][]string, today string) ([]string, string) {
+// caseSkip is one request variant expandCase could not build: the variant's
+// query (empty for the bare route) and the {name} that had no value.
+// pathMissing marks a skip of the whole case, because the route's own path
+// holds a {name} with no value — every variant is then unbuildable.
+type caseSkip struct {
+	query       string
+	missing     string
+	pathMissing bool
+}
+
+// message is the report's reason. A case-level skip names the list that was
+// empty or failed; a query-variant skip names the variant and the placeholder
+// it needed, so the report shows exactly which request was not sent.
+func (s caseSkip) message() string {
+	if s.pathMissing {
+		return fmt.Sprintf("no {%s}: list empty or failed", s.missing)
+	}
+	return fmt.Sprintf("variant %s: no {%s}", s.query, s.missing)
+}
+
+// request is the route a skipped variant would have sent, with its query when
+// the variant has one.
+func (s caseSkip) request(route string) string {
+	if s.query == "" {
+		return route
+	}
+	return route + "?" + s.query
+}
+
+// expandCase is the case's requests: one per query variant that expands (the
+// bare route when the case names no query), with every {name} filled from the
+// discovered ids and {today} from the run's date. A query variant whose
+// placeholder has no value — its list was empty or its list call failed — is
+// reported as a skip while the case's other variants still run; a route path
+// whose placeholder has no value skips the whole case, because no variant can
+// be built. Nothing is dropped silently.
+func expandCase(cs Case, discovered map[string][]string, today string) ([]string, []caseSkip) {
 	queries := cs.Queries
 	if len(queries) == 0 {
 		queries = []string{""}
 	}
-	paths, missing := expandPlaceholders(routePath(cs.Route), discovered, today)
-	if missing != "" {
-		return nil, missing
+	paths, pathMissing := expandPlaceholders(routePath(cs.Route), discovered, today, url.PathEscape)
+	if pathMissing != "" {
+		return nil, []caseSkip{{missing: pathMissing, pathMissing: true}}
 	}
 	var out []string
+	var skips []caseSkip
 	seen := map[string]bool{}
-	for _, p := range paths {
-		for _, q := range queries {
-			qs, qMissing := expandPlaceholders(q, discovered, today)
-			if qMissing != "" {
-				return nil, qMissing
-			}
+	for _, q := range queries {
+		qs, qMissing := expandPlaceholders(q, discovered, today, url.QueryEscape)
+		if qMissing != "" {
+			skips = append(skips, caseSkip{query: q, missing: qMissing})
+			continue
+		}
+		for _, p := range paths {
 			for _, query := range qs {
 				target := p
 				if query != "" {
@@ -307,14 +342,16 @@ func expandCase(cs Case, discovered map[string][]string, today string) ([]string
 			}
 		}
 	}
-	return out, ""
+	return out, skips
 }
 
-// expandPlaceholders fills every {name} in s. A name with no discovered value
-// (an empty list, say) yields no results and returns that name, so the case is
-// recorded as skipped. A discovered id is path-escaped before it goes into the
-// path, so an id with a slash or a space cannot change the route.
-func expandPlaceholders(s string, discovered map[string][]string, today string) ([]string, string) {
+// expandPlaceholders fills every {name} in s with escape applied to each value:
+// url.PathEscape for a path, so an id with a slash cannot change the route, and
+// url.QueryEscape for a query, so an id with &, = or + cannot break out of its
+// value into another parameter. A name with no discovered value (an empty list,
+// say) yields no results and returns that name, so the caller records a skip
+// instead of dropping the request.
+func expandPlaceholders(s string, discovered map[string][]string, today string, escape func(string) string) ([]string, string) {
 	names := placeholders(s)
 	if len(names) == 0 {
 		return []string{s}, ""
@@ -332,7 +369,7 @@ func expandPlaceholders(s string, discovered map[string][]string, today string) 
 		var next []string
 		for _, o := range out {
 			for _, v := range values {
-				next = append(next, strings.ReplaceAll(o, "{"+name+"}", url.PathEscape(v)))
+				next = append(next, strings.ReplaceAll(o, "{"+name+"}", escape(v)))
 			}
 		}
 		out = next

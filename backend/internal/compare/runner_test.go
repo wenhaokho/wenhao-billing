@@ -531,6 +531,124 @@ func TestRunnerSkipsEmptyLists(t *testing.T) {
 	})
 }
 
+// TestRunnerSkipsOneVariantNotTheCase pins the round-2 fix: a query variant
+// whose placeholder has no value is skipped on its own and the case's other
+// variants still run. With projects empty, quotations' project_id variant is
+// the only skip; the bare list and the customer_id variant are sent, so
+// quotation_id is discovered and the detail case runs too.
+func TestRunnerSkipsOneVariantNotTheCase(t *testing.T) {
+	t.Parallel()
+	backend := func() *recorder {
+		return &recorder{handle: func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/v1/auth/login":
+				loginHandler(w, r)
+			case "/api/v1/auth/me":
+				jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
+			case "/api/v1/customers":
+				jsonBody(w, http.StatusOK, `[{"customer_id":"c1"}]`)
+			case "/api/v1/projects":
+				jsonBody(w, http.StatusOK, `[]`)
+			case "/api/v1/quotations":
+				jsonBody(w, http.StatusOK, `[{"quotation_id":"q1"}]`)
+			case "/api/v1/quotations/q1":
+				jsonBody(w, http.StatusOK, `{"quotation_id":"q1"}`)
+			default:
+				jsonBody(w, http.StatusOK, `{"ok":true}`)
+			}
+		}}
+	}
+	py, gov := backend(), backend()
+	pySrv, goSrv := py.start(t), gov.start(t)
+
+	corpus := Corpus{Cases: []Case{
+		{ID: "customers", Route: "GET /api/v1/customers", Queries: []string{""}, Discover: []IDSource{{Name: "customer_id"}}},
+		{
+			ID: "projects", Route: "GET /api/v1/projects",
+			Queries:  []string{"", "status=ACTIVE", "customer_id={customer_id}&status=ACTIVE"},
+			Discover: []IDSource{{Name: "project_id"}},
+		},
+		{
+			ID: "quotations", Route: "GET /api/v1/quotations",
+			Queries:  []string{"", "status=DRAFT&status=SENT", "customer_id={customer_id}", "project_id={project_id}"},
+			Discover: []IDSource{{Name: "quotation_id"}},
+		},
+		{ID: "quotation-detail", Route: "GET /api/v1/quotations/{quotation_id}"},
+	}}
+	report, err := run(t, pySrv, goSrv, corpus, Allowed{})
+	if err != nil {
+		t.Fatalf("RunReads: %v", err)
+	}
+
+	// Every variant that expands is sent: the bare list, both status tabs, the
+	// customer_id filter, and the discovered quotation detail.
+	for _, want := range []string{
+		"/api/v1/quotations",
+		"/api/v1/quotations?status=DRAFT&status=SENT",
+		"/api/v1/quotations?customer_id=c1",
+		"/api/v1/quotations/q1",
+	} {
+		if !sawTarget(gov.seen(), want) {
+			t.Fatalf("Go never saw %q; saw %+v", want, gov.seen())
+		}
+	}
+
+	var skips []CaseResult
+	for _, c := range report.Cases {
+		if c.ID == "quotations" && c.Skipped != "" {
+			skips = append(skips, c)
+		}
+	}
+	if len(skips) != 1 {
+		t.Fatalf("quotations has %d skips, want exactly the project_id variant: %+v", len(skips), report.Cases)
+	}
+	if want := "variant project_id={project_id}: no {project_id}"; skips[0].Skipped != want {
+		t.Fatalf("quotations skip %q, want %q", skips[0].Skipped, want)
+	}
+	if want := "GET /api/v1/quotations?project_id={project_id}"; skips[0].Request != want {
+		t.Fatalf("skip request %q, want %q", skips[0].Request, want)
+	}
+	if report.Summary.Skipped != 1 {
+		t.Fatalf("summary skipped %d, want 1: %+v", report.Summary.Skipped, report.Cases)
+	}
+}
+
+// TestRunnerEscapesQueryPlaceholders pins that a discovered id is query-escaped
+// in a query placeholder, so an id with '&' or '=' cannot add a parameter of
+// its own (the path keeps url.PathEscape, pinned above).
+func TestRunnerEscapesQueryPlaceholders(t *testing.T) {
+	t.Parallel()
+	list := `[{"customer_id":"c1&admin=1"}]`
+	backend := func() *recorder {
+		return &recorder{handle: func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/v1/auth/login":
+				loginHandler(w, r)
+			case "/api/v1/auth/me":
+				jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
+			case "/api/v1/customers":
+				jsonBody(w, http.StatusOK, list)
+			default:
+				jsonBody(w, http.StatusOK, `{"ok":true}`)
+			}
+		}}
+	}
+	py, gov := backend(), backend()
+	pySrv, goSrv := py.start(t), gov.start(t)
+
+	corpus := Corpus{Cases: []Case{
+		{ID: "customers", Route: "GET /api/v1/customers", Queries: []string{""}, Discover: []IDSource{{Name: "customer_id"}}},
+		{ID: "customer-quotations", Route: "GET /api/v1/quotations", Queries: []string{"customer_id={customer_id}"}},
+	}}
+	if _, err := run(t, pySrv, goSrv, corpus, Allowed{}); err != nil {
+		t.Fatalf("RunReads: %v", err)
+	}
+	want := "/api/v1/quotations?customer_id=c1%26admin%3D1"
+	if !sawTarget(gov.seen(), want) {
+		t.Fatalf("Go never saw the escaped query %q; saw %+v", want, gov.seen())
+	}
+}
+
 // TestRunnerEscapesDiscoveredIDs pins that a discovered id is path-escaped, so
 // an id with a slash cannot change the request's route.
 func TestRunnerEscapesDiscoveredIDs(t *testing.T) {
@@ -697,6 +815,16 @@ func TestCorpusFileLoads(t *testing.T) {
 			t.Fatalf("case %s does not discover payment_id", id)
 		}
 	}
+}
+
+// sawTarget reports whether a backend saw a request for target.
+func sawTarget(calls []call, target string) bool {
+	for _, c := range calls {
+		if c.target == target {
+			return true
+		}
+	}
+	return false
 }
 
 // contains reports whether a string slice holds s.
