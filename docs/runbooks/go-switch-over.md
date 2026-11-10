@@ -59,6 +59,7 @@ echo "py=$API_PY go=$API_GO web=$WEB db=$DB dbname=$DB_NAME"   # names only, nev
 for v in API_PY WEB DB; do
   [ "$(printf '%s\n' "${!v}" | grep -c .)" = 1 ] || echo "STOP: $v is not exactly one container"
 done
+[ -n "$DB_NAME" ] || echo "STOP: no database name in Python's DATABASE_URL"
 ```
 
 Expected: one name for each of `py`, `web`, `db` (and `go` once Go is
@@ -369,8 +370,11 @@ Rollback: none — the run is read-only.
 while the old and new containers overlap during the redeploy, and Python has
 finished today's runs. Go's first start with the scheduler on then runs each
 job's latest slot from the past 24 hours a second time; that is safe because
-every job is idempotent, which the rehearsal proved (no second child invoice,
-no second digest, no Cloudflare call, no hosting or FX change).
+every job is idempotent. The rehearsal proved it for the recurring scan (no
+second child invoice, no second digest) and hosting enforcement (no Cloudflare
+call, no hosting change). It did **not** exercise the other two: the FX
+catch-up did not run (its Monday slot was over 24 hours old), and usage-lock
+had no due draft to lock.
 
 In Coolify set, in one redeploy:
 
@@ -426,7 +430,11 @@ ON CONFLICT (job_id, slot) DO NOTHING;
 SQL
 ```
 
-(The FX job runs only on a Monday; switch on another day.)
+(The FX job's slot is Monday 05:00 UTC, and Go's catch-up runs it while it is
+under 24 hours old: from Monday 05:00 to Tuesday 04:59 UTC. Outside the
+02:00–05:59 window that leaves Monday 06:00–23:59 and Tuesday 00:00–01:59 UTC.
+Switch Tuesday from 06:00 UTC to Sunday, so the unrehearsed FX catch-up does
+not run at the switch.)
 
 ## 10. Set the password (plan Task 9.2) — **OWNER YES** (P9)
 
@@ -439,6 +447,7 @@ a no-echo prompt on the host:
 IFS= read -rsp 'New password: ' PW; echo
 if [ "${#PW}" -ge 8 ]; then
   printf '%s\n' "$PW" | docker exec -i "$API_GO" /api set-password "$EMAIL"
+  echo "exit=$?"
 else
   echo 'too short: nothing was set'
 fi
@@ -451,7 +460,7 @@ Expected:
 level=INFO msg="set-password: password set; every session of the user is signed out" email=<email>
 ```
 
-and an exit code of 0. This also revokes the owner's MCP refresh tokens
+and `exit=0`. This also revokes the owner's MCP refresh tokens
 (PN 157). Then the owner signs in at https://billing.wenhao.id.
 
 Rollback: none. Re-running it with another password is the recovery.
@@ -516,19 +525,6 @@ schedulers never overlap:
    `false`;
 2. set `PY_SCHEDULER_ENABLED=true`, redeploy.
 
-Python's scheduler never catches up a slot it missed. If a slot hour passed
-between the two redeploys and Go had not yet run it (check
-`scheduled_job_runs`, section 12), run that one job by hand in Python, for
-example the recurring scan:
-
-```bash
-docker exec "$API_PY" python -c 'from app.workers.tasks.recurring import scan_and_generate; print(scan_and_generate())'
-```
-
-(The others: `app.workers.tasks.usage_lock.cutoff_scan`,
-`app.workers.tasks.hosting_enforcement.daily_hosting_enforcement`,
-`app.workers.tasks.fx_sync.sync_fx_rates`.)
-
 After the (last) redeploy, run the Conventions block again, then check:
 
 ```bash
@@ -541,6 +537,60 @@ curl -s -o /dev/null -w 'auth/me %{http_code}\n' https://billing.wenhao.id/api/v
 Expected: Python `SCHEDULER_ENABLED=true` and Go `SCHEDULER_ENABLED=false`;
 Go logs `scheduler is off (SCHEDULER_ENABLED)`; `redoc 200` (nginx reaches
 Python); `auth/me 401` (not 502).
+
+**Missed slots — after every way back, by either path, at once.** Python's
+scheduler never catches up a slot that passed before it started, and a way
+back most likely follows Go misbehaving, so a slot Go should have run may not
+have run. Usage-lock is day-specific (it locks drafts whose `cut_off_day` was
+yesterday), so a missed run leaves that invoice unlocked for a month. Run this
+right after the redeploy (Python writes no `scheduled_job_runs` rows, so a slot
+that is already past now can only have been run by Go):
+
+```bash
+dbq <<'SQL'
+WITH d AS (SELECT (now() AT TIME ZONE 'UTC')::date AS day),
+slots AS (
+  SELECT v.job_id, (d.day - v.back + make_time(v.hour, 0, 0)) AT TIME ZONE 'UTC' AS slot
+  FROM d, (VALUES ('recurring-scan-and-generate', 2, 0), ('usage-lock-cutoff-scan', 3, 0),
+                  ('hosting-overdue-enforcement', 4, 0), ('fx-rates-weekly-sync', 5, 0),
+                  ('recurring-scan-and-generate', 2, 1), ('usage-lock-cutoff-scan', 3, 1),
+                  ('hosting-overdue-enforcement', 4, 1), ('fx-rates-weekly-sync', 5, 1)) AS v(job_id, hour, back)
+  WHERE v.job_id <> 'fx-rates-weekly-sync' OR extract(isodow FROM d.day - v.back) = 1
+)
+SELECT s.job_id, to_char(s.slot AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') || 'Z' AS slot,
+       CASE WHEN s.slot > now() THEN 'not due yet (Python runs it)'
+            WHEN EXISTS (SELECT 1 FROM scheduled_job_runs r
+                         WHERE r.job_id = s.job_id AND r.slot = s.slot
+                           AND r.finished_at IS NOT NULL AND r.error IS NULL) THEN 'ran'
+            ELSE 'MISSED' END AS state
+FROM slots s ORDER BY s.slot;
+SQL
+```
+
+Expected: every past slot `ran`. For each `MISSED` slot **of today**, run that
+job by hand in Python, today (each job reads `date.today()`: `cutoff_scan`
+locks drafts whose cut-off day was yesterday, so it only does the right work
+on the same day as its missed slot). Not within a few minutes of a slot hour,
+when Python's own scheduler would run:
+
+```bash
+docker exec "$API_PY" python -c 'from app.workers.tasks.recurring import scan_and_generate; print(scan_and_generate())'
+docker exec "$API_PY" python -c 'from app.workers.tasks.usage_lock import cutoff_scan; print(cutoff_scan())'
+docker exec "$API_PY" python -c 'from app.workers.tasks.hosting_enforcement import daily_hosting_enforcement; print(daily_hosting_enforcement())'
+docker exec "$API_PY" python -c 'from app.workers.tasks.fx_sync import sync_fx_rates; print(sync_fx_rates())'
+```
+
+Each prints its result (a count or a dict). `cutoff_scan` raising
+`NotImplementedError` is PN 1 (a due usage draft), as on Python's scheduler:
+report it. A `MISSED` FX slot of yesterday (a Monday) is fixed the same way:
+`sync_fx_rates` fetches the latest rates whenever it runs. (A slot Go recorded
+as `… is older than 24h0m0s: skipped` also shows `MISSED`, correctly.) Any other
+`MISSED` slot of **yesterday** cannot be re-run this way:
+hosting enforcement re-evaluates every item on today's run, and the recurring
+scan generates each template's cycle that is current today (a cycle that
+ended yesterday, such as a daily template's, is not generated); a missed
+usage-lock day needs the owner to lock those drafts by hand. Stop and report
+which templates and drafts the missed day covered.
 
 Then Python's hash form must be restored, because Python cannot read the
 argon2id hash Go wrote. `scripts.seed_admin` takes the password in `argv`, so
@@ -555,9 +605,10 @@ if len(pw) < 8:
     sys.exit("too short: nothing was changed")
 sys.argv = ["seed_admin", sys.argv[1], pw]
 runpy.run_module("scripts.seed_admin", run_name="__main__")' "$EMAIL"
+echo "exit=$?"
 ```
 
-Expected: `updated admin <email>`, and the exit code 0.
+Expected: `updated admin <email>`, then `exit=0`.
 
 Then the owner signs in to Python at https://billing.wenhao.id. Python accepts a
 Go-issued MCP refresh token (same secret, same `oauth_refresh_tokens` table);

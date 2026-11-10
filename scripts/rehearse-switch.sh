@@ -279,6 +279,12 @@ print("RESULT fx", sync_fx_rates())'
 
 # ===========================================================================
 step "setup: env file and the local Postgres"
+# Before 02:00 UTC the latest recurring slot Go catches up is yesterday's,
+# while Python's hand run in step 3 scans today: the two would not be the same
+# slot and steps 3-4 would prove nothing. Refuse rather than pass vacuously.
+if (( 10#$(date -u +%H) < 2 )); then
+  fail "run this after 02:00 UTC (today's recurring slot must be in the past)"
+fi
 {
   echo "DATABASE_URL=postgresql+psycopg://billing:billing@shared-postgres:5432/billing"
   echo "SERVICE_FQDN_WEB_80=localhost:${HTTP_PORT}"
@@ -398,6 +404,7 @@ psqlq "UPDATE cloudflare_targets t SET provider_status = 'ACTIVE' FROM items i
 ok "set $OVERDUE overdue hosting item(s) live again (ACTIVE item and target)"
 
 CF_BEFORE_PY=$(count_cloudflare_calls)
+INVOICES_BEFORE_PY=$(count_child_invoices)
 PY_OUT=$(dc exec -T wenhao-billing-api python -c "$PY_JOBS")
 printf '%s\n' "$PY_OUT" | grep '^RESULT' | sed 's/^/   python /'
 DIGESTS_PY=$(printf '%s\n' "$PY_OUT" | grep -c '\[email disabled\] would send.*draft invoice' || true)
@@ -406,6 +413,8 @@ FX_PY=$(count_fx_rows)
 CF_PY=$(count_cloudflare_calls)
 HOSTING_PY=$(hosting_state)
 SUSPENDED_PY=$(count_suspended)
+[[ "$INVOICES_PY" -gt "$INVOICES_BEFORE_PY" ]] \
+  || fail "Python's scan generated no child invoice ($INVOICES_BEFORE_PY before, $INVOICES_PY after): the overlap check would be vacuous"
 [[ "$DIGESTS_PY" -ge 1 ]] || fail "Python's scan sent no draft digest: the overlap check would be vacuous"
 [[ $((CF_PY - CF_BEFORE_PY)) -ge 1 ]] || fail "Python's enforcement made no Cloudflare call: the hosting check would be vacuous"
 ok "after Python's run: child invoices=$INVOICES_PY digests=$DIGESTS_PY cloudflare calls=$((CF_PY - CF_BEFORE_PY)) suspended items=$SUSPENDED_PY fx rows=$FX_PY"
@@ -500,8 +509,35 @@ assert_me "$PW" "the owner signs in to Python again"
 CODE=$(mcp_refresh "$GO_LIVE_REFRESH" "$MCP_CID")
 expect_eq 200 "$CODE" "Python accepted a Go-issued refresh token"
 
+# The runbook's missed-slot check (section 13), verbatim. Go ran today's
+# slots in step 4, so none of today's is MISSED. Yesterday's are MISSED here
+# only because Go was not on yesterday (the rehearsal's Python never records
+# a run); they are printed, not asserted.
+MISSED_SQL="WITH d AS (SELECT (now() AT TIME ZONE 'UTC')::date AS day),
+slots AS (
+  SELECT v.job_id, (d.day - v.back + make_time(v.hour, 0, 0)) AT TIME ZONE 'UTC' AS slot
+  FROM d, (VALUES ('recurring-scan-and-generate', 2, 0), ('usage-lock-cutoff-scan', 3, 0),
+                  ('hosting-overdue-enforcement', 4, 0), ('fx-rates-weekly-sync', 5, 0),
+                  ('recurring-scan-and-generate', 2, 1), ('usage-lock-cutoff-scan', 3, 1),
+                  ('hosting-overdue-enforcement', 4, 1), ('fx-rates-weekly-sync', 5, 1)) AS v(job_id, hour, back)
+  WHERE v.job_id <> 'fx-rates-weekly-sync' OR extract(isodow FROM d.day - v.back) = 1
+)
+SELECT s.job_id, to_char(s.slot AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') || 'Z' AS slot,
+       CASE WHEN s.slot > now() THEN 'not due yet (Python runs it)'
+            WHEN EXISTS (SELECT 1 FROM scheduled_job_runs r
+                         WHERE r.job_id = s.job_id AND r.slot = s.slot
+                           AND r.finished_at IS NOT NULL AND r.error IS NULL) THEN 'ran'
+            ELSE 'MISSED' END AS state
+FROM slots s ORDER BY s.slot;"
+MISSED_OUT=$(psqlq "$MISSED_SQL")
+printf '%s\n' "$MISSED_OUT" | sed 's/^/   missed-slot check: /'
+expect_eq 0 "$(printf '%s\n' "$MISSED_OUT" | grep "|$(date -u +%F) .*|MISSED$" | grep -c . || true)" "no slot of today is MISSED after the way back"
+
 # ===========================================================================
 step "step 8: Go stopped, nginx recreated — the site still serves"
+# This proves nginx starts and serves with Go gone; it does not prove the
+# per-request re-resolution of a recreated API (the resolver), which was
+# checked by hand under nginx:1.27-alpine in the round-2 review.
 dc stop wenhao-billing-api-go >/dev/null
 dc up -d --no-deps --force-recreate wenhao-billing-web >/dev/null
 wait_healthy wenhao-billing-web

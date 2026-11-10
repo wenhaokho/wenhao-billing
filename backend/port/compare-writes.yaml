@@ -215,6 +215,17 @@ scenarios:
       - id: list-payments
         method: GET
         path: /api/v1/invoices/{invoice_id}/payments
+      # Refusal parity, NOT ACTIVE: reversing the manual payment is a 400 on
+      # both backends ("no active journal entry to reverse") and changes
+      # nothing — seen in the first local run (plan 11 Task 5). The runner
+      # aborts the whole run on any non-2xx answer and has no per-step
+      # expected status, so the step cannot run yet. Follow-up (runner code):
+      # an `expect_status: 400` field; then uncomment:
+      # - id: reverse-manual-payment-refused
+      #   method: POST
+      #   path: /api/v1/payments/{payment_id}/reverse
+      #   body: {reason: "compare"}
+      #   expect_status: 400
 
   # --- recurring template -------------------------------------------------
   - id: recurring-template
@@ -279,8 +290,11 @@ scenarios:
   # The line names the kept item_id, not expense_account_id: the runner sends
   # every placeholder as a JSON string, Go's integer expense_account_id
   # refuses "123" with 422 while Python's pydantic coerces it, and a real
-  # client sends a number. A bill payment has no table of its own: it only
-  # updates the bill row.
+  # client sends a number. Follow-up (runner code, plan 11 Task 5 report): let
+  # a whole-value placeholder of a numeric id be sent as a JSON number, then
+  # put expense_account_id: "{account_id}" back so the expense-account path is
+  # compared again. A bill payment has no table of its own: it only updates the
+  # bill row.
   - id: bill
     tables:
       - bills
