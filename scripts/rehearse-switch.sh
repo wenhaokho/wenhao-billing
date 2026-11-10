@@ -320,7 +320,8 @@ ok "the rotated token is invalid_grant after set-password (PN 157)"
 
 # A fresh authorize through Go's login works. Without a session, authorize
 # bounces to the SPA login carrying return_to back to this same path/query.
-RETURN_LOC=$(curl -sS -o /dev/null -D - "$BASE/oauth/authorize?response_type=code&client_id=$MCP_CID&redirect_uri=https%3A%2F%2Flocalhost%2Fcallback&code_challenge=x&code_challenge_method=S256" \
+CHALLENGE="E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+RETURN_LOC=$(curl -sS -o /dev/null -D - "$BASE/oauth/authorize?response_type=code&client_id=$MCP_CID&redirect_uri=https%3A%2F%2Flocalhost%2Fcallback&code_challenge=$CHALLENGE&code_challenge_method=S256" \
   | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')
 printf '%s' "$RETURN_LOC" | grep -q 'return_to=%2Foauth%2Fauthorize' \
   || fail "authorize without a session did not bounce to /login with return_to"
