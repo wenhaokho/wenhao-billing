@@ -12,7 +12,7 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
 2. **Email intake with attachments raises `NotImplementedError` (surfaces as 400).**
    Python: the default OCR function raises (`app/services/intake/email_ocr.py:22-23`); `parse_inbound_email` re-raises it for any attachment that has `content` (`:42-50`); the route is called without an `ocr_fn` and turns it into a 400 (`app/api/v1/routers/payments.py:48-51`, `POST /api/v1/payments/intake/email`).
    Seen: a payment email with an attachment is rejected with 400 and the message "Attach an OCR backend (tesseract/textract/etc) before calling"; only emails whose subject/text/html carry the amount are accepted.
-   After the switch: pick an OCR backend, or skip attachments and parse the body only (a decision for the owner).
+   After the switch: none for now. Owner decision (2026-11-10): no OCR yet; emails with attachments keep being refused, and the amount must be in the subject or body.
 
 3. **`GET /api/v1/payments/{id}/log` returns `[]` for an unknown payment.**
    Python: the handler never looks the payment up; it selects log rows by `payment_id` (`app/api/v1/routers/recon.py:105-125`).
@@ -591,7 +591,8 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
 112. **Only a finalized invoice can be sent (a change, owner decision 2026-11-10); a quotation send stamps `last_sent_at` in any sendable status (kept).**
     Python: `send_invoice` sets DRAFT/OPEN to SENT with no finalize checks, so a DRAFT with no number goes out as `invoice  for` (`routers/invoices.py:774-775`); the quotation send stamps `last_sent_at` for ACCEPTED, DECLINED, EXPIRED and SENT too, and says `cannot send a INVOICED quotation` (`quotations.py:196-199, 233-236`).
     Go: a DRAFT invoice is 400 `invoice_not_finalized` / `finalize the invoice before sending it` and a recurring template is 400 `invoice_template` / `cannot send a recurring template` (checked first, as a template is a DRAFT too), before anything is rendered or sent; VOID stays `invoice_void`. The `send_invoice_email` MCP tool refuses both with the same sentences on the preview and on the confirm, so a refused invoice never gets a token. Only OPEN becomes SENT on a send; SENT, PARTIAL and PAID stay as they are (`invoices.TestSendDraftInvoiceRefused`, `invoices.TestSendTemplateRefused`, `invoices.TestSendOpenBecomesSent`, `mcp.TestSendDraftInvoiceRefusedOnPreviewAndConfirm`, `mcp.TestSendTemplateRefusedOnPreviewAndConfirm`). The tool's description still says a DRAFT is promoted to SENT: it is Python's text, kept for `TestToolsListMatchesPython`. The invoice form shows Send invoice disabled for a DRAFT or a template. The quotation send is kept as in Python (owner ruling R3; `quotations.TestQuotationSendBodyAndLastSentAt`, `TestQuotationSendRefusals`).
-    After the switch: reword the tool description (and the parity golden) to say only a finalized invoice can be sent.
+    Go's `send_invoice_email` description says so too (only a finalized invoice can be sent); `mcp.TestToolsListMatchesPython` lists it in `changedDescriptions`, the one description that deliberately differs from Python's.
+    After the switch: none.
 
 113. **The PDF `Content-Disposition` is escaped.**
     Python: `inline; filename="{name}"` with the number as stored, so a quote or non-ASCII character in a number (a PATCH can set one) breaks the header (`routers/invoices.py:716`, `quotations.py:182`).
@@ -648,10 +649,10 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Go: a data URI is decoded (base64 or percent-encoded), http(s) is fetched with a 5 s context and client timeout, no redirects, a 2xx check and a 2 MB cap (the cap applies to data URIs too); the type is sniffed with `http.DetectContentType` and only PNG and JPEG are accepted, because Maroto embeds only PNG and JPEG; a PNG is decoded and re-encoded as 8-bit non-interlaced NRGBA because gofpdf rejects interlaced and 16-bit PNGs; any failure is logged `failed to resolve logo; using default` and the default logo is used; successes are cached per logo_url for 10 minutes (failures are not cached), the cache holds at most 64 entries and returns copies; the dimensions are capped at 4096 px on a side and 16 MP in total (`pdf.TestPassthroughDataURI`, `pdf.TestHTTPFetchSuccess`, `pdf.TestHTTPFetchNonImageFallsBackToDefault`, `pdf.TestLogoTypeIsSniffedFromTheBytes`, `pdf.TestLogoSizeCapFallsBack`, `pdf.TestLogoIsCachedForTenMinutes`, `pdf.TestLogoRedirectIsNotFollowed`, `pdf.TestLogoDimensionsAreCapped`). Python's `test_http_fetch_non_image_mime_falls_back_to_png` now expects the default logo.
     After the switch: none for PNG and JPEG; see note 124 for SVG.
 
-124. **SVG logos print the default logo (owner decision pending).**
+124. **SVG logos print the default logo.**
     Python: the business profile upload accepts `image/svg+xml` and WeasyPrint printed SVG, so an SVG logo_url rendered as the SVG.
     Go: Maroto v2 embeds only PNG, JPG and JPEG, so the logo resolver sniffs the bytes and refuses SVG (and GIF) and prints the default logo instead (`pdf.TestHTTPFetchNonImageFallsBackToDefault`; `pdf.TestLogoTypeIsSniffedFromTheBytes`: a GIF labelled `image/png` falls back).
-    After the switch: the owner has not decided; rasterise the SVG on upload or in the resolver, or restrict the upload to PNG and JPEG.
+    After the switch: none for now. Owner decision (2026-11-10): no change; the owner will upload a new logo later (use PNG or JPEG).
 
 125. **The draft digest HTML is escaped (Go change 7).**
     Python: `build_recurring_drafts_email` builds the HTML with f-strings and no HTML escaping of names (`app/services/email.py:180-186`), so a customer name with `<` breaks the mail (the text body carries the same names).
