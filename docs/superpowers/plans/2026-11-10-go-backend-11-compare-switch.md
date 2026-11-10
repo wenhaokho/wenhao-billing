@@ -1,103 +1,173 @@
-# Go backend, plan 11: comparison, side by side, switch-over (DRAFT)
+# Go backend, plan 11: comparison, side by side, switch-over
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Draft, written 2026-11-10 before plans 7–10 merged.** Before execution, a refresh pass checks every count, file and config name below against `main`. Tasks 1–4 are code; Tasks 5–9 touch production, and **every step that deploys, writes to or changes production waits for the owner's yes in chat**.
+> **Refreshed 2026-11-10 against `main` at `9fb4981`** (plans 1–10 merged; `feat/go-send-finalized-only` treated as landed). Tasks 1–5 are local and touch nothing in production. Tasks 6–10 touch production. Every step marked **OWNER YES REQUIRED** waits for the owner's yes in chat, one yes per step.
 
 **Goal:** Prove Go answers the frontend as Python does, run it beside Python on Coolify, switch the site to it with a rehearsed way back, and delete Python a week later.
 
 **Architecture:**
-- `backend/cmd/compare` replays a corpus of the frontend's calls against two base URLs and diffs the JSON under `backend/port/allowed-diffs.yaml`.
-- Scripts run it locally, on a restored dump for reads and on two dump copies for writes and rows.
-- The `/compare` binary ships in the Go image, so the production read comparison runs inside Coolify's network.
-- The Coolify compose gains `wenhao-billing-api-go`, and `BACKEND_UPSTREAM` becomes a variable, so switching (and switching back) is an environment change.
+- `backend/cmd/compare` replays a corpus of the frontend's calls against two base URLs. It diffs the JSON under `backend/port/allowed-diffs.yaml`.
+- Scripts run it locally against a restored dump: reads on one copy, writes and rows on two copies.
+- The Go image ships `/compare` beside `/api`, so the production read comparison runs inside Coolify's network.
+- `docker-compose.coolify.yml` gains `wenhao-billing-api-go`. `BACKEND_UPSTREAM` and both scheduler flags become Coolify variables, so the switch and the way back are environment changes plus a redeploy, with no git change.
 
-**Tech Stack:** Go 1.27 (stdlib `net/http`, `encoding/json`, `gopkg.in/yaml.v3` if not already vendored, else the vendored YAML library), pgx v5, Docker Compose, Coolify.
+**Tech Stack:** Go 1.27 (stdlib `net/http`, `encoding/json`, `gopkg.in/yaml.v2`), pgx v5, pgtestdb, Docker Compose, Coolify. `yaml.v2` is already vendored and listed in `go.mod` as indirect. Import it and drop the `// indirect` marker; no revendoring is needed (`./dev vendor` needs `gh auth`).
 
-**Spec:** `docs/superpowers/specs/2026-11-08-go-backend-design.md` ("The comparison", "Builds and deploys", "Switch-over", "Database", "Dates", "Done").
+**Spec:** `docs/superpowers/specs/2026-11-08-go-backend-design.md`. Sections: "Behaviour that must be carried exactly" (Dates), "MCP connector", "Email", "Background work", "Database", "The comparison", "Builds and deploys", "Switch-over", "Done".
 
 **Inventory:** `docs/superpowers/plans/2026-11-10-go-backend-11-compare-switch-inventory.md`:
-- §2 is the frontend call corpus;
-- §3 lists the allowed differences;
-- §4 is the switch prerequisites (22 rows);
-- §5 is the env-var surface;
-- §6 covers risks and rollback points.
+- §1: what exists and what is missing;
+- §2: the frontend call corpus;
+- §3: allowed differences;
+- §4: the switch prerequisites and their status;
+- §5: the env-var surface;
+- §6: risks and rollback points.
 
 ## Global Constraints
 
-**Owner approval**
-- The owner approves, in chat, each of:
-  - taking a production dump;
-  - `SHOW timezone` on production;
-  - `api adopt-baseline` on production;
-  - each Coolify deploy;
-  - the read comparison on production;
-  - the switch;
-  - the way back;
-  - deleting Python.
+**OWNER YES REQUIRED: the full list.** These steps touch production. Each needs its own yes in chat:
 
-  One yes covers one step. A yes for one step never covers the next.
-- The production dump stays on this machine and is deleted after Task 4. It is never committed and never put in the scratchpad's published paths.
+| # | Step | Task |
+|---|---|---|
+| P1 | `SHOW timezone;` on production (read-only) | 6.1 |
+| P2 | `pg_dump` of production to this machine | 6.2 |
+| P3 | Read Coolify env **names** (`list_env_keys`, values never) | 7.1 |
+| P4 | Set the new Coolify variables (`GO_SCHEDULER_ENABLED=false`, `PY_SCHEDULER_ENABLED=true`, `BACKEND_UPSTREAM=wenhao-billing-api:8000`) | 7.2 |
+| P5 | `api adopt-baseline` on production (writes `goose_db_version`) | 8.1 |
+| P6 | Merge the compose PR, which deploys Go beside Python; serve applies 00002–00007 to production | 8.2 |
+| P7 | The read comparison against production | 8.3 |
+| P8 | The switch: env change and redeploy | 9.1 |
+| P9 | `api set-password` for the owner on production (the owner types the password) | 9.2 |
+| P10 | The way back, only if needed: env change, redeploy, `seed_admin` | 9.5 |
+| P11 | Find and void duplicate recurring children (PN 35), if Task 6 found any | post-switch |
+| P12 | Merge the Python removal, which deploys and drops `alembic_version` | 10.3 |
 
-**Prerequisites**
-- **Prerequisites before Task 5:** these must all be true on `main`:
-  - every `ROUTES.md` route is `ported`;
-  - every `TESTS.md` row is `ported`, merged, or not-ported with a reason;
-  - every guard has a recorded mutation;
-  - the hosting restore is ported (plan 9);
-  - the scheduler exists with `SCHEDULER_ENABLED` (plan 9);
-  - the MCP server and its frontend edit are in (plan 10);
-  - `bash scripts/check.sh` passes.
+- A yes for one step never covers the next. Merging to `main` deploys (Coolify builds from it), so every merge is an owner yes, including the merge of local-only work.
+- The production dump stays on this machine, outside the repository and the scratchpad's published paths. It is deleted at the end of Task 6.
+- Claude never types a password. The owner types each one into stdin.
+- No Coolify MCP call writes anything without its own yes: `manage_env`, `deploy`, `control`.
 
-  Task 5's first step checks this list and stops if anything is missing.
+**Prerequisites: status on `main` `9fb4981`**
+
+| Item | Status |
+|---|---|
+| Every `ROUTES.md` route `ported` (107 `/api/v1`, 7 OAuth and discovery, `/mcp` and `/mcp/`) | done |
+| Every ported `TESTS.md` row has a mutation; every not-ported row has a reason (503 ported, 13 not ported) | done |
+| `TESTS.md` has no `todo` row | **4 left**: Task 1 |
+| Hosting restore and enforcement (`hosting.Restorer`, `jobs.HostingEnforcement`) | done (plan 9) |
+| Scheduler with `SCHEDULER_ENABLED` (Go default `false`, `config.go:103`), `scheduled_job_runs` (00004) | done (plan 9) |
+| Resend sender with idempotency key (`email.IdempotencyKey`); real receipt renderer (PN 82) | done (plan 9) |
+| MCP and OAuth (00005–00007) and the frontend `return_to` edit (`check.sh` "frontend return_to check") | done (plan 10) |
+| Only finalized invoices can be sent (PN 112) | landing on `feat/go-send-finalized-only`; treat as landed |
+| `bash scripts/check.sh` passes | re-run in Task 1 |
+
+**The scheduler: never both at once**
+- Python and Go use the same advisory-lock keys (`crc32(job_id)`: `jobs.LockKey`, `backend-python/app/workers/scheduler.py:41`). That stops *concurrent* runs only.
+- Python writes no `scheduled_job_runs` rows. With both schedulers on, a slot runs twice, one run after the other (PN 119). Exactly one scheduler is on at any time.
+- Coolify variables are shared by every service of the compose resource, so one `SCHEDULER_ENABLED` variable cannot hold two values. The compose maps distinct names:
+  - Python: `SCHEDULER_ENABLED: ${PY_SCHEDULER_ENABLED:-true}`;
+  - Go: `SCHEDULER_ENABLED: ${GO_SCHEDULER_ENABLED:-false}`.
+- On its first start with the scheduler on, Go runs each job's latest slot from the past 24 hours that has no row. Python has usually run that slot already, so it runs a second time. This is safe only because each job is idempotent (spec "Background work"). Task 5 proves it locally, and the switch avoids 02:00–05:59 UTC, which is 09:00–12:59 WIB.
+
+**Migrations 00002–00007 are additive.** Python keeps working on the same database during the compare week and after a way back:
+- 00002: `users.session_epoch NOT NULL DEFAULT 0`; Python inserts get the default.
+- 00003: `login_attempts`.
+- 00004: `scheduled_job_runs`.
+- 00005: `oauth_spent_codes`.
+- 00006: `mcp_spent_confirm_tokens`.
+- 00007: an index on Python's `oauth_refresh_tokens(user_id)`.
+
+All are new tables or an index; Python's models never name them. 00007 takes a short write lock while it builds, on a table of a few rows. Python's `alembic upgrade head` at start stays a no-op at `0028_business_npwp`.
 
 **The comparison**
-- The comparison never sends mail or calls Cloudflare or Frankfurter:
-  - `RESEND_API_KEY` and `CLOUDFLARE_API_TOKEN` are unset for local runs;
+- It never sends mail or calls Cloudflare or Frankfurter:
+  - local runs leave `RESEND_API_KEY` and `CLOUDFLARE_API_TOKEN` unset (Go then logs mail and skips Cloudflare);
   - `FX_PROVIDER_BASE_URL` points at a local stub;
-  - the production read comparison sends GET only.
-- Allowed differences are named, each with its PORT-NOTES number or spec line. Nothing is allowed by a wildcard over a whole route.
+  - both schedulers are off.
+- The production read comparison sends GET only. The one exception is Python's `POST /auth/login`, which writes nothing (`backend-python/app/api/v1/routers/auth.py:44-60`).
+- Each allowed difference names its PORT-NOTES number or spec line. No wildcard covers a whole route.
 
-**Tests and commits**
-- Tests run on pgtestdb where a database is needed. Every test and subtest calls `t.Parallel()` first.
+**Tests, commits, delegation**
+- Tests run on pgtestdb where a database is needed. Every test and subtest calls `t.Parallel()` first; lint enforces it.
 - Commits name their paths. Messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- The branch is `feat/go-compare-switch` for Tasks 1–4. Production tasks commit only compose and runbook changes, each on its own small branch and PR. **Merging to `main` deploys**, so every merge is an owner yes.
+- Branches:
+  - `feat/go-compare-switch` for Tasks 1–4;
+  - `feat/go-switch-compose` for Task 5;
+  - `chore/remove-python` for Task 10.
+- Code tasks are implemented by opencode in a worktree and reviewed by Claude (memory: opencode implements, Claude reviews). **The owner chooses the opencode model** before Task 1 starts.
 
 ## Review Focus
 
-1. A decimal `"1500.0000"` vs `"1500"` must compare equal, but `"1500.0001"` vs `"1500"` must not: Task 1 `TestDecimalStringsEqualByValue`.
-2. A list whose Python order was undefined (PN 40/41/44/47/53/78) must compare as a multiset only on the routes listed for it, and in order everywhere else: Task 1 `TestUnorderedOnlyWhereAllowed`.
-3. A write comparison where both backends create an invoice must map Python's new id to Go's before comparing rows and later calls: Task 3 `TestIdMappingAcrossWrites`.
-4. nginx must keep serving the site if the Go container is down while `BACKEND_UPSTREAM` still points at Python: Task 4 `compose-check` step (web `depends_on` only the upstream in use).
-5. The way back must leave the owner able to sign in to Python: Task 6 rehearsal, the final step's login check.
+1. A decimal `"1500.0000"` vs `"1500"` compares equal, and so do `"-0.0000"` vs `"0"` (PN 99). `"1500.0001"` vs `"1500"` does not. Task 2: `TestDecimalStringsEqualByValue`.
+2. A list whose Python order was undefined (PN 40/41/44/47/53/78/100) compares as a multiset only on the routes listed for it, and in order everywhere else. Task 2: `TestUnorderedOnlyWhereAllowed`.
+3. When both backends create an invoice in a write comparison, Python's new id maps to Go's before rows and later calls are compared. Task 4: `TestIdMappingAcrossWrites`.
+4. nginx keeps serving while the Go container is down, as long as `BACKEND_UPSTREAM` points at Python. The web `depends_on` names the Python API only until Task 10. Task 5: compose check.
+5. Exactly one scheduler is on in every state of the runbook (side by side, switched, way back). The first Go start after Python's run creates no second invoice, sends no second digest, and makes no Cloudflare change. Task 5: rehearsal steps 3 and 6.
+6. After the way back, the owner can sign in to Python. Task 5: the rehearsal's last check.
 
 ---
 
-### Task 1: The diff engine and allowed differences
+## Local work (no production contact)
+
+### Task 1: Close the last prerequisites
+
+**Files:**
+- Modify: `backend/TESTS.md`.
+- Create: a Go test for the bill payment rule if none exists, plus one Sentry test.
+
+The four `todo` rows:
+
+| Python test | Decision |
+|---|---|
+| `test_record_payment_withholding.py::test_bill_payment_schema_still_requires_positive_amount` | Map it to the bills record-payment test that refuses `amount: 0` with 422. Write that test if it is missing, and record its mutation. |
+| `test_recurring_scheduling.py::test_fix_recurring_cycle_keys_plan_and_apply` | Not ported. Reason: the Python one-off repair script `scripts/fix_recurring_cycle_keys.py`. Go's trigger takes one key spelling under a lock (PN 35). Its dry run on the production copy is Task 6 step 5. |
+| `test_recurring_scheduling.py::test_fix_script_ignores_void_and_fixes_live_key` | Same as the row above. |
+| `test_sentry_disabled_in_tests.py::test_create_app_does_not_enable_sentry_under_pytest` | Port it as a test that `apitest.New` starts no Sentry client (no `SENTRY_DSN`), or mark it not ported with the reason that `observe` is off without a DSN. Pick whichever has a real mutation. |
+
+- [ ] **Step 1:** Make the four rows not `todo`. Re-run the prerequisite table above against `main` and stop on any gap.
+- [ ] **Step 2:** `bash scripts/check.sh` passes. Commit `test(go): close the last TESTS.md rows`.
+
+---
+
+### Task 2: The diff engine and allowed differences
 
 **Files:**
 - Create: `backend/internal/compare/diff.go`, `allowed.go`, `diff_test.go`, `allowed_test.go`, `backend/port/allowed-diffs.yaml`
 
 **Interfaces:**
-- Produces:
-  - `type Allowed struct { … }`, loaded from YAML. Entries:
-    - `{route: "GET /api/v1/…", path: "$.items[*].expected_cash", rule: "decimal-equal"|"instant-equal"|"ignore"|"unordered"|"python-zero-vs-go-4dp"|"status"|"detail-shape", note: "PN 50"}`;
-    - global rules for decimals, instants and the error shape.
-  - `func Diff(route string, py, gov Response, a Allowed) []Difference`, where `type Response struct { Status int; Header http.Header; Body []byte }` and `type Difference struct { Path, Python, Go, Rule string }`.
+- `type Allowed struct { … }` is loaded from YAML. Entries take the form `{route: "GET /api/v1/…", path: "$.items[*].expected_cash", rule: …, note: "PN 50"}`. Rules:
+  - `decimal-equal`;
+  - `instant-equal`;
+  - `ignore`;
+  - `unordered`;
+  - `number-equal` (`10` vs `10.0`, PN 104);
+  - `status`;
+  - `detail-shape`.
+
+  There are also global rules for decimals, instants and the error shape.
+- `func Diff(route string, py, gov Response, a Allowed) []Difference`, where:
+  - `type Response struct { Status int; Header http.Header; Body []byte }`;
+  - `type Difference struct { Path, Python, Go, Rule string }`.
 
 Rules (spec "The comparison"):
-- Decimal strings are compared by value.
-- RFC 3339 and naive timestamps are compared as instants. A naive value is UTC unless the run's `--python-tz` says otherwise.
-- Python `{"detail": d}` equals problem+json with the same `detail` and status.
+- Decimal strings compare by value, and `-0.0000` equals `0` (PN 99).
+- RFC 3339 and naive timestamps compare as instants. A naive value is UTC unless `--python-tz` says otherwise (Task 6 step 1).
+- Python's `{"detail": d}` equals problem+json with the same `detail` and status.
+- OAuth errors keep `{"error","error_description"}` on both sides.
 - PDFs compare status, `Content-Type` and `Content-Disposition` only.
 - Every other difference is reported.
 
-`allowed-diffs.yaml` gets one entry per inventory §3 item, with its note.
+`allowed-diffs.yaml` gets one entry per inventory §3 item, with its note. These include:
+- PN 6: a tie that Go holds;
+- PN 97/98: balance sheet `as_of` and the open-AR rule;
+- PN 104 and 108: `10.0` and the `Z`;
+- PN 112: a DRAFT invoice send is 400 in Go.
 
 - [ ] **Step 1: Failing tests.**
-  - `TestDecimalStringsEqualByValue`.
-  - `TestInstantsEqualAcrossFormats` (`2026-01-01T00:00:00` vs `2026-01-01T00:00:00Z`).
-  - `TestErrorShapeEqual`, plus a different `detail` is reported.
+  - `TestDecimalStringsEqualByValue`, including negative zero.
+  - `TestInstantsEqualAcrossFormats` (`2026-01-01T00:00:00` vs `…Z`).
+  - `TestErrorShapeEqual`; a different `detail` is reported.
   - `TestUnorderedOnlyWhereAllowed`.
   - `TestIgnoreNeedsNote`: loading an entry without `note` fails.
   - `TestNullVsMissingIsDifference`.
@@ -108,48 +178,48 @@ Rules (spec "The comparison"):
 
 ---
 
-### Task 2: The corpus and the read runner
+### Task 3: The corpus and the read runner
 
 **Files:**
 - Create: `backend/cmd/compare/main.go`, `backend/internal/compare/corpus.go`, `runner.go`, `runner_test.go`, `backend/port/compare-corpus.yaml`
+- Modify: `backend/Dockerfile`. Add a second `go build … -o /out/compare ./cmd/compare` and `COPY --from=build /out/compare /compare`. `ENTRYPOINT` stays `/api`.
 
 **Interfaces:**
-- Produces:
-  - `compare reads --python URL --go URL [--python-password-stdin] [--python-email E] [--go-token-stdin] --corpus FILE --allowed FILE --out report.json`.
-  - Exit codes: 0 when clean, 1 when there are differences, 2 on error.
+- `compare reads --python URL --go URL --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --corpus FILE --allowed FILE [--python-tz ZONE] --out report.json`
+- Exit codes: 0 when clean, 1 when there are differences, 2 on error.
 
-**Corpus:** every GET in inventory §2, plus the GETs the frontend never calls, with query variants as the frontend sends them:
+**Corpus:** every GET in inventory §2, plus GETs the frontend never calls (`/invoices/recurring-templates`, `/accounting/fx-rates/latest`, `/payments/{id}`), with the frontend's query variants:
 - repeated `status`;
 - `?active=true`;
 - `as_of`.
 
-Path ids are discovered from list responses (first, last and a middle element) rather than hard-coded. `window.open` PDFs are included.
+It also includes the two `/.well-known/oauth-*` documents. Both backends must print the same issuer and endpoints from `MCP_PUBLIC_BASE_URL`.
+- `/mcp` (JSON-RPC over POST) is outside the read comparison; its own tests and the owner's check in Task 9 cover it.
+- Path ids are discovered from list responses (the first, last and a middle element) rather than hard-coded.
+- `window.open` PDFs are included.
 
 **Sign-in:**
-- Python: `POST /auth/login` with the owner's email and a password read from stdin.
-- Go: a token from `api issue-session` read from stdin, sent as the `billing_session` cookie.
+- Python: `POST /auth/login` with the email and a password from stdin. Alternatively, the owner's Python `billing_session` cookie from stdin, which sends no POST at all.
+- Go: a token from `api issue-session <email>` on stdin, sent as the `billing_session` cookie (`platform.SessionCookie`).
 
-The report lists each difference and the route totals.
-
-- [ ] **Step 1: Failing tests.** These use two `httptest` servers:
+- [ ] **Step 1: Failing tests** with two `httptest` servers:
   - `TestRunnerDiscoversIdsFromLists`;
   - `TestRunnerReportsOnlyUnallowed`;
-  - `TestRunnerNeverSendsNonGet` in reads mode;
+  - `TestRunnerNeverSendsNonGet`: only Python's login POST may pass;
   - `TestRunnerExitCodes`.
 - [ ] **Step 2: Implement, mutate, commit.**
-  - Mutation: let a POST through in reads mode. `TestRunnerNeverSendsNonGet` goes red.
-  - Also build `/compare` into `backend/Dockerfile`, beside `/api`.
+  - Mutation: let a second POST through. `TestRunnerNeverSendsNonGet` goes red.
   - Commit `feat(go): compare reads runner and corpus`.
 
 ---
 
-### Task 3: The write runner and row comparison
+### Task 4: The write runner and row comparison
 
 **Files:**
 - Create: `backend/internal/compare/writes.go`, `rows.go`, `writes_test.go`, `backend/port/compare-writes.yaml`
 
 **Interfaces:**
-- Produces: `compare writes --python URL --python-db DSN --go URL --go-db DSN …`.
+- `compare writes --python URL --python-db DSN --go URL --go-db DSN …`
 
 Scenarios are ordered flows over the inventory §2 writes:
 - master data CRUD;
@@ -157,142 +227,259 @@ Scenarios are ordered flows over the inventory §2 writes:
 - recurring template → trigger;
 - quotation → accept → convert;
 - bill → pay → void;
-- webhook intake (signed with the local secret), approve, reverse.
+- webhook intake (signed with the shared local `WEBHOOK_HMAC_SECRET`) → approve → reverse.
 
-The flows send no mail, sync nothing and change no hosting.
+The flows exclude every send, forgot-password, `fx-rates/sync`, and any PAID transition on an invoice with hosting lines.
 
-Each response's created ids are mapped Python → Go. Later requests use each backend's own ids. Afterwards, `rows.go` compares the touched tables row by row:
+Each response's created ids map Python → Go, and later requests use each backend's own ids. Afterwards, `rows.go` compares the touched tables row by row:
 - ids are mapped;
-- `created_at`, `updated_at`, `posted_at` and generated numbers are normalised by the named rules;
-- journal lines are compared as multisets per entry.
+- `created_at`, `updated_at`, `posted_at` and generated numbers are normalised by named rules;
+- journal lines compare as multisets per entry;
+- Go-only tables are not compared: `goose_db_version`, `login_attempts`, `scheduled_job_runs`, `oauth_spent_codes`, `mcp_spent_confirm_tokens`.
 
-- [ ] **Step 1: Failing tests.** On pgtestdb with two databases and two fake servers:
+- [ ] **Step 1: Failing tests** on pgtestdb, with two databases and two fake servers:
   - `TestIdMappingAcrossWrites`;
   - `TestRowsDiffMapsIds`;
   - `TestJournalLinesAsMultiset`;
   - `TestScenarioStopsAtFirstHardFailure`.
 - [ ] **Step 2: Implement, mutate, commit.**
-  - Mutation: skip id mapping. The mapping test goes red.
+  - Mutation: skip the id mapping. The mapping test goes red.
   - Commit `feat(go): compare writes runner and row diff`.
+  - Open the PR for Tasks 1–4. Merging waits for the owner's yes: it deploys, but only an image change, and Go is not in the Coolify compose yet.
 
 ---
 
-### Task 4: The local comparison on a production copy
-
-**Files:**
-- Create: `scripts/compare-local.sh`
-- Modify: `docker-compose.yml`. The `api-go` (tools profile) service gains a second database copy and an FX stub. Use no new compose project or network.
-
-- [ ] **Step 1: Prepare the databases.**
-  - **Owner yes:** take a `pg_dump` of production to a local file outside the repository.
-  - Restore it twice into the local `db`, as `billing_cmp_py` and `billing_cmp_go`.
-  - Set a known local password on both copies: Python with `scripts.seed_admin`, Go with `api set-password`.
-  - Run `api adopt-baseline` on the Go copy.
-- [ ] **Step 2: Reads.** Run `compare reads` with both servers' schedulers off. Fix each Go defect, or add an allowed entry with a PORT-NOTES note. Repeat until the run is clean.
-- [ ] **Step 3: Writes.** Run `compare writes` until it is clean in the same way.
-- [ ] **Step 4: Memory.** Measure local idle RSS for reference only. The goal applies on the server.
-- [ ] **Step 5: Clean up and merge.**
-  - Delete the dump and both copies.
-  - Commit the scripts and the corpus changes.
-  - Open the PR. Merging waits for the owner.
-
----
-
-### Task 5: Production prerequisites
-
-- [ ] **Step 1: Check the prerequisite list** (Global Constraints) against `main`. Stop and report any gap.
-- [ ] **Step 2: Time zone.** **Owner yes:** run `SHOW timezone;` on production (read-only).
-  - If it is UTC, record that.
-  - If it is not, add a plan step: the Go pool sets `TimeZone=UTC`, and reads of existing naive timestamps are converted from the server zone. The plan says how, with a test on pgtestdb set to that zone.
-- [ ] **Step 3: Config.**
-  - Give every Go env name in inventory §5 a Coolify value. Production uses the Python service's generated secrets: `SESSION_SECRET`, `MCP_*`, `WEBHOOK_HMAC_SECRET`, `EMAIL_WEBHOOK_TOKEN`, `RESEND_*`, `CLOUDFLARE_API_TOKEN`.
-  - Leave `ENVIRONMENT` unset (production) and set `SCHEDULER_ENABLED=false`.
-  - Check names only, through `list_env_keys`. Values are never printed.
-
----
-
-### Task 6: Rehearse the switch and the way back locally
-
-**Files:**
-- Create: `scripts/rehearse-switch.sh`, `docs/runbooks/go-switch-over.md`
-
-- [ ] **Step 1: Write the runbook.** For each step of the switch it says:
-  - the exact commands;
-  - which ones need the owner;
-  - the expected output;
-  - the rollback at that point.
-
-  Its sections:
-  - adopt;
-  - deploy;
-  - memory;
-  - reads;
-  - switch;
-  - way back;
-  - delete Python.
-
-  Include the distroless details:
-  - `docker exec -i <go container> /api set-password <email>` (stdin);
-  - `docker exec <go container> /compare reads …`.
-- [ ] **Step 2: Script the rehearsal** against the local compose stack, with a restored dev database:
-  1. Python serves.
-  2. Go is added.
-  3. nginx's `BACKEND_UPSTREAM` changes to Go.
-  4. The scheduler flags swap.
-  5. Run `set-password` and sign in through nginx.
-  6. Switch back to Python and swap the flags back.
-  7. Run `seed_admin` and sign in to Python through nginx.
-
-  Each check asserts an HTTP 200 from `/api/v1/auth/me`.
-- [ ] **Step 3: Run it twice, clean.** Commit, open the PR, and wait for the owner.
-
----
-
-### Task 7: Side by side on Coolify (steps 1–2 of the spec)
+### Task 5: Compose, runbook and a local rehearsal of the switch and the way back
 
 **Files:**
 - Modify: `docker-compose.coolify.yml`:
-  - add `wenhao-billing-api-go`: build `./backend`, `Dockerfile`, no `SERVICE_FQDN_*`, healthcheck `["CMD","/api","healthcheck"]`, `SCHEDULER_ENABLED=false`, the env names of inventory §5;
-  - set `BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-wenhao-billing-api:8000}`;
-  - keep the web `depends_on` on the Python API only (Review Focus 4).
+  - Add `wenhao-billing-api-go`:
+    - build `./backend`, `Dockerfile`;
+    - image `wenhao-billing-api-go:coolify`;
+    - no `SERVICE_FQDN_*`;
+    - healthcheck `["CMD","/api","healthcheck"]`.
+  - Go's environment uses the Python service's values for every name in inventory §5: `DATABASE_URL`, `SESSION_SECRET`, `WEBHOOK_HMAC_SECRET`, `EMAIL_WEBHOOK_TOKEN`, `CORS_ORIGINS`, `APP_BASE_URL`, `MCP_*` (with `MCP_PUBLIC_BASE_URL: ${SERVICE_URL_WEB_80:-https://billing.wenhao.id}`), `RESEND_*`, `CLOUDFLARE_API_TOKEN`, `SENTRY_*`. Leave `ENVIRONMENT` unset.
+  - Go gets `SCHEDULER_ENABLED: ${GO_SCHEDULER_ENABLED:-false}`; Python gets `SCHEDULER_ENABLED: ${PY_SCHEDULER_ENABLED:-true}`.
+  - Web gets `BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-wenhao-billing-api:8000}`. The web `depends_on` stays on the Python API only (Review Focus 4).
+  - Update the header comment.
+- Modify: `.env.coolify.example`. Add `BACKEND_UPSTREAM`, `PY_SCHEDULER_ENABLED` and `GO_SCHEDULER_ENABLED` with their defaults.
+- Modify: `docker-compose.yml`. Add a tools-profile `api-py-cmp` service:
+  - build `./backend-python`;
+  - `DATABASE_URL: ${PY_CMP_DATABASE_URL:-…/billing_py_scratch}`;
+  - `SCHEDULER_ENABLED: "false"`;
+  - port `${PY_CMP_HOST_PORT:-8002}:8000`.
 
-- [ ] **Step 1: Adopt.** **Owner yes:** run `api adopt-baseline` against production, with the Go image as a one-off. It refuses on a head other than `0028_business_npwp` or on drift; stop and report if it does. This writes `goose_db_version`. Serve then applies the additive migrations, so say so to the owner when asking.
-- [ ] **Step 2: Deploy.** **Owner yes:** merge the compose PR, which deploys.
-  - Confirm both API services are healthy and the site still serves Python.
-  - Measure Go's RSS after start-up.
-- [ ] **Step 3: Read comparison.** **Owner yes:** run `/compare reads` inside the Go container, against `http://wenhao-billing-api:8000` and `http://127.0.0.1:8000`.
-  - The owner types the Python password into stdin.
-  - The Go token comes from `issue-session`.
-  - Clean, or every difference allowed. A Go defect goes back to a fix PR first.
-- [ ] **Step 4: Memory again.** Measure RSS ten minutes after the run, and report both figures against the ~30 MB goal.
+  Also add a tools-profile `fx-stub` service, and give `api-go` `FX_PROVIDER_BASE_URL: http://fx-stub`. Add no new project or network, and make no change under `backend-python/`.
+- Create: `scripts/compare-local.sh`, `scripts/rehearse-switch.sh`, `scripts/rehearse-switch.compose.yml` (a local Postgres beside the Coolify compose), `docs/runbooks/go-switch-over.md`.
+
+- [ ] **Step 1: The runbook.** For each production step it gives:
+  - the exact commands;
+  - the **OWNER YES** marker;
+  - the expected output;
+  - the rollback at that point.
+
+  Sections: timezone, dump, env names, adopt, deploy, memory, reads, switch, set-password, MCP reconnect, watch, way back, remove Python. Distroless details:
+  - `docker exec -i <go> /api set-password <email>` (stdin);
+  - `docker exec -i <go> /api issue-session <email> | docker exec -i <go> /compare reads … --go-token-stdin` (the token never touches the screen);
+  - Python's reset never puts the password in argv history: `docker exec -it <py> sh -c 'read -rs P; python -m scripts.seed_admin <email> "$P"'`.
+- [ ] **Step 2: Script the rehearsal.** It uses `docker-compose.coolify.yml` locally (the `.env.coolify.example` route) with a restored dev database. Each check asserts HTTP 200 from `/api/v1/auth/me` through nginx. curl treats `http://localhost` as secure, so the Secure cookie is sent.
+  1. Python serves. `PY_SCHEDULER_ENABLED=true`.
+  2. Adopt, then add Go with `GO_SCHEDULER_ENABLED=false`. Python still serves, and Go's container is healthy.
+  3. **Scheduler overlap check.** Trigger Python's recurring scan for today's slot on a template that is due. Count invoices, `email` log lines and FX rows.
+  4. Switch: `BACKEND_UPSTREAM=wenhao-billing-api-go:8000`, `GO_SCHEDULER_ENABLED=true`, `PY_SCHEDULER_ENABLED=false`, redeploy.
+     - Go runs the latest slots. Assert no new child invoice, no digest mail, an unchanged FX row count (or an upsert of the same rows), and that each job now has a `scheduled_job_runs` row for today's slot.
+  5. `set-password` and sign in through nginx.
+  6. **MCP carry-over.** Register a client and get a refresh token from Python before step 4. After step 4, a refresh against Go works. After step 5 it is `invalid_grant` (PN 157), and a fresh authorize through Go's login (`return_to`) works.
+  7. Way back: upstream to Python, swap the flags, redeploy. Python's scheduler starts and Go's stops. Run `seed_admin`, then sign in to Python through nginx. Python accepts a Go-issued refresh token (same secret, same table).
+  8. Kill Go's container while the upstream is Python. The site still serves (Review Focus 4).
+- [ ] **Step 3: Run it twice, clean.** Commit, then open the PR on `feat/go-switch-compose`.
+  - **Do not merge yet.** Merging deploys Go beside Python, which is Task 8 step 2.
+  - If step 3 or 4 shows a second run that is not idempotent, stop and report. The fallback is a runbook statement that inserts today's `scheduled_job_runs` rows before the switch (its own OWNER YES).
 
 ---
 
-### Task 8: Switch (spec step 3) and, only if needed, the way back (step 4)
+## Production work (each step OWNER YES REQUIRED)
 
-- [ ] **Step 1: Switch.** **Owner yes:** in Coolify, set `BACKEND_UPSTREAM=wenhao-billing-api-go:8000`, Go `SCHEDULER_ENABLED=true` and Python `SCHEDULER_ENABLED=false`. Change the web `depends_on` to the Go API, then redeploy.
-- [ ] **Step 2: Owner checks.** The owner runs `set-password` (runbook), signs in, and checks:
+### Task 6: Local comparison on a production copy
+
+- [ ] **Step 1: Time zone. OWNER YES REQUIRED (P1).** Run `SHOW timezone;` on production (read-only).
+  - If it is UTC, record that.
+  - If it is not, stop and add a code task before step 3: the Go pool sets `TimeZone=UTC`, and reads of existing naive timestamps convert from the server zone, with a test on pgtestdb set to that zone. The comparison then runs with `--python-tz <zone>`.
+- [ ] **Step 2: Dump. OWNER YES REQUIRED (P2).** Take a `pg_dump -Fc` of production to a file outside the repository.
+  - Restore it twice into the local `db`, as `billing_cmp_py` and `billing_cmp_go`.
+  - Set a known local password on each:
+    - Python copy: `seed_admin`, run in the `api-py-cmp` container;
+    - Go copy: `api set-password`, after `api adopt-baseline` on that copy.
+  - Adopt must pass on the copy. If it refuses on drift, production would refuse too: stop and report.
+- [ ] **Step 3: Reads.** Run `scripts/compare-local.sh reads`. Fix each Go defect in a fix PR, or add an allowed entry with its PORT-NOTES note. Repeat until the run is clean.
+- [ ] **Step 4: Writes.** Run `scripts/compare-local.sh writes` until it is clean in the same way.
+- [ ] **Step 5: Data checks** on `billing_cmp_py` (local copy, read-only).
+  - Run the dry-run (plan) mode of `python -m scripts.fix_recurring_cycle_keys`, and a query for two non-VOID children with one template and one cycle date (PN 35).
+  - Run a query for usage drafts whose `cut_off_day` falls in the coming week (PN 1/48: the Go job errors on them as Python's does).
+  - Report the counts to the owner.
+- [ ] **Step 6: Memory.** Measure local idle RSS, for reference only.
+- [ ] **Step 7: Clean up.** Delete the dump file and both copies. Commit the corpus and allowed-diff changes.
+
+### Task 7: Production configuration
+
+- [ ] **Step 1: Names. OWNER YES REQUIRED (P3).** Run `list_env_keys` on the billing resource (names only). Confirm these are present:
+  - `DATABASE_URL`;
+  - `SERVICE_BASE64_64_{SESSION,WEBHOOK,EMAILTOKEN,MCPCONFIRM,MCPTOKEN}`;
+  - `SERVICE_URL_WEB_80`;
+  - `RESEND_API_KEY`;
+  - `CLOUDFLARE_API_TOKEN`;
+  - `SENTRY_DSN`.
+
+  With `ENVIRONMENT` unset, Go is in production mode and refuses to start in each of these cases:
+  - `SESSION_SECRET` under 32 bytes;
+  - an empty or default `WEBHOOK_HMAC_SECRET` or `EMAIL_WEBHOOK_TOKEN` (PN 90);
+  - an `MCP_*_SECRET` under 16 bytes or at its default (PN 153).
+
+  The `SERVICE_BASE64_64_*` values pass all three checks.
+- [ ] **Step 2: New variables. OWNER YES REQUIRED (P4).** Set:
+  - `GO_SCHEDULER_ENABLED=false`;
+  - `PY_SCHEDULER_ENABLED=true`;
+  - `BACKEND_UPSTREAM=wenhao-billing-api:8000`.
+
+  These equal the compose defaults, so nothing changes until the next deploy. They make the state explicit.
+
+### Task 8: Side by side on Coolify (spec switch-over steps 1–2)
+
+- [ ] **Step 1: Adopt. OWNER YES REQUIRED (P5).** Run `api adopt-baseline` against production, with the Go image as a one-off container on the shared network.
+  - It refuses a head other than `0028_business_npwp`, or drift. Stop and report if it does.
+  - It writes `goose_db_version` (versions 0 and 1).
+  - Tell the owner that the next step's serve applies 00002–00007 to production, and that all of them are additive (Global Constraints).
+  - Rollback: none needed. Python ignores `goose_db_version`.
+- [ ] **Step 2: Deploy. OWNER YES REQUIRED (P6).** Merge the Task 5 PR, which deploys.
+  - Confirm that both API services are healthy, that the site still serves Python, and that Go logs `scheduler is off (SCHEDULER_ENABLED)`.
+  - Measure Go's RSS after start-up.
+  - Rollback point A: revert the compose PR. Go's tables stay; they are harmless.
+- [ ] **Step 3: Read comparison. OWNER YES REQUIRED (P7).** Run `/compare reads` inside the Go container, against `http://wenhao-billing-api:8000` and `http://127.0.0.1:8000`.
+  - The owner types the Python password, or pastes the cookie, into stdin.
+  - The Go token comes from `issue-session` through a pipe.
+  - The run must be clean, or every difference allowed. A Go defect goes to a fix PR first, which needs its own merge yes.
+- [ ] **Step 4: Memory again.** Measure RSS ten minutes after the run. Report both figures against the ~30 MB goal.
+
+### Task 9: Switch (spec step 3) and, only if needed, the way back (step 4)
+
+- [ ] **Step 1: Switch. OWNER YES REQUIRED (P8).** The switch runs outside 02:00–05:59 UTC.
+  - In Coolify set `BACKEND_UPSTREAM=wenhao-billing-api-go:8000`, `GO_SCHEDULER_ENABLED=true` and `PY_SCHEDULER_ENABLED=false`, then redeploy.
+  - Go logs `scheduler started`, and Python logs no scheduler start.
+  - Everyone signs in again: the cookie formats differ.
+- [ ] **Step 2: Password. OWNER YES REQUIRED (P9).** The owner runs `set-password` (runbook). This also revokes the owner's MCP refresh tokens (PN 157).
+- [ ] **Step 3: Owner checks.** The owner signs in and checks:
   - the dashboard;
   - an invoice PDF;
   - a quotation;
   - reports;
   - the review queue;
-  - reconnecting the MCP connector in Claude.
+  - that a DRAFT invoice send is refused;
+  - **reconnecting the MCP connector in Claude** (expected once, see "MCP connectors at the switch" below);
+  - `/.well-known/oauth-authorization-server`, whose issuer must be the public origin.
 
   Record what they see.
-- [ ] **Step 3: Watch.** Watch Sentry and the Go logs for 24 hours. The next day, confirm the scheduled jobs' slots are recorded in `scheduled_job_runs`.
-- [ ] **Step 4 (only on the owner's call): way back.** Follow the runbook's way-back section exactly as rehearsed.
+- [ ] **Step 4: Watch.** Watch Sentry and the Go logs for 24 hours.
+  - The next day, confirm the slots in `scheduled_job_runs` (four jobs; the FX job only after a Monday).
+  - A usage-lock error is expected only if Task 6 step 5 found a due usage draft (PN 1).
+- [ ] **Step 5 (only on the owner's call): Way back. OWNER YES REQUIRED (P10).** Follow the runbook's way-back section exactly as rehearsed:
+  - set `BACKEND_UPSTREAM=wenhao-billing-api:8000`, `GO_SCHEDULER_ENABLED=false` and `PY_SCHEDULER_ENABLED=true`, then redeploy;
+  - the owner runs `seed_admin`;
+  - the MCP connector keeps working.
+
+**MCP connectors at the switch.**
+- Go's tokens are byte-compatible with Python's:
+  - the same HS256 claims in PyJWT order (`oauth/tokens.go`);
+  - the same `MCP_TOKEN_SECRET`;
+  - the same `oauth_clients` and `oauth_refresh_tokens` rows;
+  - the same issuer, as long as `MCP_PUBLIC_BASE_URL` is the same.
+- So an existing connector would carry over. The owner's `set-password` in step 2 is unavoidable, because Go cannot read bcrypt, and it revokes every refresh token of the owner. The connector's access token works for at most one more hour (`MCP_ACCESS_TOKEN_TTL_SECONDS=3600`), then its refresh fails with `invalid_grant`, and the owner reconnects once.
+- Clients registered with a plain `http://` or custom-scheme redirect URI must register again (PN 150). Claude's HTTPS callback is unaffected.
+- On the way back, Python accepts Go-issued tokens, and `seed_admin` revokes nothing, so the connector keeps working.
+
+### Task 10: Remove Python (spec step 5)
+
+- [ ] **Step 1: Wait a week** with no way back.
+- [ ] **Step 2: Remove the code.** On branch `chore/remove-python` (local work):
+  - delete `backend-python/`;
+  - remove the Python service from both compose files, `PY_SCHEDULER_ENABLED` from `.env.coolify.example`, and the `api-py-cmp` service;
+  - in the Coolify compose:
+    - point the web `depends_on` at `wenhao-billing-api-go`;
+    - set the `BACKEND_UPSTREAM` default to `wenhao-billing-api-go:8000`;
+    - set Go's `SCHEDULER_ENABLED` default to true;
+  - make nginx's `/(docs|redoc|openapi.json)` route `/(docs|openapi.json)` (Go has no `/redoc`);
+  - add goose migration `00008_drop_alembic_version.sql`;
+  - make `api adopt-baseline` refuse with a clear sentence once `alembic_version` is gone;
+  - remove the "frozen Python tests" step from `scripts/check.sh`, and its header line;
+  - update CLAUDE.md, and AGENTS.md (the owner's uncommitted edit is in the main worktree: ask before touching it).
+- [ ] **Step 3: Check and merge.** `bash scripts/check.sh` passes. Open the PR. **OWNER YES REQUIRED (P12)** to merge; the merge deploys. There is no way back after it.
+- [ ] **Step 4: Close out.** Hand the owner the "After the switch" table below to schedule. P11 (PN 35 voids) is its own OWNER YES.
 
 ---
 
-### Task 9: Remove Python (spec step 5)
+## After the switch: PORT-NOTES follow-ups
 
-- [ ] **Step 1: Wait a week.** Do this only after a week with no way back, and with the **owner's yes**.
-- [ ] **Step 2: Remove the code.** Branch `chore/remove-python`:
-  - delete `backend-python/` and the Python service from both compose files;
-  - drop `alembic_version` with goose migration `000NN_drop_alembic_version.sql`;
-  - make `api adopt-baseline` refuse with a clear sentence once `alembic_version` is gone;
-  - remove the Python step from `scripts/check.sh`;
-  - update CLAUDE.md, and AGENTS.md if Codex's edit has landed; ask first if it has not.
-- [ ] **Step 3: Check and merge.** `bash scripts/check.sh` must pass. Open the PR. **Owner yes** to merge, which deploys.
-- [ ] **Step 4: Close out.** Turn the "After the switch" items in PORT-NOTES (inventory §4 row 20) into follow-up tasks for the owner to schedule.
+Every `After the switch:` line in `backend/PORT-NOTES.md` that is not "none" (159 notes; the lines for 2, 112 and 124 are now "none" by the owner's 2026-11-10 decisions). "Backlog" means post-switch work for the owner to schedule; it never blocks the switch.
+
+| PN | Follow-up | Owner |
+|---|---|---|
+| 1, 48 | Wire a usage-metering source, or retire the usage-lock scan and keep the manual lock | Backlog. Task 6.5 counts the drafts that are due; Task 9.4 expects the error |
+| 3 | `GET /payments/{id}/log`: 404 for an unknown payment | Backlog |
+| 4 | Business-profile GET: commit, or stay read-only with defaults | Backlog |
+| 5, 95 | One business "today" (Asia/Jakarta) via `platform.TodayUTC`, plus the reports screen's browser date; the email intake zone | Backlog. Task 6.1 settles the DB zone |
+| 7, 94 | Reversal restores the relieved balance and the earlier status; held payments get no invoice until approved | Backlog |
+| 8, 73, 81 | Post manual invoice and bill payments to the ledger; keep a bill payment row; refuse a payment on a PAID invoice | Backlog |
+| 18 | Refuse a whitespace-only `hosting_domain` or target | Backlog |
+| 19 | List every refused price field in one 422 | Backlog |
+| 21 | Check `role` against the known roles | Backlog |
+| 23 | `display_name: null` clears it | Backlog |
+| 33 | If Frankfurter moves, change `FX_PROVIDER_BASE_URL` | Backlog (ops) |
+| 34 | Decide whether milestone invoices get their number at finalize | Backlog (owner decision) |
+| 35 | Find and void duplicate recurring children | Task 6.5 finds them; the voids are P11, post-switch |
+| 39, 68 | Write routes return 404 for a missing row | Backlog |
+| 40 | Keep templates out of the customer views | Backlog |
+| 41 | Drafts in "unpaid"; calendar-month window | Backlog (owner decision) |
+| 42 | Void refused while payments exist; store the reason; end templates rather than void them | Backlog |
+| 43 | PATCH refuses templates or recomputes the due date | Backlog |
+| 44 | Round the subtotal from rounded lines; cap a percent discount at 100 | Backlog |
+| 45 | Date children by cycle; warn before triggering an ended template | Backlog |
+| 46 | Hosting window from the frequency; label only hosting lines | Backlog |
+| 47 | Previous cycle by `cycle_key`; validate end dates; flag a past `next_run_date` | Backlog |
+| 52, 77 | One currency rule: upper case, known to the ledger, no change once lines exist | Backlog |
+| 53, 78 | `limit` or paging on the awaiting-finalization, project, bill and project-invoice lists | Backlog |
+| 54 | Keep locked usage totals on PATCH, or refuse the edit | Backlog |
+| 62 | Project delete message names quotations, or skips VOID and templates | Backlog |
+| 63 | Project summary sums per currency | Backlog |
+| 64 | Convert only ACCEPTED quotations; an explicit `due_in_days` wins | Backlog |
+| 65 | A job that expires SENT quotations; refuse accepting an expired one | Backlog |
+| 66 | Close the quotation state machine; void takes a reason | Backlog |
+| 67 | Regenerate a cleared quotation number; refuse empty `line_items` | Backlog |
+| 69 | An explicit bill open action; a bill status machine | Backlog |
+| 70 | Recompute bill totals on every edit; refuse an amount below what is paid | Backlog |
+| 71 | One rounding rule for every document | Backlog |
+| 72 | A bill needs a line; due date from terms; unique `(vendor_id, bill_number)` | Backlog |
+| 74 | Typed bill-void body, reason required, REST bill delete | Backlog |
+| 75 | Optional body on accept, convert and bill void | Backlog |
+| 79 | Refuse another customer's project; warn on a currency mismatch | Backlog |
+| 82 | Real receipt renderer and Resend before the switch | Done on `main` (plan 9); checked in the prerequisites |
+| 85 | Manual approval refuses PAID and refuses or splits an overpayment | Backlog |
+| 90 | Intake secrets set in Coolify before Go's first start | Task 7.1 |
+| 101 | A current-result line on the balance sheet; inactive accounts in the trial balance | Backlog (owner decision) |
+| 102 | Dashboard counts match their names | Backlog |
+| 103 | Monthly revenue at each month-end rate | Backlog |
+| 104 | `avg_days_to_pay` per invoice | Backlog. Task 2 allows `10` vs `10.0` |
+| 105 | One upcoming-invoice rule and one cut-off parser | Backlog |
+| 106 | Revaluation residue line; upper-case rate lookup | Backlog |
+| 107 | AR aging filters `issue_date <= as_of`; place NULL due dates | Backlog |
+| 108 | `nullif(display_name, '')` in recent activity | Backlog. Task 2 allows the `Z` |
+| 116 | Drop or write the two unused hosting item columns | Backlog |
+| 126, 135 | Owner's remaining answers: the PO/SO fourth cell and footer; the 422 vs 502 on a bad `to_email` (the send-finalized answer has landed) | Backlog (owner decision) |
+| 127 | Iterate the PDF design toward the HTML | Backlog (owner review in Task 9.3) |
+| 129 | Split an item taller than a page | Backlog |
+| 132 | Draft digest only to active or admin users | Backlog (owner decision) |
+| 153 | `MCP_CONFIRM_SECRET` and `MCP_TOKEN_SECRET` set in Coolify | Task 7.1 |
+
+**"none" lines that still bind this plan:**
+- PN 6, 86, 97, 98, 99, 100, 104, 108, 112: expected compare differences; Task 2 allowed entries.
+- PN 119, 120: one scheduler at a time, and the catch-up run; Global Constraints and Task 5.
+- PN 148, 150, 154, 157: MCP reconnect; Task 9.
+- PN 131: the SMTP, `PDF_ENGINE` and reportlab removals happen with Task 10.
