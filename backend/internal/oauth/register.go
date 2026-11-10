@@ -44,6 +44,12 @@ func (h handler) register(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "request body must be JSON with redirect_uris (a list of strings) and an optional client_name")
 		return
 	}
+	// A control character (NUL above all, which Postgres text refuses) in
+	// the self-chosen label is refused here rather than failing the insert.
+	if req.ClientName != nil && strings.ContainsFunc(*req.ClientName, unicode.IsControl) {
+		oauthError(w, http.StatusBadRequest, "invalid_client_metadata", "client_name must not contain control characters")
+		return
+	}
 	uris := *req.RedirectURIs
 	if len(uris) == 0 {
 		oauthError(w, http.StatusBadRequest, "invalid_redirect_uri", "redirect_uris is required")

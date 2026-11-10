@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/hosting"
@@ -57,4 +58,18 @@ func TestWireGivesMCPTheRoutesServices(t *testing.T) {
 	if w.features.Services.Notifier != d.Notifier {
 		t.Error("MCP notifier is not the routes' notifier")
 	}
+}
+
+// register refuses features without Services instead of building a second
+// set the MCP connector would not share.
+func TestRegisterRequiresServices(t *testing.T) {
+	t.Parallel()
+	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{Sessions: testSessions()})
+	defer func() {
+		r := recover()
+		if msg, _ := r.(string); !strings.Contains(msg, "features.Services is nil") {
+			t.Fatalf("register without Services: recovered %v, want its panic", r)
+		}
+	}()
+	register(api, features{Sessions: testSessions()})
 }

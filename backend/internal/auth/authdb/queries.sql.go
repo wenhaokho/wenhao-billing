@@ -221,10 +221,15 @@ func (q *Queries) PruneFailures(ctx context.Context, before time.Time) error {
 }
 
 const setPassword = `-- name: SetPassword :one
+WITH revoked_refresh AS (
+    UPDATE oauth_refresh_tokens SET revoked = true
+    WHERE oauth_refresh_tokens.user_id = (SELECT u.user_id::text FROM users u WHERE u.user_id = $2)
+      AND NOT oauth_refresh_tokens.revoked
+)
 UPDATE users
 SET password_hash = $1, session_epoch = session_epoch + 1,
     password_reset_token = NULL, password_reset_expires = NULL
-WHERE user_id = $2
+WHERE users.user_id = $2
 RETURNING user_id, email, password_hash, role, created_at, display_name, password_reset_token, password_reset_expires, session_epoch
 `
 
@@ -234,7 +239,10 @@ type SetPasswordParams struct {
 }
 
 // SetPassword replaces the hash, signs every session out and voids any reset
-// token.
+// token. Signing out everywhere includes the MCP connector: the same
+// statement revokes the user's live OAuth refresh tokens (user_id is the
+// user UUID as text there), so every place that moves the epoch revokes
+// them atomically with it.
 func (q *Queries) SetPassword(ctx context.Context, arg SetPasswordParams) (User, error) {
 	row := q.db.QueryRow(ctx, setPassword, arg.PasswordHash, arg.UserID)
 	var i User

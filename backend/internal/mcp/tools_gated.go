@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/bills"
@@ -106,8 +107,9 @@ func text(s *string) string {
 }
 
 // gate holds what the gated tools share: the confirm-token key, the clock,
-// and the mail sender.
+// the mail sender, and the pool the spent-token prune runs on.
 type gate struct {
+	pool    *pgxpool.Pool
 	confirm *Confirmer
 	clock   platform.Clock
 	mail    email.Sender
@@ -126,10 +128,13 @@ func (g gate) spend(ctx context.Context, tx pgx.Tx, token, action string, payloa
 	if err != nil {
 		return Refuse("%s", err.Error())
 	}
-	q := oauthdb.New(tx)
-	if err := q.PruneSpentConfirmTokens(ctx, now.Add(-spentConfirmGrace)); err != nil {
+	// The prune runs on the pool, outside the action's transaction: inside
+	// it, the deleted rows would stay locked until that transaction ends
+	// (after a slow send), and every other confirm's prune would wait on them.
+	if err := oauthdb.New(g.pool).PruneSpentConfirmTokens(ctx, now.Add(-spentConfirmGrace)); err != nil {
 		return err
 	}
+	q := oauthdb.New(tx)
 	if _, err := q.SpendConfirmToken(ctx, oauthdb.SpendConfirmTokenParams{TokenHash: key, ExpiresAt: expires}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Refuse(errConfirmSpent)
@@ -193,7 +198,7 @@ func registerGatedTools(s *mcp.Server, d Deps) {
 	if mail == nil {
 		mail = email.LogSender{}
 	}
-	g := gate{confirm: NewConfirmer(d.Cfg.MCPConfirmSecret), clock: clock, mail: mail}
+	g := gate{pool: d.Pool, confirm: NewConfirmer(d.Cfg.MCPConfirmSecret), clock: clock, mail: mail}
 	gatedInput := func(idName string, more ...prop) string {
 		return toolInput(append(append([]prop{p(idName, tStr)}, more...), p("confirm_token", tNStr))...)
 	}
@@ -294,77 +299,7 @@ func registerGatedTools(s *mcp.Server, d Deps) {
 
 	addTool(s, d, writeTool(actSendInvoice, descSendInvoice, toolInput(
 		p("invoice_id", tStr), p("to_email", tNStr), p("subject", tNStr), p("message", tNStr), p("confirm_token", tNStr))),
-		func(ctx context.Context, tx pgx.Tx, _ principalRef, in sendInvoiceIn) (Object, error) {
-			inv, err := invoiceFor(ctx, tx, in.InvoiceID, in.ConfirmToken != nil)
-			if err != nil {
-				return Object{}, err
-			}
-			if inv.Status == "VOID" {
-				return Object{}, Refuse("cannot send a voided invoice")
-			}
-			recipient, err := recipientFor(ctx, tx, inv, in.ToEmail)
-			if err != nil {
-				return Object{}, err
-			}
-			id := inv.InvoiceID
-			amount := platform.PyDecimalStr(inv.Amount)
-			// Go change 4: the subject and the message are in the MAC too, so
-			// the confirmed email is the previewed one. Null and "" are the
-			// same here, as both mean the default.
-			payload := map[string]string{
-				"target_id": id.String(), "amount": amount, "currency": inv.Currency, "recipient": recipient,
-				"subject": text(in.Subject), "message": text(in.Message),
-			}
-			if in.ConfirmToken == nil {
-				return object("requires_confirmation", true, "action", actSendInvoice, "invoice_id", id.String(),
-					"invoice_number", inv.InvoiceNumber, "recipient", recipient, "amount", amount, "currency", inv.Currency,
-					"confirm_token", g.confirm.MakeConfirm(actSendInvoice, payload, g.clock.Now()))
-			}
-			if err := g.spend(ctx, tx, *in.ConfirmToken, actSendInvoice, payload); err != nil {
-				return Object{}, err
-			}
-
-			// The send route's renderer, on the locked row in this transaction.
-			data, err := pdf.LoadInvoice(ctx, tx, id)
-			if err != nil {
-				return Object{}, err
-			}
-			pdfBytes, err := pdf.RenderInvoice(ctx, pdf.InvoiceDocument(data))
-			if err != nil {
-				return Object{}, err
-			}
-			number := text(inv.InvoiceNumber)
-			subject := "Invoice"
-			filename := "invoice-" + id.String()[:8] + ".pdf"
-			if number != "" {
-				subject = "Invoice " + number
-				filename = "invoice-" + number + ".pdf"
-			}
-			if s := text(in.Subject); s != "" {
-				subject = s
-			}
-			body := "Please find attached invoice " + number + "."
-			if m := text(in.Message); m != "" {
-				body = m
-			}
-			msg := email.Message{
-				To: recipient, Subject: subject, Text: body,
-				Attachments: []email.Attachment{{Filename: filename, ContentType: "application/pdf", Content: pdfBytes}},
-			}
-			msg.IdempotencyKey = email.IdempotencyKey(id.String(), msg, g.clock.Now())
-			// Sent before the status moves and inside the transaction: a
-			// failed send rolls back the spent token and changes nothing, as
-			// the send route answers 502 with the status unchanged.
-			if err := g.mail.Send(ctx, msg); err != nil {
-				logger(ctx).ErrorContext(ctx, "mcp send_invoice_email: send failed", "invoice_id", id, "err", err)
-				return Object{}, Refuse(errSendFailed)
-			}
-			// The email is out; a DRAFT or OPEN invoice becomes SENT.
-			if err := invoicesdb.New(tx).MarkInvoiceSent(ctx, id); err != nil {
-				return Object{}, err
-			}
-			return object("sent", true, "invoice_id", id.String(), "recipient", recipient)
-		})
+		g.sendInvoiceEmail)
 
 	addTool(s, d, writeTool(actSendReminder, descSendReminder, toolInput(
 		p("invoice_id", tStr), p("to_email", tNStr), p("confirm_token", tNStr))),
@@ -407,6 +342,87 @@ func registerGatedTools(s *mcp.Server, d Deps) {
 				logger(ctx).ErrorContext(ctx, "mcp send_payment_reminder: send failed", "invoice_id", id, "err", err)
 				return Object{}, Refuse("failed to send payment reminder")
 			}
+			// The reminder is out and nothing else runs here; runTool commits
+			// the spent token without the request's cancellation, so a client
+			// that hangs up now cannot make the token replayable.
 			return object("sent", true, "invoice_id", id.String(), "recipient", recipient)
 		})
+}
+
+// sendInvoiceEmail is send_invoice_email's body.
+func (g gate) sendInvoiceEmail(ctx context.Context, tx pgx.Tx, _ principalRef, in sendInvoiceIn) (Object, error) {
+	inv, err := invoiceFor(ctx, tx, in.InvoiceID, in.ConfirmToken != nil)
+	if err != nil {
+		return Object{}, err
+	}
+	if inv.Status == "VOID" {
+		return Object{}, Refuse("cannot send a voided invoice")
+	}
+	recipient, err := recipientFor(ctx, tx, inv, in.ToEmail)
+	if err != nil {
+		return Object{}, err
+	}
+	id := inv.InvoiceID
+	amount := platform.PyDecimalStr(inv.Amount)
+	// Go change 4: the subject and the message are in the MAC too, so
+	// the confirmed email is the previewed one. Null and "" are the
+	// same here, as both mean the default.
+	payload := map[string]string{
+		"target_id": id.String(), "amount": amount, "currency": inv.Currency, "recipient": recipient,
+		"subject": text(in.Subject), "message": text(in.Message),
+	}
+	if in.ConfirmToken == nil {
+		return object("requires_confirmation", true, "action", actSendInvoice, "invoice_id", id.String(),
+			"invoice_number", inv.InvoiceNumber, "recipient", recipient, "amount", amount, "currency", inv.Currency,
+			"confirm_token", g.confirm.MakeConfirm(actSendInvoice, payload, g.clock.Now()))
+	}
+	if err := g.spend(ctx, tx, *in.ConfirmToken, actSendInvoice, payload); err != nil {
+		return Object{}, err
+	}
+
+	// The send route's renderer, on the locked row in this transaction.
+	data, err := pdf.LoadInvoice(ctx, tx, id)
+	if err != nil {
+		return Object{}, err
+	}
+	pdfBytes, err := pdf.RenderInvoice(ctx, pdf.InvoiceDocument(data))
+	if err != nil {
+		return Object{}, err
+	}
+	number := text(inv.InvoiceNumber)
+	subject := "Invoice"
+	filename := "invoice-" + id.String()[:8] + ".pdf"
+	if number != "" {
+		subject = "Invoice " + number
+		filename = "invoice-" + number + ".pdf"
+	}
+	if s := text(in.Subject); s != "" {
+		subject = s
+	}
+	body := "Please find attached invoice " + number + "."
+	if m := text(in.Message); m != "" {
+		body = m
+	}
+	msg := email.Message{
+		To: recipient, Subject: subject, Text: body,
+		Attachments: []email.Attachment{{Filename: filename, ContentType: "application/pdf", Content: pdfBytes}},
+	}
+	msg.IdempotencyKey = email.IdempotencyKey(id.String(), msg, g.clock.Now())
+	// Sent before the status moves and inside the transaction: a
+	// failed send rolls back the spent token and changes nothing, as
+	// the send route answers 502 with the status unchanged.
+	if err := g.mail.Send(ctx, msg); err != nil {
+		logger(ctx).ErrorContext(ctx, "mcp send_invoice_email: send failed", "invoice_id", id, "err", err)
+		return Object{}, Refuse(errSendFailed)
+	}
+	// The email is out, so the rest of the call (the status move here
+	// and the helper's commit) no longer listens to the request: a
+	// client that hangs up now must not roll back the status and the
+	// spent token of an email the provider already accepted.
+	ctx = context.WithoutCancel(ctx)
+	// The email is out; a DRAFT or OPEN invoice becomes SENT.
+	if err := invoicesdb.New(tx).MarkInvoiceSent(ctx, id); err != nil {
+		return Object{}, err
+	}
+	return object("sent", true, "invoice_id", id.String(), "recipient", recipient)
 }

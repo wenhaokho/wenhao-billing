@@ -32,7 +32,11 @@ Tests run in parallel: every test calls `t.Parallel()` unless it changes package
 that other tests read (a swapped function, a filled semaphore, a test hook); those say
 why next to the test. `./dev test` runs `-parallel 8 -timeout 60s` (plus `-race` with `GO_TEST_RACE=1`) and leaves `-p`
 at its default, the number of CPUs, since `-p` also limits how many test binaries build
-and link at once.
+and link at once. Every package running at once keeps its test databases on db-test's
+tmpfs (1.5 GB, see the comment on `db-test` in `docker-compose.yml`), and failed tests
+keep theirs. If a full local `./dev test ./...` fails with Postgres's "No space left on
+device" (most often while other runs share db-test), restart db-test to clear the kept
+databases and run it as `./dev test ./... -p 2`. `scripts/check.sh` keeps the default.
 
 ## Checks
 

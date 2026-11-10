@@ -758,3 +758,27 @@ func TestConsentRefusesCrossOrigin(t *testing.T) {
 		})
 	}
 }
+
+// The consent page names the host approving redirects to, since the client
+// name is self-chosen; the host is HTML-escaped like every other value.
+func TestConsentPageShowsEscapedRedirectHost(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, "test")
+	const uri = `https://x<y>&"z'.example:8443/cb`
+	cid := a.register(t, "cli", `https://x<y>&\"z'.example:8443/cb`)
+	_, session := a.user(t, "admin")
+	q := authorizeParams(cid, "")
+	q.Set("redirect_uri", uri)
+	rec := a.get(q.Encode(), session)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
+	}
+	body := rec.Body.String()
+	want := `<p>Approving will redirect to <span class="client">x&lt;y&gt;&amp;&quot;z&#x27;.example:8443</span>.</p>`
+	if !strings.Contains(body, want) {
+		t.Fatalf("consent page lacks %s:\n%s", want, body)
+	}
+	if strings.Contains(body, `x<y>`) {
+		t.Fatal("the redirect host is rendered unescaped")
+	}
+}

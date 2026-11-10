@@ -24,7 +24,8 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
-// consentTemplate is Python's consent page, text for text, with two slots.
+// consentTemplate is Python's consent page, text for text, plus the line
+// naming the redirect host (a Go change), with three slots.
 //
 //go:embed consent.html
 var consentTemplate string
@@ -312,6 +313,20 @@ func consentPage(label, token string, p authorizeParams, state *string) string {
 	hidden(&b, "state", state)
 	hidden(&b, "csrf_token", &token)
 	// One pass, so a client name containing a slot's text is not expanded.
-	return strings.NewReplacer("{{CLIENT_LABEL}}", pyEscape.Replace(label), "{{HIDDEN_FIELDS}}", b.String()).
-		Replace(strings.TrimSuffix(consentTemplate, "\n"))
+	return strings.NewReplacer(
+		"{{CLIENT_LABEL}}", pyEscape.Replace(label),
+		"{{REDIRECT_HOST}}", pyEscape.Replace(redirectHost(p.redirectURI)),
+		"{{HIDDEN_FIELDS}}", b.String(),
+	).Replace(strings.TrimSuffix(consentTemplate, "\n"))
+}
+
+// redirectHost is the host (with any port) the code goes to: the client
+// name is self-chosen, so the page also shows where approving leads. The URI
+// already matched a registered one, so it parses; the raw text is the
+// fallback.
+func redirectHost(uri string) string {
+	if u, err := url.Parse(uri); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return uri
 }

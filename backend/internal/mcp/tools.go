@@ -76,8 +76,12 @@ type toolConfig struct {
 }
 
 // withoutTx runs the tool body with no transaction: it gets a nil pgx.Tx and
-// the helper never touches the pool. Only for a tool that reads no database
-// state at all (ping).
+// the helper never touches the pool. For a tool that reads no database state
+// at all (ping), or one that commits its own work (trigger_recurring). Such a
+// tool must register after-commit hooks (afterCommit) only after its own
+// commit has succeeded: the helper runs every registered hook once the body
+// returns, whatever it returns, so a hook registered earlier would run for
+// work that never committed.
 func withoutTx() toolOption { return func(c *toolConfig) { c.noTx = true } }
 
 // withOutSchema declares Out's own schema (derived from the struct) as the
@@ -321,7 +325,10 @@ func runTool[In, Out any](ctx context.Context, d Deps, cfg toolConfig, schema *j
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	// The body has finished, and may have acted outside the database (an
+	// email sent): a request cancelled now must not roll that back, so the
+	// commit ignores the request's cancellation.
+	if err := tx.Commit(context.WithoutCancel(ctx)); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 	committed = true

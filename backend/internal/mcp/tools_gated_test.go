@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -27,16 +28,32 @@ type mailRecorder struct {
 	mu   sync.Mutex
 	sent []email.Message
 	fail error
+	// after, when set, runs with the tool's context once a send is recorded
+	// (outside the lock), as a provider that accepted the email and then
+	// took its time answering.
+	after func(ctx context.Context)
 }
 
-func (m *mailRecorder) Send(_ context.Context, msg email.Message) error {
+func (m *mailRecorder) Send(ctx context.Context, msg email.Message) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.fail != nil {
-		return m.fail
+		err := m.fail
+		m.mu.Unlock()
+		return err
 	}
 	m.sent = append(m.sent, msg)
+	after := m.after
+	m.mu.Unlock()
+	if after != nil {
+		after(ctx)
+	}
 	return nil
+}
+
+func (m *mailRecorder) setAfter(fn func(ctx context.Context)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.after = fn
 }
 
 func (m *mailRecorder) setFail(err error) {
@@ -753,5 +770,114 @@ func TestSpentConfirmTokensPruned(t *testing.T) {
 	}
 	if want := []string{"edge", "live"}; !slices.Equal(left, want) {
 		t.Fatalf("left %v, want %v", left, want)
+	}
+}
+
+// A request cancelled after the provider accepted the email does not roll
+// the call back: the invoice is SENT, the token stays spent, and a replay of
+// the token is refused. The body runs through runTool, as the SDK runs it,
+// with a context the sender cancels once it has recorded the email (the
+// transport does not hand a client's hang-up to the handler, so the test
+// cancels the handler's context itself).
+func TestSendInvoiceEmailCancelAfterSendKeepsStatusAndSpend(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	id := g.seedDraftInvoice(t)
+	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
+	_, tok := g.preview(t, "send_invoice_email", args)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	g.mail.setAfter(func(context.Context) { cancel() })
+	gt := gate{pool: g.pool, confirm: NewConfirmer(g.cfg.MCPConfirmSecret), clock: g.clock, mail: g.mail}
+	schema, err := resolveSchema(openObjectSchema())
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := "a@b.com"
+	in := sendInvoiceIn{InvoiceID: id.String(), ToEmail: &to, ConfirmToken: &tok}
+	d := Deps{Pool: g.pool, Clock: g.clock, Cfg: g.cfg}
+	if _, err := runTool(ctx, d, toolConfig{name: actSendInvoice}, schema, principalRef{UserID: g.adminID}, in, gt.sendInvoiceEmail); err != nil {
+		t.Fatalf("send_invoice_email cancelled after the send: %v", err)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("the context was never cancelled, so this test proves nothing")
+	}
+	g.mail.setAfter(nil)
+
+	if s := g.invoiceStatus(t, id); s != "SENT" {
+		t.Fatalf("status %s after a send the client hung up on, want SENT", s)
+	}
+	if n := g.spentTokens(t); n != 1 {
+		t.Fatalf("spent tokens %d, want 1", n)
+	}
+	if msg := g.refused(t, "send_invoice_email", with(args, "confirm_token", tok)); msg != errConfirmSpent {
+		t.Fatalf("replay: %q, want %q", msg, errConfirmSpent)
+	}
+	if n := len(g.mail.messages()); n != 1 {
+		t.Fatalf("%d emails, want 1", n)
+	}
+}
+
+// The spent-token prune runs outside the action's transaction, so a confirm
+// does not wait behind another confirm whose send is still in flight (that
+// one's prune would otherwise hold the expired rows it deleted until its
+// commit). Expired rows are still pruned.
+func TestConfirmPruneDoesNotWaitBehindASend(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	g.exec(t, `INSERT INTO mcp_spent_confirm_tokens (token_hash, expires_at) VALUES ('old', $1)`,
+		g.clock.Now().Add(-spentConfirmGrace-time.Second))
+	inv := g.seedSentInvoice(t)
+	sendArgs := map[string]any{"invoice_id": inv.String(), "to_email": "a@b.com"}
+	_, sendTok := g.preview(t, "send_invoice_email", sendArgs)
+	cust := g.customer(t, "Other Pte Ltd")
+	delArgs := map[string]any{"customer_id": cust.String()}
+	_, delTok := g.preview(t, "delete_customer", delArgs)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	g.mail.setAfter(func(context.Context) {
+		close(entered)
+		<-release
+	})
+	var once sync.Once
+	var wg sync.WaitGroup
+	free := func() {
+		once.Do(func() { close(release) })
+		wg.Wait()
+	}
+	defer free()
+	sendSess := g.connect(t)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = sendSess.CallTool(t.Context(), &mcp.CallToolParams{Name: "send_invoice_email", Arguments: with(sendArgs, "confirm_token", sendTok)})
+	}()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the send never reached the mail provider")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	res, err := g.connect(t).CallTool(ctx, &mcp.CallToolParams{Name: "delete_customer", Arguments: with(delArgs, "confirm_token", delTok)})
+	if err != nil {
+		t.Fatalf("delete_customer confirm waited behind the in-flight send: %v", err)
+	}
+	if m, _ := res.StructuredContent.(map[string]any); res.IsError || m["error"] != nil {
+		t.Fatalf("delete_customer: %v", m)
+	}
+	if active := g.cell(t, `SELECT active FROM customers WHERE customer_id = $1`, cust); active != false {
+		t.Fatalf("active %v, want false", active)
+	}
+	if n := g.count(t, `SELECT count(*) FROM mcp_spent_confirm_tokens WHERE token_hash = 'old'`); n != 0 {
+		t.Fatalf("expired spent row still there (%d)", n)
+	}
+
+	free()
+	if s := g.invoiceStatus(t, inv); s != "SENT" || g.spentTokens(t) != 2 {
+		t.Fatalf("send after release: status %s, %d spent tokens; want SENT and 2", s, g.spentTokens(t))
 	}
 }

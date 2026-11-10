@@ -235,3 +235,39 @@ func TestRegisterBadJsonIsOauth400(t *testing.T) {
 		})
 	}
 }
+
+// A control character in client_name (NUL, which Postgres text refuses,
+// and the rest of C0, DEL and C1) is a 400 invalid_client_metadata, never a
+// failed insert; nothing is stored. Other characters, markup included, pass.
+func TestRegisterRejectsControlCharsInClientName(t *testing.T) {
+	t.Parallel()
+	bad := map[string]string{
+		"nul":     "cli\x00ent",
+		"newline": "cli\nent",
+		"tab":     "cli\tent",
+		"escape":  "cli\x1bent",
+		"del":     "cli\x7fent",
+		"c1":      "cli\u0085ent",
+	}
+	for name, label := range bad {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			h, scalar := newHandler(t)
+			body, _ := json.Marshal(map[string]any{"client_name": label, "redirect_uris": []string{"https://ok.example/cb"}})
+			wantOAuthError(t, do(h, http.MethodPost, "/oauth/register", string(body)),
+				http.StatusBadRequest, "invalid_client_metadata", "client_name must not contain control characters")
+			if n := scalar(`SELECT count(*)::text FROM oauth_clients`); n != "0" {
+				t.Fatalf("a rejected registration stored %s client(s)", n)
+			}
+		})
+	}
+	t.Run("printable", func(t *testing.T) {
+		t.Parallel()
+		h, scalar := newHandler(t)
+		body, _ := json.Marshal(map[string]any{"client_name": `Claude <&> "é" 名前`, "redirect_uris": []string{"https://ok.example/cb"}})
+		decode(t, do(h, http.MethodPost, "/oauth/register", string(body)), http.StatusCreated)
+		if n := scalar(`SELECT client_name FROM oauth_clients`); n != `Claude <&> "é" 名前` {
+			t.Fatalf("stored %q", n)
+		}
+	})
+}

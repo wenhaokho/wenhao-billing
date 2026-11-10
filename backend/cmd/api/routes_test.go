@@ -47,7 +47,7 @@ func operations(api huma.API) map[string]*huma.Operation {
 func TestEveryOperationIsAuthenticated(t *testing.T) {
 	t.Parallel()
 	handler, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{Sessions: testSessions()})
-	register(api, features{Sessions: testSessions()})
+	register(api, features{Sessions: testSessions()}.withServices())
 	checked := 0
 	for key, op := range operations(api) {
 		if platform.IsPublic(op) {
@@ -81,7 +81,7 @@ func TestEveryOperationIsAuthenticated(t *testing.T) {
 func TestEveryOperationIsAdminOrPublic(t *testing.T) {
 	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, features{Sessions: testSessions()})
+	register(api, features{Sessions: testSessions()}.withServices())
 	for key, op := range operations(api) {
 		if !platform.IsPublic(op) && !platform.IsAdmin(op) {
 			t.Errorf("%s is neither public nor admin-only (use platform.Admin)", key)
@@ -96,7 +96,7 @@ func TestEveryOperationIsAdminOrPublic(t *testing.T) {
 func TestSchemaNamesAreStable(t *testing.T) {
 	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, features{Sessions: testSessions()})
+	register(api, features{Sessions: testSessions()}.withServices())
 	endsInDigit := regexp.MustCompile(`[0-9]$`)
 	for name := range api.OpenAPI().Components.Schemas.Map() {
 		if strings.Contains(name, "InBody") || endsInDigit.MatchString(name) {
@@ -111,7 +111,7 @@ func TestSchemaNamesAreStable(t *testing.T) {
 func TestResponsesNeverOmitFields(t *testing.T) {
 	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, features{Sessions: testSessions()})
+	register(api, features{Sessions: testSessions()}.withServices())
 	reg := api.OpenAPI().Components.Schemas
 	seen := map[*huma.Schema]bool{}
 	var walk func(where string, s *huma.Schema)
@@ -194,7 +194,7 @@ func acceptsNull(m map[string]any) bool {
 func TestNullableResponseFieldsAcceptNull(t *testing.T) {
 	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, features{Sessions: testSessions()})
+	register(api, features{Sessions: testSessions()}.withServices())
 	doc, err := json.Marshal(api.OpenAPI())
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func TestNullableResponseFieldsAcceptNull(t *testing.T) {
 func TestOpenAPIHasNoEmptyType(t *testing.T) {
 	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, features{Sessions: testSessions()})
+	register(api, features{Sessions: testSessions()}.withServices())
 	doc, err := json.Marshal(api.OpenAPI())
 	if err != nil {
 		t.Fatal(err)
@@ -312,7 +312,7 @@ func TestOpenAPIHasNoEmptyType(t *testing.T) {
 func TestArrayBodiesAreNotNullable(t *testing.T) {
 	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, features{Sessions: testSessions()})
+	register(api, features{Sessions: testSessions()}.withServices())
 	arrays := 0
 	for name, op := range operations(api) {
 		var contents []map[string]*huma.MediaType
@@ -353,7 +353,7 @@ var decimalTypes = []reflect.Type{reflect.TypeFor[platform.Dec2](), reflect.Type
 func TestResponseDecimalsAreStringOnly(t *testing.T) {
 	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, features{Sessions: testSessions()})
+	register(api, features{Sessions: testSessions()}.withServices())
 	doc, err := json.Marshal(api.OpenAPI())
 	if err != nil {
 		t.Fatal(err)
@@ -467,7 +467,7 @@ func componentsReachable(reg huma.Registry, s *huma.Schema, into map[string]bool
 func TestNoComponentSharedByRequestAndResponse(t *testing.T) {
 	t.Parallel()
 	_, api := platform.NewServer(platform.Config{Environment: "test"}, platform.Deps{})
-	register(api, features{Sessions: testSessions()})
+	register(api, features{Sessions: testSessions()}.withServices())
 	reg := api.OpenAPI().Components.Schemas
 	requests, responses := map[string]bool{}, map[string]bool{}
 	for _, op := range operations(api) {

@@ -72,8 +72,10 @@ type features struct {
 	Logger *slog.Logger
 	// FXClient is the FX provider's HTTP client (fx.NewClient).
 	FXClient *http.Client
-	// Services are the services the routes share with the MCP connector
-	// (nil: newServices from the fields above, as wire builds them).
+	// Services are the services the routes share with the MCP connector.
+	// Required: register panics without them, so the routes can never build
+	// a second set the connector does not share. wire builds them once;
+	// callers with no connector use withServices.
 	Services *services
 }
 
@@ -99,16 +101,21 @@ func newServices(cfg platform.Config, pool *pgxpool.Pool, logger *slog.Logger, m
 	}
 }
 
-func (f features) services() services {
-	if f.Services != nil {
-		return *f.Services
-	}
-	return newServices(f.Config, f.Pool, f.Logger, f.Mail)
+// withServices is f with Services built from its own fields, for callers
+// that serve no MCP connector (printOpenAPI, tests); serve uses wire.
+func (f features) withServices() features {
+	svc := newServices(f.Config, f.Pool, f.Logger, f.Mail)
+	f.Services = &svc
+	return f
 }
 
 // register adds every feature's operations. A new feature adds its line here.
+// f.Services must be set (wire, or withServices).
 func register(api huma.API, f features) {
-	svc := f.services()
+	if f.Services == nil {
+		panic("register: features.Services is nil; build them once with wire (or withServices) so the routes and the MCP connector share them")
+	}
+	svc := *f.Services
 	auth.Register(api, f.Pool, f.Sessions, f.Mail, f.Config, f.Clock)
 	accounts.Register(api, f.Pool)
 	vendors.Register(api, f.Pool)
@@ -388,7 +395,7 @@ func healthcheck() int {
 // printOpenAPI builds the API with no database: routes are only described.
 func printOpenAPI() int {
 	_, api := platform.NewServer(platform.Config{Environment: "openapi"}, platform.Deps{})
-	register(api, features{})
+	register(api, features{}.withServices())
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(api.OpenAPI()); err != nil {

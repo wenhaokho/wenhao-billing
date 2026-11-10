@@ -6,11 +6,19 @@ SELECT * FROM users WHERE user_id = $1;
 
 -- name: SetPassword :one
 -- SetPassword replaces the hash, signs every session out and voids any reset
--- token.
+-- token. Signing out everywhere includes the MCP connector: the same
+-- statement revokes the user's live OAuth refresh tokens (user_id is the
+-- user UUID as text there), so every place that moves the epoch revokes
+-- them atomically with it.
+WITH revoked_refresh AS (
+    UPDATE oauth_refresh_tokens SET revoked = true
+    WHERE oauth_refresh_tokens.user_id = (SELECT u.user_id::text FROM users u WHERE u.user_id = sqlc.arg(user_id))
+      AND NOT oauth_refresh_tokens.revoked
+)
 UPDATE users
 SET password_hash = sqlc.arg(password_hash), session_epoch = session_epoch + 1,
     password_reset_token = NULL, password_reset_expires = NULL
-WHERE user_id = sqlc.arg(user_id)
+WHERE users.user_id = sqlc.arg(user_id)
 RETURNING *;
 
 -- name: SetResetToken :exec
