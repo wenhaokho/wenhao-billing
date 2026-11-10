@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,6 +22,10 @@ const (
 	RuleDetailShape  = "detail-shape"
 )
 
+// statusPath is the pseudo-path of the HTTP status. It is not a JSONPath, so
+// no body field can collide with it.
+const statusPath = "@status"
+
 var knownRules = map[string]bool{
 	RuleDecimalEqual: true,
 	RuleInstantEqual: true,
@@ -31,15 +36,25 @@ var knownRules = map[string]bool{
 	RuleDetailShape:  true,
 }
 
-// AllowedEntry is one allowed difference: a rule for a JSONPath on a route.
-// Route is "METHOD /path"; a {name} segment matches one path segment. Path is
-// a JSONPath whose array indexes are [*]. Note names the PORT-NOTES number or
-// spec line the difference stands for.
+// AllowedEntry is one allowed difference: a rule for a path on a route.
+//
+// Route is "METHOD /path"; a {name} segment matches one path segment, and a
+// literal route is preferred over a pattern. Path is a JSONPath whose array
+// indexes are [*], or @status for the HTTP status. Note names the PORT-NOTES
+// number or spec line the difference stands for.
+//
+// A status entry names the exact pair (Python, Go). A detail-shape entry
+// names the Go status (GoCode) and/or a regexp on the Go detail
+// (DetailPattern); at least one is required.
 type AllowedEntry struct {
-	Route string `yaml:"route"`
-	Path  string `yaml:"path"`
-	Rule  string `yaml:"rule"`
-	Note  string `yaml:"note"`
+	Route         string `yaml:"route"`
+	Path          string `yaml:"path"`
+	Rule          string `yaml:"rule"`
+	Note          string `yaml:"note"`
+	Python        int    `yaml:"python"`
+	Go            int    `yaml:"go"`
+	GoCode        int    `yaml:"go_code"`
+	DetailPattern string `yaml:"detail_pattern"`
 }
 
 // Allowed is the loaded allowed-diffs.yaml.
@@ -50,7 +65,8 @@ type Allowed struct {
 }
 
 // ParseAllowed reads the entries of an allowed-diffs.yaml document. Every
-// entry needs a route, a path, a known rule and a note.
+// entry needs a route, a path, a known rule and a note; a status entry needs
+// both codes and a detail-shape entry needs a code or a pattern.
 func ParseAllowed(data []byte) (Allowed, error) {
 	var entries []AllowedEntry
 	if err := yaml.Unmarshal(data, &entries); err != nil {
@@ -80,49 +96,86 @@ func LoadAllowedFile(path string) (Allowed, error) {
 // newAllowed validates the entries and returns them.
 func newAllowed(entries []AllowedEntry) (Allowed, error) {
 	for i, e := range entries {
-		if strings.TrimSpace(e.Route) == "" {
-			return Allowed{}, fmt.Errorf("allowed diffs: entry %d has no route", i+1)
-		}
-		if strings.TrimSpace(e.Path) == "" {
-			return Allowed{}, fmt.Errorf("allowed diffs: entry %d (%s) has no path", i+1, e.Route)
-		}
-		if !knownRules[e.Rule] {
-			return Allowed{}, fmt.Errorf("allowed diffs: entry %d (%s %s) has unknown rule %q", i+1, e.Route, e.Path, e.Rule)
-		}
-		if strings.TrimSpace(e.Note) == "" {
-			return Allowed{}, fmt.Errorf("allowed diffs: entry %d (%s %s) has no note", i+1, e.Route, e.Path)
+		if err := validateEntry(i, e); err != nil {
+			return Allowed{}, err
 		}
 	}
 	return Allowed{Entries: entries}, nil
 }
 
-// covers reports whether an entry with rule covers a difference at path.
-func (a Allowed) covers(route, path, rule string) bool {
-	np := normalizePath(path)
-	for _, e := range a.Entries {
-		if e.Rule != rule || !routeMatches(e.Route, route) {
-			continue
+// validateEntry refuses an entry that is missing a field or too broad to name
+// one difference.
+func validateEntry(i int, e AllowedEntry) error {
+	where := fmt.Sprintf("entry %d (%s %s)", i+1, e.Route, e.Path)
+	if strings.TrimSpace(e.Route) == "" {
+		return fmt.Errorf("allowed diffs: entry %d has no route", i+1)
+	}
+	if strings.TrimSpace(e.Path) == "" {
+		return fmt.Errorf("allowed diffs: %s has no path", where)
+	}
+	if !knownRules[e.Rule] {
+		return fmt.Errorf("allowed diffs: %s has unknown rule %q", where, e.Rule)
+	}
+	if strings.TrimSpace(e.Note) == "" {
+		return fmt.Errorf("allowed diffs: %s has no note", where)
+	}
+	if !strings.HasPrefix(e.Path, "$") && !strings.HasPrefix(e.Path, "@") {
+		return fmt.Errorf("allowed diffs: %s: path must start with $ or @", where)
+	}
+	switch e.Rule {
+	case RuleStatus:
+		if e.Path != statusPath {
+			return fmt.Errorf("allowed diffs: %s: a status entry's path is %s", where, statusPath)
 		}
-		if pathCovers(e.Path, np) {
-			return true
+		if e.Python == 0 || e.Go == 0 {
+			return fmt.Errorf("allowed diffs: %s: a status entry needs python and go codes", where)
+		}
+	case RuleDetailShape:
+		if strings.HasPrefix(e.Path, "@") {
+			return fmt.Errorf("allowed diffs: %s: a detail-shape path is a body JSONPath", where)
+		}
+		if e.GoCode == 0 && e.DetailPattern == "" {
+			return fmt.Errorf("allowed diffs: %s: a detail-shape entry needs go_code or detail_pattern", where)
+		}
+		if e.DetailPattern != "" {
+			if _, err := regexp.Compile(e.DetailPattern); err != nil {
+				return fmt.Errorf("allowed diffs: %s: bad detail_pattern: %w", where, err)
+			}
+		}
+	case RuleIgnore, RuleUnordered:
+		if e.Path == "$" {
+			return fmt.Errorf("allowed diffs: %s: a %s path must not be $", where, e.Rule)
 		}
 	}
-	return false
+	return nil
 }
 
-// unorderedAt reports whether the array at path compares as a multiset.
-func (a Allowed) unorderedAt(route, path string) bool {
-	np := normalizePath(path)
+// applicable is the entries that apply to route. A literal route is preferred
+// over a pattern: when one exists for the request, only the literal entries
+// apply, so a {id} entry never reaches a literal sibling such as
+// awaiting-finalization.
+func (a Allowed) applicable(route string) []AllowedEntry {
+	rm, rp := splitRoute(route)
+	var literal, pattern []AllowedEntry
 	for _, e := range a.Entries {
-		if e.Rule != RuleUnordered || !routeMatches(e.Route, route) {
+		em, ep := splitRoute(e.Route)
+		if em != "" && !strings.EqualFold(em, rm) {
 			continue
 		}
-		ep := normalizePath(e.Path)
-		if ep == np || ep == np+"[*]" {
-			return true
+		if strings.Contains(ep, "{") {
+			if routeMatches(e.Route, route) {
+				pattern = append(pattern, e)
+			}
+			continue
+		}
+		if ep == rp {
+			literal = append(literal, e)
 		}
 	}
-	return false
+	if len(literal) > 0 {
+		return literal
+	}
+	return pattern
 }
 
 // pathCovers reports whether an entry path covers a difference path: equal, or
