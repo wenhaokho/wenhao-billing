@@ -72,6 +72,17 @@ func (q *Queries) PruneSpentCodes(ctx context.Context, cutoff time.Time) error {
 	return err
 }
 
+const pruneSpentConfirmTokens = `-- name: PruneSpentConfirmTokens :exec
+DELETE FROM mcp_spent_confirm_tokens WHERE expires_at < $1
+`
+
+// MCP confirm tokens past their expiry can no longer verify, so their spent
+// rows go; cutoff is now less a grace period for clock skew.
+func (q *Queries) PruneSpentConfirmTokens(ctx context.Context, cutoff time.Time) error {
+	_, err := q.db.Exec(ctx, pruneSpentConfirmTokens, cutoff)
+	return err
+}
+
 const refreshTokenExists = `-- name: RefreshTokenExists :one
 SELECT EXISTS (SELECT 1 FROM oauth_refresh_tokens WHERE jti = $1)
 `
@@ -136,4 +147,26 @@ func (q *Queries) SpendCode(ctx context.Context, arg SpendCodeParams) (string, e
 	var code_hash string
 	err := row.Scan(&code_hash)
 	return code_hash, err
+}
+
+const spendConfirmToken = `-- name: SpendConfirmToken :one
+INSERT INTO mcp_spent_confirm_tokens (token_hash, expires_at) VALUES ($1, $2)
+ON CONFLICT (token_hash) DO NOTHING
+RETURNING token_hash
+`
+
+type SpendConfirmTokenParams struct {
+	TokenHash string
+	ExpiresAt time.Time
+}
+
+// Records a confirmed MCP action's token (token_hash is canonical: the hash
+// of the decoded MAC). No row back means it was already spent: a concurrent
+// confirm of the same token waits on the primary key until the first one's
+// transaction ends, then conflicts if it committed.
+func (q *Queries) SpendConfirmToken(ctx context.Context, arg SpendConfirmTokenParams) (string, error) {
+	row := q.db.QueryRow(ctx, spendConfirmToken, arg.TokenHash, arg.ExpiresAt)
+	var token_hash string
+	err := row.Scan(&token_hash)
+	return token_hash, err
 }

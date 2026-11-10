@@ -42,3 +42,17 @@ UPDATE oauth_refresh_tokens SET revoked = true WHERE user_id = @user_id AND NOT 
 
 -- name: RevokeRefreshToken :exec
 UPDATE oauth_refresh_tokens SET revoked = true WHERE jti = @jti AND NOT revoked;
+
+-- name: PruneSpentConfirmTokens :exec
+-- MCP confirm tokens past their expiry can no longer verify, so their spent
+-- rows go; cutoff is now less a grace period for clock skew.
+DELETE FROM mcp_spent_confirm_tokens WHERE expires_at < @cutoff;
+
+-- name: SpendConfirmToken :one
+-- Records a confirmed MCP action's token (token_hash is canonical: the hash
+-- of the decoded MAC). No row back means it was already spent: a concurrent
+-- confirm of the same token waits on the primary key until the first one's
+-- transaction ends, then conflicts if it committed.
+INSERT INTO mcp_spent_confirm_tokens (token_hash, expires_at) VALUES (@token_hash, @expires_at)
+ON CONFLICT (token_hash) DO NOTHING
+RETURNING token_hash;

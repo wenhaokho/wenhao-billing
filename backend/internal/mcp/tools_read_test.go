@@ -1202,8 +1202,10 @@ func TestToolsListMatchesPython(t *testing.T) {
 	if !slices.Equal(goOrder, wantOrder) {
 		t.Fatalf("tools/list order %v, want Python's order %v (every Go tool must be one of Python's)", goOrder, wantOrder)
 	}
-	if len(goOrder) < 37 {
-		t.Fatalf("tools/list has %d tools, want at least ping, the 17 read tools and the 19 write tools", len(goOrder))
+	// Every one of Python's 42 tools, in its order: ping, the 5 gated tools,
+	// the 17 read tools and the 19 write tools.
+	if !slices.Equal(goOrder, pythonOrder) || len(goOrder) != 42 {
+		t.Fatalf("tools/list %v (%d tools), want all of Python's %d: %v", goOrder, len(goOrder), len(pythonOrder), pythonOrder)
 	}
 
 	for _, tool := range list.Tools {

@@ -99,28 +99,28 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_items_sell_buy.py | test_item_update_can_toggle_purchased | items.TestItemUpdateCanTogglePurchased | ported |  | — |
 | tests/integration/test_mcp_e2e.py | test_e2e_oauth_then_authenticated_tool_calls |  | todo |  |  |
 | tests/integration/test_mcp_e2e.py | test_e2e_bad_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_e2e.py | test_e2e_send_invoice_email_requires_confirmation_over_transport |  | todo |  |  |
+| tests/integration/test_mcp_e2e.py | test_e2e_send_invoice_email_requires_confirmation_over_transport | mcp.TestE2ESendInvoiceEmailRequiresConfirmationOverTransport | ported |  |  |
 | tests/integration/test_mcp_e2e.py | test_e2e_non_admin_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_preview_does_not_delete |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_previews_then_deletes |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_invoice_errors |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_tampered_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_bill_preview_does_not_delete |  | todo | mcp plan |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_bill_previews_then_deletes |  | todo | mcp plan |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_bill_errors |  | todo | mcp plan |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_bill_tampered_token_rejected |  | todo | mcp plan |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_customer_preview_does_not_deactivate |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_customer_previews_then_deactivates |  | todo |  |  |
-| tests/integration/test_mcp_gated_delete.py | test_delete_customer_tampered_token_rejected |  | todo |  |  |
-| tests/integration/test_mcp_gated_email.py | test_first_call_returns_preview_and_sends_nothing |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_second_call_with_token_sends |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_tampered_token_refuses |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_draft_invoice_promoted_to_sent_after_send |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_void_invoice_refuses |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_no_recipient_refuses |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_reminder_first_call_returns_preview_and_sends_nothing |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_reminder_second_call_with_token_sends |  | todo | mcp plan (plan 10: gated email) |  |
-| tests/integration/test_mcp_gated_email.py | test_reminder_tampered_token_refuses |  | todo | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_preview_does_not_delete | mcp.TestDeleteInvoicePreviewDoesNotDelete | ported |  |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_previews_then_deletes | mcp.TestDeleteInvoicePreviewsThenDeletes | ported |  |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_invoice_errors | mcp.TestDeleteNonDraftInvoiceErrors | ported |  |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_invoice_tampered_token_rejected | mcp.TestDeleteInvoiceTamperedTokenRejected | ported |  |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_bill_preview_does_not_delete | mcp.TestDeleteBillPreviewDoesNotDelete | ported | mcp plan |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_bill_previews_then_deletes | mcp.TestDeleteBillPreviewsThenDeletes | ported | mcp plan |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_non_draft_bill_errors | mcp.TestDeleteNonDraftBillErrors | ported | mcp plan |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_bill_tampered_token_rejected | mcp.TestDeleteBillTamperedTokenRejected | ported | mcp plan |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_customer_preview_does_not_deactivate | mcp.TestDeleteCustomerPreviewDoesNotDeactivate | ported |  |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_customer_previews_then_deactivates | mcp.TestDeleteCustomerPreviewsThenDeactivates | ported |  |  |
+| tests/integration/test_mcp_gated_delete.py | test_delete_customer_tampered_token_rejected | mcp.TestDeleteCustomerTamperedTokenRejected | ported |  |  |
+| tests/integration/test_mcp_gated_email.py | test_first_call_returns_preview_and_sends_nothing | mcp.TestFirstCallReturnsPreviewAndSendsNothing | ported | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_second_call_with_token_sends | mcp.TestSecondCallWithTokenSends | ported | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_tampered_token_refuses | mcp.TestTamperedTokenRefuses | ported | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_draft_invoice_promoted_to_sent_after_send | mcp.TestDraftInvoicePromotedToSentAfterSend | ported | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_void_invoice_refuses | mcp.TestVoidInvoiceRefuses | ported | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_no_recipient_refuses | mcp.TestNoRecipientRefuses | ported | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_reminder_first_call_returns_preview_and_sends_nothing | mcp.TestReminderFirstCallReturnsPreviewAndSendsNothing | ported | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_reminder_second_call_with_token_sends | mcp.TestReminderSecondCallWithTokenSends | ported | mcp plan (plan 10: gated email) |  |
+| tests/integration/test_mcp_gated_email.py | test_reminder_tampered_token_refuses | mcp.TestReminderTamperedTokenRefuses | ported | mcp plan (plan 10: gated email) |  |
 | tests/integration/test_mcp_oauth.py | test_access_token_roundtrip |  | todo |  |  |
 | tests/integration/test_mcp_oauth.py | test_expired_access_token_rejected |  | todo |  |  |
 | tests/integration/test_mcp_oauth.py | test_tampered_token_rejected |  | todo |  |  |
@@ -307,7 +307,7 @@ Test functions: 520. Collected by pytest: 527. The collected count is higher bec
 | tests/integration/test_record_payment_withholding.py | test_zero_amount_and_zero_withheld_400 | payments.TestZeroAmountAndZeroWithheldIs400 | ported |  | — |
 | tests/integration/test_record_payment_withholding.py | test_send_invoice_body_quotes_amount_to_transfer | invoices.TestSendInvoiceBodyQuotesAmountToTransfer | ported |  | — |
 | tests/integration/test_record_payment_withholding.py | test_send_invoice_body_without_wht_unchanged | invoices.TestSendInvoiceBodyWithoutWHTUnchanged | ported |  | No idempotency key: TestSendInvoiceBodyWithoutWHTUnchanged red (plan 9 task 4) |
-| tests/integration/test_record_payment_withholding.py | test_payment_reminder_quotes_expected_cash |  | todo | mcp plan (plan 10: payment reminder) |  |
+| tests/integration/test_record_payment_withholding.py | test_payment_reminder_quotes_expected_cash | mcp.TestPaymentReminderQuotesExpectedCash | ported | mcp plan (plan 10: payment reminder) |  |
 | tests/integration/test_record_payment_withholding.py | test_bill_payment_schema_still_requires_positive_amount |  | todo | bills schema (plan 6 area, not plan 7) |  |
 | tests/integration/test_recurring_scheduling.py | test_create_template_stores_schedule_in_billing_cycle_ref | invoices.TestCreateTemplateStoresScheduleInBillingCycleRef | ported |  | — |
 | tests/integration/test_recurring_scheduling.py | test_create_template_persists_end_condition | invoices.TestCreateTemplatePersistsEndCondition | ported |  | — |

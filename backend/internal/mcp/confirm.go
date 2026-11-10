@@ -92,3 +92,28 @@ func (c *Confirmer) VerifyConfirm(token, action string, payload map[string]strin
 	}
 	return nil
 }
+
+// spentKey is the canonical identity of a confirm token that verified, for
+// the spent-token record (Go change 4): the hex SHA-256 of its decoded MAC
+// bytes, and its expiry. Two spellings of one token share it: the expiry
+// part parses leniently ("+1700000300", "01700000300" verify as
+// "1700000300"), and the MAC binds the parsed expiry, so the MAC bytes
+// alone identify the token. Hashing the raw text would let such a respelled
+// token through a second time. A hex digest in either case decodes to the
+// same bytes, so the key holds even if verification ever accepted upper case.
+func spentKey(token string) (string, time.Time, error) {
+	expiryStr, sig, ok := strings.Cut(token, ".")
+	if !ok {
+		return "", time.Time{}, &ConfirmError{"malformed confirm_token"}
+	}
+	expiry, err := strconv.ParseInt(expiryStr, 10, 64)
+	if err != nil {
+		return "", time.Time{}, &ConfirmError{"malformed confirm_token"}
+	}
+	mac, err := hex.DecodeString(sig)
+	if err != nil {
+		return "", time.Time{}, &ConfirmError{"malformed confirm_token"}
+	}
+	sum := sha256.Sum256(mac)
+	return hex.EncodeToString(sum[:]), time.Unix(expiry, 0), nil
+}

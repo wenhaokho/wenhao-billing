@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/mcp"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/oauth"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
@@ -68,6 +70,8 @@ type harness struct {
 	cfg     platform.Config
 	tokens  *oauth.Tokens
 	adminID uuid.UUID
+	// sender is the connector's mail sender; nil logs (email.LogSender).
+	sender email.Sender
 }
 
 func newHarness(t *testing.T) *harness {
@@ -90,7 +94,7 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) handler(t *testing.T) http.Handler {
 	t.Helper()
-	return mcp.NewHandler(mcp.Deps{Pool: h.pool, Clock: h.clock, Cfg: h.cfg})
+	return mcp.NewHandler(mcp.Deps{Pool: h.pool, Clock: h.clock, Cfg: h.cfg, Sender: h.sender})
 }
 
 func (h *harness) accessToken(t *testing.T, id uuid.UUID) string {
@@ -449,10 +453,88 @@ func TestE2ENonAdminTokenRejected(t *testing.T) {
 	}
 }
 
-// send_invoice_email over transport is deferred to Task 10 (needs plan 9 PDF/Resend).
+// sendRecorder records every message the connector sends.
+type sendRecorder struct {
+	mu   sync.Mutex
+	sent []email.Message
+}
+
+func (r *sendRecorder) Send(_ context.Context, m email.Message) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sent = append(r.sent, m)
+	return nil
+}
+
+func (r *sendRecorder) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.sent)
+}
+
+// test_e2e_send_invoice_email_requires_confirmation_over_transport: through
+// the OAuth flow and the real transport, the first call previews and sends
+// nothing; Go also confirms with the token (one email with the PDF) and
+// replays it (refused, Go change 4).
 func TestE2ESendInvoiceEmailRequiresConfirmationOverTransport(t *testing.T) {
 	t.Parallel()
-	t.Skip("send_invoice_email transport test deferred to Task 10")
+	h := newHarness(t)
+	rec := &sendRecorder{}
+	h.sender = rec
+	custID, invID := uuid.New(), uuid.New()
+	if _, err := h.pool.Exec(t.Context(), `INSERT INTO customers (customer_id, name) VALUES ($1, 'Acme Pte Ltd')`, custID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.pool.Exec(t.Context(), `INSERT INTO invoices (invoice_id, customer_id, invoice_type, invoice_number, currency, amount, balance_due, status)
+		VALUES ($1, $2, 'MILESTONE', 'INV-0002', 'USD', 1000.0000, 1000.0000, 'SENT')`, invID, custID); err != nil {
+		t.Fatal(err)
+	}
+	srv := mustServer(t, combinedHandler(t, h))
+	tok := obtainAccessToken(t, srv.URL, h)
+	sess, closeFn := sdkClient(t, srv, tok)
+	defer closeFn()
+
+	call := func(args map[string]any) map[string]any {
+		t.Helper()
+		res, err := sess.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: "send_invoice_email", Arguments: args})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.IsError {
+			t.Fatalf("isError: %v", res.Content)
+		}
+		m, ok := res.StructuredContent.(map[string]any)
+		if !ok {
+			t.Fatalf("structuredContent %#v", res.StructuredContent)
+		}
+		return m
+	}
+	args := map[string]any{"invoice_id": invID.String(), "to_email": "a@b.com"}
+	data := call(args)
+	if data["requires_confirmation"] != true || data["action"] != "send_invoice_email" || data["recipient"] != "a@b.com" {
+		t.Fatalf("preview %v", data)
+	}
+	confirm, ok := data["confirm_token"].(string)
+	if !ok || confirm == "" {
+		t.Fatalf("preview %v: no confirm_token", data)
+	}
+	if n := rec.count(); n != 0 {
+		t.Fatalf("%d emails after the preview, want 0", n)
+	}
+
+	args["confirm_token"] = confirm
+	if out := call(args); out["sent"] != true || out["recipient"] != "a@b.com" {
+		t.Fatalf("confirm %v", out)
+	}
+	if n := rec.count(); n != 1 {
+		t.Fatalf("%d emails after the confirm, want 1", n)
+	}
+	if out := call(args); out["error"] != "confirm_token already used — re-request the action" {
+		t.Fatalf("replay %v", out)
+	}
+	if n := rec.count(); n != 1 {
+		t.Fatalf("%d emails after the replay, want 1", n)
+	}
 }
 
 func combinedHandler(t *testing.T, h *harness) http.Handler {

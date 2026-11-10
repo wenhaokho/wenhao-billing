@@ -23,9 +23,9 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
-// Deps are what NewHandler needs. Sender is used by the gated email tools in
-// a later task; Payments by resolve_reconciliation_match; ping alone needs
-// Pool, Clock and Cfg.
+// Deps are what NewHandler needs. Sender is the gated email tools' mail
+// sender (the routes' own in cmd/api; nil logs, email.LogSender); Payments
+// is resolve_reconciliation_match's; ping alone needs Pool, Clock and Cfg.
 type Deps struct {
 	Pool     *pgxpool.Pool
 	Clock    platform.Clock
@@ -128,6 +128,7 @@ func NewHandler(deps Deps) http.Handler {
 	server := mcp.NewServer(&mcp.Implementation{Name: "wenhao-billing", Version: "1.0.0"}, nil)
 	server.AddReceivingMiddleware(orderTools)
 	registerPing(server, deps)
+	registerGatedTools(server, deps)
 	registerReadTools(server, deps)
 	registerWriteTools(server, deps)
 	stream := mcp.NewStreamableHTTPHandler(
