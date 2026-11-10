@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,12 +125,26 @@ func TestWritesKeepsSecretsOutOfOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the report: %v", err)
 	}
+	// Each DSN's password on its own, not only the whole DSN: a driver error
+	// can quote the password without the rest of the connection string.
+	secrets := []string{pySecret, goSecret, pyDB, goDB}
+	for _, dsn := range []string{pyDB, goDB} {
+		u, err := url.Parse(dsn)
+		if err != nil {
+			t.Fatalf("parsing a test DSN: %v", err)
+		}
+		password, ok := u.User.Password()
+		if !ok || password == "" {
+			t.Fatal("the test DSN has no password, so the password check would test nothing")
+		}
+		secrets = append(secrets, password)
+	}
 	for name, blob := range map[string][]byte{
 		"the report": report,
 		"stdout":     stdout.Bytes(),
 		"stderr":     stderr.Bytes(),
 	} {
-		for _, secret := range []string{pySecret, goSecret, pyDB, goDB} {
+		for _, secret := range secrets {
 			if bytes.Contains(blob, []byte(secret)) {
 				t.Fatalf("%s contains a secret or DSN: %s", name, blob)
 			}

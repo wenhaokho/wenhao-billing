@@ -9,7 +9,7 @@
 //
 //	compare writes --python URL --python-db DSN --go URL --go-db DSN \
 //	  --python-email E [--python-password-stdin | --python-cookie-stdin] \
-//	  --go-token-stdin --scenarios FILE --out report.json
+//	  --go-token-stdin --scenarios FILE [--allowed FILE] --out report.json
 //
 // stdin carries the credentials in a fixed order, one line each: the FIRST line
 // is the Python credential (the password with --python-password-stdin, or the
@@ -174,8 +174,8 @@ func writesCommand(args []string, cio commandIO) int {
 	fs := flag.NewFlagSet("writes", flag.ContinueOnError)
 	fs.SetOutput(cio.stderr)
 	fs.Usage = func() {
-		_, _ = fmt.Fprintf(fs.Output(), "usage: compare writes --python URL --python-db DSN --go URL --go-db DSN --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --scenarios FILE --out report.json\n\n")
-		_, _ = fmt.Fprintln(fs.Output(), "Both databases must be local (localhost, 127.0.0.1, ::1, or a compose service name without a dot). Both backends must run with RESEND_API_KEY and CLOUDFLARE_API_TOKEN unset. The webhook body is signed with WEBHOOK_HMAC_SECRET. stdin carries the credentials in order, one line each: first the Python credential, then the Go token. Pipe them in; never type them at a terminal.")
+		_, _ = fmt.Fprintf(fs.Output(), "usage: compare writes --python URL --python-db DSN --go URL --go-db DSN --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --scenarios FILE [--allowed FILE] --out report.json\n\n")
+		_, _ = fmt.Fprintln(fs.Output(), "Both databases and both backend URLs must be local: localhost, 127.0.0.1, ::1, or a compose service name (a letter, then letters, digits, - or _, no dot). A DSN may be a URL or the keyword form (host=... dbname=...); either is accepted only when it parses to a local host, with every fallback host and any hostaddr local too. Restore both databases from one dump before the run. Both backends must run with RESEND_API_KEY and CLOUDFLARE_API_TOKEN unset; the runner can check only its own environment. The webhook body is signed with WEBHOOK_HMAC_SECRET. stdin carries the credentials in order, one line each: first the Python credential, then the Go token. Pipe them in; never type them at a terminal.")
 		fs.PrintDefaults()
 	}
 	var (
@@ -188,6 +188,7 @@ func writesCommand(args []string, cio commandIO) int {
 		pythonCookie   = fs.Bool("python-cookie-stdin", false, "read the Python billing_session cookie from the FIRST stdin line; sends no POST")
 		goToken        = fs.Bool("go-token-stdin", false, "read the Go session token from the SECOND stdin line")
 		scenariosFile  = fs.String("scenarios", "", "the compare-writes.yaml path")
+		allowedFile    = fs.String("allowed", "", "optional allowed-diffs.yaml the step answers are compared under")
 		outFile        = fs.String("out", "", "the report JSON path")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -227,13 +228,20 @@ func writesCommand(args []string, cio commandIO) int {
 		logger.Error("compare writes: loading the scenarios", "err", err)
 		return 2
 	}
+	var allowed compare.Allowed
+	if *allowedFile != "" {
+		if allowed, err = compare.LoadAllowedFile(*allowedFile); err != nil {
+			logger.Error("compare writes: loading the allowed differences", "err", err)
+			return 2
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	report, runErr := compare.RunWrites(ctx, compare.WritesOptions{
 		PythonURL: *pythonURL, GoURL: *goURL, PythonDB: *pythonDB, GoDB: *goDB,
 		PythonEmail: *pythonEmail, PythonPassword: password, PythonCookie: cookie,
-		GoToken: token, Scenarios: scenarios,
+		GoToken: token, Scenarios: scenarios, Allowed: allowed,
 	})
 	code := compare.WritesExitCode(report, runErr)
 	if err := writeReport(*outFile, report); err != nil {
