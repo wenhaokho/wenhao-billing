@@ -508,6 +508,73 @@ func TestRedirectLocationCompared(t *testing.T) {
 	one(t, Diff(route, relative, gov, allowed), 0)
 }
 
+func TestRedirectLocationPartsCompared(t *testing.T) {
+	t.Parallel()
+	redirect := func(location string) Response {
+		h := http.Header{}
+		h.Set("Location", location)
+		return Response{Status: 302, Header: h}
+	}
+	route := "GET /oauth/authorize"
+	allowed := Allowed{PythonHost: "python.example", GoHost: "go.example"}
+	cases := []struct {
+		name       string
+		py, gov    string
+		wantDiffer bool
+	}{
+		// A Location is relative only with no scheme and no host, so a
+		// non-relative scheme against a relative one is reported.
+		{"javascript scheme against relative", "javascript:/cb", "/cb", true},
+		{"ftp scheme against relative", "ftp:/cb", "/cb", true},
+		// The fragment is always compared.
+		{"fragment on an absolute against a relative", "https://client.example/cb#token=a", "#token=b", true},
+		{"fragment on a relative", "/cb#a", "/cb#b", true},
+		{"fragment on an outside host", "https://client.example/cb#a", "https://client.example/cb#b", true},
+		// The userinfo is always compared.
+		{"userinfo", "https://client.example/cb", "https://attacker@client.example/cb", true},
+		// Paths compare on their escaped form.
+		{"escaped path", "/a/b", "/a%2Fb", true},
+		// An outside host is compared exactly.
+		{"outside host", "https://evil.example/cb", "https://client.example/cb", true},
+		// The equal cases that must stay equal.
+		{
+			"own hosts with the query reordered",
+			"https://python.example/oauth/authorize?client_id=x&state=y",
+			"https://go.example/oauth/authorize?state=y&client_id=x",
+			false,
+		},
+		{
+			"relative against absolute own host",
+			"/oauth/authorize?client_id=x&state=y",
+			"https://go.example/oauth/authorize?state=y&client_id=x",
+			false,
+		},
+		{"own hosts with the same fragment", "https://python.example/cb#token=a", "https://go.example/cb#token=a", false},
+		{"the same relative fragment", "/cb#token=a", "/cb#token=a", false},
+		{
+			"an outside host with the query reordered",
+			"https://client.example/cb?b=2&a=1",
+			"https://client.example/cb?a=1&b=2",
+			false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			diffs := Diff(route, redirect(tc.py), redirect(tc.gov), allowed)
+			if tc.wantDiffer {
+				if len(diffs) != 1 || diffs[0].Path != "$header.Location" {
+					t.Fatalf("got %+v, want one difference at $header.Location", diffs)
+				}
+				return
+			}
+			if len(diffs) != 0 {
+				t.Fatalf("got %+v, want no differences", diffs)
+			}
+		})
+	}
+}
+
 func TestStrayClosingBraceReported(t *testing.T) {
 	t.Parallel()
 	route := "GET /api/v1/invoices"

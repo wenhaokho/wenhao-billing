@@ -573,8 +573,11 @@ func (d *differ) compareLocation(py, gov Response) {
 	}
 }
 
-// locationEqual reports whether two Locations name the same path and query,
-// with the scheme and host folded away only between the backends themselves.
+// locationEqual reports whether two Locations name the same path (escaped
+// form), query, fragment, userinfo and opaque part. The scheme and host are
+// folded away only between the backends' own hosts (or a relative Location);
+// otherwise they are compared exactly. The order of the query parameters may
+// differ.
 func locationEqual(py, gov, pyHost, goHost string) bool {
 	pu, err := url.Parse(py)
 	if err != nil {
@@ -584,19 +587,26 @@ func locationEqual(py, gov, pyHost, goHost string) bool {
 	if err != nil {
 		return false
 	}
-	if pu.Path != gu.Path || sortedQuery(pu.RawQuery) != sortedQuery(gu.RawQuery) {
+	if !ownLocation(pu, pyHost) || !ownLocation(gu, goHost) {
+		if pu.Scheme != gu.Scheme || pu.Host != gu.Host {
+			return false
+		}
+	}
+	if pu.EscapedPath() != gu.EscapedPath() {
 		return false
 	}
-	if ownLocation(pu, pyHost) && ownLocation(gu, goHost) {
-		return true
+	if sortedQuery(pu.RawQuery) != sortedQuery(gu.RawQuery) {
+		return false
 	}
-	return pu.Scheme == gu.Scheme && pu.Host == gu.Host
+	return pu.Fragment == gu.Fragment &&
+		pu.Opaque == gu.Opaque &&
+		pu.User.String() == gu.User.String()
 }
 
-// ownLocation reports whether a Location is relative, or its host is the
-// backend's own host.
+// ownLocation reports whether a Location is relative — no scheme and no host —
+// or its host is the backend's own host.
 func ownLocation(u *url.URL, host string) bool {
-	if u.Host == "" {
+	if u.Scheme == "" && u.Host == "" {
 		return true
 	}
 	return host != "" && strings.EqualFold(u.Host, host)
