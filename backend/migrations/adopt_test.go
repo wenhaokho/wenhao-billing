@@ -380,12 +380,29 @@ func TestAdoptStillRefusesRealCheckDrift(t *testing.T) {
 			if err == nil {
 				t.Fatal("Adopt accepted ck_items_type without FIXED_FEE")
 			}
-			if !strings.Contains(err.Error(), "ck_items_type") {
-				t.Errorf("error %q does not name the drifted constraint", err)
+			if !strings.Contains(err.Error(), "schema differs") || !strings.Contains(err.Error(), "ck_items_type") {
+				t.Errorf("error %q is not a schema-differs report naming the drifted constraint", err)
 			}
 			if gooseTableExists(t, pool) {
 				t.Error("goose_db_version was written although Adopt refused")
 			}
 		})
+	}
+}
+
+// A CHECK that cannot be re-parsed against the live table (here its column is
+// gone) is not an error of its own: Adopt refuses with the schema-differs
+// report.
+func TestAdoptCheckThatCannotBeReparsedGivesDriftReport(t *testing.T) {
+	t.Parallel()
+	url := legacyDB(t)
+	exec(t, url, `ALTER TABLE items DROP COLUMN item_type CASCADE`)
+	pool := openPool(t, url)
+	err := migrations.Adopt(context.Background(), pool)
+	if err == nil {
+		t.Fatal("Adopt accepted an items table without item_type")
+	}
+	if !strings.Contains(err.Error(), "schema differs") || !strings.Contains(err.Error(), "items.item_type") {
+		t.Errorf("error %q is not the schema-differs report", err)
 	}
 }

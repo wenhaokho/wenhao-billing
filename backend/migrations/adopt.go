@@ -235,7 +235,11 @@ func normalizeChecks(ctx context.Context, tx pgx.Tx, lines []string) ([]string, 
 		table, name, def, tail := m[1], m[2], m[3], m[4]
 		norm, err := deparseCheck(ctx, tx, table, name, def)
 		if err != nil {
-			return nil, fmt.Errorf("adopt: normalise %s on %s: %w", name, table, err)
+			// The definition cannot be re-parsed here (for example the live table
+			// lacks a column it uses): keep the line as it is, so the comparison
+			// fails and the report shows what differs.
+			out[i] = l
+			continue
 		}
 		out[i] = "constraint " + table + " " + name + " " + norm + " " + tail
 	}
