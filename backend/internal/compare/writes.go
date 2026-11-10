@@ -13,10 +13,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gopkg.in/yaml.v2"
 
 	"github.com/LOQATO/gokit/db"
@@ -56,7 +59,8 @@ type WriteStep struct {
 
 // WritesReport is one `compare writes` run's result. It never holds a DSN or a
 // password: the two URLs are stored with any userinfo redacted, and a row is
-// the canonical row text, not a connection string.
+// the canonical row text, not a connection string. Differences counts the
+// row differences and every step's response differences.
 type WritesReport struct {
 	Python      string                 `json:"python"`
 	Go          string                 `json:"go"`
@@ -74,14 +78,18 @@ type WritesScenarioResult struct {
 	Steps    []WritesStepResult `json:"steps"`
 }
 
-// WritesStepResult is one request's status pair. Path is the step's template
-// path, not the expanded one, so a report never carries a backend's id.
+// WritesStepResult is one request's status pair and the differences between
+// the two answers. Path is the step's template path, not the expanded one, so
+// a report never carries a backend's id. The answers are compared with the
+// read runner's Diff after the run, once every id is mapped, so a Python id in
+// the body compares as its Go id.
 type WritesStepResult struct {
-	ID     string `json:"id"`
-	Method string `json:"method"`
-	Path   string `json:"path"`
-	Python int    `json:"python_status"`
-	Go     int    `json:"go_status"`
+	ID          string       `json:"id"`
+	Method      string       `json:"method"`
+	Path        string       `json:"path"`
+	Python      int          `json:"python_status"`
+	Go          int          `json:"go_status"`
+	Differences []Difference `json:"differences,omitempty"`
 }
 
 // WritesOptions is one write run's inputs. The DSNs arrive as arguments and
@@ -97,14 +105,18 @@ type WritesOptions struct {
 	// POST is sent at all.
 	PythonCookie string
 	// GoToken is `api issue-session` output, sent as the billing_session
-	// cookie. The runner never POSTs to Go.
+	// cookie.
 	GoToken   string
 	Scenarios WritesScenarios
-	Client    *http.Client
+	// Allowed is the allowed-diffs entries the step answers are compared
+	// under; the zero value allows nothing.
+	Allowed Allowed
+	Client  *http.Client
 	// Now is the run's clock, for the report's timestamp.
 	Now func() time.Time
-	// Env reads the process environment; nil means os.Getenv. It is used for
-	// the RESEND_API_KEY guard and the WEBHOOK_HMAC_SECRET signature.
+	// Env reads the runner's own process environment; nil means os.Getenv.
+	// It is used for the RESEND_API_KEY guard and the WEBHOOK_HMAC_SECRET
+	// signature. It cannot see the backends' environments.
 	Env func(string) string
 }
 
@@ -114,15 +126,28 @@ type idPair struct {
 	goID   string
 }
 
+// stepAnswers is one sent step's two answers, kept for the comparison after
+// the run.
+type stepAnswers struct {
+	scenario, step int
+	route          string
+	py, gov        Response
+}
+
 // RunWrites runs the write scenarios against both backends, then compares the
-// rows of the tables they touched. It refuses to run unless both database
-// hosts are local and RESEND_API_KEY is unset: a local run must never send a
-// mail or reach a remote database. A non-2xx answer is a hard failure: the
+// rows they touched and every step's answers. It refuses to run unless both
+// database hosts and both backend URLs are local and the runner's own
+// environment has no RESEND_API_KEY. A non-2xx answer is a hard failure: the
 // run stops there, so later steps never run against a broken flow.
 //
+// Before the first step it snapshots every touched table on both databases,
+// so only rows the run created, changed or deleted are compared. Each
+// extracted id is stored under the table its JSON key names; the row
+// comparison derives the pairs no response named, and the step answers are
+// compared last, with every Python id mapped to its Go id.
+//
 // The DSNs are never logged, never returned in an error and never written to
-// the report. Each backend's id is mapped to the other's before the row
-// comparison, so a row's Python id is compared as its Go id.
+// the report.
 func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 	now := o.Now
 	if now == nil {
@@ -136,12 +161,19 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 	report := WritesReport{Python: redactURL(o.PythonURL), Go: redactURL(o.GoURL), StartedAt: now().UTC()}
 
 	if env("RESEND_API_KEY") != "" {
-		return report, errors.New("compare writes: RESEND_API_KEY is set; refusing to send mail")
+		return report, errors.New("compare writes: RESEND_API_KEY is set in this runner's own environment; refusing to run. " +
+			"The runner cannot see the backends' environments: start both backends with RESEND_API_KEY and CLOUDFLARE_API_TOKEN unset")
 	}
 	if err := checkLocalDB(o.PythonDB, "python-db"); err != nil {
 		return report, err
 	}
 	if err := checkLocalDB(o.GoDB, "go-db"); err != nil {
+		return report, err
+	}
+	if err := checkLocalURL(o.PythonURL, "python"); err != nil {
+		return report, err
+	}
+	if err := checkLocalURL(o.GoURL, "go"); err != nil {
 		return report, err
 	}
 
@@ -170,23 +202,57 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 		return report, fmt.Errorf("compare writes: open go-db: %w", redactErr(err, o.GoDB))
 	}
 	defer goDB.Close()
+	dbErr := func(what string, err error) error {
+		return fmt.Errorf("compare writes: %s: %w", what, redactErr(redactErr(err, o.PythonDB), o.GoDB))
+	}
 
-	extracted := map[string]idPair{}
-	idMap := map[string]string{}
-	for _, sc := range o.Scenarios.Scenarios {
-		result, err := runScenario(ctx, client, o, sc, extracted, idMap, session)
+	schema, err := LoadSchema(ctx, pyDB)
+	if err != nil {
+		return report, dbErr("reading the schema", err)
+	}
+	tables := collectTables(o.Scenarios.Scenarios)
+	pySnap, err := TakeSnapshot(ctx, pyDB, schema, tables)
+	if err != nil {
+		return report, dbErr("python snapshot", err)
+	}
+	goSnap, err := TakeSnapshot(ctx, goDB, schema, tables)
+	if err != nil {
+		return report, dbErr("go snapshot", err)
+	}
+
+	r := writesRun{
+		client: client, o: o, session: session, schema: schema,
+		extracted: map[string]idPair{}, maps: IDMaps{},
+	}
+	for i, sc := range o.Scenarios.Scenarios {
+		result, err := r.scenario(ctx, i, sc)
 		report.Scenarios = append(report.Scenarios, result)
 		if err != nil {
 			return report, err
 		}
 	}
 
-	diffs, err := Rows(ctx, pyDB, goDB, collectTables(o.Scenarios.Scenarios), idMap)
+	diffs, err := Rows(ctx, RowsInput{
+		Python: pyDB, Go: goDB, Schema: schema, Tables: tables, Maps: r.maps,
+		PythonSnapshot: pySnap, GoSnapshot: goSnap,
+	})
 	if err != nil {
-		return report, fmt.Errorf("compare writes: row comparison: %w", redactErr(redactErr(err, o.PythonDB), o.GoDB))
+		return report, dbErr("row comparison", err)
 	}
 	report.RowDiffs = diffs
 	report.Differences = len(diffs)
+
+	c := newRowComparer(schema, r.maps)
+	allowed := o.Allowed
+	allowed.PythonHost = hostOf(o.PythonURL)
+	allowed.GoHost = hostOf(o.GoURL)
+	for _, a := range r.answers {
+		py := Response{Status: a.py.Status, Header: a.py.Header, Body: c.normalizeBody(a.py.Body, true)}
+		gov := Response{Status: a.gov.Status, Header: a.gov.Header, Body: c.normalizeBody(a.gov.Body, false)}
+		d := Diff(a.route, py, gov, allowed)
+		report.Scenarios[a.scenario].Steps[a.step].Differences = d
+		report.Differences += len(d)
+	}
 	return report, nil
 }
 
@@ -203,60 +269,111 @@ func WritesExitCode(report WritesReport, err error) int {
 	}
 }
 
-// runScenario runs one scenario's steps in order. It returns the result so far
+// writesRun is one run's state across scenarios: the placeholders extracted
+// so far, the entity-keyed id maps and the answers to compare afterwards.
+type writesRun struct {
+	client    *http.Client
+	o         WritesOptions
+	session   string
+	schema    Schema
+	extracted map[string]idPair
+	maps      IDMaps
+	answers   []stepAnswers
+}
+
+// scenario runs one scenario's steps in order. It returns the result so far
 // and the first hard failure, so a report still shows the steps that ran.
-func runScenario(ctx context.Context, client *http.Client, o WritesOptions, sc WritesScenario, extracted map[string]idPair, idMap map[string]string, session string) (WritesScenarioResult, error) {
+func (r *writesRun) scenario(ctx context.Context, index int, sc WritesScenario) (WritesScenarioResult, error) {
+	o := r.o
 	result := WritesScenarioResult{ID: sc.ID, Classify: sc.Classify}
 	for _, step := range sc.Steps {
-		pyPath, err := expandPath(step.Path, extracted, false)
-		if err != nil {
-			return result, fmt.Errorf("scenario %s: step %s: %w", sc.ID, step.ID, err)
+		fail := func(format string, args ...any) error {
+			return fmt.Errorf("scenario %s: step %s: "+format, append([]any{sc.ID, step.ID}, args...)...)
 		}
-		goPath, err := expandPath(step.Path, extracted, true)
+		pyPath, err := expandPath(step.Path, r.extracted, false)
 		if err != nil {
-			return result, fmt.Errorf("scenario %s: step %s: %w", sc.ID, step.ID, err)
+			return result, fail("%w", err)
 		}
-		pyBody, err := buildBody(step.Body, extracted, false)
+		goPath, err := expandPath(step.Path, r.extracted, true)
 		if err != nil {
-			return result, fmt.Errorf("scenario %s: step %s: %w", sc.ID, step.ID, err)
+			return result, fail("%w", err)
 		}
-		goBody, err := buildBody(step.Body, extracted, true)
+		pyBody, err := buildBody(step.Body, r.extracted, false)
 		if err != nil {
-			return result, fmt.Errorf("scenario %s: step %s: %w", sc.ID, step.ID, err)
+			return result, fail("%w", err)
+		}
+		goBody, err := buildBody(step.Body, r.extracted, true)
+		if err != nil {
+			return result, fail("%w", err)
 		}
 
-		pyResp, err := send(ctx, client, o, o.PythonURL, step.Method, pyPath, pyBody, session, step.Sign)
+		pyResp, err := send(ctx, r.client, o, o.PythonURL, step.Method, pyPath, pyBody, r.session, step.Sign)
 		if err != nil {
-			return result, fmt.Errorf("scenario %s: step %s: python: %w", sc.ID, step.ID, redactErr(err, o.PythonURL))
+			return result, fail("python: %w", redactErr(err, o.PythonURL))
 		}
-		goResp, err := send(ctx, client, o, o.GoURL, step.Method, goPath, goBody, o.GoToken, step.Sign)
+		goResp, err := send(ctx, r.client, o, o.GoURL, step.Method, goPath, goBody, o.GoToken, step.Sign)
 		if err != nil {
-			return result, fmt.Errorf("scenario %s: step %s: go: %w", sc.ID, step.ID, redactErr(err, o.GoURL))
+			return result, fail("go: %w", redactErr(err, o.GoURL))
 		}
 		result.Steps = append(result.Steps, WritesStepResult{
 			ID: step.ID, Method: step.Method, Path: step.Path,
 			Python: pyResp.Status, Go: goResp.Status,
 		})
+		r.answers = append(r.answers, stepAnswers{
+			scenario: index, step: len(result.Steps) - 1,
+			route: strings.ToUpper(step.Method) + " " + step.Path, py: pyResp, gov: goResp,
+		})
 		if pyResp.Status < 200 || pyResp.Status >= 300 {
-			return result, fmt.Errorf("scenario %s: step %s: python status %d", sc.ID, step.ID, pyResp.Status)
+			return result, fail("python status %d", pyResp.Status)
 		}
 		if goResp.Status < 200 || goResp.Status >= 300 {
-			return result, fmt.Errorf("scenario %s: step %s: go status %d", sc.ID, step.ID, goResp.Status)
+			return result, fail("go status %d", goResp.Status)
 		}
-		for name, path := range step.Extract {
+		for _, name := range sortedExtracts(step.Extract) {
+			path := step.Extract[name]
+			table, ok := r.schema.EntityForKey(lastKey(path))
+			if !ok {
+				return result, fail("extract %s: %q names no single table's id", name, path)
+			}
 			pyID, err := extractID(pyResp.Body, path)
 			if err != nil {
-				return result, fmt.Errorf("scenario %s: step %s: python %s: %w", sc.ID, step.ID, name, err)
+				return result, fail("python %s: %w", name, err)
 			}
 			goID, err := extractID(goResp.Body, path)
 			if err != nil {
-				return result, fmt.Errorf("scenario %s: step %s: go %s: %w", sc.ID, step.ID, name, err)
+				return result, fail("go %s: %w", name, err)
 			}
-			extracted[name] = idPair{python: pyID, goID: goID}
-			idMap[pyID] = goID
+			r.extracted[name] = idPair{python: pyID, goID: goID}
+			if err := r.maps.Set(table, pyID, goID); err != nil {
+				return result, fail("extract %s: %w", name, err)
+			}
 		}
 	}
 	return result, nil
+}
+
+// sortedExtracts is a step's extract names in order, so a run is repeatable.
+func sortedExtracts(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for name := range m {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// lastKey is a JSONPath's last object key: "$.items[0].invoice_id" is
+// "invoice_id". It names the table the extracted id belongs to.
+func lastKey(path string) string {
+	i := strings.LastIndexByte(path, '.')
+	if i < 0 {
+		return ""
+	}
+	key := path[i+1:]
+	if j := strings.IndexByte(key, '['); j >= 0 {
+		key = key[:j]
+	}
+	return key
 }
 
 // send sends one request to one backend. The response body is never put in an
@@ -480,30 +597,64 @@ func collectTables(scenarios []WritesScenario) []string {
 	return out
 }
 
-// checkLocalDB refuses a DSN whose host is not local. The local set is
-// localhost, 127.0.0.1, ::1 and a compose service name without a dot.
+// localHostRule is the refusal text both local checks share.
+const localHostRule = "the writes runner runs only against localhost, 127.0.0.1, ::1, or a compose service name (a letter, then letters, digits, - or _, no dot)"
+
+// composeName is a compose service name: no dot, so it never resolves through
+// public DNS, and a leading letter, so a numeric or hex IPv4 shorthand such as
+// 2130706433 or 0x7f000001 is never taken for a name.
+var composeName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+
+// checkLocalDB refuses a DSN that would connect anywhere but a local host. The
+// DSN is parsed the way the driver parses it (a URL or the keyword form), and
+// the final host, every fallback host and any hostaddr parameter are checked,
+// so a ?host= or ?hostaddr= override and a multi-host list cannot slip past.
+// The parse error is not wrapped: it may quote the DSN.
 func checkLocalDB(dsn, name string) error {
-	u, err := url.Parse(dsn)
+	cfg, err := pgconn.ParseConfig(dsn)
 	if err != nil {
-		return fmt.Errorf("compare writes: %s is not a valid URL: %w", name, redactErr(err, dsn))
+		return fmt.Errorf("compare writes: %s does not parse as a Postgres connection string", name)
 	}
-	host := u.Hostname()
-	if host == "" {
-		return fmt.Errorf("compare writes: %s has no host", name)
+	hosts := []string{cfg.Host}
+	for _, f := range cfg.Fallbacks {
+		hosts = append(hosts, f.Host)
 	}
-	if isLocalDBHost(host) {
-		return nil
+	if addr, ok := cfg.RuntimeParams["hostaddr"]; ok {
+		hosts = append(hosts, addr)
 	}
-	return fmt.Errorf("compare writes: %s host %q is not local; the writes runner runs only against localhost, 127.0.0.1, ::1, or a compose service name without a dot", name, host)
+	for _, host := range hosts {
+		if !isLocalHost(host) {
+			return fmt.Errorf("compare writes: %s host %q is not local; %s", name, host, localHostRule)
+		}
+	}
+	return nil
 }
 
-// isLocalDBHost reports whether host is a local database host.
-func isLocalDBHost(host string) bool {
-	switch strings.ToLower(host) {
+// checkLocalURL refuses a backend URL whose host is not local: the writes
+// runner creates, pays and reverses rows, so it must never reach a deployed
+// backend.
+func checkLocalURL(raw, name string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("compare writes: --%s is not an http(s) URL", name)
+	}
+	if !isLocalHost(u.Hostname()) {
+		return fmt.Errorf("compare writes: --%s host %q is not local; %s", name, u.Hostname(), localHostRule)
+	}
+	return nil
+}
+
+// isLocalHost reports whether host is local: localhost, the loopback
+// literals 127.0.0.1 and ::1, or a compose service name. Every other IP
+// literal is refused (a compose name has no dot or colon and starts with a
+// letter, so no IPv4 or IPv6 literal matches it), and so is a socket path.
+func isLocalHost(host string) bool {
+	h := strings.ToLower(host)
+	switch h {
 	case "localhost", "127.0.0.1", "::1":
 		return true
 	}
-	return !strings.Contains(host, ".")
+	return composeName.MatchString(h)
 }
 
 // redactErr replaces the DSN in an error's text, so a connection error never
@@ -545,7 +696,8 @@ func LoadWritesFile(path string) (WritesScenarios, error) {
 
 // validate refuses a scenario set that cannot run: no scenarios, a duplicate
 // id, a step without a method or a path, a placeholder that no earlier step
-// extracted, a Go-only table, or a table name that is not a plain identifier.
+// extracted, a placeholder extracted twice, a placeholder used after a DELETE
+// on it, a Go-only table, or a table name that is not a plain identifier.
 func (w WritesScenarios) validate() error {
 	if len(w.Scenarios) == 0 {
 		return errors.New("compare writes: no scenarios")
@@ -554,6 +706,7 @@ func (w WritesScenarios) validate() error {
 	// The extracted names are shared across scenarios, because a scenario
 	// can create an id the next scenario uses (master data, then invoices).
 	extracted := map[string]bool{}
+	deleted := map[string]string{}
 	for i, sc := range w.Scenarios {
 		where := fmt.Sprintf("scenario %d", i+1)
 		if strings.TrimSpace(sc.ID) == "" {
@@ -593,10 +746,23 @@ func (w WritesScenarios) validate() error {
 				if !extracted[name] {
 					return fmt.Errorf("compare writes: %s: {%s} has no earlier extract", stepWhere, name)
 				}
+				if by, ok := deleted[name]; ok {
+					return fmt.Errorf("compare writes: %s: {%s} was deleted by step %s; create a separate one to delete", stepWhere, name, by)
+				}
 			}
 			for _, name := range placeholders(step.BodyString()) {
 				if !extracted[name] {
 					return fmt.Errorf("compare writes: %s: body {%s} has no earlier extract", stepWhere, name)
+				}
+				if by, ok := deleted[name]; ok {
+					return fmt.Errorf("compare writes: %s: body {%s} was deleted by step %s; create a separate one to delete", stepWhere, name, by)
+				}
+			}
+			// A DELETE deletes or deactivates the row its path names: no
+			// later step may use that row again.
+			if strings.EqualFold(step.Method, "DELETE") {
+				for _, name := range placeholders(step.Path) {
+					deleted[name] = step.ID
 				}
 			}
 			for name, path := range step.Extract {
@@ -606,6 +772,11 @@ func (w WritesScenarios) validate() error {
 				}
 				if !strings.HasPrefix(path, "$") {
 					return fmt.Errorf("compare writes: %s: extract %s path %q must start with $", stepWhere, name, path)
+				}
+				// A second extract under one name would silently point every
+				// later step at a different row.
+				if extracted[name] {
+					return fmt.Errorf("compare writes: %s: {%s} is extracted twice; give each extract its own name", stepWhere, name)
 				}
 				extracted[name] = true
 			}
