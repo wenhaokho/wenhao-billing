@@ -1,0 +1,705 @@
+# Allowed differences for the Go/Python comparison (plan 11, Task 2).
+#
+# Each entry names the PORT-NOTES note ("PN n") or spec line it stands for, so
+# the comparison report can show why a difference is expected. The comparison
+# reports every other difference, and no entry covers a whole route: `path`
+# names the field, or `$.status` / `$.detail` for one error.
+#
+# Rules:
+#   decimal-equal  two decimal strings are equal by value (PN 99; also global)
+#   instant-equal  two timestamps are equal as instants (also global)
+#   number-equal   two JSON numbers are equal by value (PN 104)
+#   ignore         the field is not compared
+#   unordered      the array compares as a multiset (PN 40/41/44/47/53/78/100)
+#   status         the status code differs on purpose
+#   detail-shape   the error detail (sentence or shape) differs on purpose
+#
+# Paths are JSONPaths; an array index is [*]. A bare `$` is a route whose body
+# is a JSON array. Task 3's corpus and Task 6's runs may add a path where a
+# response shape turns out to differ.
+
+# --- Global rules, recorded for their notes -------------------------------
+
+# PN 99: zero prints as `0` or `0.0000` and `-0.0000` equals `0.0000`.
+- route: GET /api/v1/accounting/reports/trial-balance
+  path: $.rows[*].debit
+  rule: decimal-equal
+  note: PN 99
+- route: GET /api/v1/accounting/reports/trial-balance
+  path: $.rows[*].credit
+  rule: decimal-equal
+  note: PN 99
+- route: GET /api/v1/accounting/reports/balance-sheet
+  path: $.groups[*].lines[*].base_balance
+  rule: decimal-equal
+  note: PN 99
+- route: GET /api/v1/accounting/reports/fx-revaluation
+  path: $.rows[*].difference
+  rule: decimal-equal
+  note: PN 99
+
+# PN 50: `expected_cash` is `"0"` in Python and `"0.0000"` in Go.
+- route: GET /api/v1/invoices/{invoice_id}
+  path: $.expected_cash
+  rule: decimal-equal
+  note: PN 50
+- route: GET /api/v1/invoices
+  path: $[*].expected_cash
+  rule: decimal-equal
+  note: PN 50
+
+# PN 63: the project summary prints empty sums as `"0"` only in Python.
+- route: GET /api/v1/projects/{project_id}/summary
+  path: $.invoiced_total
+  rule: decimal-equal
+  note: PN 63
+- route: GET /api/v1/projects/{project_id}/summary
+  path: $.outstanding_total
+  rule: decimal-equal
+  note: PN 63
+- route: GET /api/v1/projects/{project_id}/summary
+  path: $.contract_remaining
+  rule: decimal-equal
+  note: PN 63
+
+# PN 76: quotation `last_sent_at` and `accepted_at` gain a `Z` in Go.
+- route: GET /api/v1/quotations/{quotation_id}
+  path: $.last_sent_at
+  rule: instant-equal
+  note: PN 76
+- route: GET /api/v1/quotations/{quotation_id}
+  path: $.accepted_at
+  rule: instant-equal
+  note: PN 76
+
+# PN 108: recent activity `created_at` gains a `Z` in Go.
+- route: GET /api/v1/stats/dashboard
+  path: $.recent_activity[*].created_at
+  rule: instant-equal
+  note: PN 108
+
+# PN 104: `avg_days_to_pay` is `10` in one and `10.0` in the other.
+- route: GET /api/v1/stats/invoices-summary
+  path: $.avg_days_to_pay
+  rule: number-equal
+  note: PN 104
+
+# --- Order that was undefined in Python (multisets) -----------------------
+
+# PN 40: templates and issue-date ties in the customer invoice views.
+- route: GET /api/v1/customers/{customer_id}/invoices
+  path: $
+  rule: unordered
+  note: PN 40
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.open_invoices
+  rule: unordered
+  note: PN 40
+
+# PN 41: the balances list has no ORDER BY in Python.
+- route: GET /api/v1/customers/balances
+  path: $
+  rule: unordered
+  note: PN 41
+
+# PN 44: lines of equal position.
+- route: GET /api/v1/invoices/{invoice_id}
+  path: $.line_items
+  rule: unordered
+  note: PN 44
+- route: GET /api/v1/quotations/{quotation_id}
+  path: $.line_items
+  rule: unordered
+  note: PN 44
+- route: GET /api/v1/bills/{bill_id}
+  path: $.line_items
+  rule: unordered
+  note: PN 44
+
+# PN 47: recurring-template rows and their children.
+- route: GET /api/v1/invoices/recurring-templates/rows
+  path: $
+  rule: unordered
+  note: PN 47
+- route: GET /api/v1/invoices/recurring-templates/{template_id}
+  path: $.children
+  rule: unordered
+  note: PN 47
+
+# PN 53: the awaiting-finalization list's issue-date ties.
+- route: GET /api/v1/invoices/awaiting-finalization
+  path: $
+  rule: unordered
+  note: PN 53
+
+# PN 78: the project, bill and project-invoice lists have no ORDER BY.
+- route: GET /api/v1/projects
+  path: $
+  rule: unordered
+  note: PN 78
+- route: GET /api/v1/bills
+  path: $
+  rule: unordered
+  note: PN 78
+- route: GET /api/v1/projects/{project_id}/invoices
+  path: $
+  rule: unordered
+  note: PN 78
+
+# PN 100: deterministic order where Python followed the database.
+- route: GET /api/v1/stats/dashboard
+  path: $.recent_activity
+  rule: unordered
+  note: PN 100
+- route: GET /api/v1/stats/dashboard
+  path: $.open_ar_by_currency
+  rule: unordered
+  note: PN 100
+- route: GET /api/v1/stats/invoices-summary
+  path: $.by_currency
+  rule: unordered
+  note: PN 100
+- route: GET /api/v1/accounting/reports/ar-aging
+  path: $.rows
+  rule: unordered
+  note: PN 100
+- route: GET /api/v1/accounting/reports/ap-aging
+  path: $.rows
+  rule: unordered
+  note: PN 100
+- route: GET /api/v1/accounting/reports/trial-balance
+  path: $.rows
+  rule: unordered
+  note: PN 100
+
+# --- Deliberate status or sentence changes on bad input -------------------
+
+# PN 6: Go holds a tie between equal candidates where Python auto-cleared it.
+- route: POST /api/v1/payments/intake/webhook
+  path: $.status
+  rule: ignore
+  note: PN 6
+- route: POST /api/v1/payments/intake/webhook
+  path: $.invoice_id
+  rule: ignore
+  note: PN 6
+
+# PN 10: a `null` for a NOT NULL column on PATCH is a 422 in Go, a 409/500 in
+# Python.
+- route: PATCH /api/v1/accounting/chart-of-accounts/{account_id}
+  path: $.status
+  rule: status
+  note: PN 10
+- route: PATCH /api/v1/accounting/chart-of-accounts/{account_id}
+  path: $.detail
+  rule: detail-shape
+  note: PN 10
+- route: PATCH /api/v1/customers/{customer_id}
+  path: $.status
+  rule: status
+  note: PN 10
+- route: PATCH /api/v1/customers/{customer_id}
+  path: $.detail
+  rule: detail-shape
+  note: PN 10
+
+# PN 11: a duplicate item SKU or an unknown account is a 409/422 in Go.
+- route: POST /api/v1/items
+  path: $.status
+  rule: status
+  note: PN 11
+- route: POST /api/v1/items
+  path: $.detail
+  rule: detail-shape
+  note: PN 11
+- route: PATCH /api/v1/items/{item_id}
+  path: $.status
+  rule: status
+  note: PN 11
+- route: PATCH /api/v1/items/{item_id}
+  path: $.detail
+  rule: detail-shape
+  note: PN 11
+
+# PN 12: the business-profile GET writes nothing in Go; `updated_at` may move.
+- route: GET /api/v1/business-profile
+  path: $.updated_at
+  rule: ignore
+  note: PN 12
+
+# PN 14: Go may accept email edge forms Python refuses.
+- route: POST /api/v1/customers
+  path: $.status
+  rule: status
+  note: PN 14
+- route: POST /api/v1/customers
+  path: $.detail
+  rule: detail-shape
+  note: PN 14
+- route: POST /api/v1/vendors
+  path: $.status
+  rule: status
+  note: PN 14
+- route: POST /api/v1/vendors
+  path: $.detail
+  rule: detail-shape
+  note: PN 14
+
+# PN 15: fewer boolean spellings on the list filters.
+- route: GET /api/v1/accounting/chart-of-accounts
+  path: $.status
+  rule: status
+  note: PN 15
+- route: GET /api/v1/accounting/chart-of-accounts
+  path: $.detail
+  rule: detail-shape
+  note: PN 15
+- route: GET /api/v1/items
+  path: $.status
+  rule: status
+  note: PN 15
+- route: GET /api/v1/items
+  path: $.detail
+  rule: detail-shape
+  note: PN 15
+
+# PN 16: over-long strings are a 422 in Go, a database 500 in Python.
+- route: PATCH /api/v1/vendors/{vendor_id}
+  path: $.status
+  rule: status
+  note: PN 16
+- route: PATCH /api/v1/vendors/{vendor_id}
+  path: $.detail
+  rule: detail-shape
+  note: PN 16
+- route: PUT /api/v1/business-profile
+  path: $.status
+  rule: status
+  note: PN 16
+- route: PUT /api/v1/business-profile
+  path: $.detail
+  rule: detail-shape
+  note: PN 16
+- route: POST /api/v1/users
+  path: $.status
+  rule: status
+  note: PN 16
+- route: POST /api/v1/users
+  path: $.detail
+  rule: detail-shape
+  note: PN 16
+
+# PN 17: ItemUpdate limits apply on PATCH in Go.
+- route: PATCH /api/v1/items/{item_id}
+  path: $.status
+  rule: status
+  note: PN 17
+- route: PATCH /api/v1/items/{item_id}
+  path: $.detail
+  rule: detail-shape
+  note: PN 17
+
+# PN 19: Go lists only the first refused item price.
+- route: POST /api/v1/items
+  path: $.detail
+  rule: detail-shape
+  note: PN 19
+
+# PN 20: the invalid-email detail and CC error location differ.
+- route: POST /api/v1/customers
+  path: $.detail
+  rule: detail-shape
+  note: PN 20
+
+# PN 21: `role: ""` or `null` stores `admin` in Go.
+- route: POST /api/v1/users
+  path: $.detail
+  rule: detail-shape
+  note: PN 21
+
+# PN 24: the business-profile `updated_at` moves on a PUT that changes nothing.
+- route: PUT /api/v1/business-profile
+  path: $.updated_at
+  rule: ignore
+  note: PN 24
+
+# PN 25: a customer withholding rate with more than four places is a 422.
+- route: POST /api/v1/customers
+  path: $.status
+  rule: status
+  note: PN 25
+- route: POST /api/v1/customers
+  path: $.detail
+  rule: detail-shape
+  note: PN 25
+
+# PN 28: the FX sync 502 carries Go's trailing error text.
+- route: POST /api/v1/accounting/fx-rates/sync
+  path: $.detail
+  rule: detail-shape
+  note: PN 28
+
+# PN 30: an FX rate or money value with too many places or digits is a 422.
+- route: POST /api/v1/accounting/fx-rates
+  path: $.status
+  rule: status
+  note: PN 30
+- route: POST /api/v1/accounting/fx-rates
+  path: $.detail
+  rule: detail-shape
+  note: PN 30
+
+# PN 31: a concurrent "Sync now" is idempotent in Go.
+- route: POST /api/v1/accounting/fx-rates/sync
+  path: $.status
+  rule: status
+  note: PN 31
+
+# PN 32: the FX sync 502 also covers responses Python answered 500.
+- route: POST /api/v1/accounting/fx-rates/sync
+  path: $.status
+  rule: status
+  note: PN 32
+- route: POST /api/v1/accounting/fx-rates/sync
+  path: $.detail
+  rule: detail-shape
+  note: PN 32
+
+# PN 33: the FX provider's redirects are not followed; the 502 text differs.
+- route: POST /api/v1/accounting/fx-rates/sync
+  path: $.detail
+  rule: detail-shape
+  note: PN 33
+
+# PN 34: invoice numbers come from a locked scan; a duplicate is a 409.
+- route: POST /api/v1/invoices
+  path: $.status
+  rule: status
+  note: PN 34
+- route: POST /api/v1/invoices
+  path: $.detail
+  rule: detail-shape
+  note: PN 34
+
+# PN 35: the recurring trigger takes a lock and one cycle-key spelling.
+- route: POST /api/v1/invoices/recurring/{template_id}/trigger
+  path: $.status
+  rule: status
+  note: PN 35
+- route: POST /api/v1/invoices/recurring/{template_id}/trigger
+  path: $.detail
+  rule: detail-shape
+  note: PN 35
+
+# PN 36: inputs that were 500s in Python are client errors in Go.
+- route: POST /api/v1/invoices
+  path: $.status
+  rule: status
+  note: PN 36
+- route: POST /api/v1/invoices
+  path: $.detail
+  rule: detail-shape
+  note: PN 36
+- route: DELETE /api/v1/invoices/{invoice_id}
+  path: $.status
+  rule: status
+  note: PN 36
+- route: DELETE /api/v1/invoices/{invoice_id}
+  path: $.detail
+  rule: detail-shape
+  note: PN 36
+- route: GET /api/v1/invoices
+  path: $.status
+  rule: status
+  note: PN 36
+- route: GET /api/v1/invoices
+  path: $.detail
+  rule: detail-shape
+  note: PN 36
+
+# PN 37: `line_items: null` on create is 400 in Go, 422 in Python.
+- route: POST /api/v1/invoices
+  path: $.status
+  rule: status
+  note: PN 37
+- route: POST /api/v1/invoices
+  path: $.detail
+  rule: detail-shape
+  note: PN 37
+
+# PN 38: a due date that overflows is a 400 in Go.
+- route: POST /api/v1/invoices
+  path: $.status
+  rule: status
+  note: PN 38
+- route: POST /api/v1/invoices
+  path: $.detail
+  rule: detail-shape
+  note: PN 38
+
+# PN 55: a template's interval and end_after_cycles are at most 1000.
+- route: POST /api/v1/invoices/recurring-template
+  path: $.status
+  rule: status
+  note: PN 55
+- route: POST /api/v1/invoices/recurring-template
+  path: $.detail
+  rule: detail-shape
+  note: PN 55
+- route: PUT /api/v1/invoices/recurring-templates/{template_id}
+  path: $.status
+  rule: status
+  note: PN 55
+- route: PUT /api/v1/invoices/recurring-templates/{template_id}
+  path: $.detail
+  rule: detail-shape
+  note: PN 55
+
+# PN 56: quotation numbers come from a locked scan; a duplicate is a 409.
+- route: POST /api/v1/quotations
+  path: $.status
+  rule: status
+  note: PN 56
+- route: POST /api/v1/quotations
+  path: $.detail
+  rule: detail-shape
+  note: PN 56
+
+# PN 57: converting a quotation makes one invoice, however many race.
+- route: POST /api/v1/quotations/{quotation_id}/convert-to-invoice
+  path: $.status
+  rule: status
+  note: PN 57
+- route: POST /api/v1/quotations/{quotation_id}/convert-to-invoice
+  path: $.detail
+  rule: detail-shape
+  note: PN 57
+
+# PN 58: bill payments and voids read the bill under a row lock.
+- route: POST /api/v1/bills/{bill_id}/record-payment
+  path: $.status
+  rule: status
+  note: PN 58
+- route: POST /api/v1/bills/{bill_id}/record-payment
+  path: $.detail
+  rule: detail-shape
+  note: PN 58
+
+# PN 59: requests Python answered 500 are client errors in Go.
+- route: POST /api/v1/quotations
+  path: $.status
+  rule: status
+  note: PN 59
+- route: POST /api/v1/quotations
+  path: $.detail
+  rule: detail-shape
+  note: PN 59
+- route: POST /api/v1/bills
+  path: $.status
+  rule: status
+  note: PN 59
+- route: POST /api/v1/bills
+  path: $.detail
+  rule: detail-shape
+  note: PN 59
+- route: PATCH /api/v1/bills/{bill_id}
+  path: $.status
+  rule: status
+  note: PN 59
+- route: PATCH /api/v1/bills/{bill_id}
+  path: $.detail
+  rule: detail-shape
+  note: PN 59
+
+# PN 60: only a duplicate project code is "project code already exists".
+- route: POST /api/v1/projects
+  path: $.status
+  rule: status
+  note: PN 60
+- route: POST /api/v1/projects
+  path: $.detail
+  rule: detail-shape
+  note: PN 60
+- route: PATCH /api/v1/projects/{project_id}
+  path: $.status
+  rule: status
+  note: PN 60
+- route: PATCH /api/v1/projects/{project_id}
+  path: $.detail
+  rule: detail-shape
+  note: PN 60
+
+# PN 61: project code and currency are normalised after validation.
+- route: POST /api/v1/projects
+  path: $.status
+  rule: status
+  note: PN 61
+- route: POST /api/v1/projects
+  path: $.detail
+  rule: detail-shape
+  note: PN 61
+
+# PN 62: deleting a project counts the quotations that reference it.
+- route: DELETE /api/v1/projects/{project_id}
+  path: $.status
+  rule: status
+  note: PN 62
+- route: DELETE /api/v1/projects/{project_id}
+  path: $.detail
+  rule: detail-shape
+  note: PN 62
+
+# PN 64: a quotation converts from DRAFT or SENT; terms beat due_in_days.
+- route: POST /api/v1/quotations/{quotation_id}/convert-to-invoice
+  path: $.status
+  rule: status
+  note: PN 64
+
+# PN 73: bill record-payment echoes the amount as Python printed it.
+- route: POST /api/v1/bills/{bill_id}/record-payment
+  path: $.detail
+  rule: detail-shape
+  note: PN 73
+
+# PN 74: bill void accepts any JSON reason and appends a leading newline.
+- route: POST /api/v1/bills/{bill_id}/void
+  path: $.detail
+  rule: detail-shape
+  note: PN 74
+
+# PN 75: a required body with no required field is a 400 in Go.
+- route: POST /api/v1/quotations/{quotation_id}/accept
+  path: $.status
+  rule: status
+  note: PN 75
+- route: POST /api/v1/quotations/{quotation_id}/accept
+  path: $.detail
+  rule: detail-shape
+  note: PN 75
+- route: POST /api/v1/quotations/{quotation_id}/convert-to-invoice
+  path: $.status
+  rule: status
+  note: PN 75
+- route: POST /api/v1/quotations/{quotation_id}/convert-to-invoice
+  path: $.detail
+  rule: detail-shape
+  note: PN 75
+- route: POST /api/v1/bills/{bill_id}/void
+  path: $.status
+  rule: status
+  note: PN 75
+- route: POST /api/v1/bills/{bill_id}/void
+  path: $.detail
+  rule: detail-shape
+  note: PN 75
+
+# PN 86: intake bad input is a 400 sentence, never a 500.
+- route: POST /api/v1/payments/intake/webhook
+  path: $.status
+  rule: status
+  note: PN 86
+- route: POST /api/v1/payments/intake/webhook
+  path: $.detail
+  rule: detail-shape
+  note: PN 86
+
+# PN 87: intake checks run before the body; invalid JSON differs.
+- route: POST /api/v1/payments/intake/email
+  path: $.status
+  rule: status
+  note: PN 87
+- route: POST /api/v1/payments/intake/email
+  path: $.detail
+  rule: detail-shape
+  note: PN 87
+
+# PN 97: the balance sheet honours `as_of` in Go.
+- route: GET /api/v1/accounting/reports/balance-sheet
+  path: $.groups[*].lines[*].base_balance
+  rule: ignore
+  note: PN 97
+
+# PN 98: one open-AR rule everywhere in Go.
+- route: GET /api/v1/stats/dashboard
+  path: $.open_ar_by_currency
+  rule: ignore
+  note: PN 98
+
+# PN 112: a DRAFT invoice send is refused in Go.
+- route: POST /api/v1/invoices/{invoice_id}/send
+  path: $.status
+  rule: status
+  note: PN 112
+- route: POST /api/v1/invoices/{invoice_id}/send
+  path: $.detail
+  rule: detail-shape
+  note: PN 112
+
+# --- OAuth and discovery (PN 145, 147, 148, 150, 159) ---------------------
+
+- route: POST /oauth/register
+  path: $.status
+  rule: status
+  note: PN 150
+- route: POST /oauth/register
+  path: $.detail
+  rule: detail-shape
+  note: PN 150
+- route: POST /oauth/register
+  path: $.error
+  rule: detail-shape
+  note: PN 150
+- route: POST /oauth/register
+  path: $.error_description
+  rule: detail-shape
+  note: PN 150
+- route: POST /oauth/token
+  path: $.status
+  rule: status
+  note: PN 147
+- route: POST /oauth/token
+  path: $.error
+  rule: detail-shape
+  note: PN 147
+- route: POST /oauth/token
+  path: $.error_description
+  rule: detail-shape
+  note: PN 147
+- route: GET /oauth/authorize
+  path: $.status
+  rule: status
+  note: PN 148
+- route: GET /oauth/authorize
+  path: $.detail
+  rule: detail-shape
+  note: PN 148
+- route: POST /oauth/authorize/consent
+  path: $.status
+  rule: status
+  note: PN 148
+- route: POST /oauth/authorize/consent
+  path: $.detail
+  rule: detail-shape
+  note: PN 148
+- route: POST /oauth/revoke
+  path: $.status
+  rule: status
+  note: PN 150
+- route: POST /oauth/revoke
+  path: $.error
+  rule: detail-shape
+  note: PN 150
+- route: POST /oauth/revoke
+  path: $.error_description
+  rule: detail-shape
+  note: PN 150
+
+# PN 159: a control character in `client_name` is refused at registration.
+- route: POST /oauth/register
+  path: $.status
+  rule: status
+  note: PN 159
+- route: POST /oauth/register
+  path: $.error
+  rule: detail-shape
+  note: PN 159
