@@ -1219,7 +1219,14 @@ func TestToolsListMatchesPython(t *testing.T) {
 			return p.Name == tool.Name
 		})
 		p := session.ToolsList[idx]
-		if tool.Description != p.Description {
+		if want, changed := changedDescriptions[tool.Name]; changed {
+			if tool.Description != want {
+				t.Errorf("%s: description %q, want Go's deliberate %q", tool.Name, tool.Description, want)
+			}
+			if tool.Description == p.Description {
+				t.Errorf("%s: listed as changed but equals Python's description", tool.Name)
+			}
+		} else if tool.Description != p.Description {
 			t.Errorf("%s: description %q, want Python's %q", tool.Name, tool.Description, p.Description)
 		}
 		if got, want := normSchema(asJSON(t, tool.InputSchema)), normSchema(p.InputSchema); !reflect.DeepEqual(got, want) {
@@ -1229,6 +1236,13 @@ func TestToolsListMatchesPython(t *testing.T) {
 			t.Errorf("%s: outputSchema %s, want %s", tool.Name, mustJSON(got), mustJSON(want))
 		}
 	}
+}
+
+// changedDescriptions are the tools whose description Go changed on
+// purpose because Go behaves differently from Python (PORT-NOTES 112: only a
+// finalized invoice can be sent).
+var changedDescriptions = map[string]string{
+	"send_invoice_email": descSendInvoice,
 }
 
 func mustJSON(v any) string {

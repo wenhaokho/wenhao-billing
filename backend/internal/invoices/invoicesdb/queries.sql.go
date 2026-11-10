@@ -1142,11 +1142,11 @@ func (q *Queries) LockUsageInvoice(ctx context.Context, arg LockUsageInvoicePara
 }
 
 const markInvoiceSent = `-- name: MarkInvoiceSent :exec
-UPDATE invoices SET status = 'SENT' WHERE invoice_id = $1 AND status IN ('DRAFT', 'OPEN')
+UPDATE invoices SET status = 'SENT' WHERE invoice_id = $1 AND status = 'OPEN'
 `
 
-// Sending: a DRAFT or OPEN invoice becomes SENT (no finalize); any other
-// status stays as it is.
+// Sending: an OPEN invoice becomes SENT; any other status stays as it is.
+// A DRAFT cannot be sent at all (owner decision 2026-11-10).
 func (q *Queries) MarkInvoiceSent(ctx context.Context, invoiceID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, markInvoiceSent, invoiceID)
 	return err
