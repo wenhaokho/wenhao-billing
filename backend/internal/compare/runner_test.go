@@ -2,6 +2,8 @@ package compare
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -146,6 +148,8 @@ func TestRunnerReportsOnlyUnallowed(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/auth/login":
 			loginHandler(w, r)
+		case "/api/v1/auth/me":
+			jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
 		case "/api/v1/bills":
 			jsonBody(w, http.StatusOK, `{"amount":"10.0000","count":10,"name":"python"}`)
 		case "/api/v1/items":
@@ -156,6 +160,8 @@ func TestRunnerReportsOnlyUnallowed(t *testing.T) {
 	}
 	gov := &recorder{handle: func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/v1/auth/me":
+			jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
 		case "/api/v1/bills":
 			jsonBody(w, http.StatusOK, `{"amount":"10.0000","count":10.0,"name":"go"}`)
 		case "/api/v1/items":
@@ -187,7 +193,7 @@ func TestRunnerReportsOnlyUnallowed(t *testing.T) {
 	if len(bills.Differences) != 1 || bills.Differences[0].Path != "$.name" {
 		t.Fatalf("bills differences %+v, want only $.name", bills.Differences)
 	}
-	if got := ExitCode(report, nil); got != 1 {
+	if got := ExitCode(report, nil, false); got != 1 {
 		t.Fatalf("exit code %d, want 1", got)
 	}
 }
@@ -197,8 +203,12 @@ func TestRunnerReportsOnlyUnallowed(t *testing.T) {
 func TestRunnerFoldsRedirectHosts(t *testing.T) {
 	t.Parallel()
 	redirect := func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/auth/login" {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
 			loginHandler(w, r)
+			return
+		case "/api/v1/auth/me":
+			jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
 			return
 		}
 		w.Header().Set("Location", "http://"+r.Host+"/oauth/authorize?client_id=c&state=s")
@@ -248,7 +258,7 @@ func TestRunnerClassifiesByCaseNotAllowed(t *testing.T) {
 	if c.Classify != "PN 6" || len(c.Differences) != 1 {
 		t.Fatalf("case %+v, want a PN 6 classification and its difference", c)
 	}
-	if got := ExitCode(report, nil); got != 1 {
+	if got := ExitCode(report, nil, false); got != 1 {
 		t.Fatalf("exit code %d, want 1", got)
 	}
 }
@@ -345,7 +355,7 @@ func TestRunnerExitCodes(t *testing.T) {
 		}}
 		pySrv, goSrv := py.start(t), gov.start(t)
 		report, err := run(t, pySrv, goSrv, corpus, Allowed{})
-		if got := ExitCode(report, err); got != 0 {
+		if got := ExitCode(report, err, false); got != 0 {
 			t.Fatalf("exit code %d, want 0: %v", got, err)
 		}
 	})
@@ -363,7 +373,7 @@ func TestRunnerExitCodes(t *testing.T) {
 		}}
 		pySrv, goSrv := py.start(t), gov.start(t)
 		report, err := run(t, pySrv, goSrv, corpus, Allowed{})
-		if got := ExitCode(report, err); got != 1 {
+		if got := ExitCode(report, err, false); got != 1 {
 			t.Fatalf("exit code %d, want 1: %v", got, err)
 		}
 	})
@@ -380,13 +390,251 @@ func TestRunnerExitCodes(t *testing.T) {
 		if err == nil {
 			t.Fatal("RunReads succeeded with a refused login, want an error")
 		}
-		if got := ExitCode(report, err); got != 2 {
+		if got := ExitCode(report, err, false); got != 2 {
 			t.Fatalf("exit code %d, want 2", got)
 		}
 		if strings.Contains(err.Error(), "pw") {
 			t.Fatalf("the login error names the password: %v", err)
 		}
 	})
+	t.Run("a skip is 1, or 0 with allow-skips", func(t *testing.T) {
+		t.Parallel()
+		// A skip with no difference, so ExitCode alone decides.
+		report := Report{Cases: []CaseResult{{ID: "detail", Skipped: "no {customer_id}: list empty or failed"}}, Summary: Summary{Skipped: 1}}
+		if got := ExitCode(report, nil, false); got != 1 {
+			t.Fatalf("exit code %d, want 1 for a skip", got)
+		}
+		if got := ExitCode(report, nil, true); got != 0 {
+			t.Fatalf("exit code %d, want 0 for a skip with allow-skips", got)
+		}
+	})
+}
+
+// TestRunnerSignInCheck pins the sign-in guard: a backend that does not answer
+// /auth/me with 200 fails the whole run, so a run where everything 401s can
+// never look clean. The response body is never printed.
+func TestRunnerSignInCheck(t *testing.T) {
+	t.Parallel()
+	corpus := Corpus{Cases: []Case{{ID: "me", Route: "GET /api/v1/auth/me"}}}
+	t.Run("Python 401 is exit 2", func(t *testing.T) {
+		t.Parallel()
+		py := &recorder{handle: func(w http.ResponseWriter, _ *http.Request) {
+			jsonBody(w, http.StatusUnauthorized, `{"detail":"python secret body"}`)
+		}}
+		gov := &recorder{handle: func(w http.ResponseWriter, _ *http.Request) {
+			jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
+		}}
+		pySrv, goSrv := py.start(t), gov.start(t)
+		report, err := RunReads(context.Background(), ReadOptions{
+			PythonURL: pySrv.URL, GoURL: goSrv.URL,
+			PythonEmail: "owner@example.test", PythonCookie: "owner-cookie",
+			GoToken: "go-session", Corpus: corpus, Allowed: Allowed{}, Client: pySrv.Client(),
+		})
+		assertSignInError(t, report, err, "python", "python secret body")
+	})
+	t.Run("Go 401 is exit 2", func(t *testing.T) {
+		t.Parallel()
+		py := &recorder{handle: func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/auth/login" {
+				loginHandler(w, r)
+				return
+			}
+			jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
+		}}
+		gov := &recorder{handle: func(w http.ResponseWriter, _ *http.Request) {
+			jsonBody(w, http.StatusUnauthorized, `{"detail":"go secret body"}`)
+		}}
+		pySrv, goSrv := py.start(t), gov.start(t)
+		report, err := run(t, pySrv, goSrv, corpus, Allowed{})
+		assertSignInError(t, report, err, "go", "go secret body")
+	})
+}
+
+// assertSignInError fails unless err is the sign-in check failure for backend
+// on 401, without the body, and the run exits 2.
+func assertSignInError(t *testing.T, report Report, err error, backend, body string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("RunReads succeeded, want a sign-in check error")
+	}
+	want := "sign-in check failed on " + backend + ": 401"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("error %q, want it to contain %q", err, want)
+	}
+	if strings.Contains(err.Error(), body) {
+		t.Fatalf("the sign-in error leaks the body: %v", err)
+	}
+	if got := ExitCode(report, err, false); got != 2 {
+		t.Fatalf("exit code %d, want 2", got)
+	}
+}
+
+// TestRunnerSkipsEmptyLists pins the skip guard: a detail case whose id list is
+// empty (or failed) is recorded as skipped and is not clean, unless
+// --allow-skips is given.
+func TestRunnerSkipsEmptyLists(t *testing.T) {
+	t.Parallel()
+	corpus := Corpus{Cases: []Case{
+		{ID: "customers", Route: "GET /api/v1/customers", Discover: []IDSource{{Name: "customer_id"}}},
+		{ID: "customer-detail", Route: "GET /api/v1/customers/{customer_id}"},
+	}}
+	backend := func(listStatus int, list string) *recorder {
+		return &recorder{handle: func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/v1/auth/login":
+				loginHandler(w, r)
+			case "/api/v1/auth/me":
+				jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
+			case "/api/v1/customers":
+				jsonBody(w, listStatus, list)
+			default:
+				jsonBody(w, http.StatusOK, `{"ok":true}`)
+			}
+		}}
+	}
+	t.Run("an empty list is skipped and is not clean", func(t *testing.T) {
+		t.Parallel()
+		py, gov := backend(http.StatusOK, `[]`), backend(http.StatusOK, `[]`)
+		pySrv, goSrv := py.start(t), gov.start(t)
+		report, err := run(t, pySrv, goSrv, corpus, Allowed{})
+		if err != nil {
+			t.Fatalf("RunReads: %v", err)
+		}
+		detail := findCase(t, report, "customer-detail")
+		if want := "no {customer_id}: list empty or failed"; detail.Skipped != want {
+			t.Fatalf("skipped %q, want %q", detail.Skipped, want)
+		}
+		if report.Summary.Skipped != 1 {
+			t.Fatalf("summary skipped %d, want 1: %+v", report.Summary.Skipped, report.Cases)
+		}
+		if got := ExitCode(report, nil, false); got != 1 {
+			t.Fatalf("exit code %d, want 1 with a skip", got)
+		}
+		if got := ExitCode(report, nil, true); got != 0 {
+			t.Fatalf("exit code %d, want 0 with --allow-skips", got)
+		}
+	})
+	t.Run("a failed list is skipped", func(t *testing.T) {
+		t.Parallel()
+		py, gov := backend(http.StatusUnauthorized, `{"detail":"no"}`), backend(http.StatusUnauthorized, `{"detail":"no"}`)
+		pySrv, goSrv := py.start(t), gov.start(t)
+		report, err := run(t, pySrv, goSrv, corpus, Allowed{})
+		if err != nil {
+			t.Fatalf("RunReads: %v", err)
+		}
+		if detail := findCase(t, report, "customer-detail"); detail.Skipped == "" {
+			t.Fatalf("the detail case was not skipped: %+v", detail)
+		}
+		if report.Summary.Skipped != 1 {
+			t.Fatalf("summary skipped %d, want 1", report.Summary.Skipped)
+		}
+	})
+}
+
+// TestRunnerEscapesDiscoveredIDs pins that a discovered id is path-escaped, so
+// an id with a slash cannot change the request's route.
+func TestRunnerEscapesDiscoveredIDs(t *testing.T) {
+	t.Parallel()
+	list := `[{"customer_id":"a/b"}]`
+	detail := func(w http.ResponseWriter, _ *http.Request) {
+		jsonBody(w, http.StatusOK, `{"ok":true}`)
+	}
+	py := &recorder{handle: func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/login":
+			loginHandler(w, r)
+		case "/api/v1/auth/me":
+			jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
+		case "/api/v1/customers":
+			jsonBody(w, http.StatusOK, list)
+		default:
+			detail(w, r)
+		}
+	}}
+	gov := &recorder{handle: func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/auth/me":
+			jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
+		case "/api/v1/customers":
+			jsonBody(w, http.StatusOK, list)
+		default:
+			detail(w, r)
+		}
+	}}
+	pySrv, goSrv := py.start(t), gov.start(t)
+	corpus := Corpus{Cases: []Case{
+		{ID: "customers", Route: "GET /api/v1/customers", Discover: []IDSource{{Name: "customer_id"}}},
+		{ID: "customer-detail", Route: "GET /api/v1/customers/{customer_id}"},
+	}}
+	if _, err := run(t, pySrv, goSrv, corpus, Allowed{}); err != nil {
+		t.Fatalf("RunReads: %v", err)
+	}
+	for _, c := range gov.seen() {
+		if c.target == "/api/v1/customers/a%2Fb" {
+			return
+		}
+	}
+	t.Fatalf("Go never saw the escaped detail path; saw %+v", gov.seen())
+}
+
+// TestRedactURLChecksTheReportEveryRun: the report folds a userinfo password
+// away, so it never carries a credential from the --python/--go URL.
+func TestRedactURL(t *testing.T) {
+	t.Parallel()
+	got := redactURL("http://owner:s3cret@127.0.0.1:8000/api")
+	if strings.Contains(got, "s3cret") {
+		t.Fatalf("redactURL kept the password: %q", got)
+	}
+	if !strings.Contains(got, "owner") {
+		t.Fatalf("redactURL dropped the user: %q", got)
+	}
+}
+
+// TestReadClientPinsPolicy pins decision 1 and the proxy guard: the client
+// never follows a redirect, even when a caller passes its own client, and the
+// default client's transport has no proxy.
+func TestReadClientPinsPolicy(t *testing.T) {
+	t.Parallel()
+	def := readClient(ReadOptions{})
+	if err := def.CheckRedirect(nil, nil); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("the default client's CheckRedirect returned %v, want ErrUseLastResponse", err)
+	}
+	transport, ok := def.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("the default client's transport is %T, want *http.Transport", def.Transport)
+	}
+	if transport.Proxy != nil {
+		t.Fatal("the default client's transport has a proxy; a credential could be sent through it")
+	}
+	caller := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return nil }}
+	got := readClient(ReadOptions{Client: caller})
+	if got == caller {
+		t.Fatal("readClient returned the caller's own client, not a copy")
+	}
+	if err := got.CheckRedirect(nil, nil); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("the caller's client kept its CheckRedirect: returned %v", err)
+	}
+	if err := caller.CheckRedirect(nil, nil); err != nil {
+		t.Fatalf("readClient mutated the caller's client: CheckRedirect returned %v", err)
+	}
+}
+
+// TestDifferenceJSONTags pins the report's snake_case difference keys.
+func TestDifferenceJSONTags(t *testing.T) {
+	t.Parallel()
+	data, err := json.Marshal(Difference{Path: "$.a", Python: "1", Go: "2", Rule: RuleNumberEqual})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	for _, key := range []string{"path", "python", "go", "rule"} {
+		if _, ok := m[key]; !ok {
+			t.Fatalf("Difference JSON %s has no %q key", data, key)
+		}
+	}
 }
 
 // TestCorpusFileLoads reads the real corpus, so a typo in it fails here.
@@ -399,28 +647,86 @@ func TestCorpusFileLoads(t *testing.T) {
 	if len(corpus.Cases) < 40 {
 		t.Fatalf("the corpus has %d cases, want the full read set", len(corpus.Cases))
 	}
-	seen := map[string]bool{}
+	byID := map[string]Case{}
 	for _, c := range corpus.Cases {
-		if seen[c.ID] {
+		if _, dup := byID[c.ID]; dup {
 			t.Fatalf("case %s is declared twice", c.ID)
 		}
-		seen[c.ID] = true
+		byID[c.ID] = c
 	}
-	for _, want := range []string{"oauth-authorization-server", "oauth-protected-resource", "fx-rates-latest", "payment-detail"} {
-		if !seen[want] {
+	for _, want := range []string{"oauth-authorization-server", "oauth-protected-resource", "oauth-authorize-error", "fx-rates-latest", "payment-detail"} {
+		if _, ok := byID[want]; !ok {
 			t.Fatalf("the corpus has no case %s", want)
 		}
 	}
 	// Decision 3: the balance sheet runs with as_of = today, so PN 97 does
 	// not arise.
-	for _, c := range corpus.Cases {
-		if c.ID != "report-balance-sheet" {
-			continue
+	if got := byID["report-balance-sheet"].Queries; len(got) != 1 || got[0] != "as_of={today}" {
+		t.Fatalf("the balance-sheet case runs %v, want as_of={today}", got)
+	}
+	// The frontend's own query variants, pinned so a change to a view is a
+	// failure here.
+	for id, want := range map[string][]string{
+		"bills":              {"status=OPEN&status=PARTIAL", "status=DRAFT"},
+		"projects":           {"status=ACTIVE", "status=ON_HOLD"},
+		"quotations":         {"status=DRAFT&status=SENT", "customer_id={customer_id}", "project_id={project_id}"},
+		"invoices":           {"status=DRAFT", "status=OPEN&status=SENT&status=PARTIAL"},
+		"customers":          {"active=true"},
+		"vendors":            {"active=true"},
+		"fx-rates-latest":    {"from_currency=USD", "from_currency=SGD", "from_currency=USD&on_date={today}"},
+		"payments-audit-log": {"action=CLEARED", "payer=compare-no-match", "from_date={today}&to_date={today}"},
+	} {
+		cs, ok := byID[id]
+		if !ok {
+			t.Fatalf("the corpus has no case %s", id)
 		}
-		if len(c.Queries) != 1 || c.Queries[0] != "as_of={today}" {
-			t.Fatalf("the balance-sheet case runs %v, want as_of={today}", c.Queries)
+		for _, q := range want {
+			if !contains(cs.Queries, q) {
+				t.Fatalf("case %s runs %v, want it to include %q", id, cs.Queries, q)
+			}
 		}
 	}
+	// The quotations case must come after projects so {project_id} is known.
+	if indexOfID(corpus, "quotations") < indexOfID(corpus, "projects") {
+		t.Fatal("the quotations case runs before the projects case, so {project_id} is not discovered yet")
+	}
+	// payment_id has three list sources, so a payment detail survives an empty
+	// awaiting-review.
+	for _, id := range []string{"payments-audit-log", "payments-awaiting-review", "invoice-payments"} {
+		if !discovers(byID[id], "payment_id") {
+			t.Fatalf("case %s does not discover payment_id", id)
+		}
+	}
+}
+
+// contains reports whether a string slice holds s.
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// indexOfID is the corpus position of a case id, or -1.
+func indexOfID(c Corpus, id string) int {
+	for i, cs := range c.Cases {
+		if cs.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// discovers reports whether a case names an id source.
+func discovers(cs Case, name string) bool {
+	for _, d := range cs.Discover {
+		if d.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // TestCorpusRefusesNonGet is the read-only guard: a POST case never validates.

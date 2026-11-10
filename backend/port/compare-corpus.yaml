@@ -29,6 +29,10 @@
 # The balance sheet runs with as_of = today (decision 3), so PN 97 does not
 # arise, and the dashboard needs no special case: PN 97/98 have no allowance
 # on purpose.
+#
+# PN 6 (two identical open invoices) is a write-time matching tie: a read only
+# sees the rows already written, so it cannot manifest here. The PN 6 read
+# classification lives in Task 4's write comparison, never in this corpus.
 
 cases:
   # --- auth and users -----------------------------------------------------
@@ -48,9 +52,14 @@ cases:
     route: GET /api/v1/accounting/base-currency
   - id: fx-rates
     route: GET /api/v1/accounting/fx-rates
-  # The frontend never calls this one.
+  # The frontend never calls this one. from_currency is required, so every
+  # variant names one (the bare route is a 422 on both sides).
   - id: fx-rates-latest
     route: GET /api/v1/accounting/fx-rates/latest
+    queries:
+      - "from_currency=USD"
+      - "from_currency=SGD"
+      - "from_currency=USD&on_date={today}"
 
   # --- reports (as_of = today, the balance sheet included) ---------------
   - id: report-trial-balance
@@ -122,6 +131,7 @@ cases:
     queries:
       - ""
       - "status=ACTIVE"
+      - "status=ON_HOLD"
       - "customer_id={customer_id}&status=ACTIVE"
     discover:
       - project_id
@@ -147,6 +157,9 @@ cases:
     route: GET /api/v1/invoices/{invoice_id}
   - id: invoice-payments
     route: GET /api/v1/invoices/{invoice_id}/payments
+    # A second source of payment_id, beside the audit log and awaiting-review.
+    discover:
+      - payment_id
   # window.open, binary: the diff compares status and two headers only.
   - id: invoice-pdf
     route: GET /api/v1/invoices/{invoice_id}/pdf
@@ -163,12 +176,16 @@ cases:
     route: GET /api/v1/invoices/recurring-templates/{template_id}
 
   # --- quotations ---------------------------------------------------------
+  # After the projects case, so {project_id} is already discovered (the
+  # customer detail and the project detail both filter quotations).
   - id: quotations
     route: GET /api/v1/quotations
     queries:
       - ""
       - "status=DRAFT&status=SENT"
       - "status=ACCEPTED&status=INVOICED"
+      - "customer_id={customer_id}"
+      - "project_id={project_id}"
     discover:
       - quotation_id
   - id: quotation-detail
@@ -181,7 +198,8 @@ cases:
     route: GET /api/v1/bills
     queries:
       - ""
-      - "status=DRAFT&status=OPEN"
+      - "status=OPEN&status=PARTIAL"
+      - "status=DRAFT"
     discover:
       - bill_id
   - id: bill-detail
@@ -190,6 +208,15 @@ cases:
   # --- payments, reconciliation and stats ---------------------------------
   - id: payments-audit-log
     route: GET /api/v1/payments/audit-log
+    queries:
+      - ""
+      - "action=CLEARED"
+      - "payer=compare-no-match"
+      - "from_date={today}&to_date={today}"
+    # payment_id also comes from here and from invoice-payments, so a payment
+    # detail case survives when awaiting-review is empty in production.
+    discover:
+      - payment_id
   - id: payments-awaiting-review
     route: GET /api/v1/payments/awaiting-review
     discover:
@@ -213,3 +240,9 @@ cases:
     route: GET /.well-known/oauth-authorization-server
   - id: oauth-protected-resource
     route: GET /.well-known/oauth-protected-resource
+  # An unknown client: the error answer is compared (the decision is to compare
+  # the error only, never to follow the consent flow).
+  - id: oauth-authorize-error
+    route: GET /oauth/authorize
+    queries:
+      - "response_type=code&client_id=unknown-compare-client&redirect_uri=https%3A%2F%2Fexample.invalid%2Fcb&code_challenge=x&code_challenge_method=S256"

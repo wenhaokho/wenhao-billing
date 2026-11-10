@@ -15,22 +15,34 @@ import (
 )
 
 // Report is one `compare reads` run's result, written as the --out JSON. It
-// never holds a password, a cookie or a token.
+// never holds a password, a cookie or a token; the two backend URLs are stored
+// with any userinfo redacted.
 type Report struct {
 	Python      string       `json:"python"`
 	Go          string       `json:"go"`
 	StartedAt   time.Time    `json:"started_at"`
 	Cases       []CaseResult `json:"cases"`
 	Differences int          `json:"differences"`
+	Summary     Summary      `json:"summary"`
 }
 
-// CaseResult is one request's answer pair. Difference carries the differences
-// the allowed entries did not cover; Classify names the PORT-NOTES note the
-// case is known for (a difference is still reported, never hidden).
+// Summary counts the run's skipped cases. A skip is a case that expanded to no
+// request because a discovered id list was empty or its list call failed; a
+// run with any skip is not clean unless --allow-skips is given.
+type Summary struct {
+	Skipped int `json:"skipped"`
+}
+
+// CaseResult is one request's answer pair, or one skipped case. Difference
+// carries the differences the allowed entries did not cover; Classify names the
+// PORT-NOTES note the case is known for (a difference is still reported, never
+// hidden). A skipped case has Skipped set to why no request was made, and no
+// status or differences.
 type CaseResult struct {
 	ID          string       `json:"id"`
-	Request     string       `json:"request"`
+	Request     string       `json:"request,omitempty"`
 	Classify    string       `json:"classify,omitempty"`
+	Skipped     string       `json:"skipped,omitempty"`
 	Python      int          `json:"python_status"`
 	Go          int          `json:"go_status"`
 	Differences []Difference `json:"differences,omitempty"`
@@ -59,10 +71,14 @@ type ReadOptions struct {
 }
 
 // RunReads signs in to Python (a single POST /auth/login, or nothing when a
-// cookie is given) and to Go (the token as a cookie), then replays the corpus
-// with GET requests only, diffing each pair under the allowed differences.
-// The two backends' own hosts are set on the Allowed entries so a redirect's
-// Location compares equal, and every request failure is a run error (exit 2).
+// cookie is given) and to Go (the token as a cookie), then checks both
+// backends' GET /api/v1/auth/me answers 200, then replays the corpus with GET
+// requests only, diffing each pair under the allowed differences. A failed
+// sign-in check is a run error (exit 2), so a run where everything 401s can
+// never look clean. The two backends' own hosts are set on the Allowed entries
+// so a redirect's Location compares equal, and every request failure is a run
+// error (exit 2). A case whose discovered id list is empty is recorded as
+// skipped, never dropped.
 func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 	now := o.Now
 	if now == nil {
@@ -74,10 +90,16 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 	allowed.PythonHost = hostOf(o.PythonURL)
 	allowed.GoHost = hostOf(o.GoURL)
 
-	report := Report{Python: o.PythonURL, Go: o.GoURL, StartedAt: now().UTC()}
+	report := Report{Python: redactURL(o.PythonURL), Go: redactURL(o.GoURL), StartedAt: now().UTC()}
 
 	session, err := pythonSignIn(ctx, client, o)
 	if err != nil {
+		return report, err
+	}
+	if err := signInCheck(ctx, client, o.PythonURL, session, "python"); err != nil {
+		return report, err
+	}
+	if err := signInCheck(ctx, client, o.GoURL, o.GoToken, "go"); err != nil {
 		return report, err
 	}
 	today := now().UTC().Format("2006-01-02")
@@ -85,7 +107,18 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 	discovered := map[string][]string{}
 	for _, cs := range o.Corpus.Cases {
 		route := "GET " + routePath(cs.Route)
-		for _, target := range expandCase(cs, discovered, today) {
+		targets, missing := expandCase(cs, discovered, today)
+		if len(targets) == 0 {
+			// The case's id list was empty (or its list call failed), so the
+			// detail case has nothing to read: record the skip, never drop it.
+			report.Cases = append(report.Cases, CaseResult{
+				ID: cs.ID, Request: route, Classify: cs.Classify,
+				Skipped: fmt.Sprintf("no {%s}: list empty or failed", missing),
+			})
+			report.Summary.Skipped++
+			continue
+		}
+		for _, target := range targets {
 			py, err := get(ctx, client, o.PythonURL, target, session)
 			if err != nil {
 				return report, fmt.Errorf("case %s: python: %w", cs.ID, err)
@@ -109,34 +142,63 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 	return report, nil
 }
 
-// ExitCode maps a run to the process exit code: 0 clean, 1 differences, 2 on
-// error.
-func ExitCode(report Report, err error) int {
+// signInCheck asks a backend GET /api/v1/auth/me and refuses the run unless it
+// answers 200. name is "python" or "go". The response body is never printed, so
+// a sign-in failure can never leak an error page.
+func signInCheck(ctx context.Context, client *http.Client, base, cookie, name string) error {
+	resp, err := get(ctx, client, base, "/api/v1/auth/me", cookie)
+	if err != nil {
+		return fmt.Errorf("sign-in check failed on %s: %w", name, err)
+	}
+	if resp.Status != http.StatusOK {
+		return fmt.Errorf("sign-in check failed on %s: %d", name, resp.Status)
+	}
+	return nil
+}
+
+// ExitCode maps a run to the process exit code: 0 clean, 1 differences or
+// skips, 2 on error. A run with skipped cases is not clean unless allowSkips is
+// set, because a skip means a whole area of the corpus was never compared.
+func ExitCode(report Report, err error, allowSkips bool) int {
 	switch {
 	case err != nil:
 		return 2
 	case report.Differences > 0:
+		return 1
+	case report.Summary.Skipped > 0 && !allowSkips:
 		return 1
 	default:
 		return 0
 	}
 }
 
-// readClient is the run's HTTP client: it never follows a redirect, because
-// the diff compares the Location itself (the two backends' own hosts are
-// folded away, decision 1). A caller's client is copied, never mutated.
+// readClient is the run's HTTP client. It never follows a redirect, because the
+// diff compares the Location itself (the two backends' own hosts are folded
+// away, decision 1); the policy is set even on a caller's client, and the
+// client is copied, never mutated. The default client's transport has Proxy
+// cleared, so a credential is never sent through an ambient HTTP proxy.
 func readClient(o ReadOptions) *http.Client {
 	client := o.Client
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.Proxy = nil
+		client = &http.Client{Timeout: 30 * time.Second, Transport: transport}
 	} else {
 		clone := *client
 		client = &clone
 	}
-	if client.CheckRedirect == nil {
-		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	}
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return client
+}
+
+// redactURL is a backend URL with any userinfo password folded away, so the
+// report never carries one.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return u.Redacted()
 }
 
 // pythonSignIn returns the Python session cookie value. With PythonCookie set
@@ -213,22 +275,30 @@ func hostOf(raw string) string {
 
 // expandCase is the case's requests: one per query variant (the bare route
 // when it names none), with every {name} filled from the discovered ids and
-// {today} from the run's date. A detail case whose list was empty expands to
-// no request.
-func expandCase(cs Case, discovered map[string][]string, today string) []string {
+// {today} from the run's date. When a placeholder has no value — its list was
+// empty or its list call failed — it returns a missing name and no requests, so
+// the caller can record a skip instead of dropping the case silently.
+func expandCase(cs Case, discovered map[string][]string, today string) ([]string, string) {
 	queries := cs.Queries
 	if len(queries) == 0 {
 		queries = []string{""}
 	}
-	paths := expandPlaceholders(routePath(cs.Route), discovered, today)
+	paths, missing := expandPlaceholders(routePath(cs.Route), discovered, today)
+	if missing != "" {
+		return nil, missing
+	}
 	var out []string
 	seen := map[string]bool{}
 	for _, p := range paths {
 		for _, q := range queries {
-			for _, qs := range expandPlaceholders(q, discovered, today) {
+			qs, qMissing := expandPlaceholders(q, discovered, today)
+			if qMissing != "" {
+				return nil, qMissing
+			}
+			for _, query := range qs {
 				target := p
-				if qs != "" {
-					target += "?" + qs
+				if query != "" {
+					target += "?" + query
 				}
 				if !seen[target] {
 					seen[target] = true
@@ -237,15 +307,17 @@ func expandCase(cs Case, discovered map[string][]string, today string) []string 
 			}
 		}
 	}
-	return out
+	return out, ""
 }
 
 // expandPlaceholders fills every {name} in s. A name with no discovered value
-// (an empty list, say) yields no results, so the case is skipped.
-func expandPlaceholders(s string, discovered map[string][]string, today string) []string {
+// (an empty list, say) yields no results and returns that name, so the case is
+// recorded as skipped. A discovered id is path-escaped before it goes into the
+// path, so an id with a slash or a space cannot change the route.
+func expandPlaceholders(s string, discovered map[string][]string, today string) ([]string, string) {
 	names := placeholders(s)
 	if len(names) == 0 {
-		return []string{s}
+		return []string{s}, ""
 	}
 	out := []string{s}
 	for _, name := range names {
@@ -254,18 +326,18 @@ func expandPlaceholders(s string, discovered map[string][]string, today string) 
 			values = []string{today}
 		}
 		if len(values) == 0 {
-			return nil
+			return nil, name
 		}
 		values = pickIDs(values)
 		var next []string
 		for _, o := range out {
 			for _, v := range values {
-				next = append(next, strings.ReplaceAll(o, "{"+name+"}", v))
+				next = append(next, strings.ReplaceAll(o, "{"+name+"}", url.PathEscape(v)))
 			}
 		}
 		out = next
 	}
-	return out
+	return out, ""
 }
 
 // maxDiscoveredIDs is how many ids of one list the runner follows: the first,

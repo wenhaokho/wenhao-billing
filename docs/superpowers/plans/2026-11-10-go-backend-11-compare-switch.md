@@ -280,7 +280,7 @@ Each response's created ids map Python → Go, and later requests use each backe
 
   Sections: timezone, dump, env names, adopt, deploy, memory, reads, switch, set-password, MCP reconnect, watch, way back, remove Python. Distroless details:
   - `docker exec -i <go> /api set-password <email>` (stdin);
-  - `docker exec -i <go> /api issue-session <email> | docker exec -i <go> /compare reads … --go-token-stdin` (the token never touches the screen);
+  - `{ IFS= read -rs PW; printf '%s\n' "$PW"; docker exec <go> /api issue-session <email>; } | docker exec -i <go> /compare reads … --python-password-stdin --go-token-stdin` (stdin carries the Python password first, then the Go token; the password is typed into `read -s` and never echoed, and the token is issued inside the pipe, so neither touches the screen);
   - Python's reset never puts the password in argv history: `docker exec -it <py> sh -c 'read -rs P; python -m scripts.seed_admin <email> "$P"'`.
 - [ ] **Step 2: Script the rehearsal.** It uses `docker-compose.coolify.yml` locally (the `.env.coolify.example` route) with a restored dev database. Each check asserts HTTP 200 from `/api/v1/auth/me` through nginx. curl treats `http://localhost` as secure, so the Secure cookie is sent.
   1. Python serves. `PY_SCHEDULER_ENABLED=true`.

@@ -4,14 +4,22 @@
 //
 //	compare reads --python URL --go URL --python-email E \
 //	  [--python-password-stdin | --python-cookie-stdin] --go-token-stdin \
-//	  --corpus FILE --allowed FILE [--python-tz ZONE] --out report.json
+//	  --corpus FILE --allowed FILE [--python-tz ZONE] [--allow-skips] \
+//	  --out report.json
 //
-// Every corpus request is a GET. The only non-GET is Python's POST
+// stdin carries the credentials in a fixed order, one line each: the FIRST line
+// is the Python credential (the password with --python-password-stdin, or the
+// billing_session cookie with --python-cookie-stdin), the SECOND line is the Go
+// token. Every corpus request is a GET. The only non-GET is Python's POST
 // /auth/login, and only with --python-password-stdin; --python-cookie-stdin
 // sends no POST at all. The Go token is sent as the billing_session cookie and
-// the runner never POSTs to Go.
+// the runner never POSTs to Go. The credentials must be piped in, never typed
+// into a terminal.
 //
-// Exit codes: 0 clean, 1 differences, 2 error.
+// Every run also asks both backends GET /api/v1/auth/me and refuses to compare
+// unless both answer 200, so a fully-failing run can never look clean.
+//
+// Exit codes: 0 clean, 1 differences or skips, 2 error.
 package main
 
 import (
@@ -33,77 +41,99 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/compare"
 )
 
+// commandIO is the process's three streams. They are injectable so a test can
+// drive the command and capture (or search) everything it writes.
+type commandIO struct {
+	stdin  io.Reader
+	stdout io.Writer
+	stderr io.Writer
+}
+
 func main() {
 	if len(os.Args) < 2 {
-		slog.Error("usage: compare reads --python URL --go URL --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --corpus FILE --allowed FILE [--python-tz ZONE] --out report.json")
+		slog.Error("usage: compare reads --python URL --go URL --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --corpus FILE --allowed FILE [--python-tz ZONE] [--allow-skips] --out report.json")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
 	case "reads":
-		os.Exit(readsCommand(os.Args[2:], os.Stdin))
+		os.Exit(readsCommand(os.Args[2:], commandIO{os.Stdin, os.Stdout, os.Stderr}))
 	default:
 		slog.Error("compare: unknown subcommand", "subcommand", os.Args[1])
 		os.Exit(2)
 	}
 }
 
-// readsCommand runs `compare reads`. The password, cookie and token come from
-// stdin in that order (one line each), and none is ever logged.
-func readsCommand(args []string, stdin io.Reader) int {
+// readsCommand runs `compare reads`. stdin carries the credentials in a fixed
+// order, one line each: first the Python credential (the password or the
+// cookie), then the Go token. None is ever logged, printed or written to the
+// report; the credentials must be piped in, never typed at a terminal.
+func readsCommand(args []string, cio commandIO) int {
+	logger := slog.New(slog.NewTextHandler(cio.stderr, nil))
 	fs := flag.NewFlagSet("reads", flag.ContinueOnError)
+	fs.SetOutput(cio.stderr)
+	fs.Usage = func() {
+		_, _ = fmt.Fprintf(fs.Output(), "usage: compare reads --python URL --go URL --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --corpus FILE --allowed FILE [--python-tz ZONE] [--allow-skips] --out report.json\n\n")
+		_, _ = fmt.Fprintln(fs.Output(), "stdin carries the credentials in order, one line each: first the Python credential (the password or the cookie), then the Go token. Pipe them in; never type them at a terminal.")
+		fs.PrintDefaults()
+	}
 	var (
 		pythonURL      = fs.String("python", "", "Python base URL")
 		goURL          = fs.String("go", "", "Go base URL")
 		pythonEmail    = fs.String("python-email", "", "Python admin email")
-		pythonPassword = fs.Bool("python-password-stdin", false, "read the Python password from stdin (one line); sends one POST")
-		pythonCookie   = fs.Bool("python-cookie-stdin", false, "read the Python billing_session cookie from stdin (one line); sends no POST")
-		goToken        = fs.Bool("go-token-stdin", false, "read the Go session token from stdin (one line)")
+		pythonPassword = fs.Bool("python-password-stdin", false, "read the Python password from the FIRST stdin line; sends one POST")
+		pythonCookie   = fs.Bool("python-cookie-stdin", false, "read the Python billing_session cookie from the FIRST stdin line; sends no POST")
+		goToken        = fs.Bool("go-token-stdin", false, "read the Go session token from the SECOND stdin line")
 		corpusFile     = fs.String("corpus", "", "the compare-corpus.yaml path")
 		allowedFile    = fs.String("allowed", "", "the allowed-diffs.yaml path")
 		pythonTZ       = fs.String("python-tz", "", "zone a naive Python timestamp is read in (default UTC)")
+		allowSkips     = fs.Bool("allow-skips", false, "exit 0 when the only issue is skipped cases (an empty or failed list)")
 		outFile        = fs.String("out", "", "the report JSON path")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if err := checkReadFlags(*pythonURL, *goURL, *pythonEmail, *pythonPassword, *pythonCookie, *goToken, *corpusFile, *allowedFile, *outFile); err != nil {
-		slog.Error("compare reads: " + err.Error())
+		logger.Error("compare reads: " + err.Error())
+		return 2
+	}
+	if isTerminal(cio.stdin) {
+		logger.Error("compare reads: pipe the secrets on stdin; do not type them into a terminal")
 		return 2
 	}
 
-	reader := bufio.NewReader(stdin)
+	reader := bufio.NewReader(cio.stdin)
 	var password, cookie, token string
 	var err error
 	if *pythonPassword {
 		if password, err = readLine(reader); err != nil {
-			slog.Error("compare reads: reading the Python password", "err", err)
+			logger.Error("compare reads: reading the Python password", "err", err)
 			return 2
 		}
 	}
 	if *pythonCookie {
 		if cookie, err = readLine(reader); err != nil {
-			slog.Error("compare reads: reading the Python cookie", "err", err)
+			logger.Error("compare reads: reading the Python cookie", "err", err)
 			return 2
 		}
 	}
 	if token, err = readLine(reader); err != nil {
-		slog.Error("compare reads: reading the Go token", "err", err)
+		logger.Error("compare reads: reading the Go token", "err", err)
 		return 2
 	}
 
 	corpus, err := compare.LoadCorpusFile(*corpusFile)
 	if err != nil {
-		slog.Error("compare reads: loading the corpus", "err", err)
+		logger.Error("compare reads: loading the corpus", "err", err)
 		return 2
 	}
 	allowed, err := compare.LoadAllowedFile(*allowedFile)
 	if err != nil {
-		slog.Error("compare reads: loading the allowed differences", "err", err)
+		logger.Error("compare reads: loading the allowed differences", "err", err)
 		return 2
 	}
 	tz, err := loadZone(*pythonTZ)
 	if err != nil {
-		slog.Error("compare reads: --python-tz", "err", err)
+		logger.Error("compare reads: --python-tz", "err", err)
 		return 2
 	}
 
@@ -114,17 +144,33 @@ func readsCommand(args []string, stdin io.Reader) int {
 		PythonPassword: password, PythonCookie: cookie, GoToken: token,
 		Corpus: corpus, Allowed: allowed, PythonTZ: tz,
 	})
-	code := compare.ExitCode(report, runErr)
+	code := compare.ExitCode(report, runErr, *allowSkips)
 	if err := writeReport(*outFile, report); err != nil {
-		slog.Error("compare reads: writing the report", "err", err)
+		logger.Error("compare reads: writing the report", "err", err)
 		return 2
 	}
 	if runErr != nil {
-		slog.Error("compare reads: the run failed", "err", runErr, "report", *outFile)
+		logger.Error("compare reads: the run failed", "err", runErr, "report", *outFile)
 		return code
 	}
-	slog.Info("compare reads: done", "cases", len(report.Cases), "differences", report.Differences, "report", *outFile)
+	_, _ = fmt.Fprintf(cio.stdout, "compare reads: cases=%d differences=%d skipped=%d report=%s\n",
+		len(report.Cases), report.Differences, report.Summary.Skipped, *outFile)
 	return code
+}
+
+// isTerminal reports whether r is a terminal: an *os.File whose mode has
+// os.ModeCharDevice. The secrets must arrive on a pipe, so a run whose stdin is
+// a terminal is refused before any secret is read.
+func isTerminal(r io.Reader) bool {
+	f, ok := r.(interface{ Stat() (os.FileInfo, error) })
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // checkReadFlags refuses a run with a missing or contradictory flag.

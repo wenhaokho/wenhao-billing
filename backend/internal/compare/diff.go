@@ -25,15 +25,16 @@ type Response struct {
 	Body   []byte
 }
 
-// Difference is one difference the Allowed entries do not cover.
+// Difference is one difference the Allowed entries do not cover. The JSON keys
+// are snake_case so the report stays consistent.
 type Difference struct {
-	Path   string
-	Python string
-	Go     string
+	Path   string `json:"path"`
+	Python string `json:"python"`
+	Go     string `json:"go"`
 	// Rule names the rule the difference was seen under: "decimal-equal",
 	// "instant-equal", "number-equal", "status", "detail-shape", or "" for a
 	// plain value difference.
-	Rule string
+	Rule string `json:"rule"`
 }
 
 // missing marks a value present on one side only.
