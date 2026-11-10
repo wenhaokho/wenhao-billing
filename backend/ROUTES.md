@@ -120,17 +120,17 @@ Totals: 107 under /api/v1, 7 OAuth and discovery, /mcp
 
 | method | path | auth | status | python | frontend | go | port status | note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | /.well-known/oauth-authorization-server | none | 200 | app/mcp/oauth.py:283 | no |  | todo |  |
-| GET | /.well-known/oauth-protected-resource | none | 200 | app/mcp/oauth.py:298 | no |  | todo |  |
-| POST | /oauth/register | none | 201 | app/mcp/oauth.py:306 | no |  | todo |  |
-| GET | /oauth/authorize | none | 200 | app/mcp/oauth.py:326 | no |  | todo |  |
-| POST | /oauth/authorize/consent | none | 200 | app/mcp/oauth.py:383 | no |  | todo |  |
-| POST | /oauth/token | none | 200 | app/mcp/oauth.py:442 | no |  | todo |  |
-| POST | /oauth/revoke | none | 200 | app/mcp/oauth.py:501 | no |  | todo |  |
+| GET | /.well-known/oauth-authorization-server | none | 200 | app/mcp/oauth.py:283 | no | oauth | ported | PN 155 |
+| GET | /.well-known/oauth-protected-resource | none | 200 | app/mcp/oauth.py:298 | no | oauth | ported | PN 155 |
+| POST | /oauth/register | none | 201 | app/mcp/oauth.py:306 | no | oauth | ported | Go changes 5, 9: PN 150 |
+| GET | /oauth/authorize | none | 200 | app/mcp/oauth.py:326 | no | oauth | ported | Go changes 2, 3: PN 148, 149 |
+| POST | /oauth/authorize/consent | none | 200 | app/mcp/oauth.py:383 | no | oauth | ported | Go changes 6, 9: PN 150, 151 |
+| POST | /oauth/token | none | 200 | app/mcp/oauth.py:442 | no | oauth | ported | Go changes 1, 7, 8, 9: PN 147, 150, 152 |
+| POST | /oauth/revoke | none | 200 | app/mcp/oauth.py:501 | no | oauth | ported | Go change 9: PN 150, 152 |
 
 ## /mcp
 
 | method | path | auth | status | python | frontend | go | port status | note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| GET\|POST\|DELETE | /mcp | none | 307 | app/main.py:116 | no |  | todo | redirect to /mcp/ |
-| MOUNT | /mcp/ | oauth bearer | - | app/main.py:119 | no |  | todo | ASGI mount of the MCP server |
+| GET\|POST\|DELETE | /mcp | none | 307 | app/main.py:116 | no | mcp | ported | redirect to /mcp/ (307, query dropped) |
+| MOUNT | /mcp/ | oauth bearer | - | app/main.py:119 | no | mcp | ported | stateless streamable HTTP, 42 tools: PN 138-146, 154, 156 |
