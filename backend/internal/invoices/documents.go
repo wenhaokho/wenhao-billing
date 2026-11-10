@@ -46,9 +46,9 @@ func RegisterDocuments(api huma.API, pool *pgxpool.Pool, clock platform.Clock, m
 	}), d.pdf)
 	huma.Register(api, platform.Admin(huma.Operation{
 		OperationID: "invoices-send", Method: http.MethodPost, Path: prefix + "/send", Tags: tags,
-		Summary: "Email the invoice PDF; a DRAFT or OPEN invoice becomes SENT once it is sent",
-		Description: "Refuses a VOID invoice and a send with no recipient (400). A send failure is 502 and changes nothing. " +
-			"The status moves without finalizing the invoice.",
+		Summary: "Email the invoice PDF; an OPEN invoice becomes SENT once it is sent",
+		Description: "Refuses a VOID invoice, a DRAFT invoice (finalize it first), a recurring template and a send with no recipient (400). " +
+			"A send failure is 502 and changes nothing. An OPEN invoice becomes SENT; every other status stays.",
 		Errors: []int{http.StatusBadRequest, http.StatusNotFound, http.StatusBadGateway},
 	}), d.send)
 }
@@ -144,6 +144,14 @@ func (d documents) send(ctx context.Context, in *sendIn) (*invoiceBody, error) {
 	inv := data.Invoice
 	if inv.Status == "VOID" {
 		return nil, platform.Err(http.StatusBadRequest, "invoice_void", "cannot send a voided invoice")
+	}
+	// Owner decision 2026-11-10: only a finalized invoice can be sent. A
+	// template is checked first, as it is a DRAFT too.
+	if inv.IsTemplate {
+		return nil, platform.Err(http.StatusBadRequest, "invoice_template", "cannot send a recurring template")
+	}
+	if inv.Status == "DRAFT" {
+		return nil, platform.Err(http.StatusBadRequest, "invoice_not_finalized", "finalize the invoice before sending it")
 	}
 	to := toGiven
 	if to == "" && data.Customer != nil && data.Customer.ContactEmail != nil {

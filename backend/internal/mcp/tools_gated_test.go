@@ -105,6 +105,12 @@ func (g *gatedHarness) seedDraftInvoice(t *testing.T) uuid.UUID {
 	return g.invoice(t, g.seedCustomer(t), "INV-0003", "MILESTONE", "DRAFT", "1000.0000", false)
 }
 
+// seedOpenInvoice is a finalized invoice that was never sent: INV-0003, OPEN.
+func (g *gatedHarness) seedOpenInvoice(t *testing.T) uuid.UUID {
+	t.Helper()
+	return g.invoice(t, g.seedCustomer(t), "INV-0003", "MILESTONE", "OPEN", "1000.0000", false)
+}
+
 func (g *gatedHarness) invoiceStatus(t *testing.T, id uuid.UUID) string {
 	t.Helper()
 	s, _ := g.cell(t, `SELECT status FROM invoices WHERE invoice_id = $1`, id).(string)
@@ -431,14 +437,14 @@ func TestTamperedTokenRefuses(t *testing.T) {
 	}
 }
 
-func TestDraftInvoicePromotedToSentAfterSend(t *testing.T) {
+func TestOpenInvoicePromotedToSentAfterSend(t *testing.T) {
 	t.Parallel()
 	g := newGatedHarness(t)
-	id := g.seedDraftInvoice(t)
+	id := g.seedOpenInvoice(t)
 	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
 	_, tok := g.preview(t, "send_invoice_email", args)
-	if s := g.invoiceStatus(t, id); s != "DRAFT" {
-		t.Fatalf("status %s after preview, want DRAFT", s)
+	if s := g.invoiceStatus(t, id); s != "OPEN" {
+		t.Fatalf("status %s after preview, want OPEN", s)
 	}
 	out := g.done(t, "send_invoice_email", with(args, "confirm_token", tok))
 	if out["sent"] != true || len(g.mail.messages()) != 1 {
@@ -446,6 +452,104 @@ func TestDraftInvoicePromotedToSentAfterSend(t *testing.T) {
 	}
 	if s := g.invoiceStatus(t, id); s != "SENT" {
 		t.Fatalf("status %s, want SENT", s)
+	}
+}
+
+// Owner decision 2026-11-10: only a finalized invoice can be sent. The
+// preview refuses too, so a refused invoice never gets a token.
+func TestSendDraftInvoiceRefusedOnPreviewAndConfirm(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	id := g.seedDraftInvoice(t)
+	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
+	const want = "finalize the invoice before sending it"
+	if msg := g.refused(t, "send_invoice_email", args); msg != want {
+		t.Fatalf("preview refusal %q, want %q", msg, want)
+	}
+	// A token minted while the invoice was OPEN no longer works once it is DRAFT again.
+	g.exec(t, `UPDATE invoices SET status = 'OPEN' WHERE invoice_id = $1`, id)
+	_, tok := g.preview(t, "send_invoice_email", args)
+	g.exec(t, `UPDATE invoices SET status = 'DRAFT' WHERE invoice_id = $1`, id)
+	if msg := g.refused(t, "send_invoice_email", with(args, "confirm_token", tok)); msg != want {
+		t.Fatalf("confirm refusal %q, want %q", msg, want)
+	}
+	if n := len(g.mail.messages()); n != 0 {
+		t.Fatalf("%d emails, want 0", n)
+	}
+	if n := g.spentTokens(t); n != 0 {
+		t.Fatalf("spent tokens %d after a refused send, want 0", n)
+	}
+	if s := g.invoiceStatus(t, id); s != "DRAFT" {
+		t.Fatalf("status %s, want DRAFT", s)
+	}
+}
+
+func TestSendTemplateRefusedOnPreviewAndConfirm(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	id := g.invoice(t, g.seedCustomer(t), "INV-TPL-EMAIL", "RECURRING", "DRAFT", "100.0000", true)
+	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
+	const want = "cannot send a recurring template"
+	if msg := g.refused(t, "send_invoice_email", args); msg != want {
+		t.Fatalf("preview refusal %q, want %q", msg, want)
+	}
+	g.exec(t, `UPDATE invoices SET is_template = false, status = 'OPEN' WHERE invoice_id = $1`, id)
+	_, tok := g.preview(t, "send_invoice_email", args)
+	g.exec(t, `UPDATE invoices SET is_template = true WHERE invoice_id = $1`, id)
+	if msg := g.refused(t, "send_invoice_email", with(args, "confirm_token", tok)); msg != want {
+		t.Fatalf("confirm refusal %q, want %q", msg, want)
+	}
+	if n := len(g.mail.messages()); n != 0 {
+		t.Fatalf("%d emails, want 0", n)
+	}
+	if n := g.spentTokens(t); n != 0 {
+		t.Fatalf("spent tokens %d after a refused send, want 0", n)
+	}
+}
+
+func TestReminderDraftRefusedOnPreviewAndConfirm(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	id := g.seedDraftInvoice(t)
+	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
+	const want = "finalize the invoice before sending it"
+	if msg := g.refused(t, "send_payment_reminder", args); msg != want {
+		t.Fatalf("preview refusal %q, want %q", msg, want)
+	}
+	g.exec(t, `UPDATE invoices SET status = 'OPEN' WHERE invoice_id = $1`, id)
+	_, tok := g.preview(t, "send_payment_reminder", args)
+	g.exec(t, `UPDATE invoices SET status = 'DRAFT' WHERE invoice_id = $1`, id)
+	if msg := g.refused(t, "send_payment_reminder", with(args, "confirm_token", tok)); msg != want {
+		t.Fatalf("confirm refusal %q, want %q", msg, want)
+	}
+	if n := len(g.mail.messages()); n != 0 {
+		t.Fatalf("%d emails, want 0", n)
+	}
+	if n := g.spentTokens(t); n != 0 {
+		t.Fatalf("spent tokens %d after a refused reminder, want 0", n)
+	}
+}
+
+func TestReminderTemplateRefusedOnPreviewAndConfirm(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	id := g.invoice(t, g.seedCustomer(t), "INV-TPL-REMIND", "RECURRING", "DRAFT", "100.0000", true)
+	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
+	const want = "cannot send a recurring template"
+	if msg := g.refused(t, "send_payment_reminder", args); msg != want {
+		t.Fatalf("preview refusal %q, want %q", msg, want)
+	}
+	g.exec(t, `UPDATE invoices SET is_template = false, status = 'OPEN' WHERE invoice_id = $1`, id)
+	_, tok := g.preview(t, "send_payment_reminder", args)
+	g.exec(t, `UPDATE invoices SET is_template = true WHERE invoice_id = $1`, id)
+	if msg := g.refused(t, "send_payment_reminder", with(args, "confirm_token", tok)); msg != want {
+		t.Fatalf("confirm refusal %q, want %q", msg, want)
+	}
+	if n := len(g.mail.messages()); n != 0 {
+		t.Fatalf("%d emails, want 0", n)
+	}
+	if n := g.spentTokens(t); n != 0 {
+		t.Fatalf("spent tokens %d after a refused reminder, want 0", n)
 	}
 }
 
@@ -480,15 +584,15 @@ func TestNoRecipientRefuses(t *testing.T) {
 func TestSendInvoiceEmailFailureChangesNothing(t *testing.T) {
 	t.Parallel()
 	g := newGatedHarness(t)
-	id := g.seedDraftInvoice(t)
+	id := g.seedOpenInvoice(t)
 	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
 	_, tok := g.preview(t, "send_invoice_email", args)
 	g.mail.setFail(errors.New("resend: 500 internal"))
 	if msg := g.refused(t, "send_invoice_email", with(args, "confirm_token", tok)); msg != "failed to send invoice email" {
 		t.Fatalf("refusal %q", msg)
 	}
-	if s := g.invoiceStatus(t, id); s != "DRAFT" {
-		t.Fatalf("status %s after a failed send, want DRAFT", s)
+	if s := g.invoiceStatus(t, id); s != "OPEN" {
+		t.Fatalf("status %s after a failed send, want OPEN", s)
 	}
 	if n := g.spentTokens(t); n != 0 {
 		t.Fatalf("spent tokens %d after a failed send, want 0", n)
@@ -783,7 +887,7 @@ func TestSpentConfirmTokensPruned(t *testing.T) {
 func TestSendInvoiceEmailCancelAfterSendKeepsStatusAndSpend(t *testing.T) {
 	t.Parallel()
 	g := newGatedHarness(t)
-	id := g.seedDraftInvoice(t)
+	id := g.seedOpenInvoice(t)
 	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
 	_, tok := g.preview(t, "send_invoice_email", args)
 
@@ -892,7 +996,7 @@ func TestConfirmSucceedsOnSingleConnectionPool(t *testing.T) {
 	g := newGatedHarness(t)
 	g.exec(t, `INSERT INTO mcp_spent_confirm_tokens (token_hash, expires_at) VALUES ('old', $1)`,
 		g.clock.Now().Add(-spentConfirmGrace-time.Second))
-	id := g.seedDraftInvoice(t)
+	id := g.seedOpenInvoice(t)
 	args := map[string]any{"invoice_id": id.String(), "to_email": "a@b.com"}
 	_, tok := g.preview(t, "send_invoice_email", args)
 

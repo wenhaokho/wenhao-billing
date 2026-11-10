@@ -37,7 +37,7 @@ const (
 	descDeleteInvoice  = "Permanently delete a DRAFT invoice. GATED: first call (no\nconfirm_token) previews the delete and returns a confirm_token; call\nagain passing that confirm_token to actually delete. Only DRAFT\ninvoices can be deleted — invoicing.delete_invoice refuses anything\nelse."
 	descDeleteBill     = "Permanently delete a DRAFT bill. GATED: first call (no\nconfirm_token) previews the delete and returns a confirm_token; call\nagain passing that confirm_token to actually delete. Only DRAFT bills\ncan be deleted — a bill that has moved past DRAFT already affects AP\nand should be voided instead (see void_bill)."
 	descDeleteCustomer = "Deactivate a customer (soft delete — sets active=False). GATED:\nfirst call (no confirm_token) previews the action and returns a\nconfirm_token; call again passing that confirm_token to actually\ndeactivate. Matches the existing DELETE /customers/{id} endpoint:\ncustomers are never hard-deleted anywhere in this app."
-	descSendInvoice    = "Email an invoice PDF to a customer. GATED: first call (no\nconfirm_token) previews the send and returns a confirm_token; call again\npassing that confirm_token to actually send. If invoice status is DRAFT\nit is promoted to SENT once the email is sent."
+	descSendInvoice    = "Email an invoice PDF to a customer. GATED: first call (no\nconfirm_token) previews the send and returns a confirm_token; call again\npassing that confirm_token to actually send. Only a finalized invoice\ncan be sent: a DRAFT or a recurring template is refused (finalize it\nfirst). An OPEN invoice becomes SENT once the email is sent."
 	descSendReminder   = "Email a payment reminder for an outstanding invoice. GATED: first\ncall (no confirm_token) previews the send and returns a confirm_token;\ncall again passing that confirm_token to actually send. Bound to the\ninvoice's cash still expected (balance_due less unbooked PPh) so a partial\npayment between preview and confirm invalidates a stale token. No PDF\nis attached — a plain-text/HTML reminder only."
 )
 
@@ -317,6 +317,15 @@ func registerGatedTools(s *mcp.Server, d Deps) {
 			if inv.Status == "VOID" || inv.Status == "PAID" {
 				return Object{}, Refuse("cannot remind on a %s invoice", inv.Status)
 			}
+			// As for send_invoice_email (PORT-NOTES 112): nothing goes out
+			// for an unfinalized invoice, on the preview as well as the
+			// confirm. A template is checked first, as it is a DRAFT too.
+			if inv.IsTemplate {
+				return Object{}, Refuse("cannot send a recurring template")
+			}
+			if inv.Status == "DRAFT" {
+				return Object{}, Refuse("finalize the invoice before sending it")
+			}
 			recipient, err := recipientFor(ctx, tx, inv, in.ToEmail)
 			if err != nil {
 				return Object{}, err
@@ -363,6 +372,15 @@ func (g gate) sendInvoiceEmail(ctx context.Context, tx pgx.Tx, _ principalRef, i
 	}
 	if inv.Status == "VOID" {
 		return Object{}, Refuse("cannot send a voided invoice")
+	}
+	// Owner decision 2026-11-10 (Go change): only a finalized invoice can be
+	// sent, on the preview as well as the confirm, so a refused invoice never
+	// gets a token. A template is checked first, as it is a DRAFT too.
+	if inv.IsTemplate {
+		return Object{}, Refuse("cannot send a recurring template")
+	}
+	if inv.Status == "DRAFT" {
+		return Object{}, Refuse("finalize the invoice before sending it")
 	}
 	recipient, err := recipientFor(ctx, tx, inv, in.ToEmail)
 	if err != nil {
@@ -426,7 +444,7 @@ func (g gate) sendInvoiceEmail(ctx context.Context, tx pgx.Tx, _ principalRef, i
 	// client that hangs up now must not roll back the status and the
 	// spent token of an email the provider already accepted.
 	ctx = context.WithoutCancel(ctx)
-	// The email is out; a DRAFT or OPEN invoice becomes SENT.
+	// The email is out; an OPEN invoice becomes SENT.
 	if err := invoicesdb.New(tx).MarkInvoiceSent(ctx, id); err != nil {
 		return Object{}, err
 	}

@@ -12,7 +12,7 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
 2. **Email intake with attachments raises `NotImplementedError` (surfaces as 400).**
    Python: the default OCR function raises (`app/services/intake/email_ocr.py:22-23`); `parse_inbound_email` re-raises it for any attachment that has `content` (`:42-50`); the route is called without an `ocr_fn` and turns it into a 400 (`app/api/v1/routers/payments.py:48-51`, `POST /api/v1/payments/intake/email`).
    Seen: a payment email with an attachment is rejected with 400 and the message "Attach an OCR backend (tesseract/textract/etc) before calling"; only emails whose subject/text/html carry the amount are accepted.
-   After the switch: pick an OCR backend, or skip attachments and parse the body only (a decision for the owner).
+   After the switch: none for now. Owner decision (2026-11-10): no OCR yet; emails with attachments keep being refused, and the amount must be in the subject or body.
 
 3. **`GET /api/v1/payments/{id}/log` returns `[]` for an unknown payment.**
    Python: the handler never looks the payment up; it selects log rows by `payment_id` (`app/api/v1/routers/recon.py:105-125`).
@@ -588,10 +588,11 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Go: a send failure is 502 `failed to send invoice email` / `failed to send quotation email` and the status stays (`invoices.TestSendFailure502LeavesStatus`, `quotations.TestQuotationSendFailure502LeavesRow`); a bad `to_email` is 422 at `to_email` `invalid email address: <addr>` (`TestBadToEmail422`, `TestQuotationBadToEmail422`); the quotation body uses `pdf.FmtAmount` (`for 5,000.00 SGD.`); each message carries `email.IdempotencyKey` (the document id and a SHA-256 of recipients, subject and body), and the status changes only after a successful send, in a transaction that re-reads the row.
     After the switch: none.
 
-112. **Kept: sending a DRAFT or OPEN invoice makes it SENT without finalizing; a quotation send stamps `last_sent_at` in any sendable status.**
+112. **Only a finalized invoice can be sent (a change, owner decision 2026-11-10); a quotation send stamps `last_sent_at` in any sendable status (kept).**
     Python: `send_invoice` sets DRAFT/OPEN to SENT with no finalize checks, so a DRAFT with no number goes out as `invoice  for` (`routers/invoices.py:774-775`); the quotation send stamps `last_sent_at` for ACCEPTED, DECLINED, EXPIRED and SENT too, and says `cannot send a INVOICED quotation` (`quotations.py:196-199, 233-236`).
-    Go: kept (owner ruling R3; `invoices.TestSendDraftBecomesSent`, `quotations.TestQuotationSendBodyAndLastSentAt`, `TestQuotationSendRefusals`).
-    After the switch: refuse DRAFT and templates, or finalize first, if the owner wants.
+    Go: a DRAFT invoice is 400 `invoice_not_finalized` / `finalize the invoice before sending it` and a recurring template is 400 `invoice_template` / `cannot send a recurring template` (checked first, as a template is a DRAFT too), before anything is rendered or sent; VOID stays `invoice_void`. The `send_invoice_email` MCP tool refuses both with the same sentences on the preview and on the confirm, so a refused invoice never gets a token. Only OPEN becomes SENT on a send; SENT, PARTIAL and PAID stay as they are (`invoices.TestSendDraftInvoiceRefused`, `invoices.TestSendTemplateRefused`, `invoices.TestSendOpenBecomesSent`, `mcp.TestSendDraftInvoiceRefusedOnPreviewAndConfirm`, `mcp.TestSendTemplateRefusedOnPreviewAndConfirm`). The tool's description still says a DRAFT is promoted to SENT: it is Python's text, kept for `TestToolsListMatchesPython`. The invoice form shows Send invoice disabled for a DRAFT or a template. `send_payment_reminder` refuses a DRAFT or a template the same way, on preview and confirm (`mcp.TestReminderDraftRefusedOnPreviewAndConfirm`, `mcp.TestReminderTemplateRefusedOnPreviewAndConfirm`). The quotation send is kept as in Python (owner ruling R3; `quotations.TestQuotationSendBodyAndLastSentAt`, `TestQuotationSendRefusals`).
+    Go's `send_invoice_email` description says so too (only a finalized invoice can be sent); `mcp.TestToolsListMatchesPython` lists it in `changedDescriptions`, the one description that deliberately differs from Python's.
+    After the switch: none.
 
 113. **The PDF `Content-Disposition` is escaped.**
     Python: `inline; filename="{name}"` with the number as stored, so a quote or non-ASCII character in a number (a PATCH can set one) breaks the header (`routers/invoices.py:716`, `quotations.py:182`).
@@ -648,10 +649,10 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
     Go: a data URI is decoded (base64 or percent-encoded), http(s) is fetched with a 5 s context and client timeout, no redirects, a 2xx check and a 2 MB cap (the cap applies to data URIs too); the type is sniffed with `http.DetectContentType` and only PNG and JPEG are accepted, because Maroto embeds only PNG and JPEG; a PNG is decoded and re-encoded as 8-bit non-interlaced NRGBA because gofpdf rejects interlaced and 16-bit PNGs; any failure is logged `failed to resolve logo; using default` and the default logo is used; successes are cached per logo_url for 10 minutes (failures are not cached), the cache holds at most 64 entries and returns copies; the dimensions are capped at 4096 px on a side and 16 MP in total (`pdf.TestPassthroughDataURI`, `pdf.TestHTTPFetchSuccess`, `pdf.TestHTTPFetchNonImageFallsBackToDefault`, `pdf.TestLogoTypeIsSniffedFromTheBytes`, `pdf.TestLogoSizeCapFallsBack`, `pdf.TestLogoIsCachedForTenMinutes`, `pdf.TestLogoRedirectIsNotFollowed`, `pdf.TestLogoDimensionsAreCapped`). Python's `test_http_fetch_non_image_mime_falls_back_to_png` now expects the default logo.
     After the switch: none for PNG and JPEG; see note 124 for SVG.
 
-124. **SVG logos print the default logo (owner decision pending).**
+124. **SVG logos print the default logo.**
     Python: the business profile upload accepts `image/svg+xml` and WeasyPrint printed SVG, so an SVG logo_url rendered as the SVG.
     Go: Maroto v2 embeds only PNG, JPG and JPEG, so the logo resolver sniffs the bytes and refuses SVG (and GIF) and prints the default logo instead (`pdf.TestHTTPFetchNonImageFallsBackToDefault`; `pdf.TestLogoTypeIsSniffedFromTheBytes`: a GIF labelled `image/png` falls back).
-    After the switch: the owner has not decided; rasterise the SVG on upload or in the resolver, or restrict the upload to PNG and JPEG.
+    After the switch: none for now. Owner decision (2026-11-10): no change; the owner will upload a new logo later (use PNG or JPEG).
 
 125. **The draft digest HTML is escaped (Go change 7).**
     Python: `build_recurring_drafts_email` builds the HTML with f-strings and no HTML escaping of names (`app/services/email.py:180-186`), so a customer name with `<` breaks the mail (the text body carries the same names).
@@ -705,8 +706,8 @@ it by accident. "After the switch" is the fix to schedule once Go is live (not b
 
 135. **Ruling R3: the owner's three questions are unanswered, so the plan defaults stand.**
     Python: sending promotes DRAFT straight to SENT without finalizing (`app/api/v1/routers/invoices.py:774-775`), the HTML design drops the footer and the PO/SO number (note 126), and `to_email` is unvalidated (`app/schemas/invoice.py:126-134`).
-    Go: the defaults are kept and are reversible: a DRAFT or OPEN invoice send makes it SENT without finalizing and the quotation send stamps `last_sent_at` in any sendable status (note 112); the footer and the PO/SO number are shown (note 126); a bad `to_email` is 422 at `to_email` with `invalid email address: <addr>` (note 111).
-    After the switch: if the owner answers, each is a small change: refuse DRAFT and templates or finalize first, drop the fourth meta cell and the footer line, or keep the 422 and rely on 502.
+    Go: the defaults are kept and are reversible: an invoice send needs a finalized invoice (a change, note 112) and the quotation send stamps `last_sent_at` in any sendable status (note 112); the footer and the PO/SO number are shown (note 126); a bad `to_email` is 422 at `to_email` with `invalid email address: <addr>` (note 111).
+    After the switch: the invoice send refusal is done (note 112); if the owner answers the rest, each is a small change: drop the fourth meta cell and the footer line, or keep the 422 and rely on 502.
 
 136. **Kept and small choices: an empty `wht_type`, the dash, and the render-data loaders.**
     Python: the invoice context tests `wht_type != "NONE"` with no None guard (`app/services/pdf/context.py:178`) while other places use `(wht_type or "NONE")` (`app/services/invoice_pdf.py:224, 458`); the column is NOT NULL DEFAULT 'NONE' (`backend/migrations/00001_baseline.sql:254`), so the guard is harmless; `_fmt_amount(None)` is a dash (`app/services/invoice_pdf.py:78-84`); the business profile is read as `db.get(BusinessProfile, 1)` and may be None (`app/api/v1/routers/invoices.py:710, 744`).
