@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -62,10 +63,12 @@ var indexPart = regexp.MustCompile(`\[[0-9]+\]`)
 // only. Every other difference is reported.
 func Diff(route string, py, gov Response, a Allowed) []Difference {
 	d := &differ{
-		route:     route,
-		entries:   a.applicable(route),
-		pythonTZ:  a.PythonTZ,
-		govStatus: gov.Status,
+		route:      route,
+		entries:    a.applicable(route),
+		pythonTZ:   a.PythonTZ,
+		pythonHost: a.PythonHost,
+		goHost:     a.GoHost,
+		govStatus:  gov.Status,
 	}
 	if isPDF(py) || isPDF(gov) {
 		d.comparePDF(py, gov)
@@ -94,11 +97,13 @@ func Diff(route string, py, gov Response, a Allowed) []Difference {
 
 // differ walks the two decoded bodies and records differences.
 type differ struct {
-	route     string
-	entries   []AllowedEntry
-	pythonTZ  *time.Location
-	govStatus int
-	diffs     []Difference
+	route      string
+	entries    []AllowedEntry
+	pythonTZ   *time.Location
+	pythonHost string
+	goHost     string
+	govStatus  int
+	diffs      []Difference
 	// override tags a plain difference as this rule (the error body).
 	override string
 }
@@ -557,19 +562,20 @@ func (d *differ) comparePDF(py, gov Response) {
 	}
 }
 
-// compareLocation compares two redirect answers' Location, ignoring the
-// scheme and host (the backends run on different hosts) and the order of the
-// query parameters.
+// compareLocation compares two redirect answers' Location. The scheme and
+// host are folded away only when both name one of the backends' own hosts (or
+// are relative); otherwise the whole absolute URL is compared. The order of
+// the query parameters may differ.
 func (d *differ) compareLocation(py, gov Response) {
 	p, g := py.Header.Get("Location"), gov.Header.Get("Location")
-	if p != g && !locationEqual(p, g) {
+	if p != g && !locationEqual(p, g, d.pythonHost, d.goHost) {
 		d.add("$header.Location", p, g, "")
 	}
 }
 
 // locationEqual reports whether two Locations name the same path and query,
-// whatever their scheme and host.
-func locationEqual(py, gov string) bool {
+// with the scheme and host folded away only between the backends themselves.
+func locationEqual(py, gov, pyHost, goHost string) bool {
 	pu, err := url.Parse(py)
 	if err != nil {
 		return false
@@ -578,7 +584,22 @@ func locationEqual(py, gov string) bool {
 	if err != nil {
 		return false
 	}
-	return pu.Path == gu.Path && sortedQuery(pu.RawQuery) == sortedQuery(gu.RawQuery)
+	if pu.Path != gu.Path || sortedQuery(pu.RawQuery) != sortedQuery(gu.RawQuery) {
+		return false
+	}
+	if ownLocation(pu, pyHost) && ownLocation(gu, goHost) {
+		return true
+	}
+	return pu.Scheme == gu.Scheme && pu.Host == gu.Host
+}
+
+// ownLocation reports whether a Location is relative, or its host is the
+// backend's own host.
+func ownLocation(u *url.URL, host string) bool {
+	if u.Host == "" {
+		return true
+	}
+	return host != "" && strings.EqualFold(u.Host, host)
 }
 
 // sortedQuery is a query string with its parameters in a fixed order.
@@ -621,8 +642,8 @@ func isErrorStatus(status int) bool { return status >= 400 }
 func isRedirect(status int) bool { return status >= 300 && status < 400 }
 
 // decodeBody decodes a JSON body keeping numbers as written. An empty body is
-// an emptyBody value, distinct from a JSON null; data after the first value is
-// refused.
+// an emptyBody value, distinct from a JSON null; anything after the first value
+// (a second value or a stray brace) is refused.
 func decodeBody(b []byte) (any, error) {
 	if len(bytes.TrimSpace(b)) == 0 {
 		return emptyBody{}, nil
@@ -633,7 +654,7 @@ func decodeBody(b []byte) (any, error) {
 	if err := dec.Decode(&v); err != nil {
 		return nil, err
 	}
-	if dec.More() {
+	if _, err := dec.Token(); err != io.EOF {
 		return nil, fmt.Errorf("trailing data after JSON value")
 	}
 	return v, nil

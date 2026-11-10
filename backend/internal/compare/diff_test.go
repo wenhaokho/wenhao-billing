@@ -201,6 +201,62 @@ func TestShippedEntriesDoNotOverreach(t *testing.T) {
 	}
 }
 
+// hasEntry reports whether the entries hold one with this route, path and rule.
+func hasEntry(a Allowed, route, path, rule string) bool {
+	for _, e := range a.Entries {
+		if e.Route == route && e.Path == path && e.Rule == rule {
+			return true
+		}
+	}
+	return false
+}
+
+// hasStatus reports whether a status entry names this exact pair on route.
+func hasStatus(a Allowed, route string, py, gov int) bool {
+	for _, e := range a.Entries {
+		if e.Rule == RuleStatus && e.Route == route && e.Python == py && e.Go == gov {
+			return true
+		}
+	}
+	return false
+}
+
+func TestShippedYAMLContent(t *testing.T) {
+	t.Parallel()
+	a, err := LoadAllowedFile("../../port/allowed-diffs.yaml")
+	if err != nil {
+		t.Fatalf("LoadAllowedFile: %v", err)
+	}
+
+	// The status pairs name the Python code the note records.
+	if !hasStatus(a, "POST /api/v1/customers", 201, 422) {
+		t.Error("PN 25: POST /customers should be python 201, go 422")
+	}
+	if hasEntry(a, "POST /api/v1/accounting/fx-rates", statusPath, RuleStatus) {
+		t.Error("PN 30: the POST /fx-rates status entry should be deleted")
+	}
+	if !hasStatus(a, "POST /oauth/authorize/consent", 302, 403) {
+		t.Error("PN 148: the consent status entry should be python 302, go 403")
+	}
+
+	// A detail-shape entry whose difference is never at a JSON field is gone:
+	// Python's 500 is plain text (the whole body reports at $), and Python
+	// succeeds on the group-2 routes.
+	never := map[string]bool{
+		"PN 11": true, "PN 25": true, "PN 32": true, "PN 34": true,
+		"PN 35": true, "PN 36": true, "PN 38": true, "PN 56": true,
+		"PN 57": true, "PN 58": true, "PN 62": true, "PN 86": true, "PN 112": true,
+	}
+	for _, e := range a.Entries {
+		if e.Rule == RuleDetailShape && never[e.Note] {
+			t.Errorf("detail-shape entry %+v can never apply; delete it", e)
+		}
+	}
+	if hasEntry(a, "PATCH /api/v1/customers/{customer_id}", "$.detail", RuleDetailShape) {
+		t.Error("PN 10 customers: Python 500 is plain text; the detail-shape can never apply")
+	}
+}
+
 func TestErrorCommonKeysCompared(t *testing.T) {
 	t.Parallel()
 	py := jsonResponse(400, `{"code":"a","detail":"x"}`)
@@ -426,19 +482,38 @@ func TestRedirectLocationCompared(t *testing.T) {
 		return Response{Status: 302, Header: h}
 	}
 	route := "GET /oauth/authorize"
+	allowed := Allowed{PythonHost: "python.example", GoHost: "go.example"}
 
-	// A different host and query order is the same redirect.
+	// The backends' own hosts differ and the query order differs: the same
+	// redirect.
 	py := redirect("https://python.example/oauth/authorize?client_id=x&state=y")
 	gov := redirect("https://go.example/oauth/authorize?state=y&client_id=x")
-	one(t, Diff(route, py, gov, Allowed{}), 0)
+	one(t, Diff(route, py, gov, allowed), 0)
 
 	// A different path is reported.
 	other := redirect("https://go.example/oauth/other?state=y&client_id=x")
-	diffs := Diff(route, py, other, Allowed{})
+	diffs := Diff(route, py, other, allowed)
 	one(t, diffs, 1)
 	if diffs[0].Path != "$header.Location" {
 		t.Fatalf("difference %+v, want $header.Location", diffs[0])
 	}
+
+	// An outside host that differs is reported.
+	outside := redirect("https://evil.example/oauth/authorize?client_id=x&state=y")
+	one(t, Diff(route, py, outside, allowed), 1)
+
+	// A relative Location and an absolute own-host one with the same path are
+	// equal.
+	relative := redirect("/oauth/authorize?client_id=x&state=y")
+	one(t, Diff(route, relative, gov, allowed), 0)
+}
+
+func TestStrayClosingBraceReported(t *testing.T) {
+	t.Parallel()
+	route := "GET /api/v1/invoices"
+	one(t, Diff(route, jsonResponse(200, `{"a":1}}`), jsonResponse(200, `{"a":1}`), Allowed{}), 1)
+	one(t, Diff(route, jsonResponse(200, `{"a":1}]`), jsonResponse(200, `{"a":1}`), Allowed{}), 1)
+	one(t, Diff(route, jsonResponse(200, `{"a":1}`), jsonResponse(200, `{"a":1}`), Allowed{}), 0)
 }
 
 func TestPdfComparesHeadersOnly(t *testing.T) {

@@ -91,6 +91,21 @@ func TestEntryValidation(t *testing.T) {
 			wantErr: "must not be $",
 		},
 		{
+			name:    "an ignore entry at the bare-array elements",
+			yaml:    "- route: GET /api/v1/projects\n  path: \"$[*]\"\n  rule: ignore\n  note: PN 78\n",
+			wantErr: "must not be $",
+		},
+		{
+			name:    "a detail-shape entry at the whole body",
+			yaml:    "- route: POST /api/v1/invoices\n  path: \"$\"\n  rule: detail-shape\n  go_code: 400\n  note: PN 36\n",
+			wantErr: "must not be $",
+		},
+		{
+			name:    "a detail-shape entry at the bare-array elements",
+			yaml:    "- route: GET /api/v1/projects\n  path: \"$[*]\"\n  rule: detail-shape\n  go_code: 400\n  note: PN 78\n",
+			wantErr: "must not be $",
+		},
+		{
 			name:    "an unordered entry at the whole body",
 			yaml:    "- route: POST /api/v1/invoices\n  path: \"$\"\n  rule: unordered\n  note: PN 78\n",
 			wantErr: "must not be $",

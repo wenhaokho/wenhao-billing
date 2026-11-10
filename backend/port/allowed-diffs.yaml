@@ -22,18 +22,25 @@
 # to the comparison.
 #
 # Paths are JSONPaths whose array index is [*], or @status for the HTTP status.
-# A bare-array route's entries use $[*] for its elements; `path: $` is refused
-# for ignore/unordered/status/detail-shape, which would cover the whole route.
-# A literal route is preferred over a {param} pattern, so a pattern entry never
-# reaches a literal sibling such as /invoices/awaiting-finalization.
+# A bare-array route's unordered entries use $[*] for its elements. The loader
+# refuses `path: $` for ignore/status/detail-shape/unordered and refuses `$`
+# followed only by [*] segments for ignore and detail-shape: such a path would
+# hide a whole body. A literal route is preferred over a {param} pattern, so a
+# pattern entry never reaches a literal sibling such as
+# /invoices/awaiting-finalization.
 #
 # The PN 6 tie (two identical open invoices) is NOT allowed here: it is
 # classified by corpus case in Task 3 and Task 6, so a real mismatch is never
 # hidden. Likewise PN 97 (balance-sheet as_of) and PN 98 (open-AR rule): the
 # corpus runs the balance sheet with as_of = today and the dashboard with data
-# that has no templates or non-positive balances, so neither arises. A note
-# whose exact codes or sentence is not recorded is left out on purpose; the
-# difference then surfaces in Task 6 to classify, which is the safe direction.
+# that has no templates or non-positive balances, so neither arises.
+#
+# A detail-shape entry only applies when BOTH sides are error answers with a
+# JSON object body (the fields are then compared). It can never apply when
+# Python's 500 is plain text (the whole body is then reported at $) or when
+# Python succeeds (the two bodies are then compared field by field). Those
+# entries are deleted, not kept: the difference surfaces in Task 6 to classify,
+# which is the safe direction.
 
 # --- Global rules, recorded for their notes -------------------------------
 
@@ -192,7 +199,8 @@
 # --- Deliberate status or sentence changes on bad input -------------------
 
 # PN 10: a `null` for a NOT NULL column on PATCH is a 422 in Go, a 409 (the
-# account code sentence) or a 500 in Python.
+# account code sentence) or a 500 in Python. The customers detail-shape is
+# deleted: Python's 500 is plain text, so the whole body reports at $.
 - route: PATCH /api/v1/accounting/chart-of-accounts/{account_id}
   path: "@status"
   rule: status
@@ -211,15 +219,10 @@
   python: 500
   go: 422
   note: PN 10
-- route: PATCH /api/v1/customers/{customer_id}
-  path: $.detail
-  rule: detail-shape
-  go_code: 422
-  detail_pattern: "^Request validation failed$"
-  note: PN 10
 
 # PN 11: a duplicate item SKU is a 409 and an unknown account a 422 in Go,
-# where Python answered 500.
+# where Python answered 500. The detail-shapes are deleted: Python's 500 is
+# plain text, so the whole body reports at $.
 - route: POST /api/v1/items
   path: "@status"
   rule: status
@@ -227,22 +230,10 @@
   go: 409
   note: PN 11
 - route: POST /api/v1/items
-  path: $.detail
-  rule: detail-shape
-  go_code: 409
-  detail_pattern: "^sku already exists$"
-  note: PN 11
-- route: POST /api/v1/items
   path: "@status"
   rule: status
   python: 500
   go: 422
-  note: PN 11
-- route: POST /api/v1/items
-  path: $.detail
-  rule: detail-shape
-  go_code: 422
-  detail_pattern: "^account not found$"
   note: PN 11
 - route: PATCH /api/v1/items/{item_id}
   path: "@status"
@@ -251,22 +242,10 @@
   go: 409
   note: PN 11
 - route: PATCH /api/v1/items/{item_id}
-  path: $.detail
-  rule: detail-shape
-  go_code: 409
-  detail_pattern: "^sku already exists$"
-  note: PN 11
-- route: PATCH /api/v1/items/{item_id}
   path: "@status"
   rule: status
   python: 500
   go: 422
-  note: PN 11
-- route: PATCH /api/v1/items/{item_id}
-  path: $.detail
-  rule: detail-shape
-  go_code: 422
-  detail_pattern: "^account not found$"
   note: PN 11
 
 # PN 12: the business-profile GET writes nothing in Go; `updated_at` may move.
@@ -331,7 +310,8 @@
   go: 422
   note: PN 17
 
-# PN 20: the invalid-email detail differs (Go's sentence).
+# PN 20: the invalid-email detail differs (Go's sentence). Both sides are 422
+# JSON objects, so the field is compared.
 - route: POST /api/v1/customers
   path: $.detail
   rule: detail-shape
@@ -345,18 +325,14 @@
   rule: ignore
   note: PN 24
 
-# PN 25: a customer withholding rate with more than four places is a 422.
+# PN 25: a customer withholding rate with more than four places is a 422 in Go;
+# Python's POST /customers answers 201 on success. The detail-shape is deleted:
+# Python succeeds, so the two bodies are compared field by field.
 - route: POST /api/v1/customers
   path: "@status"
   rule: status
-  python: 200
+  python: 201
   go: 422
-  note: PN 25
-- route: POST /api/v1/customers
-  path: $.detail
-  rule: detail-shape
-  go_code: 422
-  detail_pattern: "^Request validation failed$"
   note: PN 25
 
 # PN 28: the FX sync 502 carries Go's trailing error text.
@@ -367,14 +343,8 @@
   detail_pattern: "^fx provider request failed for "
   note: PN 28
 
-# PN 30: a money value with too many places is rounded in Python (200) and a
-# 422 in Go.
-- route: POST /api/v1/accounting/fx-rates
-  path: "@status"
-  rule: status
-  python: 200
-  go: 422
-  note: PN 30
+# PN 30 is deleted: POST /fx-rates answers 201 on success, and the note says
+# too many places is already a 422 in Python, so there is no status difference.
 
 # PN 31: a concurrent "Sync now" is idempotent in Go.
 - route: POST /api/v1/accounting/fx-rates/sync
@@ -384,21 +354,17 @@
   go: 200
   note: PN 31
 
-# PN 32: the FX sync 502 also covers responses Python answered 500.
+# PN 32: the FX sync 502 also covers responses Python answered 500. The
+# detail-shape is deleted: Python's 500 is plain text.
 - route: POST /api/v1/accounting/fx-rates/sync
   path: "@status"
   rule: status
   python: 500
   go: 502
   note: PN 32
-- route: POST /api/v1/accounting/fx-rates/sync
-  path: $.detail
-  rule: detail-shape
-  go_code: 502
-  detail_pattern: "^fx provider returned invalid (rate|JSON) for "
-  note: PN 32
 
 # PN 33: the FX provider's redirects are not followed; the 502 text differs.
+# Both sides are 502 JSON objects, so the field is compared.
 - route: POST /api/v1/accounting/fx-rates/sync
   path: $.detail
   rule: detail-shape
@@ -406,35 +372,27 @@
   detail_pattern: "^fx provider request failed for "
   note: PN 33
 
-# PN 34: invoice numbers come from a locked scan; a duplicate is a 409.
+# PN 34: invoice numbers come from a locked scan; a duplicate is a 409. The
+# detail-shape is deleted: Python's 500 is plain text.
 - route: POST /api/v1/invoices
   path: "@status"
   rule: status
   python: 500
   go: 409
   note: PN 34
-- route: POST /api/v1/invoices
-  path: $.detail
-  rule: detail-shape
-  go_code: 409
-  detail_pattern: "^invoice number already exists$"
-  note: PN 34
 
-# PN 35: the recurring trigger takes a lock and one cycle-key spelling.
+# PN 35: the recurring trigger takes a lock and one cycle-key spelling. The
+# detail-shape is deleted: Python succeeds (200), so the bodies are compared
+# field by field.
 - route: POST /api/v1/invoices/recurring/{template_id}/trigger
   path: "@status"
   rule: status
   python: 200
   go: 400
   note: PN 35
-- route: POST /api/v1/invoices/recurring/{template_id}/trigger
-  path: $.detail
-  rule: detail-shape
-  go_code: 400
-  detail_pattern: "^cycle_key must be an ISO date "
-  note: PN 35
 
-# PN 36: inputs that were 500s in Python are client errors in Go.
+# PN 36: inputs that were 500s in Python are client errors in Go. The DELETE
+# detail-shape is deleted: Python's 500 is plain text.
 - route: POST /api/v1/invoices
   path: "@status"
   rule: status
@@ -446,12 +404,6 @@
   rule: status
   python: 500
   go: 409
-  note: PN 36
-- route: DELETE /api/v1/invoices/{invoice_id}
-  path: $.detail
-  rule: detail-shape
-  go_code: 409
-  detail_pattern: "^invoice is referenced by "
   note: PN 36
 - route: GET /api/v1/invoices
   path: "@status"
@@ -460,7 +412,8 @@
   go: 422
   note: PN 36
 
-# PN 37: `line_items: null` on create is 400 in Go, 422 in Python.
+# PN 37: `line_items: null` on create is 400 in Go, 422 in Python. Both sides
+# are JSON objects, so the detail is compared.
 - route: POST /api/v1/invoices
   path: "@status"
   rule: status
@@ -474,18 +427,13 @@
   detail_pattern: "^invoice must have at least one line item$"
   note: PN 37
 
-# PN 38: a due date that overflows is a 400 in Go.
+# PN 38: a due date that overflows is a 400 in Go. The detail-shape is deleted:
+# Python's 500 is plain text.
 - route: POST /api/v1/invoices
   path: "@status"
   rule: status
   python: 500
   go: 400
-  note: PN 38
-- route: POST /api/v1/invoices
-  path: $.detail
-  rule: detail-shape
-  go_code: 400
-  detail_pattern: "^due date is out of range$"
   note: PN 38
 
 # PN 55: a template's interval and end_after_cycles are at most 1000.
@@ -502,46 +450,31 @@
   go: 422
   note: PN 55
 
-# PN 56: quotation numbers come from a locked scan; a duplicate is a 409.
+# PN 56: quotation numbers come from a locked scan; a duplicate is a 409. The
+# detail-shape is deleted: Python's 500 is plain text.
 - route: POST /api/v1/quotations
   path: "@status"
   rule: status
   python: 500
   go: 409
   note: PN 56
-- route: POST /api/v1/quotations
-  path: $.detail
-  rule: detail-shape
-  go_code: 409
-  detail_pattern: "^quotation number already exists$"
-  note: PN 56
 
-# PN 57: converting a quotation makes one invoice, however many race.
+# PN 57: converting a quotation makes one invoice, however many race. The
+# detail-shape is deleted: Python succeeds (201), so the bodies are compared.
 - route: POST /api/v1/quotations/{quotation_id}/convert-to-invoice
   path: "@status"
   rule: status
   python: 201
   go: 400
   note: PN 57
-- route: POST /api/v1/quotations/{quotation_id}/convert-to-invoice
-  path: $.detail
-  rule: detail-shape
-  go_code: 400
-  detail_pattern: "^cannot convert a INVOICED quotation to invoice$"
-  note: PN 57
 
-# PN 58: bill payments and voids read the bill under a row lock.
+# PN 58: bill payments and voids read the bill under a row lock. The
+# detail-shape is deleted: Python succeeds (200), so the bodies are compared.
 - route: POST /api/v1/bills/{bill_id}/record-payment
   path: "@status"
   rule: status
   python: 200
   go: 400
-  note: PN 58
-- route: POST /api/v1/bills/{bill_id}/record-payment
-  path: $.detail
-  rule: detail-shape
-  go_code: 400
-  detail_pattern: "^amount .* exceeds balance due "
   note: PN 58
 
 # PN 59: requests Python answered 500 are client errors in Go.
@@ -586,21 +519,17 @@
   go: 422
   note: PN 61
 
-# PN 62: deleting a project counts the quotations that reference it.
+# PN 62: deleting a project counts the quotations that reference it. The
+# detail-shape is deleted: Python's 500 is plain text.
 - route: DELETE /api/v1/projects/{project_id}
   path: "@status"
   rule: status
   python: 500
   go: 400
   note: PN 62
-- route: DELETE /api/v1/projects/{project_id}
-  path: $.detail
-  rule: detail-shape
-  go_code: 400
-  detail_pattern: "^cannot delete: project is referenced by "
-  note: PN 62
 
-# PN 75: a required body with no required field is a 400 in Go.
+# PN 75: a required body with no required field is a 400 in Go. Both sides are
+# JSON objects, so the detail is compared.
 - route: POST /api/v1/quotations/{quotation_id}/accept
   path: "@status"
   rule: status
@@ -638,21 +567,17 @@
   detail_pattern: "^request body is required$"
   note: PN 75
 
-# PN 86: intake bad input is a 400 sentence, never a 500.
+# PN 86: intake bad input is a 400 sentence, never a 500. The detail-shape is
+# deleted: Python's 500 is plain text.
 - route: POST /api/v1/payments/intake/webhook
   path: "@status"
   rule: status
   python: 500
   go: 400
   note: PN 86
-- route: POST /api/v1/payments/intake/webhook
-  path: $.detail
-  rule: detail-shape
-  go_code: 400
-  detail_pattern: "^(webhook payload must be a JSON object|invalid amount: |amount must be greater than 0|invalid currency: |invalid [a-z_]+: |Invalid isoformat string: |[a-z_]+ is too long \\(max 255\\))"
-  note: PN 86
 
-# PN 87: intake checks run before the body; invalid JSON is 401 in Go.
+# PN 87: intake checks run before the body; invalid JSON is 401 in Go. Both
+# sides are JSON objects, so the detail is compared.
 - route: POST /api/v1/payments/intake/email
   path: "@status"
   rule: status
@@ -666,18 +591,13 @@
   detail_pattern: "^invalid email webhook token$"
   note: PN 87
 
-# PN 112: a DRAFT invoice send is refused in Go.
+# PN 112: a DRAFT invoice send is refused in Go. The detail-shape is deleted:
+# Python succeeds (200), so the bodies are compared field by field.
 - route: POST /api/v1/invoices/{invoice_id}/send
   path: "@status"
   rule: status
   python: 200
   go: 400
-  note: PN 112
-- route: POST /api/v1/invoices/{invoice_id}/send
-  path: $.detail
-  rule: detail-shape
-  go_code: 400
-  detail_pattern: "^(finalize the invoice before sending it|cannot send a recurring template)$"
   note: PN 112
 
 # --- OAuth and discovery (PN 147, 148, 150, 159) --------------------------
@@ -690,7 +610,8 @@
   go: 400
   note: PN 147
 
-# PN 148: authorize honours the session's expiry and epoch.
+# PN 148: authorize honours the session's expiry and epoch. Python's consent
+# POST answers 302 on success.
 - route: GET /oauth/authorize
   path: "@status"
   rule: status
@@ -700,7 +621,7 @@
 - route: POST /oauth/authorize/consent
   path: "@status"
   rule: status
-  python: 200
+  python: 302
   go: 403
   note: PN 148
 

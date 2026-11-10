@@ -62,6 +62,11 @@ type Allowed struct {
 	Entries []AllowedEntry
 	// PythonTZ is the zone a naive Python timestamp is read in; nil is UTC.
 	PythonTZ *time.Location
+	// PythonHost and GoHost are the two backends' own host names, so a
+	// redirect's Location is compared with the scheme and host folded away
+	// only between the backends themselves.
+	PythonHost string `yaml:"-"`
+	GoHost     string `yaml:"-"`
 }
 
 // ParseAllowed reads the entries of an allowed-diffs.yaml document. Every
@@ -134,6 +139,9 @@ func validateEntry(i int, e AllowedEntry) error {
 		if strings.HasPrefix(e.Path, "@") {
 			return fmt.Errorf("allowed diffs: %s: a detail-shape path is a body JSONPath", where)
 		}
+		if isWholeBodyPath(e.Path) {
+			return fmt.Errorf("allowed diffs: %s: a detail-shape path must not be $ or $[*]", where)
+		}
 		if e.GoCode == 0 && e.DetailPattern == "" {
 			return fmt.Errorf("allowed diffs: %s: a detail-shape entry needs go_code or detail_pattern", where)
 		}
@@ -142,12 +150,35 @@ func validateEntry(i int, e AllowedEntry) error {
 				return fmt.Errorf("allowed diffs: %s: bad detail_pattern: %w", where, err)
 			}
 		}
-	case RuleIgnore, RuleUnordered:
+	case RuleIgnore:
+		if isWholeBodyPath(e.Path) {
+			return fmt.Errorf("allowed diffs: %s: an ignore path must not be $ or $[*]", where)
+		}
+	case RuleUnordered:
 		if e.Path == "$" {
-			return fmt.Errorf("allowed diffs: %s: a %s path must not be $", where, e.Rule)
+			return fmt.Errorf("allowed diffs: %s: an unordered path must not be $", where)
 		}
 	}
 	return nil
+}
+
+// isWholeBodyPath reports whether a path names the whole response: $, or $
+// followed by nothing but [*] segments. Such a path would hide an entire body.
+func isWholeBodyPath(path string) bool {
+	if path == "$" {
+		return true
+	}
+	if !strings.HasPrefix(path, "$") {
+		return false
+	}
+	rest := path[1:]
+	for rest != "" {
+		if !strings.HasPrefix(rest, "[*]") {
+			return false
+		}
+		rest = rest[3:]
+	}
+	return true
 }
 
 // applicable is the entries that apply to route. A literal route is preferred
