@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Development commands; only Docker is needed. GitHub Actions is off; scripts/check.sh runs it.
-#   ./dev test [packages]   go test -parallel 8, -race if GO_TEST_RACE=1 (default ./...)
+#   ./dev test [packages]   go test -p 8 -parallel 8, -race if GO_TEST_RACE=1 (default ./...)
 #   ./dev lint | fmt        golangci-lint run | fmt
 #   ./dev sqlc              regenerate the sqlc code from internal/*/queries.sql
 #   ./dev openapi           write openapi.json for the frontend's generated types
@@ -31,7 +31,7 @@ run_go() { docker compose -f ../docker-compose.yml --profile tools run --rm -T $
 # -parallel bounds each package's concurrent tests (each holds a database and
 # a pool on db-test); -timeout fails a hung package long before anyone waits
 # on it, while staying far above the slowest package (about 5 s).
-test_flags=($race -parallel 8 -timeout 60s)
+test_flags=($race -p 8 -parallel 8 -timeout 60s)
 in_copy='mkdir -p /tmp/src && tar -xf - -C /tmp/src && cd /tmp/src && exec "$@"'
 
 case "${1:-}" in
