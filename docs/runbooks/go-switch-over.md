@@ -262,6 +262,12 @@ It writes `goose_db_version` and nothing else.
 
 **If it refuses:** stop and report. Drift or a head past `0028_business_npwp`
 would block the deploy the same way; Task 6 exposes it on the dump copy first.
+Known: a database that went through `pg_dump`/`pg_restore` has its
+`ck_items_type` CHECK re-deparsed (`ARRAY[('SERVICE'::character varying)::text,
+…]` instead of `(ARRAY['SERVICE'::character varying, …])::text[]`), and adopt
+reports exactly that one constraint as drift. The rehearsal hit it on a
+restored copy (plan 11 Task 5 report); until adopt compares that semantically,
+a refusal naming only `ck_items_type` is this issue, and it is still a stop.
 
 Rollback: none needed. Python ignores `goose_db_version`.
 

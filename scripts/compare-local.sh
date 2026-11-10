@@ -36,11 +36,16 @@ PY_DB=billing_cmp_py
 GO_DB=billing_cmp_go
 export PY_CMP_DATABASE_URL="postgresql+psycopg://billing:billing@db:5432/$PY_DB"
 export GO_DATABASE_URL="postgresql://billing:billing@db:5432/$GO_DB"
+# The runner reads the Python copy itself, through pgx: no SQLAlchemy prefix.
+PY_RUNNER_DB="postgresql://billing:billing@db:5432/$PY_DB"
 PW=${PY_CMP_PASSWORD:-$(openssl rand -base64 48 | tr -d '\r\n')}
 [[ -n "$PW" ]] || { echo "FAIL: no password" >&2; exit 1; }
 # The report goes through the repo-mounted /src (no host bind mount, so it works
-# on Windows too) and is removed on exit.
+# on Windows too), is then moved out of the working tree to CMP_REPORT (default
+# $HOME/scratch/compare-<mode>.json, 0600: it holds the dump's data), and the
+# in-tree copy is removed on exit.
 REPORT_HOST="backend/.compare-report-$MODE.json"
+REPORT_OUT=${CMP_REPORT:-$HOME/scratch/compare-$MODE.json}
 TOOLS=(api-py-cmp fx-stub api-go)
 
 dc() { docker compose --profile tools "$@"; }
@@ -69,6 +74,13 @@ for name in "$PY_DB" "$GO_DB"; do
   dc exec -T db psql -U billing -d postgres -tAc \
     "select 1 from pg_database where datname='$name'" | grep -q 1 \
     || fail "database $name is missing: restore the dump into $PY_DB and $GO_DB first (Task 6 step 2)"
+done
+
+# Both copies must already hold the admin (CMP_EMAIL; the owner's email for a
+# production dump): Go's set-password changes an existing user only.
+for name in "$PY_DB" "$GO_DB"; do
+  [[ "$(dc exec -T db psql -U billing -d "$name" -tAc "select count(*) from users where email = '$EMAIL'")" == 1 ]] \
+    || fail "$name has no user $EMAIL: set CMP_EMAIL to an admin in the dump"
 done
 
 # Go's serve refuses an un-adopted database, so adopt the copy before starting
@@ -142,7 +154,7 @@ case "$MODE" in
     ;;
   writes)
     compare writes \
-      --python http://api-py-cmp:8000 --python-db "$PY_CMP_DATABASE_URL" \
+      --python http://api-py-cmp:8000 --python-db "$PY_RUNNER_DB" \
       --go http://api-go:8000 --go-db "$GO_DATABASE_URL" \
       --python-email "$EMAIL" --python-password-stdin --go-token-stdin \
       --scenarios /src/port/compare-writes.yaml \
@@ -153,6 +165,7 @@ esac
 unset PW GOTOKEN
 
 if [[ -f "$REPORT_HOST" ]]; then
-  python -c 'import json,sys; d=json.load(open(sys.argv[1])); print("report:", d.get("differences"), "differences,", d.get("summary",{}).get("skipped"), "skipped")' "$REPORT_HOST"
+  ( umask 077; mkdir -p "$(dirname "$REPORT_OUT")"; cp "$REPORT_HOST" "$REPORT_OUT" )
+  echo "report: $REPORT_OUT"
 fi
 exit "$status"

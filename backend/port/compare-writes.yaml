@@ -39,9 +39,9 @@
 # is classified by scenario id, not by an allowance.
 #
 # The webhook body is signed with the shared local WEBHOOK_HMAC_SECRET in the
-# X-Signature header. The webhook pays the invoice-lifecycle invoice's amount;
-# after reverse-payment that invoice is OPEN again, and approve-intake applies
-# the intake payment to it.
+# X-Signature header. The webhook pays the rest of the invoice-lifecycle
+# invoice (PARTIAL, 1000 due), and approve-intake applies the intake payment
+# to it.
 #
 # None of these steps has run against the real backends yet (plan 11 Task 4
 # fix round 1): the first real run may still find a body field to adjust.
@@ -173,8 +173,11 @@ scenarios:
         path: /api/v1/accounting/fx-rates/{rate_id}
 
   # --- invoice lifecycle --------------------------------------------------
-  # The invoice ends OPEN again (reverse-payment reopens it); webhook-intake
-  # pays it.
+  # The invoice (2000) ends PARTIAL with 1000 due after a manual payment of
+  # 1000; webhook-intake pays the rest. A manual payment posts no journal
+  # entry, so POST /payments/{id}/reverse refuses it on both backends (400,
+  # "no active journal entry to reverse"); reversal is exercised on the intake
+  # payment instead (webhook-intake, reverse-intake).
   - id: invoice-lifecycle
     tables:
       - invoices
@@ -199,7 +202,7 @@ scenarios:
           wht_rate: "0.0000"
           wht_gross_up: false
           line_items:
-            - {item_id: "{item_id}", description: "Compare service", quantity: "1.0000", unit_price: "1000.0000", position: 1}
+            - {item_id: "{item_id}", description: "Compare service", quantity: "1.0000", unit_price: "2000.0000", position: 1}
         extract: {invoice_id: "$.invoice_id"}
       - id: finalize-invoice
         method: POST
@@ -212,10 +215,6 @@ scenarios:
       - id: list-payments
         method: GET
         path: /api/v1/invoices/{invoice_id}/payments
-      - id: reverse-payment
-        method: POST
-        path: /api/v1/payments/{payment_id}/reverse
-        body: {reason: "compare"}
 
   # --- recurring template -------------------------------------------------
   - id: recurring-template
@@ -277,8 +276,11 @@ scenarios:
         extract: {quote_invoice_id: "$.invoice_id"}
 
   # --- bill ---------------------------------------------------------------
-  # The expense account is the kept, active account_id (code 9900). A bill
-  # payment has no table of its own: it only updates the bill row.
+  # The line names the kept item_id, not expense_account_id: the runner sends
+  # every placeholder as a JSON string, Go's integer expense_account_id
+  # refuses "123" with 422 while Python's pydantic coerces it, and a real
+  # client sends a number. A bill payment has no table of its own: it only
+  # updates the bill row.
   - id: bill
     tables:
       - bills
@@ -296,7 +298,7 @@ scenarios:
           due_date: "2026-02-01"
           payment_terms: "Net 30"
           line_items:
-            - {expense_account_id: "{account_id}", description: "Compare bill", quantity: "1.0000", unit_price: "1000.0000", position: 1}
+            - {item_id: "{item_id}", description: "Compare bill", quantity: "1.0000", unit_price: "1000.0000", position: 1}
         extract: {bill_id: "$.bill_id"}
       - id: update-bill
         method: PATCH
@@ -314,8 +316,8 @@ scenarios:
   # --- webhook intake, approve and reverse --------------------------------
   # The intake payment goes to manual review (the payer name is not the
   # customer's, so the confidence stays under 95); approve-intake applies it to
-  # the invoice-lifecycle invoice, {invoice_id}, which reverse-payment left
-  # OPEN. {intake_payment_id} never overwrites {payment_id}.
+  # the invoice-lifecycle invoice, {invoice_id}, which is PARTIAL with exactly
+  # 1000 due. {intake_payment_id} never overwrites {payment_id}.
   - id: webhook-intake
     classify: PN 6
     tables:
