@@ -42,10 +42,12 @@ UPDATE journal_entries SET reversed_by_entry_id = sqlc.arg(reversed_by)::uuid WH
 SELECT posted_at FROM journal_entries WHERE entry_id = $1;
 
 -- name: ActiveEntryFor :one
--- The newest entry for a source that is neither reversed nor itself a reversal
--- (no entry's reversed_by_entry_id points at it). A reversal shares the
--- original's source and has reversed_by_entry_id NULL, so the NOT EXISTS is what
--- keeps it out.
+-- The entry for a source that is neither reversed nor itself a reversal (no
+-- entry's reversed_by_entry_id points at it). A PAYMENT or BILL_PAYMENT source
+-- has at most one (clear refuses an already-CLEARED payment under the lock; a
+-- bill payment posts once), so the ORDER BY only matters for re-posted INVOICE
+-- and BILL entries. A reversal shares the original's source and has
+-- reversed_by_entry_id NULL, so the NOT EXISTS is what keeps it out.
 SELECT e.entry_id
   FROM journal_entries e
  WHERE e.source_type = $1

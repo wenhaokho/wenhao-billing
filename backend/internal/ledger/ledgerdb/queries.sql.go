@@ -103,10 +103,12 @@ type ActiveEntryForParams struct {
 	SourceID   uuid.UUID
 }
 
-// The newest entry for a source that is neither reversed nor itself a reversal
-// (no entry's reversed_by_entry_id points at it). A reversal shares the
-// original's source and has reversed_by_entry_id NULL, so the NOT EXISTS is what
-// keeps it out.
+// The entry for a source that is neither reversed nor itself a reversal (no
+// entry's reversed_by_entry_id points at it). A PAYMENT or BILL_PAYMENT source
+// has at most one (clear refuses an already-CLEARED payment under the lock; a
+// bill payment posts once), so the ORDER BY only matters for re-posted INVOICE
+// and BILL entries. A reversal shares the original's source and has
+// reversed_by_entry_id NULL, so the NOT EXISTS is what keeps it out.
 func (q *Queries) ActiveEntryFor(ctx context.Context, arg ActiveEntryForParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, activeEntryFor, arg.SourceType, arg.SourceID)
 	var entry_id uuid.UUID
