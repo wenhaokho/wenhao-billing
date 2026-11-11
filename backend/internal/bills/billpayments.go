@@ -189,7 +189,7 @@ func reverseBillPayment(ctx context.Context, tx pgx.Tx, id, pid uuid.UUID, reaso
 	if p.Status != "CLEARED" {
 		return BillPaymentOut{}, refuse("bill_payment_not_reversible", "bill payment is %s and cannot be reversed", p.Status)
 	}
-	reversed, err := ledger.ReverseIssued(ctx, tx, ledger.SourceBillPayment, pid, "Reversal: "+reason)
+	reversed, err := ledger.ReverseIssued(ctx, tx, ledger.SourceBillPayment, pid, "Reversal of payment on bill "+billLabel(cur)+": "+reason)
 	if err != nil {
 		return BillPaymentOut{}, err
 	}

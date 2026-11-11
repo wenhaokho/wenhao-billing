@@ -160,7 +160,7 @@ func TestReverseBillPayment(t *testing.T) {
 	if len(es) != 2 || !find(t, es, "Payment "+second.BillPaymentID.String()+" of bill "+b.BillID.String()).reversed {
 		t.Fatalf("entries %+v", es)
 	}
-	if r := find(t, es, "Reversal: wrong amount"); r.lines["1000"] != "600.0000/0.0000 600.0000/0.0000" {
+	if r := find(t, es, "Reversal of payment on bill "+b.BillID.String()+": wrong amount"); r.lines["1000"] != "600.0000/0.0000 600.0000/0.0000" {
 		t.Errorf("reversal 1000 line %q", r.lines["1000"])
 	}
 	stored := get(t, a, b.BillID)
@@ -395,7 +395,7 @@ func TestBillMemosUseNumber(t *testing.T) {
 	}
 	ps := payEntries(t, a, pid)
 	find(t, ps, "Payment "+pid.String()+" of bill B-9")
-	find(t, ps, "Reversal: typo")
+	find(t, ps, "Reversal of payment on bill B-9: typo")
 }
 
 // An edit that re-posts and a void at once: the second waits on the bill's

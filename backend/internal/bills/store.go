@@ -110,7 +110,8 @@ func UpdateBill(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID, b Bil
 
 // DeleteBill is MCP delete_bill's delete (inventory §4): a DRAFT bill
 // locked, checked and deleted in tx. An unknown id is ErrNotFound; a bill
-// of any other status is an ErrBilling refusal with Python's sentence.
+// of any other status is an ErrBilling refusal with Python's sentence, and
+// so is a DRAFT bill with payment or ledger history (PORT-NOTES 165).
 func DeleteBill(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
 	q := billsdb.New(tx)
 	cur, err := lock(ctx, q, id)
@@ -119,6 +120,11 @@ func DeleteBill(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
 	}
 	if cur.Status != "DRAFT" {
 		return refuse("bill_not_draft", "only DRAFT bills can be deleted (got %s)", cur.Status)
+	}
+	if has, err := q.BillHasHistory(ctx, id); err != nil {
+		return err
+	} else if has {
+		return refuse("bill_has_history", "bill %s has payment or ledger history and cannot be deleted; void it instead", billLabel(cur))
 	}
 	n, err := q.DeleteBill(ctx, id)
 	if err != nil {

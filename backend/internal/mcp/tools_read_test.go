@@ -1240,9 +1240,10 @@ func TestToolsListMatchesPython(t *testing.T) {
 
 // changedDescriptions are the tools whose description Go changed on
 // purpose because Go behaves differently from Python (PORT-NOTES 112: only a
-// finalized invoice can be sent).
+// finalized invoice can be sent; 165: status=PAID records a bill payment).
 var changedDescriptions = map[string]string{
 	"send_invoice_email": descSendInvoice,
+	"update_bill":        descUpdateBill,
 }
 
 func mustJSON(v any) string {
