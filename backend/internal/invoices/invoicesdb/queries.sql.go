@@ -8,6 +8,7 @@ package invoicesdb
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -87,6 +88,18 @@ func (q *Queries) FindCycleInvoice(ctx context.Context, arg FindCycleInvoicePara
 		&i.WhtBooked,
 	)
 	return i, err
+}
+
+const getCustomerContactEmail = `-- name: GetCustomerContactEmail :one
+SELECT contact_email FROM customers WHERE customer_id = $1
+`
+
+// A reminder's default recipient (Python's customer.contact_email).
+func (q *Queries) GetCustomerContactEmail(ctx context.Context, customerID uuid.UUID) (*string, error) {
+	row := q.db.QueryRow(ctx, getCustomerContactEmail, customerID)
+	var contact_email *string
+	err := row.Scan(&contact_email)
+	return contact_email, err
 }
 
 const getCustomerName = `-- name: GetCustomerName :one
@@ -224,6 +237,38 @@ func (q *Queries) GetLatestInvoiceOfCustomer(ctx context.Context, customerID pgt
 	return i, err
 }
 
+const getRecentReminder = `-- name: GetRecentReminder :one
+SELECT r.invoice_id, i.invoice_number, r.sent_at
+  FROM invoice_reminders r
+  JOIN invoices i ON i.invoice_id = r.invoice_id
+ WHERE r.sent_at > $1
+   AND (($2::uuid IS NULL AND r.invoice_id = $3)
+        OR i.customer_id = $2::uuid)
+ ORDER BY r.sent_at DESC, r.reminder_id DESC
+ LIMIT 1
+`
+
+type GetRecentReminderParams struct {
+	Since      time.Time
+	CustomerID pgtype.UUID
+	InvoiceID  uuid.UUID
+}
+
+type GetRecentReminderRow struct {
+	InvoiceID     uuid.UUID
+	InvoiceNumber *string
+	SentAt        time.Time
+}
+
+// The repeat guard: the latest reminder since @since to the invoice's
+// customer, or, for an invoice with no customer, of that invoice itself.
+func (q *Queries) GetRecentReminder(ctx context.Context, arg GetRecentReminderParams) (GetRecentReminderRow, error) {
+	row := q.db.QueryRow(ctx, getRecentReminder, arg.Since, arg.CustomerID, arg.InvoiceID)
+	var i GetRecentReminderRow
+	err := row.Scan(&i.InvoiceID, &i.InvoiceNumber, &i.SentAt)
+	return i, err
+}
+
 const hasClearedPayments = `-- name: HasClearedPayments :one
 SELECT EXISTS (SELECT 1 FROM payments WHERE invoice_id = $1 AND status = 'CLEARED')
 `
@@ -344,6 +389,48 @@ func (q *Queries) InsertInvoiceLine(ctx context.Context, arg InsertInvoiceLinePa
 		arg.Amount,
 	)
 	return err
+}
+
+const insertInvoiceReminder = `-- name: InsertInvoiceReminder :one
+INSERT INTO invoice_reminders (reminder_id, invoice_id, sent_at, sent_by_user_id, channel, recipient, amount, currency)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING reminder_id, invoice_id, sent_at, sent_by_user_id, channel, recipient, amount, currency
+`
+
+type InsertInvoiceReminderParams struct {
+	ReminderID   uuid.UUID
+	InvoiceID    uuid.UUID
+	SentAt       time.Time
+	SentByUserID pgtype.UUID
+	Channel      string
+	Recipient    string
+	Amount       decimal.Decimal
+	Currency     string
+}
+
+func (q *Queries) InsertInvoiceReminder(ctx context.Context, arg InsertInvoiceReminderParams) (InvoiceReminder, error) {
+	row := q.db.QueryRow(ctx, insertInvoiceReminder,
+		arg.ReminderID,
+		arg.InvoiceID,
+		arg.SentAt,
+		arg.SentByUserID,
+		arg.Channel,
+		arg.Recipient,
+		arg.Amount,
+		arg.Currency,
+	)
+	var i InvoiceReminder
+	err := row.Scan(
+		&i.ReminderID,
+		&i.InvoiceID,
+		&i.SentAt,
+		&i.SentByUserID,
+		&i.Channel,
+		&i.Recipient,
+		&i.Amount,
+		&i.Currency,
+	)
+	return i, err
 }
 
 const invoiceHasHostingItem = `-- name: InvoiceHasHostingItem :one
@@ -565,6 +652,42 @@ func (q *Queries) ListInvoiceNumbersWithPrefix(ctx context.Context, prefix strin
 	return items, nil
 }
 
+const listInvoiceReminders = `-- name: ListInvoiceReminders :many
+SELECT reminder_id, invoice_id, sent_at, sent_by_user_id, channel, recipient, amount, currency FROM invoice_reminders
+WHERE invoice_id = $1
+ORDER BY sent_at DESC, reminder_id DESC
+`
+
+// An invoice's reminder history, latest first.
+func (q *Queries) ListInvoiceReminders(ctx context.Context, invoiceID uuid.UUID) ([]InvoiceReminder, error) {
+	rows, err := q.db.Query(ctx, listInvoiceReminders, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InvoiceReminder
+	for rows.Next() {
+		var i InvoiceReminder
+		if err := rows.Scan(
+			&i.ReminderID,
+			&i.InvoiceID,
+			&i.SentAt,
+			&i.SentByUserID,
+			&i.Channel,
+			&i.Recipient,
+			&i.Amount,
+			&i.Currency,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvoices = `-- name: ListInvoices :many
 SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
 WHERE is_template = false
@@ -774,6 +897,40 @@ func (q *Queries) ListInvoicesOfCustomer(ctx context.Context, customerID pgtype.
 			&i.WhtAmount,
 			&i.WhtBooked,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLastReminderByCustomer = `-- name: ListLastReminderByCustomer :many
+SELECT i.customer_id::uuid AS customer_id, max(r.sent_at)::timestamptz AS sent_at
+  FROM invoice_reminders r
+  JOIN invoices i ON i.invoice_id = r.invoice_id
+ WHERE i.customer_id = ANY($1::uuid[])
+ GROUP BY i.customer_id
+`
+
+type ListLastReminderByCustomerRow struct {
+	CustomerID uuid.UUID
+	SentAt     time.Time
+}
+
+// Each customer's latest reminder, for the customers given.
+func (q *Queries) ListLastReminderByCustomer(ctx context.Context, customerIds []uuid.UUID) ([]ListLastReminderByCustomerRow, error) {
+	rows, err := q.db.Query(ctx, listLastReminderByCustomer, customerIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLastReminderByCustomerRow
+	for rows.Next() {
+		var i ListLastReminderByCustomerRow
+		if err := rows.Scan(&i.CustomerID, &i.SentAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

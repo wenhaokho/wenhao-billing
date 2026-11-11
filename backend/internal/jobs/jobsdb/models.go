@@ -194,6 +194,17 @@ type InvoiceLineItem struct {
 	CreatedAt   time.Time
 }
 
+type InvoiceReminder struct {
+	ReminderID   uuid.UUID
+	InvoiceID    uuid.UUID
+	SentAt       time.Time
+	SentByUserID pgtype.UUID
+	Channel      string
+	Recipient    string
+	Amount       decimal.Decimal
+	Currency     string
+}
+
 type Item struct {
 	ItemID                   uuid.UUID
 	Sku                      *string

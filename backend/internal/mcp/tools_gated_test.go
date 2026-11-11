@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 )
 
@@ -1046,3 +1047,77 @@ func TestConfirmSucceedsOnSingleConnectionPool(t *testing.T) {
 		t.Fatalf("expired spent row still there (%d)", n)
 	}
 }
+
+// --- the reminder log and its 24 h per-customer guard ---
+
+// A reminder sent through the tool is logged as MCP, by the principal; a
+// preview for another invoice of the same customer within 24 h refuses,
+// naming the earlier invoice and time, unless force is passed.
+func TestReminderGuardRefusesPreviewUnlessForce(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	cust := g.seedCustomer(t)
+	x := g.invoice(t, cust, "INV-0002", "MILESTONE", "SENT", "1000.0000", false)
+	y := g.invoice(t, cust, "INV-0004", "MILESTONE", "SENT", "500.0000", false)
+	argsX := map[string]any{"invoice_id": x.String(), "to_email": "a@b.com"}
+	_, tok := g.preview(t, "send_payment_reminder", argsX)
+	g.done(t, "send_payment_reminder", with(argsX, "confirm_token", tok))
+	if n := g.count(t, `SELECT count(*) FROM invoice_reminders WHERE invoice_id = $1 AND channel = 'MCP' AND sent_by_user_id = $2 AND recipient = 'a@b.com' AND amount = 1000`, x, g.adminID); n != 1 {
+		t.Fatalf("%d MCP reminder rows for X by the principal, want 1", n)
+	}
+
+	g.clock.Advance(time.Hour)
+	argsY := map[string]any{"invoice_id": y.String(), "to_email": "a@b.com"}
+	msg := g.refused(t, "send_payment_reminder", argsY)
+	if !strings.Contains(msg, "INV-0002") || !strings.Contains(msg, apitestStartRFC3339) {
+		t.Fatalf("guarded preview refusal %q, want it to name INV-0002 and %s", msg, apitestStartRFC3339)
+	}
+	g.refused(t, "send_payment_reminder", with(argsY, "force", false))
+
+	forced := with(argsY, "force", true)
+	out, tok := g.preview(t, "send_payment_reminder", forced)
+	if out["amount"] != "500.0000" {
+		t.Fatalf("forced preview %v", out)
+	}
+	if res := g.done(t, "send_payment_reminder", with(forced, "confirm_token", tok)); res["sent"] != true {
+		t.Fatalf("forced confirm %v", res)
+	}
+	if n := len(g.mail.messages()); n != 2 {
+		t.Fatalf("%d emails, want 2", n)
+	}
+	if n := g.count(t, `SELECT count(*) FROM invoice_reminders`); n != 2 {
+		t.Fatalf("%d reminder rows, want 2", n)
+	}
+}
+
+// The guard holds on the confirm too: a reminder to the same customer
+// between the preview and the confirm makes the confirm refuse, and the
+// token is not spent.
+func TestReminderGuardRefusesConfirmAfterAnotherReminder(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	cust := g.seedCustomer(t)
+	x := g.invoice(t, cust, "INV-0002", "MILESTONE", "SENT", "1000.0000", false)
+	y := g.invoice(t, cust, "INV-0004", "MILESTONE", "SENT", "500.0000", false)
+	argsX := map[string]any{"invoice_id": x.String(), "to_email": "a@b.com"}
+	argsY := map[string]any{"invoice_id": y.String(), "to_email": "a@b.com"}
+	_, tokY := g.preview(t, "send_payment_reminder", argsY)
+	_, tokX := g.preview(t, "send_payment_reminder", argsX)
+	g.done(t, "send_payment_reminder", with(argsX, "confirm_token", tokX))
+	if msg := g.refused(t, "send_payment_reminder", with(argsY, "confirm_token", tokY)); !strings.Contains(msg, "INV-0002") {
+		t.Fatalf("guarded confirm refusal %q", msg)
+	}
+	if n := len(g.mail.messages()); n != 1 {
+		t.Fatalf("%d emails, want 1", n)
+	}
+	if n := g.spentTokens(t); n != 1 {
+		t.Fatalf("spent tokens %d, want 1 (X's only)", n)
+	}
+	// force on the confirm lets the same token through.
+	if res := g.done(t, "send_payment_reminder", with(argsY, "confirm_token", tokY, "force", true)); res["sent"] != true {
+		t.Fatalf("forced confirm %v", res)
+	}
+}
+
+// apitestStartRFC3339 is the harness clock's start as a refusal names it.
+var apitestStartRFC3339 = apitest.Start.UTC().Format(time.RFC3339)
