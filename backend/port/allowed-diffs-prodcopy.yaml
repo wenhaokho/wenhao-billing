@@ -1,9 +1,14 @@
 # Allowed differences for the PRODUCTION-COPY read run only (plan 11, Task 6).
 #
+# compare-run: production-copy
+# (The line above is a marker: `compare reads` refuses this file unless
+# --ledger-matches-aging is given too, so the run that ignores Go's ledger
+# figures always checks them against the agings instead.)
+#
 # Pass it as a second --allowed after port/allowed-diffs.yaml:
 #
 #   compare reads ... --allowed port/allowed-diffs.yaml \
-#     --allowed port/allowed-diffs-prodcopy.yaml ...
+#     --allowed port/allowed-diffs-prodcopy.yaml --ledger-matches-aging ...
 #
 # Never pass it on any other run, and never move these entries into
 # allowed-diffs.yaml: on every other run the three ledger reports are compared

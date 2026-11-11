@@ -27,6 +27,9 @@ func TestShippedListAllowances(t *testing.T) {
 	if hasEntry(a, "GET /api/v1/customers/{customer_id}/billing-summary", "$.open_invoices", RuleUnordered) {
 		t.Error("PN 40: the $.open_invoices entry names no field of the answer and should be gone")
 	}
+	if hasEntry(a, "GET /api/v1/invoices/recurring-templates/{template_id}", "$.children", RuleUnordered) {
+		t.Error("PN 47: the $.children entry names no field of the answer and should be gone")
+	}
 	const twoLines = `[{"line_item_id":"a","position":0},{"line_item_id":"b","position":0}]`
 	const swapped = `[{"line_item_id":"b","position":0},{"line_item_id":"a","position":0}]`
 	cases := []struct {
@@ -95,6 +98,33 @@ func TestShippedListAllowances(t *testing.T) {
 			route: "GET /api/v1/invoices/awaiting-finalization",
 			py:    `[{"invoice_id":"a","created_at":"2026-01-01T00:00:00"},{"invoice_id":"b","created_at":"2026-01-01T00:00:00"}]`,
 			gov:   `[{"invoice_id":"b","created_at":"2026-01-01T00:00:00Z"},{"invoice_id":"a","created_at":"2026-01-01T00:00:00Z"}]`,
+		},
+		{
+			name:  "PN 78: projects, bills and project invoices, created_at ties swapped",
+			route: "GET /api/v1/projects",
+			py:    `[{"project_id":"a","created_at":"2026-01-01T00:00:00"},{"project_id":"b","created_at":"2026-01-01T00:00:00"}]`,
+			gov:   `[{"project_id":"b","created_at":"2026-01-01T00:00:00Z"},{"project_id":"a","created_at":"2026-01-01T00:00:00Z"}]`,
+		},
+		{
+			name:       "PN 78: projects in another created_at order are reported",
+			route:      "GET /api/v1/projects",
+			py:         `[{"project_id":"a","created_at":"2026-01-02T00:00:00"},{"project_id":"b","created_at":"2026-01-01T00:00:00"}]`,
+			gov:        `[{"project_id":"b","created_at":"2026-01-01T00:00:00Z"},{"project_id":"a","created_at":"2026-01-02T00:00:00Z"}]`,
+			wantDiffer: 4,
+		},
+		{
+			name:       "PN 78: bills in another created_at order are reported",
+			route:      "GET /api/v1/bills",
+			py:         `[{"bill_id":"a","created_at":"2026-01-02T00:00:00"},{"bill_id":"b","created_at":"2026-01-01T00:00:00"}]`,
+			gov:        `[{"bill_id":"b","created_at":"2026-01-01T00:00:00Z"},{"bill_id":"a","created_at":"2026-01-02T00:00:00Z"}]`,
+			wantDiffer: 4,
+		},
+		{
+			name:       "PN 78: a project's invoices in another created_at order are reported",
+			route:      "GET /api/v1/projects/p1/invoices",
+			py:         `[{"invoice_id":"a","created_at":"2026-01-02T00:00:00"},{"invoice_id":"b","created_at":"2026-01-01T00:00:00"}]`,
+			gov:        `[{"invoice_id":"b","created_at":"2026-01-01T00:00:00Z"},{"invoice_id":"a","created_at":"2026-01-02T00:00:00Z"}]`,
+			wantDiffer: 4,
 		},
 		{
 			name:       "PN 53: awaiting finalization in another created_at order is reported",
@@ -381,5 +411,21 @@ func TestRowsManualExternalRefIsGenerated(t *testing.T) {
 	diffs := f.compare(t, maps)
 	if len(diffs) != 1 || diffs[0].Table != "payments" || !strings.Contains(diffs[0].Go, "external_ref=compare-webhook") {
 		t.Fatalf("diffs %+v, want the external_ref difference", diffs)
+	}
+}
+
+// TestProductionCopyMarker pins the marker `compare reads` keys the
+// --ledger-matches-aging requirement on: the overlay has it, the shipped file
+// does not.
+func TestProductionCopyMarker(t *testing.T) {
+	t.Parallel()
+	for path, want := range map[string]bool{prodcopyAllowed: true, shippedAllowed: false} {
+		got, err := IsProductionCopyFile(path)
+		if err != nil {
+			t.Fatalf("IsProductionCopyFile(%s): %v", path, err)
+		}
+		if got != want {
+			t.Errorf("IsProductionCopyFile(%s) = %v, want %v", path, got, want)
+		}
 	}
 }

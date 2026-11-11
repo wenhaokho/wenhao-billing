@@ -210,35 +210,38 @@
   tie_key: position
   note: PN 44
 
-# PN 47: recurring-template rows and their children.
+# PN 47: the recurring-template rows. (A former $.children entry on
+# /recurring-templates/{template_id} is gone: no answer has that field.)
 - route: GET /api/v1/invoices/recurring-templates/rows
   path: $[*]
   rule: unordered
   note: PN 47
-- route: GET /api/v1/invoices/recurring-templates/{template_id}
-  path: $.children
-  rule: unordered
-  note: PN 47
 
-# PN 53: the awaiting-finalization list's issue-date ties.
+# PN 53: the awaiting-finalization list's created_at ties (Python orders by
+# created_at DESC only; Go adds invoice_id DESC).
 - route: GET /api/v1/invoices/awaiting-finalization
   path: $[*]
   rule: unordered
   tie_key: created_at
   note: PN 53
 
-# PN 78: the project, bill and project-invoice lists have no ORDER BY.
+# PN 78: the project, bill and project-invoice lists: Python orders by
+# created_at DESC only (projects.py:59, :176, bills.py:44); Go adds the
+# primary key DESC, so only created_at ties may come in another order.
 - route: GET /api/v1/projects
   path: $[*]
   rule: unordered
+  tie_key: created_at
   note: PN 78
 - route: GET /api/v1/bills
   path: $[*]
   rule: unordered
+  tie_key: created_at
   note: PN 78
 - route: GET /api/v1/projects/{project_id}/invoices
   path: $[*]
   rule: unordered
+  tie_key: created_at
   note: PN 78
 
 # PN 100: deterministic order where Python followed the database.

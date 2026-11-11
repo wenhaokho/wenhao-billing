@@ -282,3 +282,53 @@ func (terminalInfo) Mode() os.FileMode  { return os.ModeCharDevice }
 func (terminalInfo) ModTime() time.Time { return time.Time{} }
 func (terminalInfo) IsDir() bool        { return false }
 func (terminalInfo) Sys() any           { return nil }
+
+// TestReadsRefusesProdcopyWithoutLedgerCheck pins that the production-copy
+// overlay (marked `# compare-run: production-copy`) is refused, exit 2,
+// unless --ledger-matches-aging is given: the run that ignores Go's ledger
+// figures must check them against the agings. With the flag it is accepted.
+func TestReadsRefusesProdcopyWithoutLedgerCheck(t *testing.T) {
+	t.Parallel()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/login" {
+			http.SetCookie(w, &http.Cookie{Name: "billing_session", Value: "py-session", Path: "/"})
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	})
+	py := httptest.NewServer(handler)
+	t.Cleanup(py.Close)
+	gov := httptest.NewServer(handler)
+	t.Cleanup(gov.Close)
+	dir := t.TempDir()
+	corpusPath := filepath.Join(dir, "corpus.yaml")
+	if err := os.WriteFile(corpusPath, []byte("cases:\n  - id: me\n    route: GET /api/v1/auth/me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := func(extra ...string) []string {
+		return append([]string{
+			"--python", py.URL, "--go", gov.URL, "--python-email", "owner@example.test",
+			"--python-password-stdin", "--go-token-stdin", "--corpus", corpusPath,
+			"--allowed", "../../port/allowed-diffs.yaml", "--allowed", "../../port/allowed-diffs-prodcopy.yaml",
+			"--out", filepath.Join(dir, "report.json"),
+		}, extra...)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := readsCommand(args(), commandIO{stdin: strings.NewReader("pw\ntok\n"), stdout: &stdout, stderr: &stderr}); code != 2 {
+		t.Fatalf("exit %d, want 2 without --ledger-matches-aging; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "needs --ledger-matches-aging") {
+		t.Fatalf("stderr does not name the missing flag: %s", stderr.String())
+	}
+	// With the flag the run starts; it fails only for want of a trial
+	// balance in this one-case corpus (a run error, exit 2, not the refusal).
+	stderr.Reset()
+	readsCommand(args("--ledger-matches-aging"), commandIO{stdin: strings.NewReader("pw\ntok\n"), stdout: &stdout, stderr: &stderr})
+	if strings.Contains(stderr.String(), "needs --ledger-matches-aging") {
+		t.Fatalf("the overlay was refused with the flag given: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "trial-balance case") {
+		t.Fatalf("with the flag the run should reach the aging check: %s", stderr.String())
+	}
+}

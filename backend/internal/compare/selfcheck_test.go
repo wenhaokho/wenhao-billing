@@ -95,6 +95,31 @@ func TestSelfCheckReports(t *testing.T) {
 			[]string{"$.total_unrealised_loss"},
 		},
 		{"another route has no check", arAgingRoute, `{"anything":1}`, nil},
+		{
+			"an empty trial balance answer fails", trialBalanceRoute, `{}`,
+			[]string{"$.rows", "$.total_debit_base", "$.total_credit_base"},
+		},
+		{
+			"an empty balance sheet answer fails", balanceSheetRoute, `{}`,
+			[]string{"$.groups", "$.assets_total_base", "$.liabilities_total_base", "$.equity_total_base", "$.income_total_base", "$.expense_total_base"},
+		},
+		{
+			"an empty FX revaluation answer fails", fxRevaluationRoute, `{}`,
+			[]string{"$.lines", "$.total_unrealised_gain", "$.total_unrealised_loss"},
+		},
+		{
+			"a null total fails", trialBalanceRoute, strings.Replace(goodTB, `"total_credit_base":"2000.0000"`, `"total_credit_base":null`, 1),
+			[]string{"$.total_credit_base", "$.total_debit_base", "$.total_credit_base"},
+		},
+		{
+			"a group without lines fails", balanceSheetRoute,
+			strings.Replace(goodBS, `"lines":[{"base_balance":"50.0000"}]`, `"x":1`, 1),
+			[]string{"$.groups[1].lines", "$.groups[1].total_base"},
+		},
+		{
+			"a row that is not an object fails", trialBalanceRoute, strings.Replace(goodTB, `"rows":[`, `"rows":[7,`, 1),
+			[]string{"$.rows[0]"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -137,6 +162,10 @@ func TestAgingCheck(t *testing.T) {
 		// haveAP false: the run met no AP aging case (the response is unused).
 		{"no AP aging in the run", goodTB, goodAR, goodAP, true, false, []string{"$.rows"}},
 		{"an AP aging that is not 200 JSON", goodTB, goodAR, "", true, true, []string{"$.rows"}},
+		{
+			"an aging without totals", goodTB, `{"as_of":"2026-11-11","rows":[]}`, goodAP, true, true,
+			[]string{"$.totals_by_currency"},
+		},
 		{
 			"an aging of another date", goodTB, strings.Replace(goodAR, "2026-11-11", "2026-11-10", 1), goodAP, true, true,
 			[]string{"$.as_of"},
