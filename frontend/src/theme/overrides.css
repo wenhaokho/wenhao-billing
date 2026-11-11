@@ -4,12 +4,21 @@
  * follows without repeating rules here.
  */
 
-/* Buttons: 42px pills (Aura has no height token). */
-.p-button:not(.p-button-sm):not(.p-button-lg) { min-height: 42px; }
+/* Buttons: 42px labelled pills (Aura has no height token). Icon-only and text
+   buttons (row actions, dialog close, DatePicker prev/next) keep their size. */
+.p-button:not(.p-button-sm):not(.p-button-lg):not(.p-button-icon-only):not(.p-button-text) { min-height: 42px; }
 .p-button.p-button-sm { padding: 0.35rem 0.85rem; font-size: 0.82rem; }
 
-/* Status chips: 10px uppercase, 1px tracking. */
-.p-tag { text-transform: uppercase; letter-spacing: 1px; line-height: 1.4; }
+/* Status chips (StatusTag) only: 10px uppercase, 1px tracking. Other Tags keep
+   Aura's readable size and case. */
+.p-tag.status-tag {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 0.2rem 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  line-height: 1.4;
+}
 
 /* Tables: square, 1px line border, no shadow; header 11px uppercase muted-soft. */
 .p-datatable-table-container {

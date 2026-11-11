@@ -47,4 +47,6 @@ test("warn tags share the brand amber pair", async ({ page }) => {
   await expect(chip).toBeVisible();
   await expect(chip).toHaveCSS("color", AMBER_FG);
   await expect(chip).toHaveCSS("background-color", AMBER_BG);
+  // Only status chips are 10px uppercase; other Tags keep readable text.
+  await expect(chip).toHaveCSS("text-transform", "none");
 });

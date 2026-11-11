@@ -24,8 +24,17 @@ test("body font is DM Sans and h1 is Manrope", async ({ page }) => {
   const font = (sel: string) => page.locator(sel).first().evaluate((el) => getComputedStyle(el).fontFamily);
   expect(await font("body")).toMatch(/^"DM Sans"/);
   expect(await h1.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"?Manrope/);
-  // The bundled faces load from the app's own origin.
-  await expect.poll(() => page.evaluate(() => document.fonts.check('500 16px "DM Sans"') && document.fonts.check('500 16px Manrope'))).toBe(true);
+  // The bundled faces load from the app's own origin. fonts.load() resolves to
+  // the faces it loaded; empty means no such face is registered (check() would
+  // pass then too).
+  const loaded = await page.evaluate(async () => {
+    const faces = async (spec: string) =>
+      (await document.fonts.load(spec)).map((f) => `${f.family} ${f.weight} ${f.status}`);
+    return { dmSans: await faces('500 16px "DM Sans"'), manrope: await faces("500 16px Manrope") };
+  });
+  expect(loaded.dmSans.length, "DM Sans 500 faces").toBeGreaterThan(0);
+  expect(loaded.manrope.length, "Manrope 500 faces").toBeGreaterThan(0);
+  expect([...loaded.dmSans, ...loaded.manrope].every((f) => f.endsWith("loaded"))).toBe(true);
   expect(external).toEqual([]);
 });
 
@@ -51,8 +60,8 @@ const API_STATUSES = {
   hosting: ["ACTIVE", "SUSPEND_PENDING", "SUSPENDED", "CANCELLED"],
   record: ["ACTIVE", "INACTIVE"],
 };
-// The spec maps exactly these to neutral.
-const NEUTRAL = new Set(["DRAFT", "VOID", "INACTIVE"]);
+// The spec maps Draft/Void/Inactive to neutral; ruling R7 adds the finished states.
+const NEUTRAL = new Set(["DRAFT", "VOID", "INACTIVE", "CANCELLED", "REVERSED", "ENDED"]);
 
 test("every status gets a defined tone", () => {
   for (const [kind, statuses] of Object.entries(API_STATUSES)) {

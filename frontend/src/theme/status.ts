@@ -18,7 +18,6 @@ const TONES: Record<string, StatusTone> = {
   SENT: "blue",
   FINALIZED: "blue",
   OPEN: "blue",
-  ENDED: "blue",
   // needs attention
   PARTIAL: "amber",
   PARTIALLY_PAID: "amber",
@@ -35,13 +34,15 @@ const TONES: Record<string, StatusTone> = {
   HELD: "red",
   FLAGGED: "red",
   SUSPENDED: "red",
-  CANCELLED: "red",
-  REVERSED: "red",
   MISCONFIGURED: "red",
   // not in play
   DRAFT: "neutral",
   VOID: "neutral",
   INACTIVE: "neutral",
+  // finished, already handled (ruling R7)
+  CANCELLED: "neutral",
+  REVERSED: "neutral",
+  ENDED: "neutral",
 };
 
 const LABELS: Record<string, string> = {

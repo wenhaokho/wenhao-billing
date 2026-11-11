@@ -57,8 +57,9 @@ const darkInk = {
   950: "#17110f",
 };
 
-// Overlays (dialogs, menus, panels, toasts) are the one exception to "no shadows".
-const softShadow = "0 8px 24px rgba(80, 25, 33, 0.10), 0 2px 6px rgba(80, 25, 33, 0.06)";
+// Overlays (dialogs, menus, panels, toasts) are the one exception to "no shadows";
+// the value switches with dark mode in app.css.
+const softShadow = "var(--wb-overlay-shadow)";
 
 export const AppPreset = definePreset(Aura, {
   semantic: {
@@ -152,7 +153,7 @@ export const AppPreset = definePreset(Aura, {
     // Chips: the tone pairs come from the --wb-* variables in app.css, which
     // already switch with .app-dark.
     tag: {
-      root: { fontSize: "10px", fontWeight: "500", padding: "0.2rem 0.5rem", borderRadius: "2px", roundedBorderRadius: "2px" },
+      root: { borderRadius: "2px", roundedBorderRadius: "2px" },
       colorScheme: {
         light: {
           success: { background: "var(--wb-green-bg)", color: "var(--wb-green-fg)" },
