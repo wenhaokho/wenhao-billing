@@ -333,35 +333,38 @@ func TestReceiptSummaryLabelsOwnCurrency(t *testing.T) {
 	t.Parallel()
 	pid := uuid.MustParse("1a2b3c4d-0000-0000-0000-000000000000")
 	in := inv(func(i *invoicesdb.Invoice) {
-		i.Currency, i.Amount, i.BalanceDue = "IDR", dec("16000000"), dec("6400000")
+		i.Currency, i.Amount, i.BalanceDue = "IDR", dec("16000000"), dec("0")
 	})
-	// A USD payment on an IDR invoice (a cross-currency manual approval).
+	// A USD payment on an IDR invoice (a cross-currency manual approval): it
+	// settles the 6,400,000 left, so the balance after it is 0.
 	d := ReceiptDocument(ReceiptData{
 		Payment: paymentsdb.Payment{
 			PaymentID: pid, Amount: dec("600.5"), Currency: "USD", PayerName: "Acme",
 			PayerReference: sp("INV-1"), PaymentDate: date(2026, 8, 7), IntakeSource: "EMAIL_PARSER",
 		},
-		Invoice: in.Invoice, Customer: cust(), Business: biz(), BalanceAfter: dec("6400000"),
+		Invoice: in.Invoice, Customer: cust(), Business: biz(), BalanceAfter: dec("0"), BalanceBefore: dec("6400000"),
 	})
 	eq(t, "Summary", d.Summary, []SummaryRow{
-		{"Invoice total", "16,000,000 IDR", "subtotal"},
+		{"Balance before this payment", "6,400,000 IDR", "subtotal"},
 		{"Amount received", "600.50 USD", "total"},
+		{"Received in USD, settles the balance", "", "note"},
 	})
 	eq(t, "Currency", d.Currency, "USD")
 	eq(t, "HeroAmount", d.HeroAmount, "600.50")
 	eq(t, "HeroLabel", d.HeroLabel, "Amount received")
 	eq(t, "Items", d.Items, []Item(nil))
 	eq(t, "Receipt", *d.Receipt, ReceiptBody{
-		Payment: []MetaCell{{"Method", "Email Parser"}, {"Bank ref.", "INV-1"}, {"Received", "07 Aug 2026"}},
-		Words:   "Six hundred US dollars and 50/100",
-		Invoice: "WD-2026-0042", Issued: "23 Jul 2026",
+		Payment:    []MetaCell{{"Method", "Email Parser"}, {"Bank ref.", "INV-1"}, {"Received", "07 Aug 2026"}},
+		Words:      "Six hundred US dollars and 50/100",
+		PaidInFull: true,
+		Invoice:    "WD-2026-0042", Issued: "23 Jul 2026",
 		InvoiceCurrency: "IDR", InvoiceTotal: "16,000,000", ThisPayment: "600.50",
-		BalanceDue: "IDR 6,400,000",
+		BalanceDue: "IDR 0",
 	})
 	eq(t, "Ref", d.Ref, "RCT-1A2B3C4D")
 	eq(t, "Meta", d.Meta, []MetaCell{{"Receipt No.", "RCT-1A2B3C4D"}, {"Payment Date", "07 Aug 2026"}})
 	eq(t, "labels", []string{d.DocTitle, d.StatusLabel, d.StatusClass, d.FromLabel, d.ToLabel}, []string{"Payment Receipt", "Received", "paid", "Issued by", "Received from"})
-	eq(t, "Notes", d.Notes, "Remaining balance: 6,400,000 IDR.\nThank you for your payment.")
+	eq(t, "Notes", d.Notes, "Thank you for your payment.") // the pill says paid in full
 	eq(t, "Terms", d.Terms+d.PaymentInstructions+d.NPWP, "")
 }
 
@@ -376,7 +379,7 @@ func TestReceiptDocumentNamesAndFallbacks(t *testing.T) {
 	eq(t, "Invoice", d.Receipt.Invoice, "—")
 	eq(t, "PaidInFull", d.Receipt.PaidInFull, true)
 	eq(t, "Meta[1:]", d.Meta[1:], []MetaCell{{"Payment Date", "—"}})
-	eq(t, "Notes", d.Notes, "This invoice is now paid in full.\nThank you for your payment.")
+	eq(t, "Notes", d.Notes, "Thank you for your payment.") // the pill says paid in full
 	pay.PayerName = ""
 	eq(t, "ToName", ReceiptDocument(ReceiptData{Payment: pay, Invoice: i}).ToName, "—")
 }

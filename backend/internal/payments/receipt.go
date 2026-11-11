@@ -47,7 +47,8 @@ func (StubRenderer) RenderReceipt(context.Context, ReceiptData) ([]byte, error) 
 // PDFReceiptRenderer renders the receipt with the documents' renderer
 // (pdf.RenderReceipt). pdf never imports payments, so the ReceiptData is
 // mapped here field by field. What ReceiptData does not carry and the
-// receipt prints (the invoice total, the customer's address and contacts,
+// receipt prints (the invoice's total, issue date and withholding, the
+// balance before this payment, the customer's address and contacts,
 // the business's address, contacts and logo) is read through DB with
 // pdf.LoadReceipt; with no DB those print as unknown (tests).
 type PDFReceiptRenderer struct {
@@ -62,7 +63,10 @@ func (r PDFReceiptRenderer) RenderReceipt(ctx context.Context, d ReceiptData) ([
 		if err != nil {
 			return nil, err
 		}
-		data.Invoice.Amount = full.Invoice.Amount
+		// The whole invoice: its total, issue date and withholding type and
+		// rate (the PPh row's label) print on the receipt.
+		data.Invoice = full.Invoice
+		data.BalanceBefore = full.BalanceBefore
 		data.Customer = full.Customer
 		data.Business = full.Business
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	lpdf "github.com/ledongthuc/pdf"
+	"github.com/shopspring/decimal"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments/paymentsdb"
@@ -40,6 +41,28 @@ func (r rendered) has(t *testing.T, want ...string) {
 	for _, w := range want {
 		if !strings.Contains(all, w) {
 			t.Errorf("PDF text has no %q; text:\n%s", w, all)
+		}
+	}
+}
+
+// hasFold is has, ignoring case: labels print in capitals.
+func (r rendered) hasFold(t *testing.T, want ...string) {
+	t.Helper()
+	all := strings.ToLower(r.all())
+	for _, w := range want {
+		if !strings.Contains(all, strings.ToLower(w)) {
+			t.Errorf("PDF text has no %q (any case); text:\n%s", w, r.all())
+		}
+	}
+}
+
+// hasNotFold is hasNot, ignoring case.
+func (r rendered) hasNotFold(t *testing.T, unwanted ...string) {
+	t.Helper()
+	all := strings.ToLower(r.all())
+	for _, w := range unwanted {
+		if strings.Contains(all, strings.ToLower(w)) {
+			t.Errorf("PDF text has %q (any case)", w)
 		}
 	}
 }
@@ -98,7 +121,8 @@ func receipt(balance string) ReceiptData {
 			PayerName: "Acme Pte Ltd", PayerReference: sp("TRF-991"), PaymentDate: date(2026, 8, 7),
 			IntakeSource: "MANUAL", Status: "CLEARED",
 		},
-		Invoice: i, Customer: cust(), Business: biz(), BalanceAfter: dec(balance),
+		// This payment relieves 400: the balance before it is 400 more.
+		Invoice: i, Customer: cust(), Business: biz(), BalanceAfter: dec(balance), BalanceBefore: dec(balance).Add(dec("400")),
 	}
 }
 
@@ -329,7 +353,7 @@ func TestRenderReceiptPDFReturnsPDFBytes(t *testing.T) {
 	t.Parallel()
 	r := renderPDF(t, RenderReceipt, ReceiptDocument(receipt("600.0000")))
 	r.has(t, "Payment Receipt", "RCT-1A2B3C4D", "Invoice", "INV-0100", "Manual entry", "TRF-991", "400.00",
-		"Amount received", "1,000.00 USD", "600.00 USD", "Remaining balance: 600.00 USD.", "Thank you for your payment.",
+		"AMOUNT RECEIVED", "1,000.00 USD", "600.00 USD", "Remaining balance: 600.00 USD.", "Thank you for your payment.",
 		"Received from", "Issued by")
 }
 
@@ -338,7 +362,8 @@ func TestRenderReceiptPDFWithoutCustomer(t *testing.T) {
 	rc := receipt("0")
 	rc.Customer = nil
 	r := renderPDF(t, RenderReceipt, ReceiptDocument(rc))
-	r.has(t, "RCT-1A2B3C4D", "Acme Pte Ltd", "This invoice is now paid in full.")
+	r.has(t, "RCT-1A2B3C4D", "Acme Pte Ltd")
+	r.hasFold(t, "Paid in full")
 }
 
 func TestRenderReceiptPDFEscapesXMLSpecialCharsInNames(t *testing.T) {
@@ -660,11 +685,14 @@ func TestWriteSamples(t *testing.T) {
 			return RenderReceipt(t.Context(), ReceiptDocument(r))
 		},
 		"receipt-partial.pdf": func() ([]byte, error) { return RenderReceipt(t.Context(), ReceiptDocument(idrReceipt("5588697"))) },
-		"receipt-cross.pdf": func() ([]byte, error) {
-			r := idrReceipt("1600000")
-			r.Invoice.Amount, r.Invoice.WhtType, r.Invoice.WhtAmount = dec("3600000"), "NONE", dec("0")
-			r.Payment.Amount, r.Payment.Currency, r.Payment.WhtAmount = dec("2000"), "SGD", dec("0")
+		"receipt-second.pdf": func() ([]byte, error) {
+			// The second of three: 2,000,000 paid before, 3,588,697 left after.
+			r := idrReceipt("3588697")
+			r.Payment.PaymentDate = date(2026, 11, 20)
 			return RenderReceipt(t.Context(), ReceiptDocument(r))
+		},
+		"receipt-cross.pdf": func() ([]byte, error) {
+			return RenderReceipt(t.Context(), ReceiptDocument(crossReceipt()))
 		},
 		"long.pdf": func() ([]byte, error) { return RenderInvoice(t.Context(), InvoiceDocument(longInvoice(40))) },
 		"invoice-sgd.pdf": func() ([]byte, error) {
@@ -805,8 +833,21 @@ func idrReceipt(balance string) ReceiptData {
 			PayerName: "PT Citra Beton", PayerReference: sp("BCA 8520198131"), PaymentDate: date(2026, 11, 9),
 			IntakeSource: "MANUAL", Status: "CLEARED", WhtAmount: dec("92308"),
 		},
-		Invoice: in.Invoice, Customer: cust(), Business: biz(), BalanceAfter: dec(balance),
+		// This payment relieves 4,615,385 (cash and withholding).
+		Invoice: in.Invoice, Customer: cust(), Business: biz(),
+		BalanceAfter: dec(balance), BalanceBefore: dec(balance).Add(dec("4615385")),
 	}
+}
+
+// crossReceipt is an SGD 2,000 payment that settles the remaining IDR
+// 1,600,000 of an IDR 3,600,000 invoice: a cross-currency payment clears the
+// invoice to 0.
+func crossReceipt() ReceiptData {
+	r := idrReceipt("0")
+	r.Invoice.Amount, r.Invoice.WhtType, r.Invoice.WhtAmount = dec("3600000"), "NONE", dec("0")
+	r.Payment.Amount, r.Payment.Currency, r.Payment.WhtAmount = dec("2000"), "SGD", dec("0")
+	r.BalanceBefore = dec("1600000")
+	return r
 }
 
 func TestReceiptLayout(t *testing.T) {
@@ -815,9 +856,10 @@ func TestReceiptLayout(t *testing.T) {
 	eq(t, "chip", statusChip(d).label, "RECEIVED")
 	eq(t, "chip fg", statusChip(d).fg, cPaidFg)
 	r := renderPDF(t, RenderReceipt, d)
-	r.has(t, "Payment Receipt", "RCT-1A2B3C4D", "RECEIVED", "Amount received", "USD 400.00",
-		"Four hundred US dollars", "Applied to", "INV-0100", "Balance due", "Issued by", "Received from",
+	r.has(t, "Payment Receipt", "RCT-1A2B3C4D", "RECEIVED", "USD 400.00",
+		"Four hundred US dollars", "INV-0100", "Issued by", "Received from",
 		"Method", "Manual entry", "Bank ref.", "TRF-991")
+	r.hasFold(t, "Amount received", "Applied to", "Balance due")
 	r.hasNot(t, "RECEIPT ", "Description")
 }
 
@@ -832,39 +874,109 @@ func TestReceiptBankReferenceOnlyWhenStored(t *testing.T) {
 func TestReceiptShowsWithholdingOnlyWhenPaymentHasIt(t *testing.T) {
 	t.Parallel()
 	r := renderPDF(t, RenderReceipt, ReceiptDocument(idrReceipt("5588697")))
-	r.has(t, "PPh 23 withheld (2%)", Minus+"92,308", "bukti potong", "accounts@wenhao.dev",
+	r.has(t, "of which PPh 23 (2%) withheld", "92,308 IDR", "PPh 23 (2%) of 92,308 IDR was withheld",
+		"bukti potong", "accounts@wenhao.dev",
 		"IDR 4,523,077", "Four million five hundred twenty-three thousand seventy-seven rupiah",
 		// This payment is the cash and the withholding it settles.
 		"4,615,385")
+	r.hasFold(t, "Withholding tax (PPh 23)")
 
 	none := idrReceipt("5588697")
 	none.Payment.WhtAmount = dec("0")
+	none.BalanceBefore = dec("10204082")
 	r = renderPDF(t, RenderReceipt, ReceiptDocument(none))
-	r.hasNot(t, "withheld", Minus+"92,308", "bukti potong", "4,615,385")
+	r.hasNot(t, "withheld", "92,308", "bukti potong", "4,615,385")
 	r.has(t, "4,523,077")
 }
 
+// No rate on the invoice (or 0): the PPh label has none, never "(0%)".
+func TestReceiptWithholdingWithoutRate(t *testing.T) {
+	t.Parallel()
+	for name, rate := range map[string]decimal.NullDecimal{"absent": {}, "zero": nd("0")} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rc := idrReceipt("5588697")
+			rc.Invoice.WhtRate = rate
+			r := renderPDF(t, RenderReceipt, ReceiptDocument(rc))
+			r.has(t, "of which PPh 23 withheld", "PPh 23 of 92,308 IDR was withheld")
+			r.hasNot(t, "(0%)", "()")
+		})
+	}
+}
+
+// "Paid in full" prints once: the pill at a zero balance, else the balance
+// note.
 func TestReceiptPaidPillOnlyAtZeroBalance(t *testing.T) {
 	t.Parallel()
 	paid := renderPDF(t, RenderReceipt, ReceiptDocument(receipt("0")))
-	paid.has(t, "Paid in full", "USD 0.00")
+	paid.has(t, "USD 0.00")
+	paid.hasFold(t, "Paid in full")
+	if n := strings.Count(strings.ToLower(paid.all()), "paid in full"); n != 1 {
+		t.Errorf("paid in full printed %d times, want once (the pill)", n)
+	}
 	paid.hasNot(t, "Remaining balance")
 
 	open := renderPDF(t, RenderReceipt, ReceiptDocument(receipt("600.0000")))
-	open.hasNot(t, "Paid in full")
+	open.hasNotFold(t, "Paid in full")
 	open.has(t, "Remaining balance: 600.00 USD.", "USD 600.00")
 }
 
+// summaryValue is the number in the box row labelled label, as a decimal
+// (its sign, minus sign and currency code dropped); ok false without one.
+func summaryValue(d Document, label string) (v decimal.Decimal, ok bool) {
+	for _, r := range d.Summary {
+		if r.Label == label {
+			f := strings.Fields(strings.ReplaceAll(strings.TrimPrefix(r.Value, Minus), ",", ""))
+			return decimal.RequireFromString(f[0]), true
+		}
+	}
+	return decimal.Zero, false
+}
+
+// The box of a receipt after an earlier payment adds up: Invoice total −
+// Previously paid − This payment = Balance due.
+func TestReceiptBoxReconciles(t *testing.T) {
+	t.Parallel()
+	for name, rc := range map[string]ReceiptData{
+		"second of two, paid in full": idrReceipt("0"),
+		"second of three":             idrReceipt("3588697"),
+		"first":                       idrReceipt("5588697"),
+		"usd, earlier payment":        receipt("0"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			d := ReceiptDocument(rc)
+			total, _ := summaryValue(d, "Invoice total")
+			prev, hasPrev := summaryValue(d, "Previously paid")
+			this, _ := summaryValue(d, "This payment")
+			if got := total.Sub(prev).Sub(this); !got.Equal(rc.BalanceAfter) {
+				t.Errorf("%s − %s − %s = %s, but the balance due is %s; rows %v", total, prev, this, got, rc.BalanceAfter, d.Summary)
+			}
+			eq(t, "previously paid shown", hasPrev, !rc.Invoice.Amount.Equal(rc.BalanceBefore))
+		})
+	}
+	r := renderPDF(t, RenderReceipt, ReceiptDocument(idrReceipt("0")))
+	r.has(t, "Previously paid", Minus+"5,588,697 IDR", "This payment", Minus+"4,615,385 IDR", "IDR 0")
+}
+
+// A cross-currency payment settles the invoice: the box shows the balance
+// before it in the invoice's currency and the amount received in the
+// payment's, never a converted figure.
 func TestCrossCurrencyReceiptShowsBothCurrencies(t *testing.T) {
 	t.Parallel()
-	rc := idrReceipt("1600000")
-	rc.Invoice.Amount, rc.Invoice.WhtType, rc.Invoice.WhtAmount = dec("3600000"), "NONE", dec("0")
-	rc.Payment.Amount, rc.Payment.Currency, rc.Payment.WhtAmount = dec("2000"), "SGD", dec("0")
-	r := renderPDF(t, RenderReceipt, ReceiptDocument(rc))
-	r.has(t, "SGD 2,000.00", "Two thousand Singapore dollars", "3,600,000 IDR", "IDR 1,600,000",
-		"Invoice total · IDR", "This payment · SGD")
+	d := ReceiptDocument(crossReceipt())
+	eq(t, "Summary", d.Summary, []SummaryRow{
+		{"Balance before this payment", "1,600,000 IDR", "subtotal"},
+		{"Amount received", "2,000.00 SGD", "total"},
+		{"Received in SGD, settles the balance", "", "note"},
+	})
+	r := renderPDF(t, RenderReceipt, d)
+	r.has(t, "SGD 2,000.00", "Two thousand Singapore dollars", "3,600,000", "1,600,000 IDR", "IDR 0",
+		"settles the balance")
+	r.hasFold(t, "Invoice total · IDR", "This payment · SGD", "Paid in full")
 	// Nothing converted: no SGD figure in IDR, no IDR figure in SGD.
-	r.hasNot(t, "2,000 IDR", "IDR 2,000", "3,600,000.00", "SGD 3,600,000", "SGD 1,600,000")
+	r.hasNot(t, "2,000 IDR", "IDR 2,000", "3,600,000.00", "SGD 3,600,000", "SGD 1,600,000", "1,600,000.00",
+		"Previously paid")
 }
 
 // The footer's contact line wraps inside the space the footer reserves:
@@ -978,4 +1090,30 @@ func longUnbrokenTokenBreaksInsideItsColumn(t *testing.T) {
 		}
 	}
 	eq(t, "email pieces", mail, email)
+}
+
+func TestWrapText(t *testing.T) {
+	t.Parallel()
+	st := style(fontBody, false, 9, nil)
+	w := func(s string) float64 { return textWidth(st, s) }
+	for name, c := range map[string]struct {
+		s     string
+		width float64
+		want  []string
+	}{
+		"fits":                 {"alpha beta", w("alpha beta"), []string{"alpha beta"}},
+		"exact fit of a line":  {"alpha beta gamma", w("alpha beta"), []string{"alpha beta", "gamma"}},
+		"breaks at the space":  {"alpha beta gamma", w("alpha beta") - 0.1, []string{"alpha", "beta", "gamma"}},
+		"double spaces":        {"alpha  beta  gamma", w("alpha beta"), []string{"alpha beta", "gamma"}},
+		"blank":                {"   ", 10, []string{"   "}},
+		"long word breaks":     {"abcdefghij", w("abcde"), []string{"abcde", "fghij"}},
+		"word then long word":  {"ab abcdefghij", w("abcde"), []string{"ab", "abcde", "fghij"}},
+		"no width keeps text":  {"alpha beta", 0, []string{"alpha beta"}},
+		"narrower than a char": {"abc", 0.01, []string{"a", "b", "c"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			eq(t, "lines", wrapText(st, c.s, c.width), c.want)
+		})
+	}
 }

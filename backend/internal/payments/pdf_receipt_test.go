@@ -55,7 +55,7 @@ func TestPDFReceiptRendererMapsReceiptData(t *testing.T) {
 	}
 	text := pdfText(t, b)
 	for _, w := range []string{
-		"Payment Receipt", "RCT-1A2B3C4D", "07 Aug 2026", "INV-0100", "Applied to",
+		"Payment Receipt", "RCT-1A2B3C4D", "07 Aug 2026", "INV-0100", "APPLIED TO",
 		"Manual entry", "TRF-991", "400.00", "600.00 USD", "Remaining balance: 600.00 USD.", "Acme Pte Ltd", "Wenhao Development",
 	} {
 		if !strings.Contains(text, w) {
@@ -74,8 +74,8 @@ func TestPDFReceiptRendererReadsWhatReceiptDataLacks(t *testing.T) {
 		args []any
 	}{
 		{`INSERT INTO customers (customer_id, name, contact_email, billing_address1) VALUES ($1, 'Acme Pte Ltd', 'ap@acme.example', '12 Raffles Place')`, []any{cust}},
-		{`INSERT INTO invoices (invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, invoice_number)
-VALUES ($1, $2, 'MILESTONE', 'USD', 1000, 600, 'PARTIALLY_PAID', 'INV-0100')`, []any{inv, cust}},
+		{`INSERT INTO invoices (invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, invoice_number, issue_date)
+VALUES ($1, $2, 'MILESTONE', 'USD', 1000, 600, 'PARTIALLY_PAID', 'INV-0100', '2026-07-23')`, []any{inv, cust}},
 		{`INSERT INTO payments (payment_id, invoice_id, amount, currency, payer_name, payment_date, intake_source, status)
 VALUES ($1, $2, 400, 'USD', 'Acme payer', '2026-08-07', 'MANUAL', 'CLEARED')`, []any{pay, inv}},
 		{`UPDATE business_profile SET name = 'Wenhao Development', address = '1 Marina Boulevard' WHERE id = 1`, nil},
@@ -89,7 +89,9 @@ VALUES ($1, $2, 400, 'USD', 'Acme payer', '2026-08-07', 'MANUAL', 'CLEARED')`, [
 		t.Fatal(err)
 	}
 	text := pdfText(t, b)
-	for _, w := range []string{"1,000.00 USD", "12 Raffles Place", "ap@acme.example", "1 Marina Boulevard"} {
+	// The issue date and the balance before this payment come from the
+	// database too: the box reads 1,000.00 less this payment's 400.00.
+	for _, w := range []string{"1,000.00 USD", "12 Raffles Place", "ap@acme.example", "1 Marina Boulevard", "23 Jul 2026", "This payment"} {
 		if !strings.Contains(text, w) {
 			t.Errorf("receipt has no %q:\n%s", w, text)
 		}

@@ -203,11 +203,12 @@ var currencyWords = map[string][2]string{
 // AmountInWords is the amount in English words for the receipt: the first
 // word capitalised, the currency's name after the whole part, and any cents
 // as "and NN/100" ("One thousand two hundred thirty-four US dollars and
-// 56/100"). The amount is rounded half-even to cents first; a currency
-// without a name prints its code. Never a figure of its own: it spells the
-// stored amount.
+// 56/100"). The amount is first rounded half-even to the currency's places,
+// exactly as FmtNum prints it, so the words spell the printed figure: a
+// zero-decimal currency (IDR) never has cents. A currency without a name
+// prints its code.
 func AmountInWords(amount decimal.Decimal, currency string) string {
-	a := amount.Abs().RoundBank(2)
+	a := amount.RoundBank(CurrencyDecimals(currency)).Abs() // as group() rounds the printed figure
 	whole := a.Truncate(0)
 	cents := a.Sub(whole).Shift(2).IntPart()
 	name := currency

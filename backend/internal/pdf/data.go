@@ -136,6 +136,9 @@ type ReceiptData struct {
 	// BalanceAfter is the invoice balance right after Payment (BalanceAfter), not
 	// the live balance: the receipt of an old partial payment must not read paid.
 	BalanceAfter decimal.Decimal
+	// BalanceBefore is the invoice balance right before Payment
+	// (BalanceBefore): the invoice's Amount for its first payment.
+	BalanceBefore decimal.Decimal
 }
 
 // ReceiptReference is the receipt's number: RCT- and the first 8 hex
@@ -499,27 +502,32 @@ func ReceiptDocument(in ReceiptData) Document {
 		ThisPayment:     FmtNum(pay.Amount.Add(pay.WhtAmount), cur),
 		BalanceDue:      inv.Currency + " " + FmtNum(in.BalanceAfter, inv.Currency),
 	}
-	summary := []SummaryRow{{"Invoice total", FmtAmount(inv.Amount, inv.Currency), "subtotal"}}
-	if !pay.WhtAmount.IsZero() {
-		label := withholding.Labels[inv.WhtType]
-		if label == "" {
-			label = "PPh"
+	var whtRow *SummaryRow
+	if pay.WhtAmount.IsPositive() {
+		typ := withholding.Labels[inv.WhtType]
+		if typ == "" {
+			typ = "PPh"
 		}
-		rate := ""
-		if inv.WhtRate.Valid {
-			rate = " (" + FmtPct(inv.WhtRate) + "%)"
+		label := typ
+		if inv.WhtRate.Valid && !inv.WhtRate.Decimal.IsZero() {
+			label += " (" + FmtPct(inv.WhtRate) + "%)"
 		}
 		withheld := FmtAmount(pay.WhtAmount, cur)
-		summary = append(summary, SummaryRow{label + " withheld" + rate, Minus + withheld, "wht"})
+		whtRow = &SummaryRow{"of which " + label + " withheld", withheld, "wht"}
 		to := ""
 		if b := in.Business; b != nil && deref(b.ContactEmail) != "" {
 			to = " to " + *b.ContactEmail
 		}
-		body.WithholdingLabel = label
-		body.WithholdingNote = fmt.Sprintf("%s of %s%s was withheld by the payer and credited against the invoice "+
-			"total. Please send the bukti potong%s if not yet provided.", label, withheld, rate, to)
+		body.WithholdingLabel = typ
+		body.WithholdingNote = fmt.Sprintf("%s of %s was withheld by the payer and credited against the invoice "+
+			"total. Please send the bukti potong%s if not yet provided.", label, withheld, to)
 	}
-	summary = append(summary, SummaryRow{"Amount received", FmtAmount(pay.Amount, cur), "total"})
+	summary := receiptSummary(in, whtRow)
+	// "Paid in full" prints once: the pill, else the balance note.
+	notes := "Thank you for your payment."
+	if !body.PaidInFull {
+		notes = BalanceNote(in.BalanceAfter, inv.Currency) + "\n" + notes
+	}
 	d := Document{
 		DocTitle:    "Payment Receipt",
 		Ref:         ref,
@@ -540,7 +548,7 @@ func ReceiptDocument(in ReceiptData) Document {
 		Summary:    summary,
 		HeroLabel:  "Amount received",
 		HeroAmount: FmtNum(pay.Amount, cur),
-		Notes:      BalanceNote(in.BalanceAfter, inv.Currency) + "\nThank you for your payment.",
+		Notes:      notes,
 		FootName:   deref(businessName(in.Business)),
 		FootMeta:   footMeta(in.Business),
 		Date:       dateOf(pay.PaymentDate),
@@ -551,6 +559,36 @@ func ReceiptDocument(in ReceiptData) Document {
 		d.LogoURL = deref(in.Business.LogoUrl)
 	}
 	return d
+}
+
+// receiptSummary is the receipt's box rows; the bar is the balance due.
+// In one currency they reconcile: Invoice total − Previously paid (omitted
+// when nothing was) − This payment (cash plus the withholding it settles) =
+// Balance due, the withholding shown as part of this payment. Across
+// currencies nothing is converted: the balance before this payment in the
+// invoice's currency, the amount received in the payment's, and a note that
+// it settles the balance.
+func receiptSummary(in ReceiptData, whtRow *SummaryRow) []SummaryRow {
+	pay, inv := in.Payment, in.Invoice
+	var rows []SummaryRow
+	if pay.Currency != inv.Currency {
+		rows = append(rows,
+			SummaryRow{"Balance before this payment", FmtAmount(in.BalanceBefore, inv.Currency), "subtotal"},
+			SummaryRow{"Amount received", FmtAmount(pay.Amount, pay.Currency), "total"})
+		if whtRow != nil {
+			rows = append(rows, *whtRow)
+		}
+		return append(rows, SummaryRow{"Received in " + pay.Currency + ", settles the balance", "", "note"})
+	}
+	rows = append(rows, SummaryRow{"Invoice total", FmtAmount(inv.Amount, inv.Currency), "subtotal"})
+	if prev := inv.Amount.Sub(in.BalanceBefore); prev.IsPositive() {
+		rows = append(rows, SummaryRow{"Previously paid", Minus + FmtAmount(prev, inv.Currency), "paid"})
+	}
+	rows = append(rows, SummaryRow{"This payment", Minus + FmtAmount(pay.Amount.Add(pay.WhtAmount), pay.Currency), "paid"})
+	if whtRow != nil {
+		rows = append(rows, *whtRow)
+	}
+	return rows
 }
 
 // bankRefKey is the Payment column's key for the payer's bank reference,

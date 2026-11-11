@@ -57,6 +57,37 @@ func BalanceAfter(inv Invoice, payments []paymentsdb.Payment, upTo uuid.UUID) de
 	return replay(inv, cleared, upTo)
 }
 
+// BalanceBefore is an invoice's balance immediately before the payment upTo:
+// the balance after the payment cleared just before it (inv.Amount for the
+// first), so a receipt's box reads Invoice total − Previously paid − This
+// payment = Balance due.
+//
+// For the newest CLEARED payment in the invoice's currency it is
+// BalanceAfter's stored inv.BalanceDue plus this payment's relief (amount +
+// wht_amount), so before − relief = after even when the stored balance and
+// the replay differ (a reversal re-derived it); when that balance is 0 the
+// relief may have been clamped, and the replay's previous balance is used.
+// An upTo that is not CLEARED relieved nothing: its before is its after.
+func BalanceBefore(inv Invoice, payments []paymentsdb.Payment, upTo uuid.UUID) decimal.Decimal {
+	cleared := clearedInOrder(inv, payments)
+	at := -1
+	for i, p := range cleared {
+		if p.PaymentID == upTo {
+			at = i
+		}
+	}
+	if at < 0 {
+		return BalanceAfter(inv, payments, upTo)
+	}
+	if p := cleared[at]; at == len(cleared)-1 && p.Currency == inv.Currency && inv.BalanceDue.IsPositive() {
+		return inv.BalanceDue.Add(p.Amount).Add(p.WhtAmount)
+	}
+	if at == 0 {
+		return inv.Amount
+	}
+	return replay(inv, cleared, cleared[at-1].PaymentID)
+}
+
 // Replay is BalanceAfter's replay alone, with no stored-balance shortcut for
 // the newest payment: tests compare it with the stored balance_due to catch
 // drift from payments.Service.clear and recordManual.

@@ -317,6 +317,11 @@ func TestAmountInWords(t *testing.T) {
 		{"115", "MYR", "One hundred fifteen Malaysian ringgit"},
 		{"40.07", "EUR", "Forty EUR and 07/100"},
 		{"19.995", "SGD", "Twenty Singapore dollars"}, // rounds half-even to cents first
+		// IDR prints no decimals: the words spell the printed figure, rounded
+		// half-even as FmtNum rounds it ("4,523,078"), never cents.
+		{"4523077.5", "IDR", "Four million five hundred twenty-three thousand seventy-eight rupiah"},
+		{"4523078.5", "IDR", "Four million five hundred twenty-three thousand seventy-eight rupiah"},
+		{"0.4", "IDR", "Zero rupiah"},
 		{"1001", "USD", "One thousand one US dollars"},
 		{"90", "USD", "Ninety US dollars"},
 	} {

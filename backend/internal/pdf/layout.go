@@ -962,10 +962,10 @@ type sumBox struct {
 
 // newSumBox is d's summary box. Its bar is the hero in capitals with
 // "Currency HeroAmount"; on a receipt it is the balance due after the
-// payment, its label as typed like the receipt's other labels.
+// payment.
 func newSumBox(d Document) *sumBox {
 	if d.Receipt != nil {
-		return &sumBox{rows: d.Summary, label: "Balance due", amount: d.Receipt.BalanceDue}
+		return &sumBox{rows: d.Summary, label: upper("Balance due"), amount: d.Receipt.BalanceDue}
 	}
 	amount := d.HeroAmount
 	if d.Currency != "" {
@@ -978,6 +978,9 @@ const sumPadX, sumPadY, sumRowGap, barPadY = 6, 4, 2, 4
 
 func (s *sumBox) rowProps(r SummaryRow) (lp, vp props.Text) {
 	lp = style(fontBody, r.Class == "total", 9.5, cMuted)
+	if r.Class == "note" {
+		lp = style(fontBody, false, 8.5, cMutedSoft)
+	}
 	lp.Left = sumPadX
 	c := summaryColour[r.Class]
 	if c == nil {
@@ -1095,8 +1098,7 @@ func notes(p *pager, d Document) {
 
 // receiptBody is the receipt under its bands: the amount received, the
 // invoice it is applied to, and the summary box ending in the balance due,
-// with the withholding and balance notes beside it. The receipt's labels
-// print as typed.
+// with the withholding and balance notes beside it.
 func receiptBody(p *pager, d Document) {
 	p.add(spacer(8), band(nil, col.New(contentW).Add(&received{d: d})), spacer(6))
 	p.keep(appliedHeader(d), appliedRow(d))
@@ -1126,7 +1128,7 @@ func (rc *received) text() *stack {
 	words := style(fontBody, false, 9, cMuted)
 	words.Top = 1
 	return newStack(0, receivedBottom,
-		block{lines: []string{rc.d.HeroLabel}, prop: label},
+		block{lines: []string{upper(rc.d.HeroLabel)}, prop: label},
 		block{lines: []string{strings.TrimSpace(rc.d.Currency + " " + rc.d.HeroAmount)}, prop: amount},
 		block{lines: []string{rc.d.Receipt.Words}, prop: words},
 	)
@@ -1134,7 +1136,7 @@ func (rc *received) text() *stack {
 
 func pillProp() props.Text { return style(fontBody, true, 8, cPaidFg) }
 
-const pillLabel = "Paid in full"
+var pillLabel = upper("Paid in full")
 
 // pill is the pill's size, zero when the invoice is not paid in full.
 func (rc *received) pill(p core.Provider) (w, h float64) {
@@ -1193,7 +1195,7 @@ func appliedHeader(d Document) core.Row {
 	cell := func(w int, label string, a align.Type) core.Col {
 		p := style(fontBody, true, 7.5, cMutedSoft)
 		p.Align = a
-		return col.New(w).WithStyle(rule).Add(newStack(0, 2.5, block{lines: []string{label}, prop: p}))
+		return col.New(w).WithStyle(rule).Add(newStack(0, 2.5, block{lines: []string{upper(label)}, prop: p}))
 	}
 	return band(nil,
 		cell(colApplied, "Applied to", align.Left),
@@ -1268,12 +1270,12 @@ func receiptNotes(d Document) core.Component {
 	var s seq
 	if r := d.Receipt; r.WithholdingNote != "" {
 		s = append(s, newStack(0, 5,
-			block{lines: []string{"Withholding tax (" + r.WithholdingLabel + ")"}, prop: label},
+			block{lines: []string{upper("Withholding tax (" + r.WithholdingLabel + ")")}, prop: label},
 			block{lines: []string{r.WithholdingNote}, prop: text},
 		))
 	}
 	if lines := splitLines(d.Notes); len(lines) > 0 {
-		s = append(s, newStack(0, 0, block{lines: []string{"Note"}, prop: label}, block{lines: lines, prop: text}))
+		s = append(s, newStack(0, 0, block{lines: []string{upper("Note")}, prop: label}, block{lines: lines, prop: text}))
 	}
 	if len(s) == 0 {
 		return nil

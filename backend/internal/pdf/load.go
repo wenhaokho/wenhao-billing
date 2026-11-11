@@ -112,8 +112,12 @@ func LoadReceipt(ctx context.Context, q DBTX, paymentID uuid.UUID) (ReceiptData,
 	for _, t := range times {
 		clearedAt[t.PaymentID] = t.ClearedAt
 	}
-	after := BalanceAfter(Invoice{Amount: inv.Amount, Currency: inv.Currency, BalanceDue: inv.BalanceDue, ClearedAt: clearedAt}, siblings, pay.PaymentID)
-	return ReceiptData{Payment: pay, Invoice: inv, Customer: cust, Business: biz, BalanceAfter: after}, nil
+	bi := Invoice{Amount: inv.Amount, Currency: inv.Currency, BalanceDue: inv.BalanceDue, ClearedAt: clearedAt}
+	return ReceiptData{
+		Payment: pay, Invoice: inv, Customer: cust, Business: biz,
+		BalanceBefore: BalanceBefore(bi, siblings, pay.PaymentID),
+		BalanceAfter:  BalanceAfter(bi, siblings, pay.PaymentID),
+	}, nil
 }
 
 // loadCustomer is nil for no customer id or a missing row.

@@ -96,6 +96,30 @@ func TestBalanceAfter(t *testing.T) {
 		ps := []paymentsdb.Payment{bp(1, "999.9999", "0", "IDR", "CLEARED"), bp(2, "0.0001", "0", "IDR", "CLEARED")}
 		eq(t, "after first", balanceAfter(t, "1000", ps, 0), "0")
 	})
+	t.Run("before is the balance after the previous payment", func(t *testing.T) {
+		t.Parallel()
+		ps := []paymentsdb.Payment{bp(1, "400", "0", "IDR", "CLEARED"), bp(2, "300", "0", "IDR", "FLAGGED"), bp(3, "250", "50", "IDR", "CLEARED")}
+		inv := Invoice{Amount: dec("1000"), Currency: "IDR", BalanceDue: dec("300")}
+		eq(t, "first", BalanceBefore(inv, ps, ps[0].PaymentID).String(), "1000")
+		eq(t, "second cleared", BalanceBefore(inv, ps, ps[2].PaymentID).String(), "600")
+		eq(t, "not cleared: before is after", BalanceBefore(inv, ps, ps[1].PaymentID).String(), "300")
+	})
+	t.Run("newest: before less relief is the stored balance", func(t *testing.T) {
+		t.Parallel()
+		ps := []paymentsdb.Payment{bp(1, "400", "0", "IDR", "CLEARED"), bp(2, "100", "0", "IDR", "CLEARED")}
+		// The ledger says 450 (re-derived); the replay would say 500 then.
+		inv := Invoice{Amount: dec("1000"), Currency: "IDR", BalanceDue: dec("450")}
+		eq(t, "newest", BalanceBefore(inv, ps, ps[1].PaymentID).String(), "550")
+		eq(t, "older", BalanceBefore(inv, ps, ps[0].PaymentID).String(), "1000")
+	})
+	t.Run("newest cross-currency or clamped: the replayed previous balance", func(t *testing.T) {
+		t.Parallel()
+		ps := []paymentsdb.Payment{bp(1, "400", "0", "IDR", "CLEARED"), bp(2, "40", "0", "USD", "CLEARED")}
+		inv := Invoice{Amount: dec("1000"), Currency: "IDR", BalanceDue: dec("0")}
+		eq(t, "cross", BalanceBefore(inv, ps, ps[1].PaymentID).String(), "600")
+		over := []paymentsdb.Payment{bp(1, "400", "0", "IDR", "CLEARED"), bp(2, "900", "0", "IDR", "CLEARED")}
+		eq(t, "overpaid", BalanceBefore(inv, over, over[1].PaymentID).String(), "600")
+	})
 	t.Run("clearing order beats payment date", func(t *testing.T) {
 		t.Parallel()
 		a, b := bp(1, "700", "0", "IDR", "CLEARED"), bp(3, "400", "0", "IDR", "CLEARED")

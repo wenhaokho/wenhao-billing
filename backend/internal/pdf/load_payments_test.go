@@ -108,7 +108,10 @@ func TestReceiptShowsBalanceAsOfItsPayment(t *testing.T) {
 	if !data.BalanceAfter.Equal(decimal.NewFromInt(600)) {
 		t.Errorf("first receipt BalanceAfter = %s, want 600", data.BalanceAfter)
 	}
-	if !strings.Contains(text, "Remaining balance: 600 IDR.") || strings.Contains(text, "paid in full") {
+	if !data.BalanceBefore.Equal(decimal.NewFromInt(1000)) {
+		t.Errorf("first receipt BalanceBefore = %s, want 1000 (the invoice amount)", data.BalanceBefore)
+	}
+	if !strings.Contains(text, "Remaining balance: 600 IDR.") || strings.Contains(strings.ToLower(text), "paid in full") {
 		t.Errorf("first receipt should show a 600 balance and not paid in full:\n%s", text)
 	}
 
@@ -116,8 +119,11 @@ func TestReceiptShowsBalanceAsOfItsPayment(t *testing.T) {
 	if !data.BalanceAfter.IsZero() {
 		t.Errorf("second receipt BalanceAfter = %s, want 0", data.BalanceAfter)
 	}
-	if !strings.Contains(text, "now paid in full") {
-		t.Errorf("second receipt should say paid in full:\n%s", text)
+	if !data.BalanceBefore.Equal(decimal.NewFromInt(600)) {
+		t.Errorf("second receipt BalanceBefore = %s, want 600", data.BalanceBefore)
+	}
+	if !strings.Contains(text, "PAID IN FULL") || !strings.Contains(text, "Previously paid") {
+		t.Errorf("second receipt should show the paid-in-full pill and the earlier payment:\n%s", text)
 	}
 }
 
@@ -257,11 +263,12 @@ func TestReceiptBalanceFollowsClearingOrderNotPaymentDate(t *testing.T) {
 
 	p := paidInvoice{app: a, invoice: inv}
 	dataA, textA := receiptText(t, p, pa)
-	if !dataA.BalanceAfter.IsZero() || !strings.Contains(textA, "now paid in full") {
+	if !dataA.BalanceAfter.IsZero() || !dataA.BalanceBefore.Equal(decimal.NewFromInt(600)) || !strings.Contains(textA, "PAID IN FULL") {
 		t.Errorf("A (cleared last) BalanceAfter %s:\n%s", dataA.BalanceAfter, textA)
 	}
 	dataB, textB := receiptText(t, p, pb.PaymentID)
-	if !dataB.BalanceAfter.Equal(decimal.NewFromInt(600)) || strings.Contains(textB, "paid in full") {
+	if !dataB.BalanceAfter.Equal(decimal.NewFromInt(600)) || !dataB.BalanceBefore.Equal(decimal.NewFromInt(1000)) ||
+		strings.Contains(strings.ToLower(textB), "paid in full") {
 		t.Errorf("B (cleared first) BalanceAfter %s:\n%s", dataB.BalanceAfter, textB)
 	}
 }
