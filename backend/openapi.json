@@ -6970,7 +6970,17 @@
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "type": "string"
           },
+          "balanced": {
+            "type": "boolean"
+          },
           "base_currency": {
+            "type": "string"
+          },
+          "difference": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
             "type": "string"
           },
           "rows": {
@@ -7002,7 +7012,9 @@
           "base_currency",
           "rows",
           "total_debit_base",
-          "total_credit_base"
+          "total_credit_base",
+          "balanced",
+          "difference"
         ],
         "type": "object"
       },

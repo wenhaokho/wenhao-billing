@@ -27,6 +27,10 @@ type TrialBalanceReport struct {
 	Rows            []TrialBalanceRow `json:"rows"`
 	TotalDebitBase  platform.Dec4     `json:"total_debit_base"`
 	TotalCreditBase platform.Dec4     `json:"total_credit_base"`
+	// Balanced is true when the base debit and credit totals are equal;
+	// Difference is debit minus credit.
+	Balanced   bool          `json:"balanced"`
+	Difference platform.Dec4 `json:"difference"`
 }
 
 // BalanceSheetLine is one account's balance in the base currency.
