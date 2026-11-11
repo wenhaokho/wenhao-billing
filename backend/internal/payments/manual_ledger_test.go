@@ -105,8 +105,9 @@ func TestManualWithholdingOnlyPaymentPosts(t *testing.T) {
 // Manual payments are always in the invoice currency. An invoice issued at
 // one rate and paid when the rate has moved is posted exactly as an approved
 // payment of the same money on the same day: every line at the payment
-// date's rate, and the same realised FX lines (none, in one currency).
-func TestManualPaymentCrossRateBooksFxGainLoss(t *testing.T) {
+// date's rate. Neither path books a realised FX gain or loss in one currency
+// (invoices post no receivable at issue), so this proves both book none.
+func TestManualPaymentCrossRateMatchesApprovedPosting(t *testing.T) {
 	t.Parallel()
 	a := newAPI(t, NoHosting{})
 	a.exec(t, `INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source) VALUES ('USD', 'IDR', 16500, '2026-04-01', 'TEST')`)
@@ -123,9 +124,10 @@ func TestManualPaymentCrossRateBooksFxGainLoss(t *testing.T) {
 	ref := "REF-TWIN"
 	held := a.incoming(t, payload(amount("1000"), payer("Unknown Payer"), paid(day(2026, 4, 20)),
 		func(p *IntakePayload) { p.PayerReference = &ref }))
-	if held.Status != "CLEARED" {
-		a.mustApprove(t, held.PaymentID, approvedInv)
+	if held.Status != "PENDING_MANUAL_REVIEW" {
+		t.Fatalf("intake payment %s, want PENDING_MANUAL_REVIEW", held.Status)
 	}
+	a.mustApprove(t, held.PaymentID, approvedInv)
 
 	m, ap := active(t, a.env, manual.PaymentID), active(t, a.env, held.PaymentID)
 	balanced(t, m)
@@ -143,8 +145,8 @@ func TestManualPaymentCrossRateBooksFxGainLoss(t *testing.T) {
 		}
 	}
 	for _, fx := range []string{"4900", "5900"} {
-		if (m.line(fx) == nil) != (ap.line(fx) == nil) {
-			t.Errorf("FX line %s: manual %v, approved %v", fx, m.line(fx), ap.line(fx))
+		if m.line(fx) != nil || ap.line(fx) != nil {
+			t.Errorf("FX line %s: manual %v, approved %v; want none", fx, m.line(fx), ap.line(fx))
 		}
 	}
 	checkInvoice(t, a.env, manualInv, "0", "20", "PAID")
@@ -181,6 +183,28 @@ func TestManualPaymentCanBeReversed(t *testing.T) {
 	a.mustReverse(t, in.PaymentID, "x")
 	if m, i := a.invoiceState(t, id), a.invoiceState(t, twin); !m.balance.Equal(i.balance) || !m.whtBooked.Equal(i.whtBooked) || m.status != i.status {
 		t.Errorf("manual reversal left %+v, intake reversal %+v", m, i)
+	}
+}
+
+// A reversed withholding-only manual payment has no cash: approving it again
+// while the cash is unpaid would clear amount 0 with no withholding. It is
+// refused with a sentence, and nothing changes.
+func TestApproveReversedWithholdingOnlyIs400(t *testing.T) {
+	t.Parallel()
+	a := newAPI(t, NoHosting{})
+	id := a.whtInvoice(t)
+	slip := a.mustRecord(t, id, map[string]any{"amount": "0", "wht_amount": wht})
+	apitest.Decode[PaymentOut](t, a.app.Do(t, http.MethodPost, reversePath(slip.PaymentID), map[string]any{"reason": "x"}), http.StatusOK)
+	checkInvoice(t, a.env, id, gross, "0", "OPEN")
+
+	wantProblem(t, a.manualReview(t, slip.PaymentID, map[string]any{"invoice_id": id}), http.StatusBadRequest, "payment_refused",
+		"payment "+slip.PaymentID.String()+" has no cash amount; record the withholding again")
+	checkInvoice(t, a.env, id, gross, "0", "OPEN")
+	if got := a.payment(t, slip.PaymentID); got.Status != "FLAGGED" {
+		t.Errorf("payment %s, want FLAGGED", got.Status)
+	}
+	if n := len(a.entries(t, slip.PaymentID)); n != 2 {
+		t.Errorf("%d entries, want 2 (the posting and its reversal)", n)
 	}
 }
 
