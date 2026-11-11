@@ -24,7 +24,9 @@ built Go image: an Alembic-shaped database dumped as in 1b, the image's start
 back-post dry run, and section 7's R2–R4 (only the six Go tables dropped,
 restore exit 0, the table list equal to the archive's, goose absent); a second
 start then adopted again, and a start on a drifted copy (a dropped column)
-exited 1 with the column named and wrote nothing.
+exited 1 with the column named and wrote nothing. Step 1e was run verbatim
+on a synthetic dump (including a table owned by a role the PC does not have):
+restore exit 0, counts equal, adopt and `to_version 9`.
 
 ## When
 
@@ -38,7 +40,12 @@ exited 1 with the column named and wrote nothing.
 - Go's scheduler must be on **the same UTC day** as the deploy (before 02:00
   UTC the next day): its catch-up only covers the last 24 hours, so a day with
   no scheduler is a day of missed recurring invoices, usage locks and hosting
-  checks.
+  checks. **If section 4 is not applied by about 23:00 UTC on the cut-over
+  day, do section 5 anyway** and finish section 4 afterwards: the recurring
+  scan only does the work of its slot's day (`backend/internal/jobs/jobs.go`,
+  `RecurringScan`), so a skipped day is never made up, while running the jobs
+  before the back-post is safe (hosting enforcement reads `balance_due`, not
+  the ledger).
 - Nobody uses the site between the backup (section 1) and the deploy
   (section 2): anything recorded after the backup is lost if the rollback is
   needed.
@@ -118,10 +125,49 @@ curl -s -o /dev/null -w 'auth/me %{http_code}\n' https://billing.wenhao.id/api/v
 
 ---
 
+## 0. Pre-merge check: the Coolify application (read-only)
+
+The cut-over assumes Coolify runs nothing besides the compose file: no job or
+command that still calls Python (`alembic`, `python -m scripts…`) or that
+starts before the Go API has adopted the database. Re-check on the day, in the
+Coolify UI, the billing application (`y6pnb32gqyo05cmqzoyvxe3a`):
+
+| Where in the Coolify UI | Expected |
+|---|---|
+| *Scheduled Tasks* | none |
+| *Configuration* → *General* → Pre-deployment / Post-deployment command | both empty |
+| *Configuration* → *General* → Build Pack / custom build and start commands | Docker Compose; no custom build or start command |
+| *Configuration* → *General* → Docker Compose location | `/docker-compose.coolify.yml` |
+| *Configuration* → *General* → Domains of `wenhao-billing-web` | `https://billing.wenhao.id`, `https://api-billing.wenhao.id` |
+
+Result on 2026-11-11 (controller, read-only through the Coolify API): no
+scheduled tasks, no pre/post-deployment commands, no custom build or start
+commands, compose location `/docker-compose.coolify.yml`, web domains
+`https://billing.wenhao.id` and `https://api-billing.wenhao.id`. All as
+expected.
+
+**If anything differs** (a scheduled task or command naming `alembic`,
+`python` or `scripts.`, another compose path, a domain on the API service):
+stop and report before section 1; such a task would fail, or run Python
+against the adopted database, after the deploy.
+
 ## 1. Backup — **OWNER YES**
 
 A `pg_dump -Fc` of the billing database, taken **right before** the merge. It
 is the rollback: keep it until the Go API has run cleanly for a week.
+
+**Recommended: take the site offline for the backup window.** After the
+Conventions block (it needs the web container running), stop the web
+container, so no browser, payment webhook or email intake reaches Python
+between the backup and the deploy (anything it recorded would be missing from
+the backup). The deploy in section 2 recreates and starts it. *host*:
+
+```bash
+docker stop "$WEB"
+```
+
+If you stop here and do not deploy (a check below fails), bring the site back
+with `docker start "$WEB"`.
 
 ### 1a. Pre-check (read-only), *host*
 
@@ -132,12 +178,14 @@ SELECT 'goose ' || coalesce(to_regclass('public.goose_db_version')::text, 'absen
 SELECT 'invoices ' || count(*) FROM invoices;
 SELECT 'payments ' || count(*) FROM payments;
 SELECT 'journal_entries ' || count(*) FROM journal_entries;
+SELECT 'account_6000 ' || count(*) FROM chart_of_accounts WHERE code = '6000';
 SQL
 ```
 
-Expected: `alembic 0028_business_npwp`, `goose absent`, and three counts.
-**Write the three counts down**: section 7 compares them after a restore. If
-the head differs or goose is present, stop: the deploy would refuse to start.
+Expected: `alembic 0028_business_npwp`, `goose absent`, and four counts
+(`account_6000` is 0 unless the owner created account 6000 in Python).
+**Write the four counts down**: 1e and section 7 compare them. If the head
+differs or goose is present, stop: the deploy would refuse to start.
 
 ### 1b. Dump streamed to the PC (preferred), *PC*
 
@@ -208,6 +256,91 @@ Expected: `exit=0`; a header starting `; Archive created at …` with
 tables and `alembic_version`); and the four named ones listed. **If the
 listing fails, there is no backup: do not go on.**
 
+### 1e. Restore the backup and adopt it locally, *PC* (before merging)
+
+`pg_restore --list` only reads the archive's table of contents, so a truncated
+download can still list. This step restores the whole archive into a
+throwaway PostgreSQL 18 on the PC, compares the 1a counts, and starts the Go
+image built from this branch against that copy: it proves the backup restores
+**and** that today's production schema adopts, before production is touched.
+
+In a Git Bash window, in a checkout of the branch being merged
+(`feat/go-replace-python`), with `S` set (Conventions):
+
+```bash
+# PC, Git Bash
+export MSYS_NO_PATHCONV=1
+docker build -q -t wb-go-cutover backend
+docker network create wb-cutover-check
+docker run -d --name wb-restore --network wb-cutover-check \
+  -e POSTGRES_USER=billing -e POSTGRES_PASSWORD=local-check -e POSTGRES_DB=billing postgres:18
+until docker exec wb-restore pg_isready -U billing -d billing >/dev/null 2>&1; do sleep 1; done; sleep 3
+docker cp "$S/billing-prod-pre-go.pgc" wb-restore:/tmp/backup.pgc
+docker exec wb-restore pg_restore -U billing -d billing --no-owner --no-acl --exit-on-error /tmp/backup.pgc
+echo "restore exit=$?"
+docker exec -i wb-restore psql -U billing -d billing -tA <<'SQL'
+SELECT 'alembic ' || string_agg(version_num, ',') FROM alembic_version;
+SELECT 'goose ' || coalesce(to_regclass('public.goose_db_version')::text, 'absent');
+SELECT 'invoices ' || count(*) FROM invoices;
+SELECT 'payments ' || count(*) FROM payments;
+SELECT 'journal_entries ' || count(*) FROM journal_entries;
+SELECT 'account_6000 ' || count(*) FROM chart_of_accounts WHERE code = '6000';
+SQL
+```
+
+Expected: `restore exit=0`, then exactly the 1a values (`alembic
+0028_business_npwp`, `goose absent`, the four counts). (`--no-owner --no-acl`:
+the production roles do not exist on the PC; ownership plays no part in the
+schema check.)
+
+Then start the Go image against the copy. The secrets are dummy values for
+this local copy only (`ENVIRONMENT=development` accepts them); the scheduler
+is off and no mail is sent (no `RESEND_API_KEY`):
+
+```bash
+# PC, Git Bash
+docker run -d --name wb-go --network wb-cutover-check \
+  -e DATABASE_URL=postgresql+psycopg://billing:local-check@wb-restore:5432/billing \
+  -e ENVIRONMENT=development -e SCHEDULER_ENABLED=false -e MCP_ENABLED=false \
+  -e SESSION_SECRET=local-check-session-secret-0123456789abcdef \
+  -e WEBHOOK_HMAC_SECRET=local-check-webhook-secret-0123456789abcdef \
+  -e EMAIL_WEBHOOK_TOKEN=local-check-email-token-0123456789abcdef \
+  -e MCP_CONFIRM_SECRET=local-check-mcp-confirm-0123456789abcdef \
+  -e MCP_TOKEN_SECRET=local-check-mcp-token-0123456789abcdef \
+  -e CORS_ORIGINS='["http://localhost"]' -e APP_BASE_URL=http://localhost \
+  wb-go-cutover
+sleep 10
+docker logs wb-go 2>&1 | grep -E '"msg":"(adopt|migrations|listening)|api stopped'
+echo "SELECT max(version_id) FROM goose_db_version WHERE is_applied;" | docker exec -i wb-restore psql -U billing -d billing -tA
+```
+
+Expected:
+
+```
+{"time":"…","level":"INFO","msg":"adopt: the Alembic database is now owned by goose at the baseline","env":"development","alembic_head":"0028_business_npwp"}
+{"time":"…","level":"INFO","msg":"migrations: database is up to date","env":"development","from_version":1,"to_version":9}
+{"time":"…","level":"INFO","msg":"listening","env":"development","port":8000}
+9
+```
+
+Then remove everything, including the copy's data volume (it holds production
+data):
+
+```bash
+# PC, Git Bash
+docker rm -f -v wb-go wb-restore
+docker network rm wb-cutover-check
+docker image rm wb-go-cutover
+unset MSYS_NO_PATHCONV
+```
+
+**If the restore fails or a count differs:** the backup is incomplete; delete
+it, take it again (1b/1c), and repeat 1d and 1e. **If Go logs `api stopped`
+with `auto-adopt failed …`:** production's schema has drifted from the
+baseline, and the deploy would fail the same way: do not merge; report the
+listed lines (clean up as above first). In both cases, `docker start "$WEB"`
+on the host if it was stopped.
+
 Rollback: none — a dump writes nothing to production.
 
 ## 2. Merge → Coolify deploys — **OWNER YES**
@@ -255,7 +388,7 @@ rows 0 and 1 (the adopt) then 2 through the last version.
   a healthy API);
 - the site answers 502/503 (or Traefik's 404) instead of `auth/me 401`;
 - the log has `"level":"ERROR","msg":"api stopped"`. Its `err` says why:
-  - `auto-adopt refused, nothing was written …: adopt: the schema differs from
+  - `auto-adopt failed, nothing was written: adopt: the schema differs from
     Alembic 0028_business_npwp …` followed by `only in this database:` /
     `missing from this database:` lines — schema drift;
   - `… alembic_version is "…", want "0028_business_npwp"` — wrong head;
@@ -309,6 +442,16 @@ exit=0
 ```
 
 This also revokes the owner's MCP refresh tokens (section 6).
+
+**Other users** still have Python (bcrypt) passwords, which Go does not
+accept either. List them, and for each one either run this block again with
+`EMAIL` set to that user (and pass the password on to them out of band), or
+have them use *Forgot password* on the sign-in page (needs `RESEND_API_KEY`
+set, so the reset mail is sent):
+
+```bash
+echo "SELECT email, is_active FROM users ORDER BY email;" | dbq
+```
 
 **Sign-in check:** in a browser, open https://billing.wenhao.id, sign in with
 the new password, and open the dashboard. Expected: signed in, dashboard
@@ -401,6 +544,8 @@ blocked until it is applied.
 ## 5. Turn the scheduler on — **OWNER YES**
 
 After section 4, **the same UTC day** as the deploy, outside 02:00–05:59 UTC.
+If section 4 is not applied by about 23:00 UTC that day, do this section
+anyway and apply section 4 afterwards (see *When*).
 In Coolify (the billing application → *Environment Variables*) set
 `GO_SCHEDULER_ENABLED` to `true` (add it if it is not there), save, and click
 **Restart**. Then, on the *host*, the Conventions block again and:
@@ -468,12 +613,15 @@ consumed inside the pipe and never shown:
 docker exec "$API" /api issue-session "$EMAIL" | {
   IFS= read -r T
   for p in /api/v1/auth/me /api/v1/invoices /api/v1/accounting/reports/trial-balance; do
-    curl -s -o /dev/null -w "$p %{http_code}\n" -H "Cookie: billing_session=$T" "https://billing.wenhao.id$p"
+    curl -s -o /dev/null -w "$p %{http_code}\n" -H @<(printf 'Cookie: billing_session=%s\n' "$T") "https://billing.wenhao.id$p"
   done
 }
 ```
 
-Expected: `200` for all three.
+Expected: `200` for all three. (The cookie reaches `curl` through a file
+descriptor written by the shell's `printf` builtin, so the token is never on
+any process's command line. This needs bash and curl 7.55 or later on
+Linux, as on the host; Windows' curl in Git Bash cannot read the descriptor.)
 
 Watch Sentry and `docker logs -f --tail 200 "$API"` for the first day.
 
@@ -492,8 +640,13 @@ If section 2 failed with goose `absent`, nothing was written: skip to R5.
 502/503 until R5). *host*:
 
 ```bash
+docker update --restart=no "$API"
 docker stop "$API"
 ```
+
+`--restart=no` keeps Docker (and a host reboot) from starting the Go API
+again in the middle of the restore. The site is down from here until R5:
+work through R2–R5 promptly.
 
 **R2. Put the archive on the host.** From the *PC* (or upload it with Bitvise
 SFTP into `~/wb-cutover/`):
@@ -565,18 +718,24 @@ SELECT 'session_epoch columns ' || count(*) FROM information_schema.columns
 SELECT 'invoices ' || count(*) FROM invoices;
 SELECT 'payments ' || count(*) FROM payments;
 SELECT 'journal_entries ' || count(*) FROM journal_entries;
+SELECT 'account_6000 ' || count(*) FROM chart_of_accounts WHERE code = '6000';
+SELECT 'refresh_user_idx ' || coalesce(to_regclass('public.oauth_refresh_tokens_user_id_idx')::text, 'absent');
 SQL
 docker exec "$DB" rm -f /tmp/restore.pgc
 shred -u ~/wb-cutover/billing-prod-pre-go.pgc 2>/dev/null || rm -f ~/wb-cutover/billing-prod-pre-go.pgc
 ```
 
 Expected: `alembic 0028_business_npwp`, `goose absent`, `session_epoch columns
-0`, and the three counts written down in 1a. Keep the PC copy of the archive.
+0`, the four counts written down in 1a (`account_6000` back to its 1a value:
+Go's migration 00008 adds account 6000), and `refresh_user_idx absent` (Go's
+migration 00007's index). Keep the PC copy of the archive.
 
 **R5. Redeploy the previous commit** (Python). Either:
 
 - **GitHub (preferred, keeps `main` true to production):** on the merged PR,
-  click *Revert*, and merge the revert PR; Coolify deploys it. Or
+  click *Revert*, and merge the revert PR; Coolify deploys it. To land the Go
+  change again later, revert the revert (a plain re-merge of the branch does
+  nothing: Git considers its commits merged already). Or
 - **Coolify:** the billing application → *Configuration* → *General* → the
   Git commit SHA field: set it to the commit before the merge (the merge
   commit's first parent; for a PR merged right after `main` at `ba8a1f6`, that
