@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Locator } from "@playwright/test";
 import { statusTone } from "../src/theme/status";
 
 test.use({ colorScheme: "light" });
@@ -79,6 +79,42 @@ test("every status gets a defined tone", () => {
   expect(statusTone("Pending manual review")).toBe("amber");
   expect(statusTone("Awaiting finalization")).toBe("amber");
   expect(statusTone("Inactive")).toBe("neutral");
+});
+
+/**
+ * A Chart.js setting of the chart drawn on `canvas`. PrimeVue's Chart keeps the
+ * Chart.js instance on its component (`chart`); the dev server exposes the
+ * component on the canvas element as __vueParentComponent.
+ */
+async function chartValue(canvas: Locator, pick: string): Promise<unknown> {
+  return canvas.evaluate((el, path) => {
+    const inst = (el as unknown as { __vueParentComponent?: { proxy?: { chart?: unknown } } })
+      .__vueParentComponent;
+    let v: unknown = inst?.proxy?.chart;
+    for (const key of path.split(".")) v = (v as Record<string, unknown> | undefined)?.[key];
+    return v ?? null;
+  }, pick);
+}
+
+test("dashboard charts use brand colours and follow theme", async ({ page }) => {
+  await page.goto("/dashboard");
+  await page.evaluate(() => localStorage.setItem("wb:theme", "light"));
+  await page.reload();
+  const cssVar = (name: string) =>
+    page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
+
+  const revenue = page.getByTestId("revenue-chart").locator("canvas");
+  await expect(revenue).toBeVisible();
+  // Light: the first series (the base currency, at the bottom of each bar) is the brand red.
+  await expect.poll(() => chartValue(revenue, "data.datasets.0.backgroundColor")).toBe("#a51c30");
+  expect(await cssVar("--wb-red")).toBe("#a51c30");
+
+  await page.getByRole("button", { name: "Switch to dark theme" }).click();
+  await expect(page.locator("html")).toHaveClass(/(^|\s)app-dark(\s|$)/);
+  const darkInk = await cssVar("--wb-ink");
+  expect(darkInk).toBe("#fcfbf6");
+  await expect.poll(() => chartValue(revenue, "options.scales.y.ticks.color")).toBe(darkInk);
+  await expect.poll(() => chartValue(revenue, "data.datasets.0.backgroundColor")).toBe(await cssVar("--wb-red"));
 });
 
 test("no PrimeIcons font is loaded", async ({ page }) => {

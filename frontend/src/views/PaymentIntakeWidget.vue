@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppIcon from "@/components/AppIcon.vue";
-import { computed, defineAsyncComponent } from "vue";
+import StatusTag from "@/components/StatusTag.vue";
+import { computed, defineAsyncComponent, ref, watch } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import { useRouter } from "vue-router";
 import Tag from "primevue/tag";
@@ -9,6 +10,8 @@ import ProgressSpinner from "primevue/progressspinner";
 const Chart = defineAsyncComponent(() => import("primevue/chart"));
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
+import { useTheme } from "@/composables/useTheme";
+import { chartColors, currencySlot, withAlpha } from "@/theme/chartColors";
 
 interface CurrencyAmount { currency: string; amount: string }
 interface CurrencyBaseAmount { currency: string; base_amount: string }
@@ -98,42 +101,40 @@ const { data: revenueData } = useQuery<MonthlyRevenueResponse>({
   refetchInterval: 60_000,
 });
 
-// Colour follows the currency, never its position in the dataset. The same
-// currency sits at a different index in each chart (revenue is ordered by
-// currency, the AR pie by amount), so indexing a palette by rank painted IDR
-// blue in the bars and amber in the pie. Pinning the hue per currency keeps
-// every chart on this page in agreement.
-const CURRENCY_COLORS: Record<string, string> = {
-  IDR: "#2563eb", // blue
-  SGD: "#10b981", // green
-  USD: "#f59e0b", // amber
-  EUR: "#ef4444", // red
-};
-// Slots deliberately clear of the pinned hues above, so an unmapped currency is
-// never mistaken for one of them.
-const FALLBACK_COLORS = ["#8b5cf6", "#14b8a6", "#ec4899", "#64748b"];
+// Brand colours come from the CSS tokens. Re-read them after a theme switch
+// has been applied to <html> (useTheme's own watcher runs first), so both
+// charts rebuild in the new theme's colours.
+const { theme } = useTheme();
+const colors = ref(chartColors());
+watch(theme, () => { colors.value = chartColors(); }, { flush: "post" });
 
+// Colour follows the currency, never its position in the dataset (the revenue
+// chart orders currencies one way, the AR pie by amount), so every chart on
+// this page agrees: IDR red, SGD gold, USD blue, MYR green (mockup variant A).
 function colorForCurrency(ccy: string): string {
-  const code = (ccy ?? "").toUpperCase();
-  const pinned = CURRENCY_COLORS[code];
-  if (pinned) return pinned;
-  // Deterministic hash so an unmapped currency still lands on the same colour
-  // in every chart, rather than shifting with the dataset order.
-  let h = 0;
-  for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) >>> 0;
-  return FALLBACK_COLORS[h % FALLBACK_COLORS.length];
+  return colors.value.series[currencySlot(ccy)];
 }
+
+// The base currency first, so it sits at the bottom of every bar, as in the mockup.
+const revenueCurrencies = computed(() => {
+  const r = revenueData.value;
+  if (!r) return [];
+  return [...r.currencies].sort((a, b) => Number(b === r.base_currency) - Number(a === r.base_currency));
+});
 
 const chartData = computed(() => {
   const r = revenueData.value;
   if (!r) return { labels: [], datasets: [] };
-  const labels = r.months.map((m) => m.month);
-  const paid = r.currencies.map((ccy) => ({
+  const labels = r.months.map((m, i) => monthLabel(m.month, i === 0));
+  const ccys = revenueCurrencies.value;
+  const paid = ccys.map((ccy) => ({
     label: ccy,
     currency: ccy,
     unpaid: false,
     backgroundColor: colorForCurrency(ccy),
     borderColor: colorForCurrency(ccy),
+    borderWidth: 0,
+    maxBarThickness: 28,
     data: r.months.map(
       (m) => Number(m.totals[ccy] ?? 0) - Number(m.unpaid_totals[ccy] ?? 0),
     ),
@@ -142,36 +143,80 @@ const chartData = computed(() => {
   // Same hue as the paid segment, faded, stacked above every paid segment so the
   // faded top of a bar reads as the whole unpaid portion of that month. The solid
   // outline keeps the pale fill visible against the card in both themes.
-  const unpaid = r.currencies.map((ccy) => ({
+  const unpaid = ccys.map((ccy) => ({
     label: `${ccy} unpaid`,
     currency: ccy,
     unpaid: true,
-    backgroundColor: `${colorForCurrency(ccy)}4d`,
+    backgroundColor: withAlpha(colorForCurrency(ccy), colors.value.unpaidAlpha),
     borderColor: colorForCurrency(ccy),
     borderWidth: 1,
+    maxBarThickness: 28,
     data: r.months.map((m) => Number(m.unpaid_totals[ccy] ?? 0)),
     stack: "revenue",
   }));
   return { labels, datasets: [...paid, ...unpaid] };
 });
 
+// Shared look: brand ink text, hairline grid, square ink tooltip (mockup).
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+// Axis label for a "YYYY-MM" bucket: the short month, with the year under the
+// first bar and under every January.
+function monthLabel(ym: string, first: boolean): string | string[] {
+  const [y, m] = ym.split("-");
+  const name = MONTHS[Number(m) - 1] ?? ym;
+  return first || m === "01" ? [name, y] : name;
+}
+
+function monthTitle(ym: string): string {
+  const [y, m] = ym.split("-");
+  return `${MONTHS[Number(m) - 1] ?? ym} ${y}`;
+}
+
+function cssToken(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+const baseChartLook = computed(() => {
+  const c = colors.value;
+  const onInk = cssToken("--wb-bg");
+  return {
+    legend: {
+      position: "bottom" as const,
+      labels: { color: c.text, font: { family: "DM Sans", size: 12 }, boxWidth: 10, boxHeight: 10 },
+    },
+    tooltip: {
+      backgroundColor: c.text,
+      titleColor: onInk,
+      bodyColor: onInk,
+      footerColor: onInk,
+      cornerRadius: 0,
+      titleFont: { family: "DM Sans", weight: 500 },
+      bodyFont: { family: "DM Sans" },
+      footerFont: { family: "DM Sans", weight: 500 },
+    },
+  };
+});
+
 const chartOptions = computed(() => {
   const base = revenueData.value?.base_currency ?? "";
   const months = revenueData.value?.months ?? [];
+  const c = colors.value;
+  const look = baseChartLook.value;
   return {
   maintainAspectRatio: false,
   responsive: true,
   // One tooltip per bar: hovering anywhere over a month lists all its segments.
   interaction: { mode: "index" as const, intersect: false },
   plugins: {
-    legend: {
-      position: "bottom" as const,
-      labels: { font: { size: 11 }, boxWidth: 12 },
-    },
+    legend: look.legend,
     tooltip: {
+      ...look.tooltip,
       // Most months have only some of the series; a month with none shows no tooltip.
       filter: (ctx: { parsed: { y: number } }) => ctx.parsed.y !== 0,
       callbacks: {
+        title: (items: { dataIndex: number }[]) =>
+          items.length ? monthTitle(months[items[0].dataIndex]?.month ?? "") : "",
         // Plotted value is the IDR-converted amount; show the native amount
         // alongside it (same shape as the open-AR pie tooltip).
         label: (ctx: {
@@ -203,11 +248,20 @@ const chartOptions = computed(() => {
     },
   },
   scales: {
-    x: { stacked: true, grid: { display: false } },
+    x: {
+      stacked: true,
+      grid: { display: false },
+      border: { color: c.grid },
+      ticks: { color: c.text, font: { family: "DM Sans", size: 11 }, maxRotation: 0, autoSkipPadding: 8 },
+    },
     y: {
       stacked: true,
       beginAtZero: true,
+      grid: { color: c.grid },
+      border: { display: false },
       ticks: {
+        color: c.text,
+        font: { family: "DM Sans", size: 11 },
         callback: (v: number | string) => {
           const n = Number(v);
           // One decimal, but drop a trailing ".0" (1800.0M -> 1.8B, 600.0M -> 600M).
@@ -230,12 +284,19 @@ const hasRevenueData = computed(
 
 const arPieData = computed(() => {
   const rows = stats.value?.open_ar_base_by_currency ?? [];
+  // colorForCurrency reads colors.value, so the pie also rebuilds on a theme
+  // switch, and by then the surface token holds the new theme's value.
+  const backgroundColor = rows.map((r) => colorForCurrency(r.currency));
+  const surface = cssToken("--wb-surface");
   return {
     labels: rows.map((r) => r.currency),
     datasets: [
       {
         data: rows.map((r) => Number(r.base_amount)),
-        backgroundColor: rows.map((r) => colorForCurrency(r.currency)),
+        backgroundColor,
+        borderColor: surface,
+        // A hairline between slices; a single slice would show it as a seam.
+        borderWidth: rows.length > 1 ? 2 : 0,
       },
     ],
   };
@@ -254,12 +315,14 @@ const arNativeByCcy = computed<Record<string, string>>(() => {
 
 const arPieOptions = computed(() => {
   const base = stats.value?.base_currency ?? "";
+  const look = baseChartLook.value;
   return {
     maintainAspectRatio: false,
     responsive: true,
     plugins: {
-      legend: { position: "bottom" as const, labels: { font: { size: 11 }, boxWidth: 12 } },
+      legend: look.legend,
       tooltip: {
+        ...look.tooltip,
         callbacks: {
           // Show the native amount and the IDR-converted amount together.
           label: (ctx: { label?: string; parsed: number }) => {
@@ -281,23 +344,11 @@ const arPieOptions = computed(() => {
 function formatDate(iso: string) {
   // next_date is a plain YYYY-MM-DD (no timezone) — format without Date() drift.
   const [y, m, d] = iso.split("-");
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${Number(d)} ${months[Number(m) - 1]} ${y}`;
+  return `${Number(d)} ${MONTHS[Number(m) - 1]} ${y}`;
 }
 
 function modeSeverity(mode: string) {
   return mode === "USAGE" ? "warn" : "info";
-}
-
-function actionSeverity(a: string) {
-  switch (a) {
-    case "CLEARED": return "success";
-    case "HELD": return "warn";
-    case "MATCHED": return "info";
-    case "REVERSED": return "danger";
-    case "OVERRIDDEN": return "secondary";
-    default: return undefined;
-  }
 }
 
 // MANUAL is left out: those rows already carry a "manual-entry" reason chip.
@@ -323,17 +374,21 @@ function timeAgo(iso: string) {
   return `${d}d ago`;
 }
 
+function go(path: string) {
+  router.push(path);
+}
 </script>
 
 <template>
   <section class="dash">
-    <header class="page-header">
-      <div>
+    <header class="dash-header">
+      <div class="dash-heading">
+        <div class="eyebrow">01 / Overview</div>
         <h1>Dashboard</h1>
-        <p class="subtitle">Reconciliation health and open AR at a glance.</p>
+        <p class="lede">Reconciliation health, revenue and open receivables at a glance.</p>
       </div>
       <div class="page-actions">
-        <Button label="Refresh" text @click="refetch()">
+        <Button label="Refresh" outlined severity="secondary" @click="refetch()">
           <template #icon><AppIcon name="refresh-cw" /></template>
         </Button>
       </div>
@@ -349,75 +404,52 @@ function timeAgo(iso: string) {
     </div>
 
     <template v-else-if="stats">
-      <!-- stat cards -->
-      <div class="stat-grid">
-        <div class="stat-card" @click="router.push('/review')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon warn"><AppIcon name="triangle-alert" /></div>
-          <div>
-            <div class="stat-label">Manual Review</div>
-            <div class="stat-value">{{ stats.awaiting_review_count }}</div>
-            <div class="stat-hint">Payments held by safe-stop</div>
-          </div>
+      <!-- KPI strip: one bordered card, cells split by hairlines. -->
+      <div class="kpi-strip">
+        <div class="kpi" role="button" tabindex="0" @click="go('/review')" @keydown.enter.space.prevent="go('/review')">
+          <div class="kpi-label">Manual review</div>
+          <div class="kpi-value" :class="{ alert: stats.awaiting_review_count > 0 }">{{ stats.awaiting_review_count }}</div>
+          <div class="kpi-hint">Payments held by safe-stop</div>
         </div>
-
-        <div class="stat-card" @click="router.push('/queue')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon info"><AppIcon name="inbox" /></div>
-          <div>
-            <div class="stat-label">DRAFT Invoices</div>
-            <div class="stat-value">{{ stats.draft_count }}</div>
-            <div class="stat-hint">Awaiting finalization</div>
-          </div>
+        <div class="kpi" role="button" tabindex="0" @click="go('/queue')" @keydown.enter.space.prevent="go('/queue')">
+          <div class="kpi-label">Draft invoices</div>
+          <div class="kpi-value">{{ stats.draft_count }}</div>
+          <div class="kpi-hint">Awaiting finalization</div>
         </div>
-
-        <div class="stat-card" @click="router.push('/invoices')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon primary"><AppIcon name="send" /></div>
-          <div>
-            <div class="stat-label">Open Invoices</div>
-            <div class="stat-value">{{ stats.sent_count }}</div>
-            <div class="stat-hint">Outstanding to customers</div>
-          </div>
+        <div class="kpi" role="button" tabindex="0" @click="go('/invoices')" @keydown.enter.space.prevent="go('/invoices')">
+          <div class="kpi-label">Open invoices</div>
+          <div class="kpi-value">{{ stats.sent_count }}</div>
+          <div class="kpi-hint">Outstanding to customers</div>
         </div>
-
-        <div class="stat-card" @click="router.push('/quotations')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon quote"><AppIcon name="file-pen" /></div>
-          <div>
-            <div class="stat-label">Open Quotations</div>
-            <div class="stat-value">{{ openQuotationCount }}</div>
-            <div class="stat-hint">{{ openQuotationHint }}</div>
-          </div>
+        <div class="kpi" role="button" tabindex="0" @click="go('/quotations')" @keydown.enter.space.prevent="go('/quotations')">
+          <div class="kpi-label">Open quotations</div>
+          <div class="kpi-value">{{ openQuotationCount }}</div>
+          <div class="kpi-hint num">{{ openQuotationHint }}</div>
         </div>
-
-        <div class="stat-card" @click="router.push('/customers')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon neutral"><AppIcon name="users" /></div>
-          <div>
-            <div class="stat-label">Customers</div>
-            <div class="stat-value">{{ stats.customer_count }}</div>
-            <div class="stat-hint">Active</div>
-          </div>
+        <div class="kpi" role="button" tabindex="0" @click="go('/customers')" @keydown.enter.space.prevent="go('/customers')">
+          <div class="kpi-label">Customers</div>
+          <div class="kpi-value">{{ stats.customer_count }}</div>
+          <div class="kpi-hint">Active</div>
         </div>
-
-        <div class="stat-card" @click="router.push('/invoices/recurring')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon info"><AppIcon name="refresh-cw" /></div>
-          <div class="stat-body">
-            <div class="stat-label">Monthly Recurring</div>
-            <div v-if="!stats.mrr_by_currency.length" class="stat-value">0</div>
-            <ul v-else class="mrr-list">
-              <li v-for="row in stats.mrr_by_currency" :key="row.currency" class="num">
-                {{ formatAmount(row.amount, row.currency) }} {{ row.currency }}
-              </li>
-            </ul>
-            <div class="stat-hint">Active recurring templates</div>
-          </div>
+        <div class="kpi" role="button" tabindex="0" @click="go('/invoices/recurring')" @keydown.enter.space.prevent="go('/invoices/recurring')">
+          <div class="kpi-label">Monthly recurring</div>
+          <div v-if="!stats.mrr_by_currency.length" class="kpi-value">0</div>
+          <ul v-else class="mrr-list">
+            <li v-for="row in stats.mrr_by_currency" :key="row.currency" class="num">
+              {{ formatAmount(row.amount, row.currency) }} <span class="ccy">{{ row.currency }}</span>
+            </li>
+          </ul>
+          <div class="kpi-hint">Active recurring templates</div>
         </div>
       </div>
 
       <div class="chart-row">
-        <!-- Revenue chart -->
-        <div class="card">
-          <div class="card-head">
+        <!-- Revenue chart (mockup variant A: stacked by currency). -->
+        <div class="card dash-card">
+          <div class="dash-card-head">
             <div>
-              <h3>Revenue — last 12 months</h3>
-              <p class="subtitle">
+              <h2 class="card-title">Revenue — last 12 months</h2>
+              <p class="card-sub">
                 Invoiced revenue by month, stacked per currency and converted to
                 {{ revenueData?.base_currency ?? 'IDR' }}. Faded segments are still unpaid.
               </p>
@@ -427,22 +459,22 @@ function timeAgo(iso: string) {
             <AppIcon name="chart-column" />
             <div>No invoiced revenue yet in the last 12 months.</div>
           </div>
-          <div v-else class="chart-wrap">
+          <div v-else class="chart-wrap revenue-wrap" data-testid="revenue-chart">
             <Chart type="bar" :data="chartData" :options="chartOptions" />
           </div>
-          <p v-if="revenueData && revenueData.unconverted.length" class="pie-note">
+          <p v-if="revenueData && revenueData.unconverted.length" class="card-note">
             Not shown (no FX rate): {{ revenueData.unconverted.join(', ') }}
           </p>
         </div>
 
         <!-- Open AR -->
-        <div class="card">
-          <div class="card-head">
+        <div class="card dash-card">
+          <div class="dash-card-head">
             <div>
-              <h3>Open Accounts Receivable</h3>
-              <p class="subtitle">Sum of outstanding invoice balances, by currency.</p>
+              <h2 class="card-title">Open receivables</h2>
+              <p class="card-sub">Outstanding invoice balances, by currency.</p>
             </div>
-            <Tag :value="`${stats.auto_cleared_last_30d} auto-cleared · 30d`" severity="success" />
+            <Tag class="head-tag" :value="`${stats.auto_cleared_last_30d} auto-cleared · 30d`" severity="success" />
           </div>
           <div v-if="!stats.open_ar_by_currency.length" class="empty-state">
             <AppIcon name="circle-check" />
@@ -450,15 +482,20 @@ function timeAgo(iso: string) {
           </div>
           <ul v-else class="ar-list">
             <li v-for="row in stats.open_ar_by_currency" :key="row.currency">
-              <span class="ar-ccy">{{ row.currency }}</span>
+              <span class="ar-ccy">
+                <span class="swatch" :style="{ background: colorForCurrency(row.currency) }" />
+                {{ row.currency }}
+              </span>
               <span class="ar-amt num">{{ formatAmount(row.amount, row.currency) }}</span>
             </li>
           </ul>
-          <div v-if="hasArPie" class="chart-wrap ar-pie">
-            <p class="pie-caption">Share of open AR, converted to {{ stats.base_currency }}.</p>
-            <Chart type="pie" :data="arPieData" :options="arPieOptions" />
+          <div v-if="hasArPie" class="ar-pie-block">
+            <p class="card-sub">Share of open AR, converted to {{ stats.base_currency }}.</p>
+            <div class="chart-wrap ar-pie" data-testid="ar-chart">
+              <Chart type="pie" :data="arPieData" :options="arPieOptions" />
+            </div>
           </div>
-          <p v-if="stats.open_ar_unconverted.length" class="pie-note">
+          <p v-if="stats.open_ar_unconverted.length" class="card-note">
             Not shown (no FX rate): {{ stats.open_ar_unconverted.join(', ') }}
           </p>
         </div>
@@ -466,65 +503,67 @@ function timeAgo(iso: string) {
 
       <div class="two-col">
         <!-- Upcoming -->
-        <div class="card upcoming-card">
-          <div class="card-head">
+        <div class="card dash-card list-card upcoming-card">
+          <div class="dash-card-head ruled">
             <div>
-              <h3>Upcoming Invoices</h3>
-              <p class="subtitle">Recurring &amp; usage invoices generating in the next 90 days.</p>
+              <h2 class="card-title">Upcoming invoices</h2>
+              <p class="card-sub">Recurring &amp; usage invoices generating in the next 90 days.</p>
             </div>
           </div>
           <div v-if="!stats.upcoming_invoices.length" class="empty-state">
             <AppIcon name="calendar" />
             <div>Nothing scheduled in the next 90 days.</div>
           </div>
-          <ul v-else class="activity upcoming-list">
-            <li v-for="u in stats.upcoming_invoices" :key="u.invoice_id">
-              <div class="act-head">
-                <Tag :value="u.mode === 'USAGE' ? 'Usage' : 'Recurring'" :severity="modeSeverity(u.mode)" />
-                <span class="act-payer">{{ u.customer_name ?? '—' }}</span>
-                <span class="act-amt num">
+          <ul v-else class="rows upcoming-list">
+            <li v-for="u in stats.upcoming_invoices" :key="u.invoice_id" class="row">
+              <Tag :value="u.mode === 'USAGE' ? 'Usage' : 'Recurring'" :severity="modeSeverity(u.mode)" />
+              <div class="row-main">
+                <div class="row-title">{{ u.customer_name ?? '—' }}</div>
+                <div class="row-amt num">
                   {{ formatAmount(u.amount, u.currency) }} {{ u.currency }}<template v-if="u.amount_is_estimate"> · est.</template>
-                </span>
-                <span class="act-time">{{ formatDate(u.next_date) }}</span>
+                </div>
               </div>
+              <span class="row-time">{{ formatDate(u.next_date) }}</span>
             </li>
           </ul>
         </div>
 
         <!-- Recent activity -->
-        <div class="card">
-          <div class="card-head">
+        <div class="card dash-card list-card">
+          <div class="dash-card-head ruled">
             <div>
-              <h3>Recent Reconciliation Activity</h3>
-              <p class="subtitle">Latest 10 engine decisions and manual actions.</p>
+              <h2 class="card-title">Recent reconciliation activity</h2>
+              <p class="card-sub">Latest 10 engine decisions and manual actions.</p>
             </div>
+            <RouterLink to="/audit-log" class="head-link">Audit log ↗</RouterLink>
           </div>
           <div v-if="!stats.recent_activity.length" class="empty-state">
             <AppIcon name="clock" />
             <div>No activity yet. POST a payment to the intake endpoints to see events here.</div>
           </div>
-          <ul v-else class="activity">
-            <li v-for="a in stats.recent_activity" :key="a.log_id">
-              <div class="act-head">
-                <Tag :value="a.action" :severity="actionSeverity(a.action)" />
-                <span class="act-payer">{{ a.payer_name ?? 'unknown payer' }}</span>
-                <span class="act-amt num">{{ formatAmount(a.amount, a.currency) }} {{ a.currency ?? '' }}</span>
-                <span class="act-time">{{ timeAgo(a.created_at) }}</span>
+          <ul v-else class="rows">
+            <li v-for="a in stats.recent_activity" :key="a.log_id" class="row">
+              <StatusTag :status="a.action" />
+              <div class="row-main">
+                <div class="row-title">{{ a.payer_name ?? 'unknown payer' }}</div>
+                <div class="row-amt num">{{ formatAmount(a.amount, a.currency) }} {{ a.currency ?? '' }}</div>
               </div>
-              <div class="act-details">
+              <span class="row-time">{{ timeAgo(a.created_at) }}</span>
+              <div class="row-details">
                 <RouterLink
                   v-if="a.invoice_id"
                   :to="{ path: `/invoices/${a.invoice_id}/edit`, query: { from: '/dashboard' } }"
+                  class="doc-no"
                 >Invoice {{ a.invoice_number ?? '(no number)' }}</RouterLink>
                 <span v-if="a.customer_name">{{ a.customer_name }}</span>
-                <span v-if="a.payment_date">Paid {{ formatDate(a.payment_date) }}</span>
-                <span v-if="Number(a.wht_amount)">WHT {{ formatAmount(a.wht_amount, a.currency) }} {{ a.currency }}</span>
+                <span v-if="a.payment_date" class="nowrap">Paid {{ formatDate(a.payment_date) }}</span>
+                <span v-if="Number(a.wht_amount)" class="nowrap num">WHT {{ formatAmount(a.wht_amount, a.currency) }} {{ a.currency }}</span>
                 <span v-if="a.payer_reference">Ref {{ a.payer_reference }}</span>
-                <span v-if="a.confidence_score !== null">Confidence {{ Number(a.confidence_score) }}%</span>
+                <span v-if="a.confidence_score !== null" class="nowrap">Confidence {{ Number(a.confidence_score) }}%</span>
                 <span v-if="intakeSourceLabel(a.intake_source)">Via {{ intakeSourceLabel(a.intake_source) }}</span>
                 <span v-if="a.actor_name">By {{ a.actor_name }}</span>
               </div>
-              <div v-if="a.reasons.length" class="act-reasons">
+              <div v-if="a.reasons.length" class="row-reasons">
                 <span v-for="r in a.reasons" :key="r" class="reason-chip">{{ r }}</span>
               </div>
             </li>
@@ -536,136 +575,224 @@ function timeAgo(iso: string) {
 </template>
 
 <style scoped>
-.dash { display: flex; flex-direction: column; gap: 1.25rem; }
+.dash { display: flex; flex-direction: column; gap: 24px; }
 .loading { display: grid; place-items: center; padding: 4rem; }
-.error { color: var(--color-danger); display: flex; align-items: center; gap: 1rem; }
+.error { color: var(--wb-red-fg); display: flex; align-items: center; gap: 1rem; }
+.num { font-variant-numeric: tabular-nums; }
+.nowrap { white-space: nowrap; }
 
-/* Six across on a desktop; the last column is wider for the MRR amounts. */
-.stat-grid {
+/* ---------- page header (mockup: eyebrow, 40px H1, lede) ---------- */
+.dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.dash-heading { flex: 1 1 360px; min-width: 0; max-width: 640px; }
+.eyebrow {
+  font: 500 12px/1.6 var(--wb-font-sans);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--wb-red);
+}
+.dash-heading h1 {
+  font: 500 40px/1.1 var(--wb-font-display);
+  letter-spacing: -1.4px;
+  color: var(--wb-ink);
+  margin: 6px 0 8px;
+}
+.lede { margin: 0; color: var(--wb-muted); font-size: 16px; line-height: 1.6; }
+@media (max-width: 720px) {
+  .dash-heading h1 { font-size: 32px; letter-spacing: -1px; }
+  .lede { font-size: 15px; }
+}
+
+/* ---------- KPI strip ---------- */
+/* Hairlines between cells: the strip's line-coloured background shows through
+   a 1px gap, whatever the number of columns. */
+.kpi-strip {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1.35fr);
-  gap: 1rem;
+  gap: 1px;
+  background: var(--wb-line);
+  border: 1px solid var(--wb-line);
 }
-@media (max-width: 1280px) { .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.stat-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 1.1rem 1.25rem;
+@media (max-width: 1280px) { .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi {
+  background: var(--wb-surface);
+  padding: 20px 18px 18px;
   display: flex;
-  align-items: flex-start;
-  gap: 0.9rem;
+  flex-direction: column;
+  min-width: 0;
   cursor: pointer;
-  transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+  transition: background 0.15s;
 }
-.stat-card:hover {
-  box-shadow: var(--shadow-md);
-  border-color: var(--color-border-strong);
-  transform: translateY(-1px);
+.kpi:hover { background: var(--wb-surface-2); }
+.kpi:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.kpi-label {
+  font: 500 10.5px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--wb-muted-soft);
 }
-.stat-card:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-  border-color: var(--color-primary);
+.kpi-value {
+  font: 500 34px/1.1 var(--wb-font-display);
+  letter-spacing: -1.5px;
+  color: var(--wb-ink);
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.stat-icon {
-  width: 40px; height: 40px; border-radius: 10px;
-  display: grid; place-items: center; flex-shrink: 0;
+.kpi-value.alert { color: var(--wb-red); }
+.kpi-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--wb-muted);
+  margin-top: auto;
+  padding-top: 10px;
 }
-.stat-icon.warn { background: var(--color-warning-soft); color: var(--color-warning); }
-.stat-icon.info { background: var(--color-primary-soft); color: var(--color-primary); }
-.stat-icon.primary { background: #e0e7ff; color: #4338ca; }
-.stat-icon.neutral { background: var(--color-neutral-soft); color: var(--color-neutral); }
-.stat-icon.quote { background: #ecfdf5; color: #059669; }
-.stat-label { font-size: 0.78rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
-.stat-value { font-size: 1.9rem; font-weight: 700; color: var(--color-text); line-height: 1.1; margin-top: 0.15rem; letter-spacing: -0.01em; }
-.stat-hint { font-size: 0.78rem; color: var(--color-text-subtle); margin-top: 0.2rem; }
-.stat-body { min-width: 0; }
-.mrr-list { list-style: none; padding: 0; margin: 0.25rem 0 0; font-weight: 700; font-size: 1rem; line-height: 1.35; color: var(--color-text); }
-/* Keep labels on the card once six columns get narrow on a laptop screen. */
-@media (max-width: 1500px) {
-  .stat-card { padding: 0.85rem 0.9rem; gap: 0.6rem; }
-  .stat-icon { width: 32px; height: 32px; }
-  .stat-label { font-size: 0.7rem; letter-spacing: 0.02em; }
-  .stat-value { font-size: 1.6rem; }
-  .stat-hint { font-size: 0.72rem; }
+.mrr-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  font: 500 17px/1.35 var(--wb-font-display);
+  letter-spacing: -0.4px;
+  color: var(--wb-ink);
+}
+.mrr-list li { white-space: nowrap; }
+.mrr-list .ccy { font-size: 12px; color: var(--wb-muted-soft); letter-spacing: 0.2px; }
+@media (max-width: 640px) {
+  .kpi { padding: 16px 14px 14px; }
+  .kpi-value { font-size: 28px; }
 }
 
-.two-col {
-  display: grid;
-  grid-template-columns: 1fr 1.5fr;
-  gap: 1rem;
-}
-@media (max-width: 1000px) { .two-col { grid-template-columns: 1fr; } }
-
-/* Bar chart gets the width its 12 months need; it grows to match the AR card's height. */
+/* ---------- cards ---------- */
 .chart-row {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 1rem;
+  gap: 24px;
 }
 @media (max-width: 1000px) { .chart-row { grid-template-columns: minmax(0, 1fr); } }
-.chart-row > .card { display: flex; flex-direction: column; }
-.chart-row > .card > .chart-wrap:not(.ar-pie) { flex: 1 1 320px; height: auto; min-height: 320px; }
+.two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: 24px;
+}
+@media (max-width: 1000px) { .two-col { grid-template-columns: minmax(0, 1fr); } }
 
-.card-head {
+.dash-card { display: flex; flex-direction: column; min-width: 0; }
+.dash-card-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 1.1rem 1.25rem 0.75rem;
-  gap: 1rem;
-  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  padding: 28px 28px 0;
 }
-.card-head h3 { margin: 0; font-size: 0.95rem; font-weight: 600; }
-.card-head .subtitle { margin: 0.15rem 0 0; color: var(--color-text-muted); font-size: 0.8rem; }
+.dash-card-head.ruled { padding: 24px 28px 18px; border-bottom: 1px solid var(--wb-line); align-items: flex-end; }
+.card-title {
+  font: 500 20px/1.2 var(--wb-font-display);
+  letter-spacing: -0.5px;
+  color: var(--wb-ink);
+  margin: 0;
+}
+.card-sub { margin: 4px 0 0; color: var(--wb-muted); font-size: 13px; line-height: 1.5; }
+.card-note { margin: 0 28px 20px; color: var(--wb-muted-soft); font-size: 12px; }
+.head-tag { flex: none; white-space: nowrap; }
+.empty-state .app-icon { margin-left: auto; margin-right: auto; }
+.head-link { font-size: 13px; white-space: nowrap; text-decoration: none; }
+.head-link:hover { text-decoration: underline; }
+@media (max-width: 640px) {
+  .dash-card-head { padding: 20px 18px 0; }
+  .dash-card-head.ruled { padding: 18px 18px 14px; }
+  .card-note { margin: 0 18px 16px; }
+}
 
-.ar-list { list-style: none; padding: 0.5rem 0; margin: 0; }
-.ar-list li {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 0.75rem 1.25rem;
-}
-.ar-list li:not(:last-child) { border-bottom: 1px solid var(--color-border); }
-.ar-ccy {
-  font-weight: 600; font-size: 0.8rem;
-  background: var(--color-surface-alt);
-  padding: 0.2rem 0.55rem; border-radius: 6px;
-  color: var(--color-text-muted);
-}
-.ar-amt { font-weight: 600; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
-
-.activity { list-style: none; padding: 0; margin: 0; }
-.activity li {
-  padding: 0.8rem 1.25rem;
-}
-.activity li:not(:last-child) { border-bottom: 1px solid var(--color-border); }
-/* Upcoming list: fill the card, whose height follows the activity card beside it,
-   then scroll. height: 0 stops a long list from stretching the row; ~5 rows minimum. */
-.upcoming-card { display: flex; flex-direction: column; }
-.upcoming-list { flex: 1 1 0; height: 0; min-height: 15.5rem; overflow-y: auto; }
-.act-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.act-payer { font-weight: 500; }
-.act-amt { font-variant-numeric: tabular-nums; color: var(--color-text-muted); font-size: 0.85rem; }
-.act-time { margin-left: auto; color: var(--color-text-subtle); font-size: 0.78rem; }
-.act-details { margin-top: 0.35rem; color: var(--color-text-muted); font-size: 0.8rem; }
-.act-details > * + *::before { content: " · "; color: var(--color-text-subtle); }
-.act-reasons { margin-top: 0.35rem; display: flex; flex-wrap: wrap; gap: 0.3rem; }
-.chart-wrap { padding: 1rem 1.25rem 1.25rem; height: 320px; position: relative; }
+/* ---------- charts ---------- */
+.chart-wrap { position: relative; padding: 22px 28px 24px; }
 .chart-wrap :deep(.p-chart),
 .chart-wrap :deep(.p-chart > *) { height: 100%; width: 100%; }
 .chart-wrap :deep(canvas) { height: 100% !important; width: 100% !important; }
-.chart-empty { padding: 3rem 1.25rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; color: var(--color-text-muted); }
+/* Bar chart gets the width its 12 months need; it grows to the AR card's height. */
+.revenue-wrap { flex: 1 1 340px; min-height: 340px; }
+.chart-empty { padding: 3rem 1.25rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; color: var(--wb-muted); }
 .chart-empty .app-icon { width: 1.5rem; height: 1.5rem; }
+@media (max-width: 640px) { .chart-wrap { padding: 18px 12px 18px; } }
 
-.reason-chip {
-  font-size: 0.72rem; padding: 0.15rem 0.45rem;
-  background: var(--color-surface-alt);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  border-radius: 4px;
+.ar-list { list-style: none; padding: 0; margin: 18px 28px 0; }
+.ar-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--wb-line);
+}
+.ar-ccy {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font: 500 11px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--wb-muted-soft);
+}
+.swatch { width: 10px; height: 10px; flex: none; }
+.ar-amt {
+  font: 500 20px var(--wb-font-display);
+  letter-spacing: -0.6px;
+  color: var(--wb-ink);
+  white-space: nowrap;
+}
+.ar-pie-block { padding: 18px 28px 0; }
+.ar-pie-block .chart-wrap { padding: 12px 0 24px; }
+.ar-pie { height: 260px; }
+@media (max-width: 640px) {
+  .ar-list { margin: 14px 18px 0; }
+  .ar-pie-block { padding: 14px 18px 0; }
 }
 
-.ar-pie { height: 260px; }
-.pie-caption { margin: 0 1.25rem 0.25rem; color: var(--color-text-muted); font-size: 0.8rem; }
-.pie-note { margin: 0.25rem 1.25rem 0.75rem; color: var(--color-text-subtle); font-size: 0.75rem; }
+/* ---------- list cards ---------- */
+.rows { list-style: none; padding: 0; margin: 0; }
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 4px 14px;
+  align-items: center;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--wb-line);
+}
+.row:last-child { border-bottom: 0; }
+.row:hover { background: var(--wb-surface-2); }
+.row-main { min-width: 0; }
+.row-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-amt { color: var(--wb-muted); font-size: 13px; white-space: nowrap; }
+.row-time { font-size: 12px; color: var(--wb-muted-soft); white-space: nowrap; }
+.row-details,
+.row-reasons { grid-column: 2 / span 2; }
+.row-details { font-size: 13px; color: var(--wb-muted); }
+.row-details > * + *::before { content: " · "; color: var(--wb-muted-soft); }
+.doc-no { white-space: nowrap; }
+.row-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.reason-chip {
+  font-size: 11px;
+  padding: 2px 7px;
+  background: var(--wb-surface-2);
+  border: 1px solid var(--wb-line);
+  color: var(--wb-muted);
+  border-radius: 2px;
+}
+@media (max-width: 640px) {
+  .row { padding: 14px 18px; gap: 4px 10px; }
+  .row-details,
+  .row-reasons { grid-column: 1 / -1; }
+}
+
+/* Upcoming list: fill the card, whose height follows the activity card beside it,
+   then scroll. height: 0 stops a long list from stretching the row; ~5 rows minimum. */
+.upcoming-list { flex: 1 1 0; height: 0; min-height: 22rem; overflow-y: auto; }
+@media (max-width: 1000px) { .upcoming-list { flex: none; height: auto; max-height: 28rem; min-height: 0; } }
 </style>
