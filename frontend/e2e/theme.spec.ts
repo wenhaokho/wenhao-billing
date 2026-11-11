@@ -45,15 +45,15 @@ test("select panel follows dark mode", async ({ page }) => {
   expect(luminance, `overlay background "${bg}" is dark`).toBeLessThan(0.2);
 });
 
-test("primary colour is blue, as before the upgrade", async ({ page }) => {
+test("primary colour is the brand red, light and dark", async ({ page }) => {
   await page.goto("/invoices");
   const button = page.getByRole("button", { name: "New invoice" });
   await expect(button).toBeVisible();
   const bg = () => button.evaluate((el) => getComputedStyle(el).backgroundColor);
-  // Aura blue.500 in light mode.
-  await expect.poll(bg).toBe("rgb(59, 130, 246)");
+  // Brand red #a51c30 in light mode.
+  await expect.poll(bg).toBe("rgb(165, 28, 48)");
   await page.getByRole("button", { name: "Switch to dark theme" }).click();
   await expect(page.getByRole("button", { name: "Switch to light theme" })).toBeVisible();
-  // Aura's dark-mode primary is primary.400 = blue.400.
-  await expect.poll(bg).toBe("rgb(96, 165, 250)");
+  // The dark-mode red #c9414f (spec "Dark tokens").
+  await expect.poll(bg).toBe("rgb(201, 65, 79)");
 });

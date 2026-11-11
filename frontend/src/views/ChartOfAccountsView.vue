@@ -7,6 +7,7 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 
 interface Account {
@@ -114,10 +115,7 @@ function typeSeverity(t: string) {
           <Column field="name" header="Name" />
           <Column header="Status" :style="{ width: '110px' }">
             <template #body="{ data: row }">
-              <Tag
-                :value="row.active ? 'Active' : 'Inactive'"
-                :severity="row.active ? 'success' : 'secondary'"
-              />
+              <StatusTag :status="row.active ? 'ACTIVE' : 'INACTIVE'" />
             </template>
           </Column>
           <Column header="" :style="{ width: '160px' }">

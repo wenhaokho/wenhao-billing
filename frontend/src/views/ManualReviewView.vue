@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
@@ -80,11 +81,6 @@ const reverse = useMutation({
   },
 });
 
-function statusSeverity(status: string) {
-  if (status === "CLEARED") return "success";
-  if (status === "FLAGGED") return "warn";
-  return "danger";
-}
 </script>
 
 <template>
@@ -135,7 +131,7 @@ function statusSeverity(status: string) {
       <aside v-if="selected" class="detail card">
         <div class="detail-head">
           <h2>Payment {{ selected.payment_id.slice(0, 8) }}…</h2>
-          <Tag :value="selected.status" :severity="statusSeverity(selected.status)" />
+          <StatusTag :status="selected.status" />
         </div>
         <dl>
           <dt>Payer</dt><dd>{{ selected.payer_name }}</dd>

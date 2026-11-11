@@ -7,7 +7,7 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import Chip from "primevue/chip";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import ToggleSwitch from "primevue/toggleswitch";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
@@ -175,10 +175,7 @@ function confirmDeactivate(row: Customer) {
       </Column>
       <Column header="Status">
         <template #body="{ data: row }">
-          <Tag
-            :value="row.active ? 'Active' : 'Inactive'"
-            :severity="row.active ? 'success' : 'secondary'"
-          />
+          <StatusTag :status="row.active ? 'ACTIVE' : 'INACTIVE'" />
         </template>
       </Column>
       <Column header="" :style="{ width: '200px' }">

@@ -10,7 +10,7 @@ import InputNumber from "primevue/inputnumber";
 import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import { useConfirm } from "primevue/useconfirm";
 import { api } from "@/api/client";
 import { formatAmount, formatMoney } from "@/utils/money";
@@ -550,18 +550,6 @@ const resendReceipt = useMutation({
   },
 });
 
-function statusSeverity(status: string) {
-  switch (status) {
-    case "PAID": return "success";
-    case "OPEN": return "info";
-    case "SENT": return "info";
-    case "PARTIAL": return "warn";
-    case "VOID": return "secondary";
-    case "DRAFT": return "contrast";
-    default: return undefined;
-  }
-}
-
 const selectedCustomer = computed(() => {
   if (!customerId.value) return null;
   return (customers.value ?? []).find((c) => c.customer_id === customerId.value) ?? null;
@@ -817,12 +805,8 @@ const canSave = computed(() => {
         </p>
       </div>
       <div class="page-actions">
-        <Tag v-if="templateEnded" value="ENDED" severity="secondary" />
-        <Tag
-          v-else-if="existing?.status"
-          :value="existing.status"
-          :severity="statusSeverity(existing.status)"
-        />
+        <StatusTag v-if="templateEnded" status="ENDED" />
+        <StatusTag v-else-if="existing?.status" :status="existing.status" />
         <Button
           label="Preview PDF"
           icon="pi pi-file-pdf"

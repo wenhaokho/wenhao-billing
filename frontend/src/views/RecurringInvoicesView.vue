@@ -9,7 +9,7 @@ import Button from "primevue/button";
 import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
@@ -105,14 +105,6 @@ function openNew() {
   router.push({ name: "invoice-recurring-new", query: { from: route.fullPath } });
 }
 
-function statusSeverity(status: string) {
-  return status === "ACTIVE"
-    ? "success"
-    : status === "ENDED"
-      ? "secondary"
-      : "warn";
-}
-
 function fmtDate(d: string | null) {
   return d ?? "—";
 }
@@ -194,7 +186,7 @@ function fmtDate(d: string | null) {
 
       <Column header="Status">
         <template #body="{ data: row }">
-          <Tag :value="row.status" :severity="statusSeverity(row.status)" />
+          <StatusTag :status="row.status" />
         </template>
       </Column>
 

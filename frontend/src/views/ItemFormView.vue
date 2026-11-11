@@ -9,7 +9,7 @@ import Checkbox from "primevue/checkbox";
 import Textarea from "primevue/textarea";
 import Select from "primevue/select";
 import Message from "primevue/message";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 
 interface CloudflareTarget {
@@ -180,16 +180,6 @@ const incomeAccounts = computed(
 const expenseAccounts = computed(
   () => (accounts.value ?? []).filter((a) => a.type === "EXPENSE" || a.type === "COGS"),
 );
-
-function statusSeverity(s: string | null | undefined) {
-  switch (s) {
-    case "ACTIVE": return "success";
-    case "SUSPENDED": return "danger";
-    case "SUSPEND_PENDING": return "warn";
-    case "CANCELLED": return "secondary";
-    default: return undefined;
-  }
-}
 
 function buildBody() {
   const body: Record<string, unknown> = {
@@ -397,13 +387,9 @@ function cancel() {
         <div v-if="form.is_hosting" class="sub-body">
           <div v-if="isEdit && existing?.hosting_status" class="status-row">
             <span class="status-label">Status</span>
-            <Tag :value="existing.hosting_status" :severity="statusSeverity(existing.hosting_status)" />
+            <StatusTag :status="existing.hosting_status" />
             <span v-if="existing.cloudflare_target?.provider_status" class="status-label">Provider</span>
-            <Tag
-              v-if="existing.cloudflare_target?.provider_status"
-              :value="existing.cloudflare_target.provider_status"
-              :severity="statusSeverity(existing.cloudflare_target.provider_status)"
-            />
+            <StatusTag v-if="existing.cloudflare_target?.provider_status" :status="existing.cloudflare_target.provider_status" />
             <span v-if="existing.hosting_last_error" class="error-detail">{{ existing.hosting_last_error }}</span>
           </div>
 

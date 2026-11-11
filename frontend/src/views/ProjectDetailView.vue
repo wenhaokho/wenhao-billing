@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 import { formatMoney } from "@/utils/money";
 
@@ -95,18 +95,6 @@ const { data: quotations } = useQuery<Quotation[]>({
     ).data,
 });
 
-function quoteStatusSeverity(s: string) {
-  switch (s) {
-    case "ACCEPTED": case "INVOICED": return "success";
-    case "SENT": return "info";
-    case "EXPIRED": return "warn";
-    case "DECLINED": return "danger";
-    case "VOID": return "secondary";
-    case "DRAFT": return "contrast";
-    default: return undefined;
-  }
-}
-
 function openQuotation(row: Quotation) {
   router.push({ name: "quotation-detail", params: { quotationId: row.quotation_id } });
 }
@@ -125,17 +113,6 @@ const contractPct = computed(() => {
   const inv = Number(summary.value.invoiced_total);
   return Math.min(100, (inv / cv) * 100);
 });
-
-function statusSeverity(s: string) {
-  switch (s) {
-    case "ACTIVE": case "PAID": return "success";
-    case "ON_HOLD": case "PARTIAL": return "warn";
-    case "COMPLETED": case "OPEN": case "SENT": return "info";
-    case "CANCELLED": case "VOID": return "danger";
-    case "DRAFT": return "secondary";
-    default: return undefined;
-  }
-}
 
 function backToList() {
   router.push(backTo.value);
@@ -160,7 +137,7 @@ function openInvoice(row: Invoice) {
         <div>
           <div class="eyebrow">
             <code>{{ project.code }}</code>
-            <Tag :value="project.status" :severity="statusSeverity(project.status)" />
+            <StatusTag :status="project.status" />
           </div>
           <h1>{{ project.name }}</h1>
           <p v-if="customer" class="subtitle">
@@ -242,7 +219,7 @@ function openInvoice(row: Invoice) {
           </Column>
           <Column header="Status">
             <template #body="{ data: row }">
-              <Tag :value="row.status" :severity="statusSeverity(row.status)" />
+              <StatusTag :status="row.status" />
             </template>
           </Column>
           <Column header="" :style="{ width: '70px' }">
@@ -269,7 +246,7 @@ function openInvoice(row: Invoice) {
           </Column>
           <Column header="Status">
             <template #body="{ data: row }">
-              <Tag :value="row.status" :severity="quoteStatusSeverity(row.status)" />
+              <StatusTag :status="row.status" />
             </template>
           </Column>
           <Column header="Issued">

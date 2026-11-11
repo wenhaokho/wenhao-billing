@@ -6,7 +6,7 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import Chip from "primevue/chip";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
@@ -128,19 +128,6 @@ const quotationsQuery = useQuery<QuotationRow[]>({
     ).data,
 });
 
-function quotationStatusSeverity(status: string): "success" | "info" | "warn" | "secondary" | "danger" | "contrast" | undefined {
-  switch (status) {
-    case "ACCEPTED": return "success";
-    case "SENT": return "info";
-    case "INVOICED": return "success";
-    case "EXPIRED": return "warn";
-    case "DECLINED": return "danger";
-    case "VOID": return "secondary";
-    case "DRAFT": return "contrast";
-    default: return undefined;
-  }
-}
-
 const today = new Date();
 
 function daysUntilDue(dueDate: string): number {
@@ -159,18 +146,6 @@ function dueLabel(row: InvoiceRow): string {
   if (days < 0) return `Due ${Math.abs(days)} days ago`;
   if (days === 0) return "Due today";
   return `Due in ${days} days`;
-}
-
-function statusSeverity(status: string): "success" | "info" | "warn" | "secondary" | "danger" {
-  switch (status) {
-    case "PAID": return "success";
-    case "OPEN": return "info";
-    case "SENT": return "info";
-    case "PARTIAL": return "warn";
-    case "DRAFT": return "secondary";
-    case "VOID": return "danger";
-    default: return "secondary";
-  }
 }
 
 function invoiceTypeLabel(type: string): string {
@@ -389,10 +364,7 @@ watch(
 
           <div class="cd-group">
             <div class="cd-label">Status</div>
-            <Tag
-              :value="customerQuery.data.value.active ? 'Active' : 'Inactive'"
-              :severity="customerQuery.data.value.active ? 'success' : 'secondary'"
-            />
+            <StatusTag :status="customerQuery.data.value.active ? 'ACTIVE' : 'INACTIVE'" />
           </div>
 
           <div
@@ -471,16 +443,8 @@ watch(
                 </template>
                 <Column header="Status" :style="{ width: '120px' }">
                   <template #body="{ data: row }">
-                    <Tag
-                      v-if="isOverdue(row)"
-                      value="Overdue"
-                      severity="danger"
-                    />
-                    <Tag
-                      v-else
-                      :value="row.status"
-                      :severity="statusSeverity(row.status)"
-                    />
+                    <StatusTag v-if="isOverdue(row)" status="OVERDUE" />
+                    <StatusTag v-else :status="row.status" />
                   </template>
                 </Column>
                 <Column header="Type" :style="{ width: '110px' }">
@@ -525,16 +489,8 @@ watch(
               </template>
               <Column header="Status" :style="{ width: '120px' }">
                 <template #body="{ data: row }">
-                  <Tag
-                    v-if="isOverdue(row)"
-                    value="Overdue"
-                    severity="danger"
-                  />
-                  <Tag
-                    v-else
-                    :value="row.status"
-                    :severity="statusSeverity(row.status)"
-                  />
+                  <StatusTag v-if="isOverdue(row)" status="OVERDUE" />
+                  <StatusTag v-else :status="row.status" />
                 </template>
               </Column>
               <Column header="Type">
@@ -582,7 +538,7 @@ watch(
               </Column>
               <Column header="Status" :style="{ width: '120px' }">
                 <template #body="{ data: row }">
-                  <Tag :value="row.status" :severity="quotationStatusSeverity(row.status)" />
+                  <StatusTag :status="row.status" />
                 </template>
               </Column>
               <Column field="issue_date" header="Issued" />

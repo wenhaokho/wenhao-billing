@@ -10,7 +10,7 @@ import InputNumber from "primevue/inputnumber";
 import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 import {
@@ -250,18 +250,6 @@ const selectedCustomer = computed(
   () => (customers.value ?? []).find((c) => c.customer_id === customerId.value) ?? null,
 );
 
-function statusSeverity(status: string) {
-  switch (status) {
-    case "ACCEPTED": case "INVOICED": return "success";
-    case "SENT": return "info";
-    case "EXPIRED": return "warn";
-    case "DECLINED": return "danger";
-    case "VOID": return "secondary";
-    case "DRAFT": return "contrast";
-    default: return undefined;
-  }
-}
-
 function openPdfPreview() {
   if (!props.quotationId) return;
   window.open(`/api/v1/quotations/${props.quotationId}/pdf`, "_blank", "noopener");
@@ -282,7 +270,7 @@ function openPdfPreview() {
         </p>
       </div>
       <div class="page-actions">
-        <Tag v-if="existing?.status" :value="existing.status" :severity="statusSeverity(existing.status)" />
+        <StatusTag v-if="existing?.status" :status="existing.status" />
         <Button
           label="Preview PDF"
           icon="pi pi-file-pdf"

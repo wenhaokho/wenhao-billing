@@ -10,7 +10,7 @@ import InputNumber from "primevue/inputnumber";
 import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import { api } from "@/api/client";
@@ -278,16 +278,6 @@ const canSave = computed(
     lineItems.value.some((ln) => ln.description.trim() && Number(ln.quantity) > 0),
 );
 
-function statusSeverity(status: string) {
-  switch (status) {
-    case "PAID": return "success";
-    case "OPEN": return "info";
-    case "PARTIAL": return "warn";
-    case "VOID": return "secondary";
-    case "DRAFT": return "contrast";
-    default: return undefined;
-  }
-}
 </script>
 
 <template>
@@ -305,7 +295,7 @@ function statusSeverity(status: string) {
       </div>
       <div class="page-actions">
         <template v-if="readOnly">
-          <Tag v-if="existing?.status" :value="existing.status" :severity="statusSeverity(existing.status)" />
+          <StatusTag v-if="existing?.status" :status="existing.status" />
           <Button
             v-if="canRecordPayment"
             label="Record payment"

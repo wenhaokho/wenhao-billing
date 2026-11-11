@@ -177,10 +177,18 @@ export function numbersNear(anchor: Locator): Locator {
   return anchor.locator("xpath=ancestor::*[.//*[@role='spinbutton']][1]").getByRole("spinbutton");
 }
 
-/** Status chips (PrimeVue Tag) of the rendered table body rows. */
+/**
+ * API status codes of the status chips (StatusTag, a PrimeVue Tag carrying
+ * data-status) in the rendered table body rows. The chip shows a label
+ * ("Partially paid"); data-status keeps the code ("PARTIAL").
+ */
 export async function rowStatuses(page: Page): Promise<string[]> {
   return page
-    .locator('tbody tr [data-pc-name="tag"]')
-    .allInnerTexts()
-    .then((t) => t.map((s) => s.trim()));
+    .locator('tbody tr [data-pc-name="tag"][data-status]')
+    .evaluateAll((els) => els.map((el) => (el.getAttribute("data-status") ?? "").trim()));
+}
+
+/** A status chip (StatusTag) by its API status code. */
+export function statusChip(scope: Page | Locator, status: string): Locator {
+  return scope.locator(`[data-pc-name="tag"][data-status="${status}"]`);
 }

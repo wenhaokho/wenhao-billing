@@ -4,7 +4,7 @@ import { useRouter, useRoute } from "vue-router";
 import { useReturnTo } from "@/composables/useReturnTo";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import Menu from "primevue/menu";
 import type { MenuItem } from "primevue/menuitem";
 import Message from "primevue/message";
@@ -83,19 +83,6 @@ const customer = computed(() => {
     ) ?? null
   );
 });
-
-function statusSeverity(status: string) {
-  switch (status) {
-    case "ACCEPTED": return "success";
-    case "SENT": return "info";
-    case "INVOICED": return "success";
-    case "EXPIRED": return "warn";
-    case "DECLINED": return "danger";
-    case "VOID": return "secondary";
-    case "DRAFT": return "contrast";
-    default: return undefined;
-  }
-}
 
 const canEdit = computed(() => {
   const s = quote.value?.status;
@@ -325,7 +312,7 @@ function toggleMoreMenu(event: Event) {
             <h1>
               {{ quote.quotation_number ?? "New quotation" }}
             </h1>
-            <Tag :value="quote.status" :severity="statusSeverity(quote.status)" />
+            <StatusTag :status="quote.status" />
           </div>
           <p class="subtitle">
             <span v-if="customer">{{ customer.name }}</span>

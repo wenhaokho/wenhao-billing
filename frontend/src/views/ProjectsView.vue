@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
@@ -86,15 +86,6 @@ function openDetail(row: Project) {
   router.push({ name: "project-detail", params: { projectId: row.project_id }, query: { from: route.fullPath } });
 }
 
-function statusSeverity(s: string) {
-  switch (s) {
-    case "ACTIVE": return "success";
-    case "ON_HOLD": return "warn";
-    case "COMPLETED": return "info";
-    case "CANCELLED": return "danger";
-    default: return undefined;
-  }
-}
 </script>
 
 <template>
@@ -155,7 +146,7 @@ function statusSeverity(s: string) {
       </Column>
       <Column header="Status">
         <template #body="{ data: row }">
-          <Tag :value="row.status" :severity="statusSeverity(row.status)" />
+          <StatusTag :status="row.status" />
         </template>
       </Column>
       <Column header="" :style="{ width: '140px' }">

@@ -1,0 +1,43 @@
+/*
+ * PrimeVue styling the preset's tokens cannot express (spec "Visual system").
+ * Colours come from the --wb-* variables in assets/app.css, so dark mode
+ * follows without repeating rules here.
+ */
+
+/* Buttons: 42px pills (Aura has no height token). */
+.p-button:not(.p-button-sm):not(.p-button-lg) { min-height: 42px; }
+.p-button.p-button-sm { padding: 0.35rem 0.85rem; font-size: 0.82rem; }
+
+/* Status chips: 10px uppercase, 1px tracking. */
+.p-tag { text-transform: uppercase; letter-spacing: 1px; line-height: 1.4; }
+
+/* Tables: square, 1px line border, no shadow; header 11px uppercase muted-soft. */
+.p-datatable-table-container {
+  border: 1px solid var(--wb-line);
+  border-radius: 0;
+  overflow: hidden;
+  background: var(--wb-surface);
+}
+.p-datatable .p-datatable-thead > tr > th {
+  background: var(--wb-surface) !important;
+  color: var(--wb-muted-soft) !important;
+  font-weight: 500 !important;
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  border-bottom: 1px solid var(--wb-line) !important;
+}
+.p-datatable .p-datatable-tbody > tr > td { border-bottom: 1px solid var(--wb-line) !important; }
+.p-datatable .p-datatable-tbody > tr:hover { background: var(--wb-surface-2) !important; }
+.p-datatable .p-datatable-tbody > tr:last-child > td { border-bottom: none !important; }
+
+/* Cards: Aura's Card has no border token. */
+.p-card { border: 1px solid var(--wb-line); }
+
+/* Invalid fields. */
+.p-inputtext[aria-invalid="true"],
+.p-select[aria-invalid="true"],
+.p-password[aria-invalid="true"] > .p-inputtext {
+  border-color: var(--wb-red) !important;
+  box-shadow: none !important;
+}

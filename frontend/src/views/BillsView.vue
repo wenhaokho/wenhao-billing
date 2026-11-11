@@ -8,7 +8,7 @@ import Button from "primevue/button";
 import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
@@ -75,16 +75,6 @@ const vendorNameById = computed(() => {
   return map;
 });
 
-function statusSeverity(status: string) {
-  switch (status) {
-    case "PAID": return "success";
-    case "OPEN": return "info";
-    case "PARTIAL": return "warn";
-    case "VOID": return "secondary";
-    case "DRAFT": return "contrast";
-    default: return undefined;
-  }
-}
 </script>
 
 <template>
@@ -143,7 +133,7 @@ function statusSeverity(status: string) {
       </Column>
       <Column header="Status">
         <template #body="{ data: row }">
-          <Tag :value="row.status" :severity="statusSeverity(row.status)" />
+          <StatusTag :status="row.status" />
         </template>
       </Column>
       <Column header="Amount" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">

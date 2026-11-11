@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import Button from "primevue/button";
 import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 import { formatMoney } from "@/utils/money";
 
@@ -71,10 +72,7 @@ function goEdit() {
         <h1>{{ item?.name ?? (isLoading ? "Loading…" : "Item") }}</h1>
         <p v-if="item" class="subtitle tag-row">
           <Tag :value="item.item_type" :severity="typeSeverity(item.item_type)" />
-          <Tag
-            :value="item.active ? 'Active' : 'Inactive'"
-            :severity="item.active ? 'success' : 'secondary'"
-          />
+          <StatusTag :status="item.active ? 'ACTIVE' : 'INACTIVE'" />
         </p>
       </div>
       <div class="page-actions">

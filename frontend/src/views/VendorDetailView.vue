@@ -2,7 +2,7 @@
 import { useRouter } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import Button from "primevue/button";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 
 interface Vendor {
@@ -41,10 +41,7 @@ function goEdit() {
       <div>
         <h1>{{ vendor?.name ?? (isLoading ? "Loading…" : "Vendor") }}</h1>
         <p v-if="vendor" class="subtitle">
-          <Tag
-            :value="vendor.active ? 'Active' : 'Inactive'"
-            :severity="vendor.active ? 'success' : 'secondary'"
-          />
+          <StatusTag :status="vendor.active ? 'ACTIVE' : 'INACTIVE'" />
         </p>
       </div>
       <div class="page-actions">

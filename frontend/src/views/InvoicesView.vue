@@ -8,7 +8,7 @@ import Button from "primevue/button";
 import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
 import { whtOutstanding } from "@/composables/withholding";
 import { useConfirm } from "primevue/useconfirm";
@@ -201,17 +201,6 @@ function canRecordPayment(row: Invoice): boolean {
     && Number(row.balance_due) > 0;
 }
 
-function statusSeverity(status: string) {
-  switch (status) {
-    case "PAID": return "success";
-    case "OPEN": return "info";
-    case "SENT": return "info";
-    case "PARTIAL": return "warn";
-    case "VOID": return "secondary";
-    case "DRAFT": return "contrast";
-    default: return undefined;
-  }
-}
 </script>
 
 <template>
@@ -281,7 +270,7 @@ function statusSeverity(status: string) {
       <Column field="invoice_type" header="Type" />
       <Column header="Status">
         <template #body="{ data: row }">
-          <Tag :value="row.status" :severity="statusSeverity(row.status)" />
+          <StatusTag :status="row.status" />
         </template>
       </Column>
       <Column header="Amount" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
