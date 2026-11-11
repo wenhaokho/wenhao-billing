@@ -266,6 +266,31 @@ func TestReceiptBalanceFollowsClearingOrderNotPaymentDate(t *testing.T) {
 	}
 }
 
+// reconciliation_log.created_at is nullable: a payment whose clearing row has
+// none still loads (it has no clear time and sorts first) instead of failing
+// to scan a NULL MAX.
+func TestReceiptLoadsWhenClearingRowHasNoTime(t *testing.T) {
+	t.Parallel()
+	a, _, _, inv := issued(t, "1000", "0")
+	rec := a.Do(t, http.MethodPost, "/api/v1/invoices/"+inv.String()+"/record-payment",
+		map[string]any{"amount": "400", "payment_date": "2026-04-12", "payer_name": "Acme"})
+	pay := apitest.Decode[payments.PaymentOut](t, rec, http.StatusCreated)
+	tag, err := a.Pool.Exec(t.Context(), `UPDATE reconciliation_log SET created_at = NULL WHERE payment_id = $1`, pay.PaymentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag.RowsAffected() == 0 {
+		t.Fatal("the payment has no reconciliation_log row to clear the time of")
+	}
+	data, err := pdf.LoadReceipt(t.Context(), a.Pool, pay.PaymentID)
+	if err != nil {
+		t.Fatalf("LoadReceipt: %v", err)
+	}
+	if !data.BalanceAfter.Equal(decimal.NewFromInt(600)) {
+		t.Errorf("BalanceAfter %s, want 600", data.BalanceAfter)
+	}
+}
+
 // An approval that books withholding (SetPaymentWithheld) relieves by amount +
 // withheld, and the replay agrees with the stored balance_due at each step.
 func TestReplayMatchesStoredBalanceAfterApprovalWithWithholding(t *testing.T) {

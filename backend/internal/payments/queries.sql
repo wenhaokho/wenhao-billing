@@ -101,6 +101,9 @@ SELECT l.payment_id, MAX(l.created_at)::timestamp AS cleared_at
   FROM reconciliation_log l
   JOIN payments p ON p.payment_id = l.payment_id
  WHERE p.invoice_id = $1 AND l.action IN ('CLEARED', 'OVERRIDDEN')
+   -- created_at is nullable: a payment whose rows all lack it has no
+   -- clear time (it sorts first) instead of a NULL MAX the scan rejects.
+   AND l.created_at IS NOT NULL
  GROUP BY l.payment_id;
 
 -- name: ListAwaitingReview :many
