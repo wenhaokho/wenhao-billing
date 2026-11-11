@@ -9848,7 +9848,7 @@
     },
     "/api/v1/invoices/{invoice_id}/record-payment": {
       "post": {
-        "description": "A CLEARED MANUAL payment in the invoice's currency. The balance falls by the amount plus the withheld amount: to 0 is PAID, otherwise PARTIAL. A DRAFT or VOID invoice, both amounts 0, more than the balance, or more withholding than is outstanding is refused. Nothing is posted to the ledger, so such a payment cannot be reversed.",
+        "description": "A CLEARED MANUAL payment in the invoice's currency. The balance falls by the amount plus the withheld amount: to 0 is PAID, otherwise PARTIAL. A DRAFT or VOID invoice, both amounts 0, more than the balance, or more withholding than is outstanding is refused. The payment's journal entry is posted as an approved payment's is, so it can be reversed; a ledger refusal or a missing FX rate is refused and nothing is kept.",
         "operationId": "invoices-record-payment",
         "parameters": [
           {

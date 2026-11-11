@@ -884,6 +884,8 @@ func TestApproveReverseTwiceUndoesLatestClearing(t *testing.T) {
 	}
 }
 
+// A manual payment recorded without an entry (by Python, before PORT-NOTES
+// 161) is still refused.
 func TestReverseManualPaymentHasNoEntry(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

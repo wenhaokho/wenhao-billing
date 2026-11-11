@@ -243,7 +243,9 @@ func stillClears(inc matching.Incoming, inv paymentsdb.LockInvoiceRow) bool {
 // row names the invoice; actor may be nil (MCP).
 //
 // Refusals are ErrPayment with Python's sentence, plus Go's own: a DRAFT or
-// VOID invoice is "cannot approve payment against <STATUS> invoice". A PAID
+// VOID invoice is "cannot approve payment against <STATUS> invoice", and a
+// payment with no cash (a reversed withholding-only manual payment) is
+// "payment <id> has no cash amount; record the withholding again". A PAID
 // invoice, another currency and an amount above the balance are accepted as
 // in Python. A ledger refusal or a missing rate is returned unchanged
 // (errors.Is ledger.ErrLedger or fx.ErrRateMissing; its text is Python's
@@ -257,6 +259,11 @@ func (s Service) ApproveManual(ctx context.Context, tx pgx.Tx, paymentID, invoic
 	}
 	if p.Status == matching.StatusCleared {
 		return paymentsdb.Payment{}, refuse("payment %s already CLEARED", paymentID)
+	}
+	// Only a reversed withholding-only manual payment (PORT-NOTES 161) has
+	// no cash; clear would post amount 0 without its withholding.
+	if !p.Amount.IsPositive() {
+		return paymentsdb.Payment{}, refuse("payment %s has no cash amount; record the withholding again", paymentID)
 	}
 	inv, found, err := lockInvoice(ctx, q, invoiceID)
 	if err != nil {

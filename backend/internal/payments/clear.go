@@ -42,10 +42,7 @@ func (s Service) clear(ctx context.Context, tx pgx.Tx, p paymentsdb.Payment, inv
 	if err := q.SetPaymentWithheld(ctx, paymentsdb.SetPaymentWithheldParams{PaymentID: p.PaymentID, WhtAmount: withheld}); err != nil {
 		return fmt.Errorf("payments: set wht_amount: %w", err)
 	}
-	if _, err := ledger.PostPaymentCleared(ctx, tx, s.BaseCurrency,
-		ledger.Payment{ID: p.PaymentID, Status: p.Status, Amount: p.Amount, Currency: p.Currency, Date: p.PaymentDate.Time},
-		ledger.Invoice{ID: inv.InvoiceID, Currency: inv.Currency, BalanceDue: inv.BalanceDue},
-		withheld); err != nil {
+	if err := s.postCleared(ctx, tx, p, *inv, withheld); err != nil {
 		return err
 	}
 	inv.WhtBooked = inv.WhtBooked.Add(withheld)
@@ -56,4 +53,18 @@ func (s Service) clear(ctx context.Context, tx pgx.Tx, p paymentsdb.Payment, inv
 		inv.BalanceDue = decimal.Zero
 	}
 	return nil
+}
+
+// postCleared posts the CLEARED payment p's journal entry in tx against inv
+// as it stands before p relieves it, with withheld booked to Prepaid Tax. It
+// is the one posting of a cleared payment: clear (intake and approval) and
+// recordManual (record-payment) both call it, after locking the invoice, so
+// the entry is written under the invoice lock and rolls back with the caller.
+// A ledger refusal or a missing rate comes back unchanged.
+func (s Service) postCleared(ctx context.Context, tx pgx.Tx, p paymentsdb.Payment, inv paymentsdb.LockInvoiceRow, withheld decimal.Decimal) error {
+	_, err := ledger.PostPaymentCleared(ctx, tx, s.BaseCurrency,
+		ledger.Payment{ID: p.PaymentID, Status: p.Status, Amount: p.Amount, Currency: p.Currency, Date: p.PaymentDate.Time},
+		ledger.Invoice{ID: inv.InvoiceID, Currency: inv.Currency, BalanceDue: inv.BalanceDue},
+		withheld)
+	return err
 }
