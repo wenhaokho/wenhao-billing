@@ -11,3 +11,19 @@ export function toLocalIsoDate(d: Date): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+/** An API instant (`2026-11-01T07:05:00Z`) as a local day: "1 Nov 2026". */
+export function formatLocalDay(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** An API instant as a local day and time: "13 Nov 2026, 09:00". */
+export function formatLocalDateTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
