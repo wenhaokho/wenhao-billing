@@ -492,7 +492,53 @@ func TestFontsEmbedAllFamilies(t *testing.T) {
 			t.Errorf("%s %q is not a TrueType font", f.GetFamily(), f.GetStyle())
 		}
 	}
-	eq(t, "families", families, map[string]int{fontBody: 2, fontDisplay: 2, fontMono: 2})
+	eq(t, "families", families, map[string]int{"dmsans": 2, "manrope": 2, "mono": 2})
+	eq(t, "family constants", []string{fontBody, fontDisplay, fontMono}, []string{"dmsans", "manrope", "mono"})
+
+	// A rendered PDF carries Manrope, DM Sans and JetBrains Mono, and no Inter.
+	r := renderPDF(t, RenderInvoice, InvoiceDocument(inv()))
+	for _, f := range []string{"manrope", "dmsans", "mono"} {
+		if !bytes.Contains(r.raw, []byte("/BaseFont /utf8"+f)) {
+			t.Errorf("PDF has no %s font", f)
+		}
+	}
+	if bytes.Contains(r.raw, []byte("/BaseFont /utf8inter")) {
+		t.Error("PDF still references Inter")
+	}
+	for _, f := range fontFiles {
+		if strings.Contains(f.file, "Inter") {
+			t.Errorf("Inter file %s still registered", f.file)
+		}
+	}
+}
+
+func TestChipColoursCoverEveryClass(t *testing.T) {
+	t.Parallel()
+	want := map[string][2]string{
+		"paid":    {"2f6b4f", "e4efe7"},
+		"sent":    {"3b5a7a", "e3e9ef"},
+		"partial": {"8a5a12", "f6ecd6"},
+		"overdue": {"a51c30", "f3dfe1"},
+		"draft":   {"75665f", "ede7de"},
+	}
+	for class, w := range want {
+		t.Run(class, func(t *testing.T) {
+			t.Parallel()
+			fg, bg := chipColours(class)
+			eq(t, "fg", fg, hexColor(w[0]))
+			eq(t, "bg", bg, hexColor(w[1]))
+		})
+	}
+	t.Run("unknown", func(t *testing.T) {
+		t.Parallel()
+		fg, bg := chipColours("nonsense")
+		dfg, dbg := chipColours("draft")
+		if fg == nil || bg == nil {
+			t.Fatal("unknown class returned nil")
+		}
+		eq(t, "fg", fg, dfg)
+		eq(t, "bg", bg, dbg)
+	})
 }
 
 func TestDefaultLogoIsPNG(t *testing.T) {

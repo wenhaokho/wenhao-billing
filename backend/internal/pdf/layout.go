@@ -45,59 +45,44 @@ func hexColor(s string) *props.Color {
 	return &props.Color{Red: int(v >> 16 & 0xff), Green: int(v >> 8 & 0xff), Blue: int(v & 0xff)}
 }
 
-// The palette (TPL:8-16) and the few literal colours the template uses.
+// The brand palette and the few literal colours around it.
 var (
-	colNavy    = hexColor("071A3D")
-	colBlue    = hexColor("145BFF")
-	colAzure   = hexColor("008FF5")
-	colCyan    = hexColor("00D9F5")
-	colBg      = hexColor("F7FAFC")
-	colSoft    = hexColor("EAF1F8")
-	colInk     = hexColor("14213D")
-	colMuted   = hexColor("64748B")
-	colBorder  = hexColor("D7E1EC")
-	colPaid    = hexColor("0DBF9B")
-	colOverdue = hexColor("EF5B5B")
-	colWhite   = hexColor("FFFFFF")
-
-	colRef       = hexColor("AFC6E8")
-	colTableHead = hexColor("C9D8EC")
-	colFigure    = hexColor("334155")
-	colPayBorder = hexColor("CBDAEC")
-	colPayText   = hexColor("475569")
-	colFootMeta  = hexColor("9FB4D6")
-	colEvenRow   = hexColor("FBFCFE")
-	colToBox     = hexColor("F7FAFD")
+	cRed       = hexColor("a51c30") // band, total, PPh
+	cGold      = hexColor("d8bf84")
+	cInk       = hexColor("501921")
+	cLine      = hexColor("e1d7c8")
+	cMuted     = hexColor("75665f")
+	cMutedSoft = hexColor("9d8a6e") //nolint:unused // used by the redrawn layout (Task 2)
+	cSurface2  = hexColor("f6f2ea")
+	cPaidFg    = hexColor("2f6b4f") // paid pill
+	cPaidBg    = hexColor("e4efe7")
+	colWhite   = hexColor("ffffff")
 )
 
-// statusColour is the pill's colour per badge class (TPL:35-44).
-var statusColour = map[string]*props.Color{
-	"draft":   hexColor("CBD5E1"),
-	"sent":    hexColor("7FB2FF"),
-	"paid":    colPaid,
-	"partial": colCyan,
-	"overdue": hexColor("FF8A8A"),
+// chipColours is a status chip's text and fill per badge class; an unknown
+// class gets draft's neutral pair.
+func chipColours(class string) (fg, bg *props.Color) {
+	switch class {
+	case "paid":
+		return cPaidFg, cPaidBg
+	case "sent":
+		return hexColor("3b5a7a"), hexColor("e3e9ef")
+	case "partial":
+		return hexColor("8a5a12"), hexColor("f6ecd6")
+	case "overdue":
+		return cRed, hexColor("f3dfe1")
+	}
+	return cMuted, hexColor("ede7de")
 }
 
 // summaryColour is a summary value's colour per row class.
 var summaryColour = map[string]*props.Color{
-	"discount": colPaid,
-	"grossup":  colPaid,
-	"wht":      colOverdue,
-	"paid":     colAzure,
-	"total":    colInk,
-	"subtotal": colInk,
-}
-
-// gradient is the brand gradient (#145BFF -> #008FF5 -> #00D9F5) at t in [0,1].
-func gradient(t float64) *props.Color {
-	from, to := colBlue, colAzure
-	if t > 0.5 {
-		from, to, t = colAzure, colCyan, t-0.5
-	}
-	t *= 2
-	lerp := func(a, b int) int { return a + int(float64(b-a)*t+0.5) }
-	return &props.Color{Red: lerp(from.Red, to.Red), Green: lerp(from.Green, to.Green), Blue: lerp(from.Blue, to.Blue)}
+	"discount": cPaidFg,
+	"grossup":  cPaidFg,
+	"wht":      cRed,
+	"paid":     cPaidFg,
+	"total":    cInk,
+	"subtotal": cInk,
 }
 
 // font is a text style: family, bold (the family's heavier weight), size in
@@ -366,11 +351,7 @@ func layout(m core.Maroto, cfg *entity.Config, d Document, logo []byte) error {
 // headerRows is section 1: the gradient strip, the navy band with the logo,
 // title, reference and status, and the 16px gap under it.
 func headerRows(d Document, logo []byte) []core.Row {
-	strip := row.New(mm(4))
-	const stops = 21
-	for i := range stops {
-		strip.Add(col.New(gridSize / stops).WithStyle(&props.Cell{BackgroundColor: gradient(float64(i) / (stops - 1))}))
-	}
+	strip := row.New(mm(4)).Add(col.New().WithStyle(&props.Cell{BackgroundColor: cRed}))
 
 	bandH := mm(20 + 76 + 20)
 	const logoCol = 70
@@ -380,12 +361,10 @@ func headerRows(d Document, logo []byte) []core.Row {
 	}
 	title := font(fontDisplay, true, 32, colWhite)
 	title.Align, title.Top = align.Right, mm(22)
-	ref := font(fontMono, false, 12.5, colRef)
+	ref := font(fontMono, false, 12.5, cGold)
 	ref.Align, ref.Top = align.Right, mm(68)
-	status := font(fontDisplay, false, 11, statusColour[d.StatusClass])
-	if status.Color == nil {
-		status.Color = statusColour["sent"]
-	}
+	// The chip pairs are for light surfaces; on the red band the status is gold.
+	status := font(fontDisplay, false, 11, cGold)
 	status.Align, status.Top = align.Right, mm(88)
 	right := col.New(contentW-logoCol).Add(
 		newStack(0, 0,
@@ -394,7 +373,7 @@ func headerRows(d Document, logo []byte) []core.Row {
 		newStack(0, 0, block{lines: []string{d.Ref}, prop: ref}),
 		newStack(0, 0, block{lines: []string{"• " + upper(d.StatusLabel)}, prop: status}),
 	)
-	navy := &props.Cell{BackgroundColor: colNavy}
+	navy := &props.Cell{BackgroundColor: cRed}
 	return []core.Row{strip, band(bandH, navy, logoCell, right), spacer(mm(16))}
 }
 
@@ -428,10 +407,10 @@ func logoComponent(logo []byte, colW, bandH float64) core.Component {
 func footerBand(d Document) core.Row {
 	name := font(fontDisplay, false, 12, colWhite)
 	name.Top = mm(17)
-	meta := font(fontMono, false, 11.5, colFootMeta)
+	meta := font(fontMono, false, 11.5, cGold)
 	meta.Align, meta.Top = align.Right, mm(18)
 	const nameW = 90
-	return band(mm(50), &props.Cell{BackgroundColor: colNavy},
+	return band(mm(50), &props.Cell{BackgroundColor: cRed},
 		col.New(nameW).Add(newStack(0, 0, block{lines: []string{d.FootName}, prop: name})),
 		col.New(contentW-nameW).Add(newStack(0, 0, block{lines: []string{strings.Join(d.FootMeta, "    ")}, prop: meta})),
 	)
@@ -441,11 +420,11 @@ func footerBand(d Document) core.Row {
 // the PO/SO number).
 func metaStrip(d Document) core.Row {
 	n := max(len(d.Meta), 1)
-	key := font(fontBody, true, 10.5, colMuted)
+	key := font(fontBody, true, 10.5, cMuted)
 	key.Left, key.Right = mm(14), mm(14)
-	val := font(fontMono, false, 14, colInk)
+	val := font(fontMono, false, 14, cInk)
 	val.Left, val.Right, val.Top = mm(14), mm(14), mm(6)
-	box := &props.Cell{BorderType: border.Full, BorderColor: colBorder, BorderThickness: mm(1)}
+	box := &props.Cell{BorderType: border.Full, BorderColor: cLine, BorderThickness: mm(1)}
 	var cols []core.Col
 	used := 0
 	for i, c := range d.Meta {
@@ -464,10 +443,10 @@ func metaStrip(d Document) core.Row {
 
 // party is one box of section 3.
 func party(label, name string, lines []string) *stack {
-	l := font(fontDisplay, false, 11, colMuted)
-	n := font(fontDisplay, false, 16, colNavy)
+	l := font(fontDisplay, false, 11, cMuted)
+	n := font(fontDisplay, false, 16, cInk)
 	n.Top = mm(6)
-	t := font(fontBody, false, 13, colMuted)
+	t := font(fontBody, false, 13, cMuted)
 	t.Top = mm(4)
 	for _, p := range []*props.Text{&l, &n, &t} {
 		p.Left, p.Right = mm(18), mm(18)
@@ -483,8 +462,8 @@ func party(label, name string, lines []string) *stack {
 func parties(d Document) core.Row {
 	const gap = 4
 	w := (contentW - gap) / 2
-	box := &props.Cell{BorderType: border.Full, BorderColor: colBorder, BorderThickness: mm(1)}
-	toBox := &props.Cell{BorderType: border.Full, BorderColor: colBorder, BorderThickness: mm(1), BackgroundColor: colToBox}
+	box := &props.Cell{BorderType: border.Full, BorderColor: cLine, BorderThickness: mm(1)}
+	toBox := &props.Cell{BorderType: border.Full, BorderColor: cLine, BorderThickness: mm(1), BackgroundColor: cSurface2}
 	return band(0, nil,
 		col.New(w).WithStyle(box).Add(party(d.FromLabel, d.FromName, d.FromLines)),
 		pad(gap),
@@ -510,7 +489,7 @@ func descWidth(d Document) int {
 // tableHeader is the items table's header row; it repeats on every page the
 // table runs onto.
 func tableHeader(d Document) core.Row {
-	h := font(fontDisplay, false, 10.5, colTableHead)
+	h := font(fontDisplay, false, 10.5, cGold)
 	h.Top = mm(11)
 	cell := func(w int, label string, a align.Type) core.Col {
 		p := h
@@ -522,26 +501,26 @@ func tableHeader(d Document) core.Row {
 		cols = append(cols, cell(colQty, "Qty", align.Right), cell(colRate, "Rate", align.Right))
 	}
 	cols = append(cols, cell(colAmount, "Amount · "+d.Currency, align.Right))
-	return band(0, &props.Cell{BackgroundColor: colNavy}, cols...)
+	return band(0, &props.Cell{BackgroundColor: cRed}, cols...)
 }
 
 // itemRow is one row of the items table; it is one Maroto row, so it never
 // splits across pages.
 func itemRow(d Document, i int, it Item) core.Row {
-	style := &props.Cell{BorderType: border.Bottom, BorderColor: colBorder, BorderThickness: mm(1)}
+	style := &props.Cell{BorderType: border.Bottom, BorderColor: cLine, BorderThickness: mm(1)}
 	if i%2 == 1 {
-		style.BackgroundColor = colEvenRow
+		style.BackgroundColor = cSurface2
 	}
 	const top, bottom = 3.4, 3.4
-	no := font(fontMono, false, 12, colMuted)
+	no := font(fontMono, false, 12, cMuted)
 	no.Left = mm(10)
-	desc := font(fontBody, true, 13.5, colInk)
+	desc := font(fontBody, true, 13.5, cInk)
 	desc.Left, desc.Right = mm(10), mm(10)
-	sub := font(fontBody, false, 12, colMuted)
+	sub := font(fontBody, false, 12, cMuted)
 	sub.Left, sub.Right, sub.Top = mm(10), mm(10), 0.6
-	fig := font(fontMono, false, 13, colFigure)
+	fig := font(fontMono, false, 13, cInk)
 	fig.Align, fig.Right = align.Right, mm(10)
-	amt := font(fontMono, true, 13, colNavy)
+	amt := font(fontMono, true, 13, cInk)
 	amt.Align, amt.Right = align.Right, mm(10)
 
 	one := func(w int, s string, p props.Text) core.Col {
@@ -590,16 +569,16 @@ func lower(d Document) []core.Row {
 	const sumW, gap = 90, 4
 	leftW := contentW - sumW - gap
 	hasPay := d.PaymentInstructions != "" || d.NPWP != ""
-	payTop := &props.Cell{BackgroundColor: colSoft, BorderColor: colPayBorder, BorderThickness: mm(1), BorderType: border.Left | border.Top | border.Right}
-	payBottom := &props.Cell{BackgroundColor: colSoft, BorderColor: colPayBorder, BorderThickness: mm(1), BorderType: border.Left | border.Bottom | border.Right}
+	payTop := &props.Cell{BackgroundColor: cSurface2, BorderColor: cLine, BorderThickness: mm(1), BorderType: border.Left | border.Top | border.Right}
+	payBottom := &props.Cell{BackgroundColor: cSurface2, BorderColor: cLine, BorderThickness: mm(1), BorderType: border.Left | border.Bottom | border.Right}
 
 	left := col.New(leftW)
 	leftHero := col.New(leftW)
 	if hasPay {
-		label := font(fontDisplay, false, 11, colMuted)
-		text := font(fontBody, false, 12.5, colPayText)
+		label := font(fontDisplay, false, 11, cMuted)
+		text := font(fontBody, false, 12.5, cMuted)
 		text.Top = mm(6)
-		npwp := font(fontBody, true, 12.5, colPayText)
+		npwp := font(fontBody, true, 12.5, cMuted)
 		npwp.Top = mm(10)
 		for _, t := range []*props.Text{&label, &text, &npwp} {
 			t.Left, t.Right = mm(16), mm(16)
@@ -617,16 +596,16 @@ func lower(d Document) []core.Row {
 
 	var rows []pair
 	for _, s := range d.Summary {
-		lp := font(fontBody, false, 13, colMuted)
+		lp := font(fontBody, false, 13, cMuted)
 		lp.Left = mm(16)
 		vp := font(fontMono, s.Class == "total", 13, summaryColour[s.Class])
 		vp.Align, vp.Right = align.Right, mm(16)
 		if s.Class == "total" {
-			lp.Color, lp.Style = colInk, fontstyle.Bold
+			lp.Color, lp.Style = cInk, fontstyle.Bold
 		}
 		rows = append(rows, pair{label: s.Label, value: s.Value, lp: lp, vp: vp})
 	}
-	summary := col.New(sumW).WithStyle(&props.Cell{BorderType: border.Left | border.Top | border.Right, BorderColor: colBorder, BorderThickness: mm(1)}).
+	summary := col.New(sumW).WithStyle(&props.Cell{BorderType: border.Left | border.Top | border.Right, BorderColor: cLine, BorderThickness: mm(1)}).
 		Add(&pairs{rows: rows, top: mm(14), bottom: mm(12), gap: mm(9)})
 
 	heroH := mm(64)
@@ -637,7 +616,7 @@ func lower(d Document) []core.Row {
 	ha.Align, ha.Right, ha.Top = align.Right, codeW+mm(16)-1, mm(18)
 	hc := font(fontDisplay, false, 12, colWhite)
 	hc.Align, hc.Right, hc.Top = align.Right, mm(16), mm(25)
-	hero := col.New(sumW).WithStyle(&props.Cell{BackgroundColor: colBlue}).Add(
+	hero := col.New(sumW).WithStyle(&props.Cell{BackgroundColor: cRed}).Add(
 		newStack(0, 0, block{lines: []string{upper(d.HeroLabel)}, prop: hl}),
 		newStack(0, 0, block{lines: []string{d.HeroAmount}, prop: ha}),
 		newStack(0, 0, block{lines: []string{d.Currency}, prop: hc}),
@@ -663,11 +642,11 @@ func notes(p *pager, d Document) {
 		if len(right) > 0 {
 			widths = []int{(contentW - 4) / 2, 4, contentW - 4 - (contentW-4)/2}
 		}
-		label := font(fontDisplay, false, 11, colMuted)
+		label := font(fontDisplay, false, 11, cMuted)
 		label.Left, label.Right = mm(16), mm(16)
-		text := font(fontBody, false, 12.5, colPayText)
+		text := font(fontBody, false, 12.5, cMuted)
 		text.Left, text.Right = mm(16), mm(16)
-		panel := &props.Cell{BackgroundColor: colBg}
+		panel := &props.Cell{BackgroundColor: cSurface2}
 		line := func(top, bottom float64, l, r []string, prop props.Text) core.Row {
 			cols := []core.Col{col.New(widths[0]).WithStyle(panel).Add(newStack(top, bottom, block{lines: l, prop: prop}))}
 			if len(widths) == 3 {
@@ -706,7 +685,7 @@ func notes(p *pager, d Document) {
 	}
 	if d.Footer != "" {
 		p.add(spacer(sectionGap))
-		f := font(fontBody, false, 11.5, colMuted)
+		f := font(fontBody, false, 11.5, cMuted)
 		for _, l := range splitLines(d.Footer) {
 			p.add(band(0, nil, col.New(contentW).Add(newStack(0, 0.4, block{lines: []string{l}, prop: f}))))
 		}
