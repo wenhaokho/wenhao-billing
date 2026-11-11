@@ -125,7 +125,7 @@ func TestRenderFullInvoiceProducesPDF(t *testing.T) {
 	if len(r.raw) <= 1000 {
 		t.Errorf("PDF is %d bytes", len(r.raw))
 	}
-	r.has(t, "INVOICE", "INV-2026-0042", "Website redesign", "Frontend implementation", "3,400.00",
+	r.has(t, "Invoice", "INV-2026-0042", "Website redesign", "Frontend implementation", "3,400.00",
 		"Acme Pte Ltd", "Wenhao Development Pte Ltd", "Discount (5%)", "6,032.50", "Thanks!")
 }
 
@@ -134,7 +134,9 @@ func TestRenderWithoutCustomerOrBusiness(t *testing.T) {
 	in := fullInvoice()
 	in.Customer, in.Business, in.Accounts = nil, nil, nil
 	r := renderPDF(t, RenderInvoice, InvoiceDocument(in))
-	r.has(t, "INVOICE", "INV-2026-0042", "—")
+	r.has(t, "Invoice", "INV-2026-0042", "Reference", "SGD")
+	// No party, no empty "Bill to" box and no dash standing in for a name.
+	r.hasNot(t, "Bill to", "—")
 }
 
 func TestRenderWithoutDiscount(t *testing.T) {
@@ -164,7 +166,7 @@ func TestRenderInvoicePDFEscapesXMLSpecialCharsInNames(t *testing.T) {
 	in.Customer.ContactEmail = sp("ap<br>finance@jones.example")
 	in.Lines[0].Description = "Design & build <landing page"
 	r := renderPDF(t, RenderInvoice, InvoiceDocument(in))
-	r.has(t, "Smith & Co <bros Ltd", "R&D <lab, 1 Raffles Ave", "ap<br>illing@smith.example", "TAX <INVOICE",
+	r.has(t, "Smith & Co <bros Ltd", "R&D <lab, 1 Raffles Ave", "ap<br>illing@smith.example", "Tax <invoice",
 		"Jones & Sons <holdings", "2 Cecil <st", "ap<br>finance@jones.example", "INV <draft 2026", "PO <2026 & co",
 		"Scope: design & build", "<subject to change", "Thanks & regards", "<see terms", "Design & build <landing page")
 }
@@ -252,7 +254,7 @@ func TestQuotationRendersTotal(t *testing.T) {
 	q := quote()
 	q.Quotation.Notes = nil
 	r := renderPDF(t, RenderQuotation, QuotationDocument(q))
-	r.has(t, "QUOTATION", "VALID UNTIL", "5,000.00", "Q-2026-0007", "Net 14")
+	r.has(t, "Quotation", "Valid until", "5,000.00", "Q-2026-0007", "Net 14")
 }
 
 func TestInvoicePutsNPWPInPaymentPanelWhenWithholding(t *testing.T) {
@@ -291,14 +293,16 @@ func quotation() QuotationData {
 
 func TestRenderQuotationPDFReturnsPDFBytes(t *testing.T) {
 	t.Parallel()
-	renderPDF(t, RenderQuotation, QuotationDocument(quotation())).has(t, "QUOTATION", "QUO-0042", "Website redesign", "1,000.00")
+	renderPDF(t, RenderQuotation, QuotationDocument(quotation())).has(t, "Quotation", "QUO-0042", "Website redesign", "1,000.00")
 }
 
 func TestRenderQuotationPDFWithoutCustomer(t *testing.T) {
 	t.Parallel()
 	q := quotation()
 	q.Customer = nil
-	renderPDF(t, RenderQuotation, QuotationDocument(q)).has(t, "QUO-0042", "—")
+	r := renderPDF(t, RenderQuotation, QuotationDocument(q))
+	r.has(t, "QUO-0042", "From", "Wenhao Development Pte Ltd")
+	r.hasNot(t, "Bill to", "—")
 }
 
 func TestRenderQuotationPDFEscapesXMLSpecialCharsInNames(t *testing.T) {
@@ -406,18 +410,35 @@ func TestLongInvoiceRepeatsHeaderAndFooter(t *testing.T) {
 			Position: int32(i + 3), Description: fmt.Sprintf("Line %02d", i+1), Quantity: dec("1"), UnitPrice: dec("10"), Amount: dec("10"),
 		})
 	}
-	r := renderPDF(t, RenderInvoice, InvoiceDocument(in))
-	if len(r.pages) < 2 {
-		t.Fatalf("%d page(s), want at least 2", len(r.pages))
-	}
-	for i, p := range r.pages {
-		for _, w := range []string{"INVOICE", "INV-2026-0042", "Wenhao Development Pte Ltd", "accounts@wenhao.dev"} {
-			if !strings.Contains(p, w) {
-				t.Errorf("page %d has no %q", i+1, w)
+	for name, c := range map[string]struct {
+		in   InvoiceData
+		want []string
+	}{
+		"60 short lines": {in, []string{"Line 01", "Line 60", "TOTAL DUE"}},
+		"40 long lines":  {longInvoice(40), []string{"Item 01 first", "Item 40 third", "TOTAL DUE"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := renderPDF(t, RenderInvoice, InvoiceDocument(c.in))
+			n := len(r.pages)
+			if n < 2 {
+				t.Fatalf("%d page(s), want at least 2", n)
 			}
-		}
+			for i, p := range r.pages {
+				// The continuation strip (or page 1's band) and the footer.
+				for _, w := range []string{"Invoice", "INV-2026-0042", "Wenhao Development Pte Ltd", "accounts@wenhao.dev", fmt.Sprintf("Page %d of %d", i+1, n)} {
+					if !strings.Contains(p, w) {
+						t.Errorf("page %d has no %q", i+1, w)
+					}
+				}
+				// The parties band is page 1's alone.
+				if got := strings.Contains(p, "Bill to"); got != (i == 0) {
+					t.Errorf("page %d: has \"Bill to\" = %v", i+1, got)
+				}
+			}
+			r.has(t, c.want...)
+		})
 	}
-	r.has(t, "Line 01", "Line 60", "TOTAL DUE")
 }
 
 func TestItemRowsNeverSplit(t *testing.T) {
@@ -629,6 +650,9 @@ func TestWriteSamples(t *testing.T) {
 		"quotation.pdf": func() ([]byte, error) { return RenderQuotation(t.Context(), QuotationDocument(q)) },
 		"receipt.pdf":   func() ([]byte, error) { return RenderReceipt(t.Context(), ReceiptDocument(rc)) },
 		"long.pdf":      func() ([]byte, error) { return RenderInvoice(t.Context(), InvoiceDocument(longInvoice(40))) },
+		"invoice-sgd.pdf": func() ([]byte, error) {
+			return RenderInvoice(t.Context(), InvoiceDocument(fullInvoice(func(i *invoicesdb.Invoice) { i.Footer = sp("Registered in Singapore") })))
+		},
 	} {
 		b, err := f()
 		if err != nil {
@@ -637,5 +661,92 @@ func TestWriteSamples(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(*samples, name), b, 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// --- brand layout ----------------------------------------------------------
+
+func TestInvoiceRowsAreNumbered(t *testing.T) {
+	t.Parallel()
+	page := renderPDF(t, RenderInvoice, InvoiceDocument(fullInvoice())).pages[0]
+	for no, desc := range map[string]string{"01": "Website redesign", "02": "Frontend implementation"} {
+		at := strings.Index(page, desc)
+		if at < 0 {
+			t.Fatalf("no %q on page 1:\n%s", desc, page)
+		}
+		if before := strings.TrimSpace(page[:at]); !strings.HasSuffix(before, no) {
+			t.Errorf("%q is not preceded by %q: ...%q", desc, no, before[max(len(before)-20, 0):])
+		}
+	}
+}
+
+func TestTitlesPrintAsTyped(t *testing.T) {
+	t.Parallel()
+	def := fullInvoice()
+	def.Business.InvoiceTitle = nil
+	r := renderPDF(t, RenderInvoice, InvoiceDocument(def))
+	r.has(t, "Invoice")
+	r.hasNot(t, "INVOICE")
+
+	tax := fullInvoice()
+	tax.Business.InvoiceTitle = sp("Tax Invoice")
+	r = renderPDF(t, RenderInvoice, InvoiceDocument(tax))
+	r.has(t, "Tax Invoice")
+	r.hasNot(t, "TAX INVOICE")
+
+	r = renderPDF(t, RenderQuotation, QuotationDocument(quotation()))
+	r.has(t, "Quotation")
+	r.hasNot(t, "QUOTATION")
+}
+
+func TestLocationLinePrintsUnderBusinessName(t *testing.T) {
+	t.Parallel()
+	in := fullInvoice()
+	in.Business.Address = sp("Jl. Raya 1\nBatam · Indonesia\n")
+	renderPDF(t, RenderInvoice, InvoiceDocument(in)).has(t, "BATAM · INDONESIA")
+
+	// No address: no location line, and nothing else (the contact line the
+	// From column ends with) stands in for it.
+	none := fullInvoice()
+	none.Business.Address = nil
+	r := renderPDF(t, RenderInvoice, InvoiceDocument(none))
+	r.has(t, "Wenhao Development Pte Ltd", "accounts@wenhao.dev")
+	r.hasNot(t, "ACCOUNTS@WENHAO.DEV")
+}
+
+func TestLongNamesWrapInsideColumns(t *testing.T) {
+	t.Parallel()
+	var name, addr []string
+	for i := range 12 {
+		name = append(name, fmt.Sprintf("Name%02dwxyz", i)) // 12 x 10 + 11 spaces = 131 chars
+	}
+	for i := range 22 {
+		addr = append(addr, fmt.Sprintf("Addr%02dwxyz", i)) // 22 x 10 + 21 spaces = 241 chars
+	}
+	in := fullInvoice()
+	in.Customer.Name = strings.Join(name, " ")
+	in.Customer.BillingAddress1 = sp(strings.Join(addr, " "))
+	if len(in.Customer.Name) < 120 || len(*in.Customer.BillingAddress1) < 200 {
+		t.Fatalf("fixture too short: %d, %d", len(in.Customer.Name), len(*in.Customer.BillingAddress1))
+	}
+	r := renderPDF(t, RenderInvoice, InvoiceDocument(in))
+	r.has(t, append(name, addr...)...)
+}
+
+// The header's status chip takes its colours from the status's class.
+func TestStatusChipUsesItsClassColours(t *testing.T) {
+	t.Parallel()
+	for status, class := range map[string]string{
+		"PAID": "paid", "SENT": "sent", "PARTIALLY_PAID": "partial", "OVERDUE": "overdue", "DRAFT": "draft", "VOID": "draft",
+	} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			d := InvoiceDocument(fullInvoice(func(i *invoicesdb.Invoice) { i.Status = status }))
+			c := statusChip(d)
+			fg, bg := chipColours(class)
+			eq(t, "fg", c.fg, fg)
+			eq(t, "bg", c.bg, bg)
+			eq(t, "label", c.label, strings.ToUpper(StatusLabel(status)))
+		})
 	}
 }

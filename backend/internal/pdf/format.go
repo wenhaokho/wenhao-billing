@@ -178,3 +178,7 @@ func deref(s *string) string {
 	}
 	return *s
 }
+
+// rowNumber is an item row's printed number, 1-based and zero-padded to two
+// digits: "01", "02", … "10", "100".
+func rowNumber(i int) string { return fmt.Sprintf("%02d", i) }

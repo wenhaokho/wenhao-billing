@@ -90,7 +90,7 @@ func eq[T any](t *testing.T, name string, got, want T) {
 func TestInvoiceDocumentDiscountAndPaid(t *testing.T) {
 	t.Parallel()
 	d := InvoiceDocument(inv())
-	eq(t, "DocTitle", d.DocTitle, "INVOICE")
+	eq(t, "DocTitle", d.DocTitle, "Invoice")
 	eq(t, "Ref", d.Ref, "WD-2026-0042")
 	eq(t, "StatusClass", d.StatusClass, "partial")
 	got := map[string]string{}
@@ -203,7 +203,7 @@ func quote() QuotationData {
 func TestQuotationDocumentTotalHero(t *testing.T) {
 	t.Parallel()
 	d := QuotationDocument(quote())
-	eq(t, "DocTitle", d.DocTitle, "QUOTATION")
+	eq(t, "DocTitle", d.DocTitle, "Quotation")
 	eq(t, "HeroLabel", d.HeroLabel, "Total")
 	eq(t, "HeroAmount", d.HeroAmount, "5,000.00")
 	eq(t, "Meta[2]", d.Meta[2], MetaCell{"Valid Until", "06 Aug 2026"})
@@ -398,7 +398,7 @@ func TestDocumentWithoutCustomerOrBusiness(t *testing.T) {
 	in := inv()
 	in.Customer, in.Business, in.Accounts = nil, nil, nil
 	d := InvoiceDocument(in)
-	eq(t, "From/To", []string{d.FromName, d.ToName, d.FootName, d.DocTitle, d.Notes}, []string{"—", "—", "", "INVOICE", ""})
+	eq(t, "From/To", []string{d.FromName, d.ToName, d.FootName, d.DocTitle, d.Notes}, []string{"—", "—", "", "Invoice", ""})
 	eq(t, "lines", [][]string{d.FromLines, d.ToLines, d.FootMeta}, [][]string{nil, nil, nil})
 }
 
@@ -414,4 +414,36 @@ func TestCustomerAndBusinessLines(t *testing.T) {
 	eq(t, "free text", customerLines(&customersdb.Customer{BillingAddress: sp("L1\n\nL3\r\nL4\n")}), []string{"L1", "", "L3", "L4"})
 	eq(t, "city only", customerLines(&customersdb.Customer{BillingCity: sp("Bali")}), []string{"Bali"})
 	eq(t, "business", businessLines(&businessdb.BusinessProfile{Address: sp(" a \n\n  \nb\n"), ContactEmail: sp("e@x")}), []string{" a ", "b", "e@x"})
+}
+
+// The gold location line in the header is the last non-empty line of the
+// business's free-text address; nothing else stands in for it.
+func TestLocationLineIsLastAddressLine(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		addr *string
+		want string
+	}{
+		"last line":         {sp("Jl. Raya 1\nBatam · Indonesia\n"), "Batam · Indonesia"},
+		"blank lines after": {sp("Jl. Raya 1\r\nBatam · Indonesia\n  \n"), "Batam · Indonesia"},
+		"one line":          {sp("  Singapore  "), "Singapore"},
+		"empty":             {sp(""), ""},
+		"nil":               {nil, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			in := inv()
+			in.Business.Address = c.addr
+			eq(t, "invoice Location", InvoiceDocument(in).Location, c.want)
+			q := quote()
+			q.Business.Address = c.addr
+			eq(t, "quotation Location", QuotationDocument(q).Location, c.want)
+		})
+	}
+	t.Run("no business", func(t *testing.T) {
+		t.Parallel()
+		in := inv()
+		in.Business = nil
+		eq(t, "Location", InvoiceDocument(in).Location, "")
+	})
 }

@@ -13,12 +13,13 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/customers/customersdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments/paymentsdb"
-	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/quotations/quotationsdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/withholding"
 )
 
-// MetaCell is one cell of the meta strip under the header.
+// MetaCell is one key and value about the document: its number, dates and
+// PO/SO (the layout prints the number and dates in the header band, the rest
+// in the Reference column).
 type MetaCell struct{ Key, Value string }
 
 // SummaryRow is one row of the summary box. Class picks its colour: subtotal,
@@ -33,7 +34,12 @@ type Item struct{ Desc, Sub, Qty, Rate, Amount string }
 // receipt (Python's context dict of pdf/context.py). Every text value is
 // final: formatted, never to be parsed again. "" is Python's None.
 type Document struct {
-	DocTitle    string
+	// DocTitle prints as typed: "Invoice" (or the business's own title),
+	// "Quotation".
+	DocTitle string
+	// Location is the header's line under the business name: the last
+	// non-empty line of the business address, "" when there is none.
+	Location    string
 	Ref         string
 	StatusLabel string
 	StatusClass string
@@ -229,6 +235,21 @@ func businessLines(b *businessdb.BusinessProfile) []string {
 	return lines
 }
 
+// location is the last non-empty line of the business's free-text address,
+// trimmed (there are no city or country fields).
+func location(b *businessdb.BusinessProfile) string {
+	if b == nil || b.Address == nil {
+		return ""
+	}
+	lines := splitLines(*b.Address)
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(lines[i]); l != "" {
+			return l
+		}
+	}
+	return ""
+}
+
 func orDash(s *string) string {
 	if s == nil || *s == "" {
 		return Dash
@@ -278,8 +299,9 @@ func common(status, currency string, notes, terms *string, c *customersdb.Custom
 	d := Document{
 		StatusLabel: StatusLabel(status),
 		StatusClass: StatusBadgeClass(status),
-		FromLabel:   "Bill From",
-		ToLabel:     "Bill To",
+		Location:    location(b),
+		FromLabel:   "From",
+		ToLabel:     "Bill to",
 		FromName:    orDash(businessName(b)),
 		FromLines:   businessLines(b),
 		ToName:      orDash(customerName(c)),
@@ -374,9 +396,9 @@ func InvoiceDocument(in InvoiceData) Document {
 			SummaryRow{"Paid", Minus + FmtNum(paid, cur), "paid"})
 	}
 
-	d.DocTitle = "INVOICE"
+	d.DocTitle = "Invoice"
 	if b := in.Business; b != nil && deref(b.InvoiceTitle) != "" {
-		d.DocTitle = platform.PyUpper(*b.InvoiceTitle)
+		d.DocTitle = *b.InvoiceTitle
 	}
 	// "Net N" drives the due date, not a customer-facing term.
 	d.Terms = ""
@@ -411,7 +433,7 @@ func QuotationDocument(in QuotationData) Document {
 	if r, ok := discountRow(q.DiscountType, q.DiscountValue, q.Subtotal, cur); ok {
 		d.Summary = append(d.Summary, r)
 	}
-	d.DocTitle = "QUOTATION"
+	d.DocTitle = "Quotation"
 	d.Ref = orDash(q.QuotationNumber)
 	d.Meta = meta([]MetaCell{
 		{"Quote No.", d.Ref},
@@ -444,6 +466,7 @@ func ReceiptDocument(in ReceiptData) Document {
 		Ref:         ref,
 		StatusLabel: "Received",
 		StatusClass: "paid",
+		Location:    location(in.Business),
 		FromLabel:   "Received By",
 		ToLabel:     "Received From",
 		FromName:    orDash(businessName(in.Business)),

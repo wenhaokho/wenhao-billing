@@ -294,3 +294,10 @@ func TestNPWPLine(t *testing.T) {
 		}
 	}
 }
+
+func TestRowNumber(t *testing.T) {
+	t.Parallel()
+	for i, want := range map[int]string{1: "01", 2: "02", 9: "09", 10: "10", 99: "99", 100: "100"} {
+		eq(t, "rowNumber", rowNumber(i), want)
+	}
+}

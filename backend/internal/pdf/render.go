@@ -36,7 +36,7 @@ func init() {
 // normal and a bold style per family, so each family maps two weights.
 const (
 	fontBody    = "dmsans"  // DM Sans 400 / 500
-	fontDisplay = "manrope" // Manrope 700 / 800
+	fontDisplay = "manrope" // Manrope 500 / 700
 	fontMono    = "mono"    // JetBrains Mono 400 / 600
 )
 
@@ -53,8 +53,10 @@ var fontFiles = []struct {
 }{
 	{fontBody, fontstyle.Normal, "DMSans-Regular.ttf"},
 	{fontBody, fontstyle.Bold, "DMSans-Medium.ttf"},
-	{fontDisplay, fontstyle.Normal, "Manrope-Bold.ttf"},
-	{fontDisplay, fontstyle.Bold, "Manrope-ExtraBold.ttf"},
+	// Manrope-Medium.ttf is a static instance (wght 500) of Google Fonts'
+	// variable Manrope, cut with fontTools' instancer.
+	{fontDisplay, fontstyle.Normal, "Manrope-Medium.ttf"},
+	{fontDisplay, fontstyle.Bold, "Manrope-Bold.ttf"},
 	{fontMono, fontstyle.Normal, "JetBrainsMono-Regular.ttf"},
 	{fontMono, fontstyle.Bold, "JetBrainsMono-SemiBold.ttf"},
 }
