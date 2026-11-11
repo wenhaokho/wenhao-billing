@@ -89,10 +89,40 @@ test("send a reminder from the dashboard; a second one asks first", async ({ pag
     await expect(dialog).toContainText(first.number);
     await expect(dialog.getByTestId("reminder-amount")).toHaveText("250,000 IDR");
 
+    // The amount binds the send. Stand in for a payment since the page loaded:
+    // the first POST goes to the real backend with a stale expected_amount,
+    // so it answers 409 reminder_amount_changed naming the current amount.
+    // The dialog shows it and sends nothing until Send is pressed again.
+    const shown = { to_email: email, expected_amount: "250000.0000" };
+    const remindersUrl = `**/api/v1/invoices/${first.invoiceId}/reminders`;
+    let original: unknown = null;
+    await page.route(
+      remindersUrl,
+      async (route) => {
+        original = route.request().postDataJSON();
+        await route.continue({ postData: JSON.stringify({ ...shown, expected_amount: "1.0000" }) });
+      },
+      { times: 1 },
+    );
+    const stale = page.waitForResponse((r) => isApi(r.request(), "POST", `/invoices/${first.invoiceId}/reminders`));
+    await dialog.getByRole("button", { name: "Send", exact: true }).click();
+    const staleRes = await stale;
+    expect(staleRes.status()).toBe(409);
+    expect(((await staleRes.json()) as { code: string }).code).toBe("reminder_amount_changed");
+    expect(original).toEqual(shown);
+    await page.unroute(remindersUrl);
+    await expect(dialog.getByTestId("reminder-amount-changed")).toHaveText(
+      "The amount changed to 250,000 IDR since this page loaded.",
+    );
+    await expect(dialog.getByTestId("reminder-amount")).toHaveText("250,000 IDR");
+    await expect(dialog).toBeVisible();
+
+    // Send again: the shown recipient and amount go in the body.
     const sent = page.waitForResponse((r) => isApi(r.request(), "POST", `/invoices/${first.invoiceId}/reminders`));
     await dialog.getByRole("button", { name: "Send", exact: true }).click();
     const res = await sent;
     expect(res.status()).toBe(201);
+    expect(res.request().postDataJSON()).toEqual(shown);
     expect(((await res.json()) as { recipient: string }).recipient).toBe(email);
     await expect(dialog).toBeHidden();
 
@@ -106,7 +136,9 @@ test("send a reminder from the dashboard; a second one asks first", async ({ pag
     await expect(dialog.getByTestId("reminder-conflict")).toBeHidden();
     const refused = page.waitForResponse((r) => isApi(r.request(), "POST", `/invoices/${second.invoiceId}/reminders`));
     await dialog.getByRole("button", { name: "Send", exact: true }).click();
-    expect((await refused).status()).toBe(409);
+    const refusedRes = await refused;
+    expect(refusedRes.status()).toBe(409);
+    expect(refusedRes.request().postDataJSON()).toEqual(shown);
     await expect(dialog.getByTestId("reminder-conflict")).toHaveText(
       `Reminded ${name} just now for ${first.number}. Send anyway?`,
     );
@@ -116,7 +148,7 @@ test("send a reminder from the dashboard; a second one asks first", async ({ pag
     await dialog.getByRole("button", { name: "Send anyway" }).click();
     const forcedRes = await forced;
     expect(forcedRes.status()).toBe(201);
-    expect(forcedRes.request().postDataJSON()).toEqual({ force: true });
+    expect(forcedRes.request().postDataJSON()).toEqual({ ...shown, force: true });
     await expect(dialog).toBeHidden();
 
     // The invoice page lists the reminder.

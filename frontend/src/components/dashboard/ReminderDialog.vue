@@ -3,12 +3,15 @@
 // recipient, the invoice and the amount (the expected cash, with the balance
 // due beside it when they differ) before POST /invoices/{id}/reminders. The
 // recipient defaults to the customer's billing (contact) email, the same one
-// the backend falls back to; typing another address sends it as to_email.
-// A 409 from the 24-hour per-customer guard turns Send into "Send anyway",
-// which retries with force: true.
+// the backend falls back to. The address shown (trimmed) always goes as
+// to_email and the amount shown as expected_amount, so what is sent is what
+// the user saw. A 409 reminder_amount_changed (a payment since the page
+// loaded) shows the new amount and waits for Send again. A 409 from the
+// 24-hour per-customer guard turns Send into "Send anyway", which retries
+// with force: true; the two can combine.
 import AppIcon from "@/components/AppIcon.vue";
 import { computed, ref, watch } from "vue";
-import { useMutation, useQuery } from "@tanstack/vue-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import Dialog from "primevue/dialog";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
@@ -41,6 +44,10 @@ const edited = ref(false);
 /** The repeat guard's refusal: the earlier invoice and when it went. */
 const conflict = ref<{ invoice: string | null; sentAt: string | null } | null>(null);
 const error = ref<string | null>(null);
+/** The amount shown and sent as expected_amount: the row's, or the server's after a change. */
+const amount = ref("");
+/** Set when the server reported a different amount than the page loaded with. */
+const amountChanged = ref(false);
 
 watch(
   () => props.visible,
@@ -50,14 +57,22 @@ watch(
     toEmail.value = defaultEmail.value;
     conflict.value = null;
     error.value = null;
+    amount.value = props.row?.expected_cash ?? "";
+    amountChanged.value = false;
   },
+  { immediate: true },
 );
 // The customer may load after the dialog opens: fill the default unless typed over.
 watch(defaultEmail, (e) => {
   if (!edited.value) toEmail.value = e;
 });
 
-const differs = computed(() => !!props.row && !decIsZero(decSub(props.row.balance_due, props.row.expected_cash)));
+// The balance due is the page's; after an amount change it is stale, so it hides.
+const differs = computed(
+  () => !!props.row && !amountChanged.value && !decIsZero(decSub(props.row.balance_due, props.row.expected_cash)),
+);
+
+const queryClient = useQueryClient();
 
 interface Problem {
   detail?: string;
@@ -69,9 +84,11 @@ const send = useMutation({
   mutationFn: async (force: boolean) => {
     const row = props.row;
     if (!row) throw new Error("no invoice");
-    const to = toEmail.value.trim();
-    const body: { to_email?: string; force?: boolean } = {};
-    if (to && to !== defaultEmail.value) body.to_email = to;
+    // Exactly what the dialog shows: the trimmed address and the amount.
+    const body: { to_email: string; expected_amount: string; force?: boolean } = {
+      to_email: toEmail.value.trim(),
+      expected_amount: amount.value,
+    };
     if (force) body.force = true;
     return (await api.post<Reminder>(`/invoices/${row.invoice_id}/reminders`, body)).data;
   },
@@ -81,10 +98,19 @@ const send = useMutation({
   },
   onError: (e: { response?: { status?: number; data?: Problem } }) => {
     const data = e?.response?.data;
+    const field = (name: string) => data?.errors?.find((d) => d.location === name)?.message ?? null;
     if (e?.response?.status === 409 && data?.code === "reminder_recent") {
-      const field = (name: string) => data.errors?.find((d) => d.location === name)?.message ?? null;
       conflict.value = { invoice: field("invoice_number"), sentAt: field("sent_at") };
       error.value = null;
+      return;
+    }
+    const current = field("amount");
+    if (e?.response?.status === 409 && data?.code === "reminder_amount_changed" && current) {
+      // Show the new amount; the user presses Send again to confirm it.
+      amount.value = current;
+      amountChanged.value = true;
+      error.value = null;
+      queryClient.invalidateQueries({ queryKey: ["stats-receivables"] });
       return;
     }
     error.value = data?.detail ?? "Failed to send the reminder";
@@ -94,11 +120,17 @@ const send = useMutation({
 const conflictText = computed(() => {
   const c = conflict.value;
   if (!c) return "";
-  const who = props.row?.customer_name ?? "This customer";
   const when = c.sentAt ? timeAgo(c.sentAt) : "in the last 24 hours";
+  const name = props.row?.customer_name;
+  // With no customer the guard counts only this invoice's own reminders.
+  if (!name) return `This invoice was reminded ${when}. Send anyway?`;
   const what = c.invoice ? ` for ${c.invoice}` : "";
-  return `Reminded ${who} ${when}${what}. Send anyway?`;
+  return `Reminded ${name} ${when}${what}. Send anyway?`;
 });
+
+const amountChangedText = computed(() =>
+  props.row ? `The amount changed to ${formatAmount(amount.value, props.row.currency)} ${props.row.currency} since this page loaded.` : "",
+);
 
 const canSend = computed(() => !!props.row && !!toEmail.value.trim() && !send.isPending.value);
 
@@ -149,7 +181,7 @@ function close() {
         <div>
           <dt>Amount</dt>
           <dd>
-            <span class="rd-strong num" data-testid="reminder-amount">{{ formatAmount(row.expected_cash, row.currency) }} {{ row.currency }}</span>
+            <span class="rd-strong num" data-testid="reminder-amount">{{ formatAmount(amount, row.currency) }} {{ row.currency }}</span>
             <span v-if="differs" class="rd-muted num" title="Balance due before withholding tax not yet booked">
               of {{ formatAmount(row.balance_due, row.currency) }} due
             </span>
@@ -157,6 +189,7 @@ function close() {
         </div>
       </dl>
 
+      <Message v-if="amountChanged" severity="warn" :closable="false" data-testid="reminder-amount-changed">{{ amountChangedText }}</Message>
       <Message v-if="conflict" severity="warn" :closable="false" data-testid="reminder-conflict">{{ conflictText }}</Message>
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
     </div>

@@ -49,7 +49,6 @@ function onSent(rem: Reminder) {
     };
   });
   queryClient.invalidateQueries({ queryKey: ["stats-receivables"] });
-  queryClient.invalidateQueries({ queryKey: ["invoice-reminders", rem.invoice_id] });
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
