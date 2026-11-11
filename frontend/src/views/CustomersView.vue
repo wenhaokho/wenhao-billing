@@ -8,7 +8,7 @@ import Column from "primevue/column";
 import Button from "primevue/button";
 import Chip from "primevue/chip";
 import Tag from "primevue/tag";
-import InputSwitch from "primevue/inputswitch";
+import ToggleSwitch from "primevue/toggleswitch";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
@@ -119,7 +119,7 @@ function confirmDeactivate(row: Customer) {
       </div>
       <div class="page-actions">
         <label class="toggle">
-          <InputSwitch v-model="showInactive" />
+          <ToggleSwitch v-model="showInactive" />
           <span>Show inactive</span>
         </label>
         <Button label="New customer" icon="pi pi-plus" @click="openCreate" />

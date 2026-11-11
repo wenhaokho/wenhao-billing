@@ -5,8 +5,9 @@ import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
-import TabView from "primevue/tabview";
-import TabPanel from "primevue/tabpanel";
+import Tabs from "primevue/tabs";
+import TabList from "primevue/tablist";
+import Tab from "primevue/tab";
 import Tag from "primevue/tag";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
@@ -30,23 +31,24 @@ interface Quotation {
 
 const router = useRouter();
 
-// 0 = Open (DRAFT + SENT), 1 = Accepted (ACCEPTED + INVOICED), 2 = All
-// Reflect the active status tab in the URL as a readable slug (?tab=open)
-// so it is restored when navigating back to this list after opening an item.
+// Each tab's value is the status filter it applies: open (DRAFT + SENT),
+// accepted (ACCEPTED + INVOICED), all. The active tab is reflected in the URL
+// (?tab=open) so it is restored when navigating back to this list after
+// opening an item.
 const route = useRoute();
 const TAB_SLUGS = ["open", "accepted", "all"];
-function readTabFromQuery(): number {
-  const i = TAB_SLUGS.indexOf(String(route.query.tab));
-  return i >= 0 ? i : 0;
+function readTabFromQuery(): string {
+  const q = String(route.query.tab);
+  return TAB_SLUGS.includes(q) ? q : TAB_SLUGS[0];
 }
-const activeTab = ref(readTabFromQuery());
+const activeTab = ref<string>(readTabFromQuery());
 watch(activeTab, (t) => {
-  router.replace({ query: { ...route.query, tab: TAB_SLUGS[t] ?? TAB_SLUGS[0] } });
+  router.replace({ query: { ...route.query, tab: TAB_SLUGS.includes(t) ? t : TAB_SLUGS[0] } });
 });
-const TAB_TO_STATUSES: Record<number, string[] | null> = {
-  0: ["DRAFT", "SENT"],
-  1: ["ACCEPTED", "INVOICED"],
-  2: null,
+const TAB_TO_STATUSES: Record<string, string[] | null> = {
+  open: ["DRAFT", "SENT"],
+  accepted: ["ACCEPTED", "INVOICED"],
+  all: null,
 };
 
 const { data: quotations, isLoading } = useQuery<Quotation[]>({
@@ -77,7 +79,7 @@ function statusSeverity(status: string) {
     case "ACCEPTED": return "success";
     case "SENT": return "info";
     case "INVOICED": return "success";
-    case "EXPIRED": return "warning";
+    case "EXPIRED": return "warn";
     case "DECLINED": return "danger";
     case "VOID": return "secondary";
     case "DRAFT": return "contrast";
@@ -101,11 +103,13 @@ function statusSeverity(status: string) {
       </div>
     </header>
 
-    <TabView v-model:active-index="activeTab" class="status-tabs">
-      <TabPanel header="Open" />
-      <TabPanel header="Accepted" />
-      <TabPanel header="All" />
-    </TabView>
+    <Tabs v-model:value="activeTab" class="status-tabs">
+      <TabList>
+        <Tab value="open">Open</Tab>
+        <Tab value="accepted">Accepted</Tab>
+        <Tab value="all">All</Tab>
+      </TabList>
+    </Tabs>
 
     <DataTable
       :value="quotations ?? []"
@@ -151,7 +155,6 @@ function statusSeverity(status: string) {
 
 <style scoped>
 .status-tabs { margin-bottom: 0.5rem; }
-.status-tabs :deep(.p-tabview-panels) { display: none; }
 code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--color-text-muted, #64748b); }

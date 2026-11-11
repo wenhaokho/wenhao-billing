@@ -3,8 +3,11 @@ import { ref, computed } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
-import DatePicker from "primevue/calendar";
-import TabView from "primevue/tabview";
+import DatePicker from "primevue/datepicker";
+import Tabs from "primevue/tabs";
+import TabList from "primevue/tablist";
+import Tab from "primevue/tab";
+import TabPanels from "primevue/tabpanels";
 import TabPanel from "primevue/tabpanel";
 import Tag from "primevue/tag";
 import Message from "primevue/message";
@@ -160,7 +163,7 @@ function gainLossSeverity(v: string | null) {
 function typeSeverity(t: string) {
   switch (t) {
     case "ASSET": return "info";
-    case "LIABILITY": return "warning";
+    case "LIABILITY": return "warn";
     case "EQUITY": return "success";
     case "INCOME": return "success";
     case "EXPENSE":
@@ -188,8 +191,16 @@ function typeSeverity(t: string) {
       </div>
     </header>
 
-    <TabView>
-      <TabPanel header="Trial Balance">
+    <Tabs value="trial-balance">
+      <TabList>
+        <Tab value="trial-balance">Trial Balance</Tab>
+        <Tab value="balance-sheet">Balance Sheet</Tab>
+        <Tab value="fx-revaluation">FX Revaluation</Tab>
+        <Tab value="ar-aging">AR Aging</Tab>
+        <Tab value="ap-aging">AP Aging</Tab>
+      </TabList>
+      <TabPanels>
+      <TabPanel value="trial-balance">
         <div v-if="trialBalance.data.value" class="meta">
           Base currency:
           <strong>{{ trialBalance.data.value.base_currency }}</strong>
@@ -242,7 +253,7 @@ function typeSeverity(t: string) {
         </DataTable>
       </TabPanel>
 
-      <TabPanel header="Balance Sheet">
+      <TabPanel value="balance-sheet">
         <div v-if="balanceSheet.data.value" class="meta">
           Base currency:
           <strong>{{ balanceSheet.data.value.base_currency }}</strong>
@@ -278,7 +289,7 @@ function typeSeverity(t: string) {
         </div>
       </TabPanel>
 
-      <TabPanel header="FX Revaluation">
+      <TabPanel value="fx-revaluation">
         <div v-if="fxReval.data.value" class="meta">
           Unrealised gain/loss on open foreign-currency balances at the latest
           rate on or before <strong>{{ fxReval.data.value.as_of }}</strong>.
@@ -358,7 +369,7 @@ function typeSeverity(t: string) {
         </DataTable>
       </TabPanel>
 
-      <TabPanel header="AR Aging">
+      <TabPanel value="ar-aging">
         <div v-if="arAging.data.value" class="meta">
           Open customer balances (SENT + PARTIAL) bucketed by days past due.
           <template v-for="(b, ccy) in arAging.data.value.totals_by_currency" :key="ccy">
@@ -402,7 +413,7 @@ function typeSeverity(t: string) {
         </DataTable>
       </TabPanel>
 
-      <TabPanel header="AP Aging">
+      <TabPanel value="ap-aging">
         <div v-if="apAging.data.value" class="meta">
           Open vendor bills (OPEN + PARTIAL) bucketed by days past due.
           <template v-for="(b, ccy) in apAging.data.value.totals_by_currency" :key="ccy">
@@ -445,7 +456,8 @@ function typeSeverity(t: string) {
           </Column>
         </DataTable>
       </TabPanel>
-    </TabView>
+      </TabPanels>
+    </Tabs>
   </section>
 </template>
 

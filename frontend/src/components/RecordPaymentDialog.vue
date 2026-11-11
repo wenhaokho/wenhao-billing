@@ -5,7 +5,7 @@ import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import { joinCc } from "@/utils/email";
 import InputNumber from "primevue/inputnumber";
-import DatePicker from "primevue/calendar";
+import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import Checkbox from "primevue/checkbox";

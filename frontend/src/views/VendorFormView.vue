@@ -6,7 +6,7 @@ import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
 import Textarea from "primevue/textarea";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import Message from "primevue/message";
 import { api } from "@/api/client";
 
@@ -186,7 +186,7 @@ function cancel() {
       <div class="two-col">
         <label class="field">
           <span>Default currency</span>
-          <Dropdown v-model="form.default_currency" :options="currencyOptions" />
+          <Select v-model="form.default_currency" :options="currencyOptions" />
         </label>
         <label class="field">
           <span>Payment terms (days)</span>
@@ -225,10 +225,10 @@ function cancel() {
 .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: var(--color-text); }
 .field > span { font-weight: 600; font-size: 0.85rem; }
 .field :deep(.p-inputtext),
-.field :deep(.p-inputtextarea),
+.field :deep(.p-textarea),
 .field :deep(.p-inputnumber),
 .field :deep(.p-inputnumber-input),
-.field :deep(.p-dropdown) { width: 100%; }
+.field :deep(.p-select) { width: 100%; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; min-width: 0; }
 .two-col > .field { min-width: 0; }
 </style>

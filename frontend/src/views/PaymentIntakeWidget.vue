@@ -285,13 +285,13 @@ function formatDate(iso: string) {
 }
 
 function modeSeverity(mode: string) {
-  return mode === "USAGE" ? "warning" : "info";
+  return mode === "USAGE" ? "warn" : "info";
 }
 
 function actionSeverity(a: string) {
   switch (a) {
     case "CLEARED": return "success";
-    case "HELD": return "warning";
+    case "HELD": return "warn";
     case "MATCHED": return "info";
     case "REVERSED": return "danger";
     case "OVERRIDDEN": return "secondary";

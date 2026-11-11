@@ -4,10 +4,10 @@ import { useRouter } from "vue-router";
 import { useReturnTo } from "@/composables/useReturnTo";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
-import DatePicker from "primevue/calendar";
+import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import Tag from "primevue/tag";
@@ -254,7 +254,7 @@ function statusSeverity(status: string) {
   switch (status) {
     case "ACCEPTED": case "INVOICED": return "success";
     case "SENT": return "info";
-    case "EXPIRED": return "warning";
+    case "EXPIRED": return "warn";
     case "DECLINED": return "danger";
     case "VOID": return "secondary";
     case "DRAFT": return "contrast";
@@ -305,7 +305,7 @@ function openPdfPreview() {
     <div class="top-grid">
       <div class="card card-pad">
         <div class="section-label">Bill to</div>
-        <Dropdown
+        <Select
           v-model="customerId"
           :options="customers ?? []"
           option-label="name"
@@ -327,7 +327,7 @@ function openPdfPreview() {
           <InputText v-model="quotationNumber" :placeholder="`Auto (Q${new Date().getFullYear()}####)`" :disabled="readOnly" />
 
           <label class="meta-label">Project</label>
-          <Dropdown
+          <Select
             v-model="projectId"
             :options="customerProjects ?? []"
             :option-label="(p: ProjectLite) => `${p.code} · ${p.name}`"
@@ -378,7 +378,7 @@ function openPdfPreview() {
         </div>
         <div v-else class="totals-row discount">
           <div class="discount-input">
-            <Dropdown
+            <Select
               v-model="discountType"
               :options="[{ label: '%', value: 'PERCENT' }, { label: 'Amount', value: 'AMOUNT' }]"
               option-label="label"
@@ -407,7 +407,7 @@ function openPdfPreview() {
 
         <div class="totals-row total">
           <div class="totals-label">
-            <Dropdown
+            <Select
               v-model="currency"
               :options="currencyOptions"
               class="ccy-select"
@@ -449,7 +449,7 @@ function openPdfPreview() {
 .card-pad { padding: 1.25rem 1.5rem; }
 .section-label { font-weight: 600; font-size: 0.85rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.5rem; }
 .full-w { width: 100%; }
-.full-w :deep(.p-dropdown), .full-w :deep(.p-inputtextarea) { width: 100%; }
+.full-w :deep(.p-select), .full-w :deep(.p-textarea) { width: 100%; }
 .cust-meta { margin-top: 0.5rem; font-size: 0.82rem; color: var(--color-text-muted); }
 
 .top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
@@ -457,15 +457,15 @@ function openPdfPreview() {
 
 .meta-grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.6rem 1rem; align-items: center; }
 .meta-label { font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500; text-align: right; }
-.meta-grid :deep(.p-inputtext), .meta-grid :deep(.p-calendar), .meta-grid :deep(.p-dropdown) { width: 100%; }
+.meta-grid :deep(.p-inputtext), .meta-grid :deep(.p-datepicker), .meta-grid :deep(.p-select) { width: 100%; }
 
 .totals-wrap { display: flex; justify-content: flex-end; }
 .totals { max-width: 380px; width: 100%; padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
 .totals-row { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; min-height: 2rem; }
 .totals-label { color: var(--color-text-muted); font-size: 0.85rem; display: flex; gap: 0.5rem; align-items: center; }
 .ccy-select { width: 84px; flex: 0 0 auto; }
-.ccy-select :deep(.p-dropdown-label) { padding: 0.35rem 0.5rem; font-size: 0.82rem; font-weight: 600; }
-.ccy-select :deep(.p-dropdown-trigger) { width: 1.75rem; }
+.ccy-select :deep(.p-select-label) { padding: 0.35rem 0.5rem; font-size: 0.82rem; font-weight: 600; }
+.ccy-select :deep(.p-select-dropdown) { width: 1.75rem; }
 .totals-row.total { border-top: 1px solid var(--color-border); padding-top: 0.75rem; font-weight: 600; font-size: 1rem; }
 .totals-row.total .totals-label { color: var(--color-text); font-size: 1rem; }
 .discount-input { display: flex; gap: 0.5rem; align-items: center; width: 100%; }

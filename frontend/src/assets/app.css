@@ -150,7 +150,7 @@ h1, h2, h3, h4 { color: var(--color-text); font-weight: 600; }
 .p-datatable .p-datatable-tbody > tr:last-child > td {
   border-bottom: none !important;
 }
-.p-datatable-wrapper {
+.p-datatable-table-container {
   border-radius: var(--radius-md);
   overflow: hidden;
   border: 1px solid var(--color-border);
@@ -173,7 +173,7 @@ h1, h2, h3, h4 { color: var(--color-text); font-weight: 600; }
   gap: 0.3rem;
 }
 .p-inputtext[aria-invalid="true"],
-.p-dropdown[aria-invalid="true"],
+.p-select[aria-invalid="true"],
 .p-password[aria-invalid="true"] > .p-inputtext {
   border-color: var(--color-danger) !important;
   box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.12) !important;

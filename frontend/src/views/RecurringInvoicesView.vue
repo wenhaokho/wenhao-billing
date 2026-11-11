@@ -6,8 +6,9 @@ import { useConfirm } from "primevue/useconfirm";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
-import TabView from "primevue/tabview";
-import TabPanel from "primevue/tabpanel";
+import Tabs from "primevue/tabs";
+import TabList from "primevue/tablist";
+import Tab from "primevue/tab";
 import Tag from "primevue/tag";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
@@ -34,25 +35,26 @@ const route = useRoute();
 const confirm = useConfirm();
 const queryClient = useQueryClient();
 
-// ---- tab filter: 0 = Active, 1 = Paused, 2 = Ended, 3 = All ----
-// Reflect the active status tab in the URL as a readable slug (?tab=paused)
-// so it is restored when navigating back to this list after opening an item.
+// ---- tab filter: each tab's value is the status filter it applies ----
+// (active, paused, ended, all). The active tab is reflected in the URL
+// (?tab=paused) so it is restored when navigating back to this list after
+// opening an item.
 const TAB_SLUGS = ["active", "paused", "ended", "all"];
-function readTabFromQuery(): number {
-  const i = TAB_SLUGS.indexOf(String(route.query.tab));
-  return i >= 0 ? i : 0;
+function readTabFromQuery(): string {
+  const q = String(route.query.tab);
+  return TAB_SLUGS.includes(q) ? q : TAB_SLUGS[0];
 }
-const activeTab = ref(readTabFromQuery());
+const activeTab = ref<string>(readTabFromQuery());
 watch(activeTab, (t) => {
-  router.replace({ query: { ...route.query, tab: TAB_SLUGS[t] ?? TAB_SLUGS[0] } });
+  router.replace({ query: { ...route.query, tab: TAB_SLUGS.includes(t) ? t : TAB_SLUGS[0] } });
 });
 // MISCONFIGURED sits with PAUSED: neither is generating invoices, and it must
 // not be out of sight on anything but the All tab.
-const TAB_TO_STATUSES: Record<number, string[] | null> = {
-  0: ["ACTIVE"],
-  1: ["PAUSED", "MISCONFIGURED"],
-  2: ["ENDED"],
-  3: null,
+const TAB_TO_STATUSES: Record<string, string[] | null> = {
+  active: ["ACTIVE"],
+  paused: ["PAUSED", "MISCONFIGURED"],
+  ended: ["ENDED"],
+  all: null,
 };
 
 const patchTemplate = useMutation({
@@ -108,7 +110,7 @@ function statusSeverity(status: string) {
     ? "success"
     : status === "ENDED"
       ? "secondary"
-      : "warning";
+      : "warn";
 }
 
 function fmtDate(d: string | null) {
@@ -132,12 +134,14 @@ function fmtDate(d: string | null) {
       </div>
     </header>
 
-    <TabView v-model:active-index="activeTab" class="status-tabs">
-      <TabPanel header="Active" />
-      <TabPanel header="Paused" />
-      <TabPanel header="Ended" />
-      <TabPanel header="All" />
-    </TabView>
+    <Tabs v-model:value="activeTab" class="status-tabs">
+      <TabList>
+        <Tab value="active">Active</Tab>
+        <Tab value="paused">Paused</Tab>
+        <Tab value="ended">Ended</Tab>
+        <Tab value="all">All</Tab>
+      </TabList>
+    </Tabs>
 
     <DataTable
       :value="rows"
@@ -242,7 +246,6 @@ function fmtDate(d: string | null) {
 
 <style scoped>
 .status-tabs { margin-bottom: 0.5rem; }
-.status-tabs :deep(.p-tabview-panels) { display: none; }
 .muted { color: var(--color-text-subtle); }
 .small { font-size: 0.8rem; }
 .num { font-variant-numeric: tabular-nums; }

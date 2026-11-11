@@ -5,8 +5,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
-import TabView from "primevue/tabview";
-import TabPanel from "primevue/tabpanel";
+import Tabs from "primevue/tabs";
+import TabList from "primevue/tablist";
+import Tab from "primevue/tab";
 import Tag from "primevue/tag";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
 import { whtOutstanding } from "@/composables/withholding";
@@ -52,23 +53,23 @@ interface InvoicesSummary {
 const router = useRouter();
 
 // ---- tab filter (Wave parity: Unpaid / Draft / All) ----
-// 0 = Unpaid (OPEN + SENT + PARTIAL), 1 = Draft, 2 = All
-// Reflect the active status tab in the URL as a readable slug (?tab=unpaid)
+// Each tab's value is the status filter it applies: unpaid (OPEN + SENT +
+// PARTIAL), draft, all. The active tab is reflected in the URL (?tab=unpaid)
 // so it is restored when navigating back to this list after opening an item.
 const route = useRoute();
 const TAB_SLUGS = ["unpaid", "draft", "all"];
-function readTabFromQuery(): number {
-  const i = TAB_SLUGS.indexOf(String(route.query.tab));
-  return i >= 0 ? i : 0;
+function readTabFromQuery(): string {
+  const q = String(route.query.tab);
+  return TAB_SLUGS.includes(q) ? q : TAB_SLUGS[0];
 }
-const activeTab = ref(readTabFromQuery());
+const activeTab = ref<string>(readTabFromQuery());
 watch(activeTab, (t) => {
-  router.replace({ query: { ...route.query, tab: TAB_SLUGS[t] ?? TAB_SLUGS[0] } });
+  router.replace({ query: { ...route.query, tab: TAB_SLUGS.includes(t) ? t : TAB_SLUGS[0] } });
 });
-const TAB_TO_STATUSES: Record<number, string[] | null> = {
-  0: ["OPEN", "SENT", "PARTIAL"],
-  1: ["DRAFT"],
-  2: null,
+const TAB_TO_STATUSES: Record<string, string[] | null> = {
+  unpaid: ["OPEN", "SENT", "PARTIAL"],
+  draft: ["DRAFT"],
+  all: null,
 };
 
 const { data: invoices, isLoading } = useQuery<Invoice[]>({
@@ -205,7 +206,7 @@ function statusSeverity(status: string) {
     case "PAID": return "success";
     case "OPEN": return "info";
     case "SENT": return "info";
-    case "PARTIAL": return "warning";
+    case "PARTIAL": return "warn";
     case "VOID": return "secondary";
     case "DRAFT": return "contrast";
     default: return undefined;
@@ -244,11 +245,13 @@ function statusSeverity(status: string) {
       </div>
     </div>
 
-    <TabView v-model:active-index="activeTab" class="status-tabs">
-      <TabPanel header="Unpaid" />
-      <TabPanel header="Draft" />
-      <TabPanel header="All" />
-    </TabView>
+    <Tabs v-model:value="activeTab" class="status-tabs">
+      <TabList>
+        <Tab value="unpaid">Unpaid</Tab>
+        <Tab value="draft">Draft</Tab>
+        <Tab value="all">All</Tab>
+      </TabList>
+    </Tabs>
 
     <DataTable
       :value="invoices ?? []"
@@ -360,7 +363,6 @@ function statusSeverity(status: string) {
 }
 .filters { margin: 0 0 1rem; }
 .status-tabs { margin-bottom: 0.5rem; }
-.status-tabs :deep(.p-tabview-panels) { display: none; }
 code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--color-text-muted, #64748b); }

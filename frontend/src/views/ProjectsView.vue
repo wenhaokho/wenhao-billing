@@ -6,8 +6,9 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import Tag from "primevue/tag";
-import TabView from "primevue/tabview";
-import TabPanel from "primevue/tabpanel";
+import Tabs from "primevue/tabs";
+import TabList from "primevue/tablist";
+import Tab from "primevue/tab";
 import { api } from "@/api/client";
 import { formatMoney } from "@/utils/money";
 
@@ -34,22 +35,22 @@ interface Customer {
 const router = useRouter();
 const route = useRoute();
 
-// 0 = Active, 1 = On hold, 2 = All
-// Reflect the active status tab in the URL as a readable slug (?tab=active)
-// so it is restored when navigating back to this list after opening an item.
+// Each tab's value is the status filter it applies: active (ACTIVE), hold
+// (ON_HOLD), all. The active tab is reflected in the URL (?tab=active) so it
+// is restored when navigating back to this list after opening an item.
 const TAB_SLUGS = ["active", "hold", "all"];
-function readTabFromQuery(): number {
-  const i = TAB_SLUGS.indexOf(String(route.query.tab));
-  return i >= 0 ? i : 0;
+function readTabFromQuery(): string {
+  const q = String(route.query.tab);
+  return TAB_SLUGS.includes(q) ? q : TAB_SLUGS[0];
 }
-const activeTab = ref(readTabFromQuery());
+const activeTab = ref<string>(readTabFromQuery());
 watch(activeTab, (t) => {
-  router.replace({ query: { ...route.query, tab: TAB_SLUGS[t] ?? TAB_SLUGS[0] } });
+  router.replace({ query: { ...route.query, tab: TAB_SLUGS.includes(t) ? t : TAB_SLUGS[0] } });
 });
-const TAB_TO_STATUSES: Record<number, string[] | null> = {
-  0: ["ACTIVE"],
-  1: ["ON_HOLD"],
-  2: null,
+const TAB_TO_STATUSES: Record<string, string[] | null> = {
+  active: ["ACTIVE"],
+  hold: ["ON_HOLD"],
+  all: null,
 };
 
 const { data: projects, isLoading } = useQuery<Project[]>({
@@ -88,7 +89,7 @@ function openDetail(row: Project) {
 function statusSeverity(s: string) {
   switch (s) {
     case "ACTIVE": return "success";
-    case "ON_HOLD": return "warning";
+    case "ON_HOLD": return "warn";
     case "COMPLETED": return "info";
     case "CANCELLED": return "danger";
     default: return undefined;
@@ -111,11 +112,13 @@ function statusSeverity(s: string) {
       </div>
     </header>
 
-    <TabView v-model:active-index="activeTab" class="status-tabs">
-      <TabPanel header="Active" />
-      <TabPanel header="On hold" />
-      <TabPanel header="All" />
-    </TabView>
+    <Tabs v-model:value="activeTab" class="status-tabs">
+      <TabList>
+        <Tab value="active">Active</Tab>
+        <Tab value="hold">On hold</Tab>
+        <Tab value="all">All</Tab>
+      </TabList>
+    </Tabs>
 
     <DataTable :value="projects ?? []" :loading="isLoading" data-key="project_id" striped-rows>
       <template #empty>
@@ -176,5 +179,4 @@ code { background: var(--color-surface-alt); padding: 0.1rem 0.4rem; border-radi
 .num { font-variant-numeric: tabular-nums; }
 .page-actions { display: flex; gap: 0.5rem; align-items: center; }
 .status-tabs { margin-bottom: 0.5rem; }
-.status-tabs :deep(.p-tabview-panels) { display: none; }
 </style>

@@ -99,7 +99,7 @@ function quoteStatusSeverity(s: string) {
   switch (s) {
     case "ACCEPTED": case "INVOICED": return "success";
     case "SENT": return "info";
-    case "EXPIRED": return "warning";
+    case "EXPIRED": return "warn";
     case "DECLINED": return "danger";
     case "VOID": return "secondary";
     case "DRAFT": return "contrast";
@@ -129,7 +129,7 @@ const contractPct = computed(() => {
 function statusSeverity(s: string) {
   switch (s) {
     case "ACTIVE": case "PAID": return "success";
-    case "ON_HOLD": case "PARTIAL": return "warning";
+    case "ON_HOLD": case "PARTIAL": return "warn";
     case "COMPLETED": case "OPEN": case "SENT": return "info";
     case "CANCELLED": case "VOID": return "danger";
     case "DRAFT": return "secondary";

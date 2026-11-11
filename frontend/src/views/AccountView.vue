@@ -6,7 +6,10 @@ import Textarea from "primevue/textarea";
 import Password from "primevue/password";
 import Button from "primevue/button";
 import Message from "primevue/message";
-import TabView from "primevue/tabview";
+import Tabs from "primevue/tabs";
+import TabList from "primevue/tablist";
+import Tab from "primevue/tab";
+import TabPanels from "primevue/tabpanels";
 import TabPanel from "primevue/tabpanel";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/stores/auth";
@@ -15,23 +18,22 @@ const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 
-// TabView uses 0-indexed activeIndex; map ?tab=<name> to/from index.
+// Each tab's value is its ?tab=<name>; the first tab (profile) has no query.
 const tabOrder = ["profile", "security"] as const;
 type TabName = (typeof tabOrder)[number];
-const activeIndex = ref(0);
+const activeTab = ref<TabName>(tabOrder[0]);
 
 function syncTabFromQuery() {
-  const q = route.query.tab;
-  const idx = tabOrder.indexOf(q as TabName);
-  activeIndex.value = idx === -1 ? 0 : idx;
+  const q = route.query.tab as TabName;
+  activeTab.value = tabOrder.includes(q) ? q : tabOrder[0];
 }
 onMounted(syncTabFromQuery);
 watch(() => route.query.tab, syncTabFromQuery);
 
-function onTabChange(e: { index: number }) {
-  activeIndex.value = e.index;
-  const tab = e.index === 0 ? undefined : tabOrder[e.index];
-  router.replace({ query: tab ? { tab } : {} });
+function onTabChange(value: string | number) {
+  const tab = tabOrder.includes(value as TabName) ? (value as TabName) : tabOrder[0];
+  activeTab.value = tab;
+  router.replace({ query: tab === tabOrder[0] ? {} : { tab } });
 }
 
 // ----- profile form -----
@@ -277,8 +279,13 @@ function fmtDate(iso?: string) {
       </div>
     </header>
 
-    <TabView :active-index="activeIndex" @tab-change="onTabChange">
-      <TabPanel header="Profile & Company">
+    <Tabs :value="activeTab" @update:value="onTabChange">
+      <TabList>
+        <Tab value="profile">Profile & Company</Tab>
+        <Tab value="security">Password & Session</Tab>
+      </TabList>
+      <TabPanels>
+      <TabPanel value="profile">
         <div class="two-panel">
         <div class="panel">
           <div class="identity">
@@ -461,7 +468,7 @@ function fmtDate(iso?: string) {
         </div>
       </TabPanel>
 
-      <TabPanel header="Password & Session">
+      <TabPanel value="security">
         <div class="two-panel">
         <div class="panel">
           <h2 class="panel-heading">Change password</h2>
@@ -533,7 +540,8 @@ function fmtDate(iso?: string) {
         </div>
         </div>
       </TabPanel>
-    </TabView>
+      </TabPanels>
+    </Tabs>
   </section>
 </template>
 
@@ -630,7 +638,7 @@ function fmtDate(iso?: string) {
   justify-content: space-between;
 }
 .pay-account-row {
-  border: 1px solid var(--surface-border, #e4e7ec);
+  border: 1px solid var(--p-content-border-color);
   border-radius: 6px;
   padding: 0.75rem;
   margin-top: 0.5rem;

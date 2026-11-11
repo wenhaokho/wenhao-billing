@@ -2,7 +2,7 @@
 import { reactive, watch, ref, computed } from "vue";
 import InputText from "primevue/inputtext";
 import Textarea from "primevue/textarea";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import Button from "primevue/button";
 import Chip from "primevue/chip";
 import Checkbox from "primevue/checkbox";
@@ -280,7 +280,7 @@ function onToggleSameAsBilling(v: boolean) {
 
       <label class="field">
         <span class="field-label">Currency</span>
-        <Dropdown
+        <Select
           v-model="local.default_currency"
           :options="currencyOptions"
           option-label="label"
@@ -295,7 +295,7 @@ function onToggleSameAsBilling(v: boolean) {
       <div class="two-col">
         <label class="field">
           <span class="field-label muted">Type</span>
-          <Dropdown
+          <Select
             v-model="local.default_wht_type"
             :options="WHT_OPTIONS"
             option-label="label"
@@ -348,7 +348,7 @@ function onToggleSameAsBilling(v: boolean) {
       <div class="two-col">
         <label class="field">
           <span class="field-label muted">Country</span>
-          <Dropdown
+          <Select
             v-model="local.billing_country"
             :options="COUNTRIES"
             filter
@@ -421,7 +421,7 @@ function onToggleSameAsBilling(v: boolean) {
         <div class="two-col">
           <label class="field">
             <span class="field-label muted">Country</span>
-            <Dropdown
+            <Select
               v-model="local.shipping_country"
               :options="COUNTRIES"
               filter
@@ -497,8 +497,8 @@ function onToggleSameAsBilling(v: boolean) {
   min-width: 0;
 }
 .field :deep(.p-inputtext),
-.field :deep(.p-inputtextarea),
-.field :deep(.p-dropdown),
+.field :deep(.p-textarea),
+.field :deep(.p-select),
 .field :deep(.p-inputnumber) {
   width: 100%;
 }

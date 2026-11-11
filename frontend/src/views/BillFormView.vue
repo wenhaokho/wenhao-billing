@@ -4,10 +4,10 @@ import { useRouter } from "vue-router";
 import { useReturnTo } from "@/composables/useReturnTo";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
-import DatePicker from "primevue/calendar";
+import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import Tag from "primevue/tag";
@@ -282,7 +282,7 @@ function statusSeverity(status: string) {
   switch (status) {
     case "PAID": return "success";
     case "OPEN": return "info";
-    case "PARTIAL": return "warning";
+    case "PARTIAL": return "warn";
     case "VOID": return "secondary";
     case "DRAFT": return "contrast";
     default: return undefined;
@@ -328,7 +328,7 @@ function statusSeverity(status: string) {
     <div class="top-grid">
       <div class="card card-pad">
         <div class="section-label">Vendor</div>
-        <Dropdown
+        <Select
           v-model="vendorId"
           :options="vendors ?? []"
           option-label="name"
@@ -362,10 +362,10 @@ function statusSeverity(status: string) {
           <InputText v-model="paymentTerms" :disabled="readOnly" />
 
           <label class="meta-label">Currency</label>
-          <Dropdown v-model="currency" :options="currencyOptions" :disabled="readOnly" />
+          <Select v-model="currency" :options="currencyOptions" :disabled="readOnly" />
 
           <label class="meta-label">Project</label>
-          <Dropdown
+          <Select
             v-model="projectId"
             :options="projects ?? []"
             :option-label="(p: ProjectLite) => `${p.code} · ${p.name}`"
@@ -389,7 +389,7 @@ function statusSeverity(status: string) {
         </Column>
         <Column header="Expense account" :style="{ minWidth: '220px' }">
           <template #body="{ data }">
-            <Dropdown
+            <Select
               v-model="data.expense_account_id"
               :options="expenseAccountOptions"
               option-label="label"
@@ -488,14 +488,14 @@ function statusSeverity(status: string) {
 .meta-grid { display: grid; grid-template-columns: 140px 1fr; gap: 0.5rem 0.75rem; align-items: center; }
 .meta-label { font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500; }
 .meta-grid :deep(.p-inputtext),
-.meta-grid :deep(.p-dropdown),
-.meta-grid :deep(.p-calendar) { width: 100%; }
+.meta-grid :deep(.p-select),
+.meta-grid :deep(.p-datepicker) { width: 100%; }
 
 .lines-card { display: flex; flex-direction: column; gap: 0.5rem; }
 .lines-card :deep(.p-inputtext),
 .lines-card :deep(.p-inputnumber),
 .lines-card :deep(.p-inputnumber-input),
-.lines-card :deep(.p-dropdown) { width: 100%; }
+.lines-card :deep(.p-select) { width: 100%; }
 .add-line { padding-top: 0.25rem; }
 
 .totals-wrap { display: flex; justify-content: flex-end; }

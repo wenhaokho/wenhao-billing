@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import Message from "primevue/message";
 import { api } from "@/api/client";
 
@@ -116,7 +116,7 @@ function cancel() {
         </label>
         <label class="field">
           <span>Type</span>
-          <Dropdown
+          <Select
             v-model="form.type"
             :options="accountTypes"
             option-label="label"
@@ -151,7 +151,7 @@ function cancel() {
 }
 .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: var(--color-text); }
 .field > span { font-weight: 600; font-size: 0.85rem; }
-.field :deep(.p-inputtext), .field :deep(.p-dropdown) { width: 100%; }
+.field :deep(.p-inputtext), .field :deep(.p-select) { width: 100%; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; min-width: 0; }
 .two-col > .field { min-width: 0; }
 </style>

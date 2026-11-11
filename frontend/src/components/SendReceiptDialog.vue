@@ -4,7 +4,7 @@ import Dialog from "primevue/dialog";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import { joinCc } from "@/utils/email";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import Message from "primevue/message";
 import { useAuthStore } from "@/stores/auth";
 import { formatAmount } from "@/utils/money";
@@ -87,7 +87,7 @@ function submit() {
     <div class="send-grid">
       <label class="field">
         <span>Payment</span>
-        <Dropdown
+        <Select
           v-model="paymentId"
           :options="options"
           option-label="label"
@@ -126,7 +126,7 @@ function submit() {
 .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
 .field > span { font-weight: 600; color: var(--color-text); }
 .field .muted { font-weight: 400; color: var(--color-text-muted); font-size: 0.78rem; }
-.field :deep(.p-inputtext), .field :deep(.p-dropdown) { width: 100%; }
+.field :deep(.p-inputtext), .field :deep(.p-select) { width: 100%; }
 .note { font-size: 0.78rem; color: var(--color-text-muted); margin: 0; }
 .note i { margin-right: 0.3rem; }
 </style>

@@ -7,7 +7,7 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import Tag from "primevue/tag";
-import InputSwitch from "primevue/inputswitch";
+import ToggleSwitch from "primevue/toggleswitch";
 import { api } from "@/api/client";
 
 interface Vendor {
@@ -85,7 +85,7 @@ function confirmDeactivate(row: Vendor) {
       </div>
       <div class="page-actions">
         <label class="toggle">
-          <InputSwitch v-model="showInactive" />
+          <ToggleSwitch v-model="showInactive" />
           <span>Show inactive</span>
         </label>
         <Button label="New vendor" icon="pi pi-plus" @click="openCreate" />
