@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext, type Locator } from "@playwright/test";
 import { statusTone } from "../src/theme/status";
-import { ROUTES, apiPost, uniq } from "./helpers";
+import { ROUTES, apiPost, openRecordPayment, uniq } from "./helpers";
 
 test.use({ colorScheme: "light" });
 
@@ -194,25 +194,50 @@ test("empty state centres its icon", async ({ page }) => {
 
 /**
  * Every element in `scope` whose computed corner radius breaks the system
- * (spec "Shapes"): cards, panels, tables, fields, dialogs, menus and tags are
- * square or 2px. Exempt (ruling R4): buttons (30px pills), anything at 50%
- * (avatars, dots), and PrimeVue checkbox/radio/toggle/spinner internals.
+ * (spec "Shapes", ruling R4). Only R4's categories are checked: cards, panels,
+ * tables, fields (inputs, selects, date pickers, textareas), dialogs, menus
+ * and tags must be square or 2px; PrimeVue buttons must be 30px pills.
+ * Exempt: anything at 50% (avatars, dots, round icon buttons), PrimeVue
+ * checkbox/radio/toggle/spinner/scrollbar internals, and anything inside an
+ * element marked [data-radius-exempt].
  */
 async function roundedOffenders(scope: Locator): Promise<string[]> {
   return scope.evaluate((root) => {
-    const out: string[] = [];
-    const exempt = ".p-checkbox, .p-radiobutton, .p-toggleswitch, .p-progressspinner, .p-avatar";
+    const square = [
+      // cards and panels
+      ".card", ".p-card", ".p-panel", ".p-fieldset", ".p-accordion", ".p-tabs", ".p-message", ".p-toast-message",
+      // tables
+      "table", ".p-datatable", ".p-datatable-table-container", ".p-treetable",
+      // fields
+      "input:not([type=checkbox]):not([type=radio])", "select", "textarea", ".p-inputtext", ".p-select",
+      ".p-multiselect", ".p-autocomplete", ".p-inputnumber", ".p-datepicker", ".p-datepicker-panel", ".p-textarea",
+      ".p-password", ".p-inputgroup",
+      // dialogs
+      ".p-dialog", "[role=dialog]", "[role=alertdialog]",
+      // menus and overlay panels
+      ".p-menu", ".p-tieredmenu", ".p-contextmenu", ".p-menubar", "[role=menu]", ".p-select-overlay",
+      ".p-multiselect-overlay", ".p-autocomplete-overlay", ".p-popover",
+      // tags
+      ".p-tag", ".p-chip", ".p-badge",
+    ].join(", ");
+    const exempt =
+      "[data-radius-exempt], .p-checkbox, .p-radiobutton, .p-toggleswitch, .p-progressspinner, .p-avatar, .p-scrollpanel-bar";
     const ok = (c: string) => c.split(" ").every((v) => parseFloat(v) <= 2);
+    const out: string[] = [];
+    // A button joined to a field (the date picker's calendar button, an input
+    // group addon) takes the field's shape, not the pill.
+    const field = ".p-datepicker, .p-inputgroup, .p-inputnumber, .p-select, .p-autocomplete";
     for (const el of [root, ...Array.from(root.querySelectorAll("*"))] as HTMLElement[]) {
+      const isButton = el.matches(".p-button") && !el.parentElement?.closest(field);
+      if (!isButton && !el.matches(square) && !(el.matches(".p-button") && el.parentElement?.closest(field))) continue;
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
       const cs = getComputedStyle(el);
       if (cs.visibility === "hidden") continue;
-      const corners = [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomLeftRadius, cs.borderBottomRightRadius];
-      if (corners.every(ok)) continue;
-      if (corners.every((c) => c === "50%")) continue;
       if (el.closest(exempt)) continue;
-      if (el.closest(".p-button, button") && corners.every((c) => c === "30px")) continue;
+      const corners = [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomLeftRadius, cs.borderBottomRightRadius];
+      if (corners.every((c) => c === "50%")) continue;
+      if (isButton ? corners.every((c) => c === "30px") : corners.every(ok)) continue;
       const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/).slice(0, 3).join(".") : "";
       out.push(`${el.tagName.toLowerCase()}${cls ? "." + cls : ""} radius=${cs.borderRadius}`);
     }
@@ -342,13 +367,144 @@ test.describe("auth pages use brand chrome", () => {
       await expect(card).toHaveCSS("border-top-color", "rgb(225, 215, 200)");
       await expect(card).toHaveCSS("border-top-width", "1px");
       expect(await card.locator("h1").evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"?Manrope/);
+      // Each auth page has exactly one submit: the red pill.
       const submit = card.locator('button[type="submit"]');
-      if ((await submit.count()) > 0) {
-        await expect(submit.first()).toHaveCSS("background-color", "rgb(165, 28, 48)");
-        await expect(submit.first()).toHaveCSS("border-radius", "30px");
-        await expect(submit.first()).toHaveCSS("box-shadow", "none");
-      }
+      await expect(submit, `${path} submit button`).toHaveCount(1);
+      await expect(submit).toHaveCSS("background-color", "rgb(165, 28, 48)");
+      await expect(submit).toHaveCSS("border-radius", "30px");
+      await expect(submit).toHaveCSS("box-shadow", "none");
       expect(await roundedOffenders(page.locator("body")), `${path} rounded elements`).toEqual([]);
     });
   }
+});
+
+test.describe("overlays are square with the overlay shadow", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+  const shadowed = async (el: Locator) => {
+    const shadow = await el.evaluate((n) => getComputedStyle(n).boxShadow);
+    expect(shadow, "overlay shadow").not.toBe("none");
+    // --wb-overlay-shadow: two layers, the first 0 8px 24px.
+    expect(shadow, "overlay shadow").toMatch(/0px 8px 24px/);
+  };
+
+  test("Record payment dialog", async ({ page }) => {
+    const dialog = await openRecordPayment(page);
+    await expect(dialog).toHaveCSS("border-radius", "0px");
+    await shadowed(dialog);
+    expect(await roundedOffenders(dialog), "rounded elements in the dialog").toEqual([]);
+  });
+
+  test("user menu", async ({ page }) => {
+    await page.goto("/dashboard");
+    await page.getByRole("button", { name: "Open account menu" }).click();
+    const menu = page.getByRole("menu");
+    await expect(menu).toBeVisible();
+    // The popup Menu's root (data-pc-name="menu") holds the role="menu" list.
+    const panel = menu.locator('xpath=ancestor-or-self::*[@data-pc-name="menu"][1]');
+    await expect(panel).toHaveCSS("border-radius", "0px");
+    await shadowed(panel);
+    expect(await roundedOffenders(panel), "rounded elements in the menu").toEqual([]);
+  });
+});
+
+// Ruling R10: a destructive (danger) button must not look like a routine
+// primary one, in either theme, and keeps white text at 4.5:1 or better.
+test("danger button differs from the primary button, light and dark", async ({ page }) => {
+  const name = `E2E Danger Customer ${uniq()}`;
+  await apiPost(page.request, "/customers", { name, default_currency: "IDR" });
+  await page.goto("/customers");
+  const style = (el: Locator) =>
+    el.evaluate((n) => {
+      const cs = getComputedStyle(n);
+      return { bg: cs.backgroundColor, border: cs.borderTopColor, shadow: cs.boxShadow, color: cs.color };
+    });
+  const lum = (rgb: string) => {
+    const [r, g, b] = rgb.match(/\d+(\.\d+)?/g)!.slice(0, 3).map(Number);
+    const lin = (c: number) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  };
+  const contrast = (a: string, b: string) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  for (const theme of ["light", "dark"] as const) {
+    if (theme === "dark") await page.getByRole("button", { name: "Switch to dark theme" }).click();
+    const primary = page.getByRole("button", { name: "New customer" });
+    await expect(primary).toBeVisible();
+    await page.locator("tbody tr", { hasText: name }).getByTitle("Deactivate").click();
+    const dialog = page.getByRole("alertdialog", { name: "Deactivate customer" });
+    await expect(dialog).toBeVisible();
+    const danger = dialog.getByRole("button", { name: "Deactivate" });
+    await expect(danger).toHaveClass(/p-button-danger/);
+    const p = await style(primary);
+    const d = await style(danger);
+    expect(d.bg, `${theme}: danger fill differs from primary`).not.toBe(p.bg);
+    expect(d.border, `${theme}: danger edge differs from primary`).not.toBe(p.border);
+    expect(d.border, `${theme}: danger edge differs from its fill`).not.toBe(d.bg);
+    expect(contrast(d.color, d.bg), `${theme}: danger text contrast`).toBeGreaterThanOrEqual(4.5);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  }
+});
+
+test("recurring template row actions stay on one line at 1440", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const customerName = `E2E Recurring Actions ${uniq()}`;
+  const c = await apiPost<{ customer_id: string }>(page.request, "/customers", { name: customerName, default_currency: "IDR" });
+  await apiPost(page.request, "/invoices/recurring-template", {
+    customer_id: c.customer_id,
+    currency: "IDR",
+    payment_terms: "",
+    schedule: { frequency: "MONTHLY", start_date: "2027-01-01" },
+    line_items: BRAND_LINE,
+  });
+  await page.goto("/invoices/recurring");
+  const row = page.locator("tbody tr", { hasText: customerName });
+  await expect(row).toBeVisible();
+  const actions = row.locator(".row-actions");
+  // An active template shows all three: Edit, Pause, End now.
+  await expect(actions.getByRole("button")).toHaveCount(3);
+  const fit = await actions.evaluate((el) => {
+    const cell = el.closest("td")!;
+    const tops = Array.from(el.querySelectorAll("button")).map((b) => Math.round(b.getBoundingClientRect().top));
+    const cellBox = cell.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    return { tops, overflow: el.scrollWidth - el.clientWidth, left: box.left - cellBox.left, right: cellBox.right - box.right };
+  });
+  expect(new Set(fit.tops).size, `button tops ${fit.tops}`).toBe(1);
+  expect(fit.overflow, "actions overflow").toBeLessThanOrEqual(0);
+  expect(fit.left, "actions inside the cell (left)").toBeGreaterThanOrEqual(0);
+  expect(fit.right, "actions inside the cell (right)").toBeGreaterThanOrEqual(0);
+});
+
+test("account page names the real password hash", async ({ page }) => {
+  await page.goto("/account");
+  await page.getByRole("tab", { name: "Password & Session" }).click();
+  const main = page.locator("main#main-content");
+  await expect(main.getByText("Auth mechanism")).toBeVisible();
+  await expect(main).toContainText("argon2id");
+  await expect(main).not.toContainText(/bcrypt/i);
+});
+
+test("dashboard charts are named images under the page heading", async ({ page }) => {
+  await page.goto("/dashboard");
+  const main = page.locator("main#main-content");
+  await expect(main.getByRole("heading", { level: 1, name: "Dashboard" })).toBeVisible();
+  // The page H1 is the first heading on the page: the topbar title is not one.
+  const levels = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6, [role=heading]")).map((h) => h.tagName.toLowerCase()),
+  );
+  expect(levels[0], `heading order ${levels.join(",")}`).toBe("h1");
+  expect(levels.filter((l) => l === "h1")).toHaveLength(1);
+  await expect(page.locator("header.topbar").getByRole("heading")).toHaveCount(0);
+  await expect(main.getByRole("heading", { level: 2, name: "Open receivables" })).toBeVisible();
+  // Each chart canvas is an image with a short description.
+  for (const id of ["revenue-chart", "ar-chart"]) {
+    const canvas = main.getByTestId(id).locator("canvas");
+    if ((await main.getByTestId(id).count()) === 0) continue; // no data for this chart in the dev database
+    await expect(canvas, id).toHaveAttribute("role", "img");
+    await expect(canvas, id).toHaveAttribute("aria-label", /.{20,}/);
+  }
+  // At least the revenue chart must be there to check (the dev database has IDR revenue).
+  await expect(main.getByTestId("revenue-chart").locator("canvas")).toHaveAttribute("role", "img");
 });
