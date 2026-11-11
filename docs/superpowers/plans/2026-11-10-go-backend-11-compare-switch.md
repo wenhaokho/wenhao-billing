@@ -316,6 +316,7 @@ Each response's created ids map Python → Go, and later requests use each backe
 - [ ] **Step 4b: Back-post dry run (plan 12, PN 166).** On `billing_cmp_go`, run `api backpost-ledger` (no `--apply`: it writes nothing).
   - Report to the owner: its counts (invoices issued, bills opened, payments restated, payments posted, legacy bill payments), the per-account base totals, every missing rate, bad account and `inconsistent` line, the owner-decision list (CLEARED payments on VOID, DRAFT, template or zero invoices, never posted), and every warning (VOID bills partly paid, null issue dates, payments on the ledger before their invoice's issue date, face ≠ `balance_due` on invoices with no payment).
   - Exit 1 means refused: the owner enters each missing rate (or fixes each account, or decides each inconsistent payment) in production before the switch, then the dry run is repeated on a fresh copy until it exits 0.
+  - Gate: exit 0 is not enough. The owner reviews every warning line and every owner-decision line of the last dry run, and records a decision for each (accept, or fix in production and rerun). Task 9 Step 0 cannot ask for its `--apply` yes until that review is recorded.
 - [ ] **Step 5: Data checks** on `billing_cmp_py` (local copy, read-only).
   - Run the dry-run (plan) mode of `python -m scripts.fix_recurring_cycle_keys`, and a query for two non-VOID children with one template and one cycle date (PN 35).
   - Run a query for usage drafts whose `cut_off_day` falls in the coming week (PN 1/48: the Go job errors on them as Python's does).
@@ -366,6 +367,7 @@ Each response's created ids map Python → Go, and later requests use each backe
 ### Task 9: Switch (spec step 3) and, only if needed, the way back (step 4)
 
 - [ ] **Step 0: Back-post. OWNER YES REQUIRED.** After the migrations (Task 8) and before traffic moves (Step 1), with Python's scheduler and writes stopped (runbook), run `api backpost-ledger` once more (dry run) and compare it with Task 6 Step 4b; then run `api backpost-ledger --apply` in the Go container (PN 166).
+  - Gate before the yes: the owner has reviewed every warning line and every owner-decision line of this dry run (any not in Task 6 Step 4b's recorded review is reviewed now) and recorded a decision for each. Ask for the `--apply` yes only after that; a line nobody has reviewed means stop.
   - Exit 0 and `applied: committed` is required. Exit 1 (refused) or 2 writes nothing: stop and report.
   - Then the trial-balance check: Σ `base_amount_debit` = Σ `base_amount_credit` over `journal_lines` (read-only), and a second dry run reports 0 of everything.
   - Rollback: none needed for Python, which ignores the entries and `bill_payments` (PN 166, the way back).
