@@ -1,6 +1,6 @@
 # UI revamp, part 2: the mockup features that need new data — design
 
-Date: 2026-11-12 · Status: draft for owner approval
+Date: 2026-11-12 · Status: approved by the owner 2026-11-12
 
 ## Why
 
