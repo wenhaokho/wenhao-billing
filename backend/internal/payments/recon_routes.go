@@ -77,6 +77,7 @@ type AuditRow struct {
 	PaymentID    uuid.UUID      `json:"payment_id"`
 	Action       string         `json:"action"`
 	Reasons      []string       `json:"reasons"`
+	ReasonCodes  []string       `json:"reason_codes" nullable:"false" doc:"The code of each reason, in the same order (payments.ReasonCode)."`
 	ActorUserID  *uuid.UUID     `json:"actor_user_id"`
 	ActorEmail   *string        `json:"actor_email"`
 	CreatedAt    *platform.Time `json:"created_at"`
@@ -112,7 +113,7 @@ func (r routes) auditLog(ctx context.Context, in *auditIn) (*auditOut, error) {
 	out := make([]AuditRow, 0, len(rows))
 	for _, l := range rows {
 		row := AuditRow{
-			LogID: l.LogID, PaymentID: l.PaymentID, Action: l.Action, Reasons: nonNil(l.Reasons),
+			LogID: l.LogID, PaymentID: l.PaymentID, Action: l.Action, Reasons: nonNil(l.Reasons), ReasonCodes: nonNil(l.ReasonCodes),
 			ActorUserID: platform.UUIDPtr(l.ActorUserID), ActorEmail: l.ActorEmail,
 			PayerName: l.PayerName, Currency: l.Currency, InvoiceID: platform.UUIDPtr(l.InvoiceID), IntakeSource: l.IntakeSource,
 		}
@@ -167,6 +168,7 @@ type LogEntry struct {
 	LogID       uuid.UUID      `json:"log_id"`
 	Action      string         `json:"action"`
 	Reasons     []string       `json:"reasons"`
+	ReasonCodes []string       `json:"reason_codes" nullable:"false" doc:"The code of each reason, in the same order (payments.ReasonCode)."`
 	ActorUserID *uuid.UUID     `json:"actor_user_id"`
 	CreatedAt   *platform.Time `json:"created_at"`
 }
@@ -180,7 +182,7 @@ func (r routes) paymentLog(ctx context.Context, in *paymentIn) (*logOut, error) 
 	}
 	out := make([]LogEntry, 0, len(rows))
 	for _, l := range rows {
-		e := LogEntry{LogID: l.LogID, Action: l.Action, Reasons: nonNil(l.Reasons), ActorUserID: platform.UUIDPtr(l.ActorUserID)}
+		e := LogEntry{LogID: l.LogID, Action: l.Action, Reasons: nonNil(l.Reasons), ReasonCodes: nonNil(l.ReasonCodes), ActorUserID: platform.UUIDPtr(l.ActorUserID)}
 		if l.CreatedAt != nil {
 			e.CreatedAt = &platform.Time{Time: *l.CreatedAt}
 		}

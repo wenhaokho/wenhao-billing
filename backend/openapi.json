@@ -226,6 +226,13 @@
           "payment_id": {
             "type": "string"
           },
+          "reason_codes": {
+            "description": "The code of each reason, in the same order (payments.ReasonCode).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "reasons": {
             "items": {
               "type": "string"
@@ -248,6 +255,7 @@
           "payment_id",
           "action",
           "reasons",
+          "reason_codes",
           "actor_user_id",
           "created_at",
           "payer_name",
@@ -568,6 +576,13 @@
           "payment_id": {
             "type": "string"
           },
+          "reason_codes": {
+            "description": "The code of each reason, in the same order (payments.ReasonCode).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "reasons": {
             "items": {
               "type": "string"
@@ -583,6 +598,7 @@
           "payment_id",
           "action",
           "reasons",
+          "reason_codes",
           "actor_user_id",
           "actor_email",
           "created_at",
@@ -4175,6 +4191,13 @@
           "log_id": {
             "type": "string"
           },
+          "reason_codes": {
+            "description": "The code of each reason, in the same order (payments.ReasonCode).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "reasons": {
             "items": {
               "type": "string"
@@ -4189,6 +4212,7 @@
           "log_id",
           "action",
           "reasons",
+          "reason_codes",
           "actor_user_id",
           "created_at"
         ],

@@ -80,13 +80,15 @@ func saveInvoice(ctx context.Context, q *paymentsdb.Queries, inv paymentsdb.Lock
 	return nil
 }
 
-// logAction writes a reconciliation log row; reasons nil is stored as {}.
+// logAction writes a reconciliation log row with the ReasonCode of each
+// reason, in the same order; reasons nil is stored as {}.
 func logAction(ctx context.Context, q *paymentsdb.Queries, paymentID uuid.UUID, action string, reasons []string, actor *uuid.UUID) error {
 	if reasons == nil {
 		reasons = []string{}
 	}
 	if err := q.InsertReconLog(ctx, paymentsdb.InsertReconLogParams{
-		LogID: uuid.New(), PaymentID: paymentID, Action: action, Reasons: reasons, ActorUserID: pgUUID(actor),
+		LogID: uuid.New(), PaymentID: paymentID, Action: action, Reasons: reasons, ReasonCodes: ReasonCodes(reasons),
+		ActorUserID: pgUUID(actor),
 	}); err != nil {
 		return fmt.Errorf("payments: insert log: %w", err)
 	}

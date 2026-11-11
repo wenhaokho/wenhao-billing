@@ -63,7 +63,7 @@ SELECT i.invoice_id, i.customer_id, c.name AS customer_name, i.currency, i.amoun
 -- name: RecentActivity :many
 -- The newest reconciliation_log rows with their payment, invoice, customer
 -- (the payment's own, else the invoice's) and actor. Python had no tie-break.
-SELECT l.log_id, l.payment_id, l.action, l.reasons, l.actor_user_id, l.created_at,
+SELECT l.log_id, l.payment_id, l.action, l.reasons, l.reason_codes, l.actor_user_id, l.created_at,
        p.payer_name, p.amount, p.currency, p.payment_date, p.payer_reference, p.wht_amount,
        p.confidence_score, p.intake_source, p.invoice_id,
        i.invoice_number, c.name AS customer_name,

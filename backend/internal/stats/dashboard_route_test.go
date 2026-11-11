@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ VALUES ($1, $2, $3, 10, 'USD', 'Unknown Payer', '2026-07-01', 'TEST', $4, 'PENDI
 	if s.action == "" {
 		s.action = "HELD"
 	}
-	exec(t, a, `INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, actor_user_id, created_at) VALUES ($1, $2, $3, ARRAY['no-match'], $4, $5)`,
+	exec(t, a, `INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, reason_codes, actor_user_id, created_at) VALUES ($1, $2, $3, ARRAY['no-match'], ARRAY['OTHER'], $4, $5)`,
 		log, pay, s.action, s.actor, s.createdAt)
 	return pay, log
 }
@@ -108,7 +109,8 @@ func TestRecentActivityIncludesPaymentInvoiceAndActorDetails(t *testing.T) {
 	if row.PaymentDate == nil || row.PaymentDate.Format("2006-01-02") != "2026-07-01" {
 		t.Fatalf("payment_date = %v", row.PaymentDate)
 	}
-	if row.ActorUserID == nil || *row.ActorUserID != actor || len(row.Reasons) != 1 || row.Reasons[0] != "no-match" {
+	if row.ActorUserID == nil || *row.ActorUserID != actor || len(row.Reasons) != 1 || row.Reasons[0] != "no-match" ||
+		!slices.Equal(row.ReasonCodes, []string{"OTHER"}) {
 		t.Fatalf("actor %v reasons %v", row.ActorUserID, row.Reasons)
 	}
 	for _, want := range []string{`"wht_amount":"20.0000"`, `"confidence_score":"97.50"`, `"amount":"10.0000"`, `"created_at":"2026-01-15T09:00:00Z"`, `"payment_date":"2026-07-01"`} {

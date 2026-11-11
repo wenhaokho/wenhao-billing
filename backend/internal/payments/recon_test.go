@@ -26,6 +26,7 @@ type auditRow struct {
 	PaymentID    uuid.UUID  `json:"payment_id"`
 	Action       string     `json:"action"`
 	Reasons      []string   `json:"reasons"`
+	ReasonCodes  []string   `json:"reason_codes"`
 	ActorUserID  *uuid.UUID `json:"actor_user_id"`
 	ActorEmail   *string    `json:"actor_email"`
 	CreatedAt    string     `json:"created_at"`
@@ -40,6 +41,7 @@ type logEntry struct {
 	LogID       uuid.UUID  `json:"log_id"`
 	Action      string     `json:"action"`
 	Reasons     []string   `json:"reasons"`
+	ReasonCodes []string   `json:"reason_codes"`
 	ActorUserID *uuid.UUID `json:"actor_user_id"`
 	CreatedAt   string     `json:"created_at"`
 }
@@ -90,7 +92,7 @@ VALUES ($1, 100, 'USD', $2, '2026-04-15', 'WEBHOOK', $3, $4, 'NONE')`, id, payer
 func (a *api) logAt(t *testing.T, payment uuid.UUID, action string, ts time.Time, actor *uuid.UUID) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
-	a.exec(t, `INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, actor_user_id, created_at) VALUES ($1, $2, $3, ARRAY['r']::text[], $4, $5)`,
+	a.exec(t, `INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, reason_codes, actor_user_id, created_at) VALUES ($1, $2, $3, ARRAY['r']::text[], ARRAY['OTHER']::text[], $4, $5)`,
 		id, payment, action, actor, ts)
 	return id
 }
@@ -169,7 +171,8 @@ func TestAuditLogFiltersOrderLimit(t *testing.T) {
 		t.Errorf("actor %v %v", r3.ActorUserID, r3.ActorEmail)
 	}
 	if r3.PaymentID != acme || r3.PayerName != "Acme Corp" || r3.Currency != "USD" || r3.IntakeSource != "WEBHOOK" ||
-		r3.Amount == nil || *r3.Amount != "100.0000" || r3.InvoiceID != nil || !slices.Equal(r3.Reasons, []string{"r"}) {
+		r3.Amount == nil || *r3.Amount != "100.0000" || r3.InvoiceID != nil || !slices.Equal(r3.Reasons, []string{"r"}) ||
+		!slices.Equal(r3.ReasonCodes, []string{"OTHER"}) {
 		t.Errorf("row %+v", r3)
 	}
 	if r3.CreatedAt != "2026-04-02T23:59:59Z" {
@@ -179,7 +182,7 @@ func TestAuditLogFiltersOrderLimit(t *testing.T) {
 		t.Errorf("system row has an actor: %+v", r1)
 	}
 	got := firstObjectKeys(t, a.app.Do(t, http.MethodGet, reconPath+"/audit-log", nil))
-	if !slices.Equal(got, []string{"log_id", "payment_id", "action", "reasons", "actor_user_id", "actor_email", "created_at", "payer_name", "amount", "currency", "invoice_id", "intake_source"}) {
+	if !slices.Equal(got, []string{"log_id", "payment_id", "action", "reasons", "reason_codes", "actor_user_id", "actor_email", "created_at", "payer_name", "amount", "currency", "invoice_id", "intake_source"}) {
 		t.Errorf("keys %v", got)
 	}
 }
@@ -314,10 +317,11 @@ func TestPaymentLogUnknownIsEmpty(t *testing.T) {
 	if want := append(slices.Clone(tie), late); !slices.Equal(got, want) {
 		t.Fatalf("log %v, want oldest first %v", got, want)
 	}
-	if last := rows[2]; last.Action != "REVERSED" || last.ActorUserID == nil || *last.ActorUserID != admin || !slices.Equal(last.Reasons, []string{"r"}) {
+	if last := rows[2]; last.Action != "REVERSED" || last.ActorUserID == nil || *last.ActorUserID != admin || !slices.Equal(last.Reasons, []string{"r"}) ||
+		!slices.Equal(last.ReasonCodes, []string{"OTHER"}) {
 		t.Errorf("last %+v", last)
 	}
-	if k := firstObjectKeys(t, rec); !slices.Equal(k, []string{"log_id", "action", "reasons", "actor_user_id", "created_at"}) {
+	if k := firstObjectKeys(t, rec); !slices.Equal(k, []string{"log_id", "action", "reasons", "reason_codes", "actor_user_id", "created_at"}) {
 		t.Errorf("keys %v", k)
 	}
 }

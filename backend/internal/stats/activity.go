@@ -20,13 +20,16 @@ func RecentActivity(ctx context.Context, db statsdb.DBTX) ([]ActivityItem, error
 	out := make([]ActivityItem, 0, len(rows))
 	for _, r := range rows {
 		item := ActivityItem{
-			LogID: r.LogID, PaymentID: r.PaymentID, Action: r.Action, Reasons: r.Reasons,
+			LogID: r.LogID, PaymentID: r.PaymentID, Action: r.Action, Reasons: r.Reasons, ReasonCodes: r.ReasonCodes,
 			ActorUserID: platform.UUIDPtr(r.ActorUserID),
 			PayerName:   r.PayerName, Currency: r.Currency, PayerReference: r.PayerReference,
 			IntakeSource: r.IntakeSource, InvoiceID: platform.UUIDPtr(r.InvoiceID),
 			InvoiceNumber: r.InvoiceNumber, CustomerName: r.CustomerName,
 			// coalesce(display_name, email): an empty display name is kept.
 			ActorName: r.ActorDisplayName,
+		}
+		if item.ReasonCodes == nil {
+			item.ReasonCodes = []string{}
 		}
 		if item.Reasons == nil {
 			item.Reasons = []string{}
