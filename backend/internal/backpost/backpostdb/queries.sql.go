@@ -192,6 +192,73 @@ func (q *Queries) ListClearedPayments(ctx context.Context, invoiceID uuid.UUID) 
 	return items, nil
 }
 
+const listCustomerAdvances = `-- name: ListCustomerAdvances :many
+SELECT i.invoice_id, i.invoice_number, COALESCE(c.name, '(no customer)')::text AS customer_name, i.currency,
+       ar.face::numeric AS face, ar.base::numeric AS base
+  FROM invoices i
+  LEFT JOIN customers c ON c.customer_id = i.customer_id
+ CROSS JOIN LATERAL (
+       SELECT COALESCE(SUM(l.debit - l.credit), 0) AS face,
+              COALESCE(SUM(l.base_amount_debit - l.base_amount_credit), 0) AS base
+         FROM journal_lines l
+         JOIN journal_entries e ON e.entry_id = l.entry_id
+         JOIN chart_of_accounts a ON a.account_id = l.account_id
+        WHERE a.code = '1100'
+          AND ((e.source_type = 'INVOICE' AND e.source_id = i.invoice_id)
+            OR (e.source_type = 'PAYMENT' AND e.source_id IN (SELECT p.payment_id FROM payments p WHERE p.invoice_id = i.invoice_id)))
+       ) ar
+ WHERE i.status = 'PAID'
+   AND i.balance_due = 0
+   AND NOT i.is_template
+   AND ar.face < 0
+   AND EXISTS (SELECT 1 FROM journal_entries ie
+                WHERE ie.source_type = 'INVOICE' AND ie.source_id = i.invoice_id
+                  AND ie.reversed_by_entry_id IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = ie.entry_id))
+ ORDER BY i.invoice_number, i.invoice_id
+`
+
+type ListCustomerAdvancesRow struct {
+	InvoiceID     uuid.UUID
+	InvoiceNumber *string
+	CustomerName  string
+	Currency      string
+	Face          decimal.Decimal
+	Base          decimal.Decimal
+}
+
+// Customer advances (owner ruling 2026-11-11): PAID invoices with balance_due
+// 0 and an active issue entry whose ledger receivable is below 0, i.e. more
+// was relieved than issued (Python's approve_manual_match does not check the
+// status). face and base are as ledger.InvoiceBasis (1100 lines of the
+// invoice's entries and of its payments' entries, reversals included).
+func (q *Queries) ListCustomerAdvances(ctx context.Context) ([]ListCustomerAdvancesRow, error) {
+	rows, err := q.db.Query(ctx, listCustomerAdvances)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCustomerAdvancesRow
+	for rows.Next() {
+		var i ListCustomerAdvancesRow
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.InvoiceNumber,
+			&i.CustomerName,
+			&i.Currency,
+			&i.Face,
+			&i.Base,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvoiceCandidates = `-- name: ListInvoiceCandidates :many
 SELECT i.invoice_id
   FROM invoices i

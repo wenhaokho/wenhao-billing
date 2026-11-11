@@ -9,9 +9,12 @@
 // commits. A missing FX rate, a share account of the wrong type, a payment
 // whose entries do not net or that has several active entries, a posting the ledger refuses, or a restated
 // invoice whose ledger receivable would not be its balance due anywhere
-// refuses the whole run: everything is listed and nothing is written. A
-// second run finds no candidates (every document it posted has an active
-// issue entry).
+// refuses the whole run: everything is listed and nothing is written. The
+// one exception is a customer advance: a PAID invoice with balance_due 0
+// whose receivable ends below 0 (Python let it be overpaid) keeps that
+// negative receivable as the customer's credit and is listed for the owner
+// to refund or apply. A second run finds no candidates (every document it
+// posted has an active issue entry) and lists the same advances.
 package backpost
 
 import (
@@ -73,7 +76,28 @@ type Report struct {
 	// OwnerDecisions are CLEARED payments on invoices the back-post never
 	// posts (VOID, DRAFT, templates, amount 0): listed, never posted.
 	OwnerDecisions []string
-	Warnings       []string
+	// Advances are the customer advances: PAID invoices with balance_due 0
+	// whose ledger receivable is below 0 (overpaid under Python). The
+	// negative receivable stays; the owner refunds or applies it.
+	Advances []Advance
+	Warnings []string
+}
+
+// Advance is an overpaid invoice: Face and Base are its ledger receivable,
+// below 0 (the customer's credit), in the invoice's and the base currency.
+type Advance struct {
+	InvoiceID  uuid.UUID
+	Label      string
+	Customer   string
+	Currency   string
+	Face, Base decimal.Decimal
+}
+
+// isAdvance is the customer-advance ruling (2026-11-11): a PAID invoice with
+// nothing due whose receivable was relieved below 0. Any other receivable
+// apart from the balance is refused.
+func isAdvance(inv invoicesdb.Invoice, face decimal.Decimal) bool {
+	return inv.Status == "PAID" && inv.BalanceDue.IsZero() && face.IsNegative()
 }
 
 func (rep Report) refused() bool {
@@ -210,6 +234,16 @@ func (r *runner) run() error {
 	}
 	if !tb.Debit.Equal(tb.Credit) {
 		return fmt.Errorf("backpost: journal does not balance in base: debit %s, credit %s", tb.Debit.StringFixed(4), tb.Credit.StringFixed(4))
+	}
+	advances, err := r.q.ListCustomerAdvances(r.ctx)
+	if err != nil {
+		return err
+	}
+	for _, a := range advances {
+		r.rep.Advances = append(r.rep.Advances, Advance{
+			InvoiceID: a.InvoiceID, Label: label(a.InvoiceNumber, a.InvoiceID), Customer: a.CustomerName,
+			Currency: a.Currency, Face: a.Face, Base: a.Base,
+		})
 	}
 	if len(r.entries) > 0 {
 		rows, err := r.q.EntryTotals(r.ctx, r.entries)
@@ -575,7 +609,10 @@ func (r *runner) postInvoice(tx pgx.Tx, d invoiceDoc, out *docOut) error {
 	if err != nil {
 		return err
 	}
-	if !b.Face.Equal(inv.BalanceDue) {
+	// A customer advance (an overpaid PAID invoice) keeps its negative
+	// receivable and is listed at the end of the run; anything else apart
+	// from the balance is refused or warned of.
+	if !b.Face.Equal(inv.BalanceDue) && !isAdvance(inv, b.Face) {
 		msg := fmt.Sprintf("invoice %s %s %s: ledger face %s ≠ balance_due %s",
 			inv.InvoiceID, d.label, inv.Currency, b.Face.StringFixed(4), inv.BalanceDue.StringFixed(4))
 		if len(d.pays) > 0 {
@@ -637,8 +674,8 @@ func (r *runner) printReport() {
 	for _, l := range r.lines {
 		r.printf("%s\n", l)
 	}
-	r.printf("invoices issued: %d\nbills opened: %d\npayments restated at issue basis: %d\npayments posted (had no entry): %d\nlegacy bill payments: %d\n",
-		rep.Invoices, rep.Bills, rep.PaymentsRestated, rep.PaymentsPosted, rep.LegacyBillPayments)
+	r.printf("invoices issued: %d\nbills opened: %d\npayments restated at issue basis: %d\npayments posted (had no entry): %d\nlegacy bill payments: %d\ncustomer advances (overpaid invoices): %d\n",
+		rep.Invoices, rep.Bills, rep.PaymentsRestated, rep.PaymentsPosted, rep.LegacyBillPayments, len(rep.Advances))
 	if len(rep.Totals) > 0 {
 		r.printf("account totals of the entries written (%s):\n", r.base)
 		for _, t := range rep.Totals {
@@ -646,6 +683,12 @@ func (r *runner) printReport() {
 		}
 	}
 	r.printList("owner decisions (CLEARED payments on invoices never posted)", rep.OwnerDecisions)
+	adv := make([]string, 0, len(rep.Advances))
+	for _, a := range rep.Advances {
+		adv = append(adv, fmt.Sprintf("INVOICE %s customer %s: overpaid %s %s (base %s %s)",
+			a.Label, a.Customer, a.Currency, a.Face.Neg().StringFixed(4), r.base, a.Base.Neg().StringFixed(4)))
+	}
+	r.printList("Customer advances (overpaid invoices) — owner to refund or apply", adv)
 	r.printList("warnings", rep.Warnings)
 }
 
