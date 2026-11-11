@@ -223,10 +223,9 @@ for (const kind of ["customers", "vendors"] as const) {
   });
 }
 
-test("Trial balance shows a balanced or out-of-balance indicator", async ({ page }) => {
+test("Trial balance shows Balanced on the dev ledger", async ({ page }) => {
   await page.goto("/reports");
   const tag = page.getByTestId("tb-balance");
   await expect(tag).toBeVisible();
-  // The dev ledger is balanced; fall back to the red state if it ever is not.
-  await expect(tag).toHaveText(/^(Balanced|Out of balance by .+)$/);
+  await expect(tag).toHaveText("Balanced");
 });
