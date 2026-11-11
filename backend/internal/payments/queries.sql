@@ -38,7 +38,7 @@ VALUES ($1, $2, $3, sqlc.arg(reasons)::text[], $4);
 -- on its invoice through payments_invoice_id_fkey, which FOR UPDATE would
 -- wait on, so two intakes for one invoice (insert, insert, lock, lock) would
 -- deadlock. NO KEY UPDATE still conflicts with itself and with FOR UPDATE.
-SELECT invoice_id, customer_id, currency, status, balance_due, wht_amount, wht_booked, issue_date, due_date
+SELECT invoice_id, customer_id, currency, status, amount, balance_due, wht_amount, wht_booked, issue_date, due_date
   FROM invoices
  WHERE invoice_id = $1
    FOR NO KEY UPDATE;

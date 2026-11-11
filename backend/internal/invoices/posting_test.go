@@ -535,7 +535,10 @@ func TestVoidReversesIssueEntry(t *testing.T) {
 	if issue.reversedBy == nil || *issue.reversedBy != rev.id {
 		t.Errorf("issue reversed_by_entry_id = %v, want %s", issue.reversedBy, rev.id)
 	}
-	if want := "Void of invoice " + inv.InvoiceID.String(); rev.memo != want {
+	if inv.InvoiceNumber == nil || *inv.InvoiceNumber == "" {
+		t.Fatalf("invoice has no number")
+	}
+	if want := "Void of invoice " + *inv.InvoiceNumber; rev.memo != want {
 		t.Errorf("memo %q, want %q", rev.memo, want)
 	}
 	// The trial balance nets receivable and revenue to 0.
@@ -548,6 +551,29 @@ FROM journal_lines l JOIN chart_of_accounts a ON a.account_id = l.account_id`).S
 	}
 	if !arNet.IsZero() || !revNet.IsZero() {
 		t.Errorf("after void: receivable nets %s, revenue %s; want 0", arNet, revNet)
+	}
+}
+
+// An invoice with no number (one Python stored without) is named by its id
+// in the void's memo, as bills are.
+func TestVoidMemoWithoutNumberNamesID(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := insertCustomer(t, a.Pool, "NONE", "", false)
+	inv := post(t, a, createBody(c, "100", nil))
+	finalize(t, a, inv.InvoiceID)
+	if _, err := a.Pool.Exec(t.Context(), `UPDATE invoices SET invoice_number = NULL WHERE invoice_id = $1`, inv.InvoiceID); err != nil {
+		t.Fatal(err)
+	}
+	if r := void(t, a, inv.InvoiceID); r.code != http.StatusOK {
+		t.Fatalf("void: %d %s", r.code, r.body)
+	}
+	es := invoiceEntries(t, a.Pool, inv.InvoiceID)
+	if len(es) != 2 {
+		t.Fatalf("%d entries, want the issue entry and its reversal", len(es))
+	}
+	if want := "Void of invoice " + inv.InvoiceID.String(); es[1].memo != want {
+		t.Errorf("memo %q, want %q", es[1].memo, want)
 	}
 }
 

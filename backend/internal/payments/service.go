@@ -311,10 +311,14 @@ func (s Service) ApproveManual(ctx context.Context, tx pgx.Tx, paymentID, invoic
 // Reverse undoes a CLEARED payment (Python's reverse_payment, SR:216-258):
 // it reverses the payment's active journal entry (ledger.ActiveEntryFor: the
 // newest that is neither reversed nor a reversal) with memo
-// "Reversal: <reason>", flags the payment, and re-opens its invoice: the
-// balance grows by amount + wht_amount, wht_booked shrinks by wht_amount,
-// and the status is OPEN. Go's own: a VOID invoice keeps its status and
-// balance (only wht_booked shrinks: it tracks the Prepaid Tax
+// "Reversal: <reason>", flags the payment, and re-opens its invoice:
+// wht_booked shrinks by wht_amount. Go's own (PORT-NOTES 168): where Python
+// added amount + wht_amount to the balance and set OPEN, Go reads the
+// receivable the ledger still holds (ledger.InvoiceBasis) once the entry is
+// reversed: balance_due is max(face, 0), and the status OPEN at the invoice
+// amount, PARTIAL below it, PAID at or below 0. An invoice with no issue
+// entry, or a face above the amount, is refused. A VOID invoice keeps its
+// status and balance (only wht_booked shrinks: it tracks the Prepaid Tax
 // bookings, which the reversal entry takes back; PORT-NOTES 163). The hosting restore is not undone. A REVERSED log
 // row holds the reason. Locks: the payment, then the invoice, then (in the
 // ledger) the entry.
@@ -362,11 +366,23 @@ func (s Service) Reverse(ctx context.Context, tx pgx.Tx, paymentID uuid.UUID, ac
 				inv.InvoiceID, p.PaymentID)
 		}
 		// A VOID invoice (Python voided PARTIAL ones, leaving their CLEARED
-		// payments) stays VOID with nothing owing; any other re-opens as
-		// OPEN: whether the invoice was emailed is not stored.
+		// payments) stays VOID with nothing owing. Any other takes its
+		// balance and status from the receivable left on the ledger, not
+		// from arithmetic on the payment (Go's own, PORT-NOTES 168): the
+		// face back at the invoice amount is OPEN (whether it was emailed
+		// is not stored), between 0 and the amount PARTIAL, at or below 0
+		// (other payments still settle it) PAID with nothing owing.
 		if inv.Status != invoiceVoid {
-			inv.BalanceDue = inv.BalanceDue.Add(p.Amount).Add(p.WhtAmount)
-			inv.Status = invoiceOpen
+			basis, err := ledger.InvoiceBasis(ctx, tx, inv.InvoiceID)
+			if err != nil {
+				return paymentsdb.Payment{}, err
+			}
+			if !basis.Issued {
+				return paymentsdb.Payment{}, refuse("invoice %s has no issue entry — run api backpost-ledger", inv.InvoiceID)
+			}
+			if inv.BalanceDue, inv.Status, err = settlementFromFace(inv.InvoiceID, basis.Face, inv.Amount); err != nil {
+				return paymentsdb.Payment{}, err
+			}
 		}
 		if err := saveInvoice(ctx, q, inv); err != nil {
 			return paymentsdb.Payment{}, err
@@ -376,4 +392,23 @@ func (s Service) Reverse(ctx context.Context, tx pgx.Tx, paymentID uuid.UUID, ac
 		return paymentsdb.Payment{}, err
 	}
 	return getPayment(ctx, q, p.PaymentID)
+}
+
+// settlementFromFace is an invoice's balance_due and status after a
+// reversal, from the receivable face the ledger still holds: max(face, 0);
+// OPEN when the face is the whole amount, PARTIAL when it is between 0 and
+// the amount, PAID at or below 0. A face above the amount is a receivable
+// the invoice never had: refused rather than guessed at.
+func settlementFromFace(id uuid.UUID, face, amount decimal.Decimal) (decimal.Decimal, string, error) {
+	switch {
+	case !face.IsPositive():
+		return decimal.Zero, invoicePaid, nil
+	case face.Equal(amount):
+		return face, invoiceOpen, nil
+	case face.LessThan(amount):
+		return face, invoicePartial, nil
+	default:
+		return decimal.Decimal{}, "", refuse("invoice %s ledger receivable %s is above its amount %s; correct the ledger first",
+			id, face.StringFixed(4), amount.StringFixed(4))
+	}
 }

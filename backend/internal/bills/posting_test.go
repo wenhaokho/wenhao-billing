@@ -448,6 +448,43 @@ func TestVoidWithoutIssueEntryRefused(t *testing.T) {
 	wantJournalRows(t, a, 0)
 }
 
+// A bill opened before this change has no issue entry, so any edit posts it.
+// One Python paid in part (balance below the amount, no bill payment
+// stored) is refused: re-baselining the balance would drop that payment.
+func TestEditWithoutIssueEntry(t *testing.T) {
+	t.Parallel()
+	t.Run("unpaid legacy bill posts", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		out := post(t, a, body(insertVendor(t, a), nil))
+		setStatus(t, a, out.BillID, "OPEN")
+		got := patch(t, a, out.BillID, map[string]any{"line_items": []any{line(2, 1000)}})
+		wantDec4(t, "balance_due", p4(got.BalanceDue), "2000")
+		if n := activeEntries(t, a, out.BillID); n != 1 {
+			t.Errorf("%d active entries, want 1", n)
+		}
+	})
+	t.Run("partly paid legacy bill refused", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		out := post(t, a, body(insertVendor(t, a), nil))
+		if _, err := a.Pool.Exec(t.Context(), `UPDATE bills SET status = 'PARTIAL', balance_due = 600 WHERE bill_id = $1`, out.BillID); err != nil {
+			t.Fatal(err)
+		}
+		// The one edit of a PARTIAL bill: a PATCH to PAID with other fields.
+		// Re-posted, it would owe the whole new amount and payRest would pay
+		// it all, dropping Python's 400.
+		wantProblem(t, a.Do(t, http.MethodPatch, billPath(out.BillID), map[string]any{"status": "PAID", "line_items": []any{line(2, 1000)}}),
+			http.StatusBadRequest, "bill_not_posted",
+			"bill "+out.BillID.String()+" has a balance of 600.0000 of its 1000.0000 but no journal entry — run api backpost-ledger before editing it", "", "")
+		got := get(t, a, out.BillID)
+		if got.Status != "PARTIAL" || got.BalanceDue.Decimal().String() != "600" || len(got.LineItems) != 1 {
+			t.Errorf("stored %s %s %d lines", got.Status, got.BalanceDue.Decimal(), len(got.LineItems))
+		}
+		wantJournalRows(t, a, 0)
+	})
+}
+
 func TestDraftBillNeverPosts(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)

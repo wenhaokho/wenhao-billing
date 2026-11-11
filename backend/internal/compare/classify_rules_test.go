@@ -485,8 +485,26 @@ func TestClassifyIssueEntries(t *testing.T) {
 func TestClassifyBillPayments(t *testing.T) {
 	t.Parallel()
 	paid := []jLine{idr(acctAP, "400", "0"), idr(acctBank, "0", "400")}
-	bill := func(f *rowsFixture) { goBill(t, f.gov, goVend, goBillID, "PARTIAL", "1000") }
+	// The bill and its BILL entry are on Go before the snapshot: the
+	// payable's issue basis (PN 164) is 1000 at 1000.
+	bill := func(f *rowsFixture) {
+		goBill(t, f.gov, goVend, goBillID, "PARTIAL", "1000")
+		insertEntry(t, f.gov, goIssue, "BILL", goBillID, "Bill opened", idr(acctExpense, "1000", "0"), idr(acctAP, "0", "1000"))
+	}
 	runClassifyCases(t, []classifyCase{
+		{
+			// Review: the 2000 debit is checked against the bill's basis
+			// (IDR: base = face), not only its face, currency and bank.
+			name: "bill payment relieving the payable off its basis stays unclassified", tables: journal, pre: bill,
+			setup: func(f *rowsFixture) IDMaps {
+				billPayment(t, f.gov, goSource, goBillID, "400", "CLEARED")
+				insertEntry(t, f.gov, goEntry, "BILL_PAYMENT", goSource, "Bill paid",
+					jLine{account: acctAP, debit: "400", credit: "0", currency: "IDR", baseDebit: "500", baseCredit: "0", ratio: "1.25"},
+					idr(acctBank, "0", "400"), idr(acctFXGain, "0", "100"))
+				return IDMaps{}
+			},
+			want: times(4, "go "), wantCheck: "its payable base 500 for 400 is not the bill's issue basis",
+		},
 		{
 			name: "bill payment on Go only is PN 165", tables: journal, pre: bill,
 			setup: func(f *rowsFixture) IDMaps {
@@ -590,9 +608,43 @@ func TestClassifyManualPayments(t *testing.T) {
 				maps := manual("MANUAL", "1000", "0", cleared...)(f)
 				insertEntry(t, f.gov, goEntry2, "PAYMENT", goSource, "Reversal: compare", flip(cleared...)...)
 				reverse(t, f.gov, goEntry, goEntry2)
+				mustExec(t, f.gov, `UPDATE payments SET status = 'FLAGGED' WHERE payment_id = $1`, goSource)
+				mustExec(t, f.gov, `INSERT INTO reconciliation_log (log_id, payment_id, action, reasons) VALUES (gen_random_uuid(), $1, 'REVERSED', ARRAY['compare'])`, goSource)
 				return maps
 			},
 			want: times(6, "go PN 161"),
+		},
+		{
+			// Review: a half-done reversal (the entry and its mirror posted,
+			// the payment left CLEARED, no REVERSED log row) is not PN 161.
+			name: "reversed entry of a payment left CLEARED stays unclassified", tables: journal, pre: pre,
+			setup: func(f *rowsFixture) IDMaps {
+				maps := manual("MANUAL", "1000", "0", cleared...)(f)
+				insertEntry(t, f.gov, goEntry2, "PAYMENT", goSource, "Reversal: compare", flip(cleared...)...)
+				reverse(t, f.gov, goEntry, goEntry2)
+				return maps
+			},
+			want: times(6, "go "), wantCheck: "is CLEARED with 0 REVERSED log rows, want FLAGGED with 1",
+		},
+		{
+			name: "reversed entry of a FLAGGED payment without its log row stays unclassified", tables: journal, pre: pre,
+			setup: func(f *rowsFixture) IDMaps {
+				maps := manual("MANUAL", "1000", "0", cleared...)(f)
+				insertEntry(t, f.gov, goEntry2, "PAYMENT", goSource, "Reversal: compare", flip(cleared...)...)
+				reverse(t, f.gov, goEntry, goEntry2)
+				mustExec(t, f.gov, `UPDATE payments SET status = 'FLAGGED' WHERE payment_id = $1`, goSource)
+				return maps
+			},
+			want: times(6, "go "), wantCheck: "is FLAGGED with 0 REVERSED log rows, want FLAGGED with 1",
+		},
+		{
+			name: "active entry of a FLAGGED payment stays unclassified", tables: journal, pre: pre,
+			setup: func(f *rowsFixture) IDMaps {
+				maps := manual("MANUAL", "1000", "0", cleared...)(f)
+				mustExec(t, f.gov, `UPDATE payments SET status = 'FLAGGED' WHERE payment_id = $1`, goSource)
+				return maps
+			},
+			want: times(3, "go "), wantCheck: "is FLAGGED with 0 REVERSED log rows, want CLEARED with 0",
 		},
 		{
 			name: "USD manual payment at the payment date's rate is PN 161", tables: journal,
@@ -826,23 +878,37 @@ func TestClassifyReversedManualPayment(t *testing.T) {
 	cases := []struct {
 		name     string
 		py, gov  sideState
+		amount   string // the invoice amount; "" is 1000
 		wht      string
 		reversed bool
 		logs     []string
 		want     []string
+		// journalFails: the PAYMENT entries are unclassified (the Go
+		// payment or its REVERSED rows do not match the entry).
+		journalFails bool
 	}{
 		{
 			name: "reversed", py: sideState{"PAID", "0", "0"}, gov: sideState{"OPEN", "1000", "0"}, wht: "0", reversed: true, logs: []string{"compare"},
 			want: []string{"invoices both PN 161", "payments both PN 161", "reconciliation_log go PN 161"},
 		},
 		{
-			// Go's rule re-opens any invoice that is not VOID as OPEN.
-			name: "reversed on a PARTIAL invoice left PARTIAL", py: sideState{"PARTIAL", "400", "0"}, gov: sideState{"PARTIAL", "1400", "0"}, wht: "0", reversed: true, logs: []string{"compare"},
+			// PN 168: below the amount the invoice is PARTIAL (another
+			// payment of 600 still stands).
+			name: "reversed on a PARTIAL invoice stays PARTIAL", amount: "2000", py: sideState{"PARTIAL", "400", "0"}, gov: sideState{"PARTIAL", "1400", "0"}, wht: "0", reversed: true, logs: []string{"compare"},
+			want: []string{"invoices both PN 161", "payments both PN 161", "reconciliation_log go PN 161"},
+		},
+		{
+			name: "reversed below the amount but re-opened", amount: "2000", py: sideState{"PARTIAL", "400", "0"}, gov: sideState{"OPEN", "1400", "0"}, wht: "0", reversed: true, logs: []string{"compare"},
 			want: []string{"invoices both ", "payments both PN 161", "reconciliation_log go PN 161"},
 		},
 		{
-			name: "reversed on a PARTIAL invoice re-opened", py: sideState{"PARTIAL", "400", "0"}, gov: sideState{"OPEN", "1400", "0"}, wht: "0", reversed: true, logs: []string{"compare"},
+			name: "reversed on a PARTIAL invoice back to its amount re-opened", amount: "1400", py: sideState{"PARTIAL", "400", "0"}, gov: sideState{"OPEN", "1400", "0"}, wht: "0", reversed: true, logs: []string{"compare"},
 			want: []string{"invoices both PN 161", "payments both PN 161", "reconciliation_log go PN 161"},
+		},
+		{
+			// Go refuses a reversal that would leave more than the amount.
+			name: "restored above the amount", py: sideState{"PARTIAL", "400", "0"}, gov: sideState{"OPEN", "1400", "0"}, wht: "0", reversed: true, logs: []string{"compare"},
+			want: []string{"invoices both ", "payments both PN 161", "reconciliation_log go PN 161"},
 		},
 		{
 			// A VOID invoice keeps its status and balance; wht_booked drops.
@@ -858,12 +924,14 @@ func TestClassifyReversedManualPayment(t *testing.T) {
 			want: []string{"invoices both PN 161", "payments both PN 161", "reconciliation_log go "},
 		},
 		{
+			// The PAYMENT entries want exactly one REVERSED row, so nothing
+			// of the reversal is classified.
 			name: "two REVERSED logs", py: sideState{"PAID", "0", "0"}, gov: sideState{"OPEN", "1000", "0"}, wht: "0", reversed: true, logs: []string{"compare", "compare"},
-			want: []string{"invoices both PN 161", "payments both PN 161", "reconciliation_log go ", "reconciliation_log go "},
+			want: []string{"invoices both ", "payments both ", "reconciliation_log go ", "reconciliation_log go "}, journalFails: true,
 		},
 		{
 			name: "clearing not reversed", py: sideState{"PAID", "0", "0"}, gov: sideState{"OPEN", "1000", "0"}, wht: "0", reversed: false, logs: []string{"compare"},
-			want: []string{"invoices both ", "payments both ", "reconciliation_log go "},
+			want: []string{"invoices both ", "payments both ", "reconciliation_log go "}, journalFails: true,
 		},
 	}
 	for _, tc := range cases {
@@ -871,19 +939,23 @@ func TestClassifyReversedManualPayment(t *testing.T) {
 			t.Parallel()
 			f := newRowsFixture(t, tables...)
 			f.snapshot(t)
+			amount := tc.amount
+			if amount == "" {
+				amount = "1000"
+			}
 			for _, s := range []struct {
 				pool             *pgxpool.Pool
 				inv, pay, status string
 				st               sideState
 			}{{f.py, pyInv, pySource, "CLEARED", tc.py}, {f.gov, goInv, goSource, "FLAGGED", tc.gov}} {
-				insertGoInvoice(t, s.pool, s.inv, s.st.status, "IDR", "1000", "2026-01-01", false, "")
+				insertGoInvoice(t, s.pool, s.inv, s.st.status, "IDR", amount, "2026-01-01", false, "")
 				mustExec(t, s.pool, `UPDATE invoices SET balance_due = $2::numeric, wht_booked = $3::numeric WHERE invoice_id = $1`, s.inv, s.st.balance, s.st.whtBooked)
 				payment(t, s.pool, s.pay, s.inv, "MANUAL", "IDR", dec("1000").Sub(dec(tc.wht)).String(), tc.wht, s.status)
 			}
 			for _, reason := range tc.logs {
 				mustExec(t, f.gov, `INSERT INTO reconciliation_log (log_id, payment_id, action, reasons) VALUES (gen_random_uuid(), $1, 'REVERSED', ARRAY[$2])`, goSource, reason)
 			}
-			issue := []jLine{idr(acctAR, "1000", "0"), idr(acctRevenue, "0", "1000")}
+			issue := []jLine{idr(acctAR, amount, "0"), idr(acctRevenue, "0", amount)}
 			journalWant := times(3, "journal go PN 162")
 			if tc.gov.status == "VOID" {
 				postReversed(t, f.gov, goIssue, "b2000000-0000-4000-8000-00000000000a", "INVOICE", goInv, issue...)
@@ -891,16 +963,20 @@ func TestClassifyReversedManualPayment(t *testing.T) {
 			} else {
 				insertEntry(t, f.gov, goIssue, "INVOICE", goInv, "Invoice issued", issue...)
 			}
+			paymentNote := "journal go PN 161"
+			if tc.journalFails {
+				paymentNote = "journal go "
+			}
 			cleared := []jLine{idr(acctBank, "1000", "0"), idr(acctAR, "0", "1000")}
 			if tc.wht != "0" {
 				cleared = []jLine{idr(acctBank, "900", "0"), idr(acctWHT, "100", "0"), idr(acctAR, "0", "1000")}
 			}
 			if tc.reversed {
 				postReversed(t, f.gov, goEntry, goEntry2, "PAYMENT", goSource, cleared...)
-				journalWant = append(journalWant, times(2*(len(cleared)+1), "journal go PN 161")...)
+				journalWant = append(journalWant, times(2*(len(cleared)+1), paymentNote)...)
 			} else {
 				insertEntry(t, f.gov, goEntry, "PAYMENT", goSource, "Payment cleared", cleared...)
-				journalWant = append(journalWant, times(len(cleared)+1, "journal go PN 161")...)
+				journalWant = append(journalWant, times(len(cleared)+1, paymentNote)...)
 			}
 			got := classified(f.compare(t, mapsOf(t, "invoices", pyInv, goInv, "payments", pySource, goSource)))
 			for i, s := range got {

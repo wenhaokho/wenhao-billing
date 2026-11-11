@@ -125,7 +125,7 @@ func voidInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, erro
 	if paid {
 		return InvoiceOut{}, refuse("invoice_has_payments", "cannot void an invoice with cleared payments — reverse payments first")
 	}
-	reversed, err := ledger.ReverseIssued(ctx, tx, ledger.SourceInvoice, id, "Void of invoice "+id.String())
+	reversed, err := ledger.ReverseIssued(ctx, tx, ledger.SourceInvoice, id, "Void of invoice "+invoiceLabel(inv))
 	if err != nil {
 		return InvoiceOut{}, err
 	}
@@ -133,6 +133,15 @@ func voidInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, erro
 		return InvoiceOut{}, ledger.Refuse("invoice %s has no issue entry — run api backpost-ledger", id)
 	}
 	return transition(ctx, q, id, "VOID", decimal.Zero)
+}
+
+// invoiceLabel names an invoice in a memo: its number, else its id (as
+// bills do).
+func invoiceLabel(inv invoicesdb.Invoice) string {
+	if inv.InvoiceNumber != nil && *inv.InvoiceNumber != "" {
+		return *inv.InvoiceNumber
+	}
+	return inv.InvoiceID.String()
 }
 
 func transition(ctx context.Context, q *invoicesdb.Queries, id uuid.UUID, status string, balance decimal.Decimal) (InvoiceOut, error) {

@@ -323,7 +323,7 @@ func (c *rowComparer) entryVerdict(ctx context.Context, in RowsInput, id string,
 			return fail("%s", why)
 		}
 	case "BILL_PAYMENT":
-		why, err := cls.checkBillPayment(ctx, in.Go, sourceID, lines, reversed)
+		why, err := cls.checkBillPayment(ctx, in.Go, id, sourceID, lines, reversed)
 		if err != nil {
 			return verdict{}, err
 		}
@@ -334,6 +334,12 @@ func (c *rowComparer) entryVerdict(ctx context.Context, in RowsInput, id string,
 		why, err := c.checkManualPayment(ctx, in, sourceID)
 		if err != nil {
 			return verdict{}, err
+		}
+		if why == "" {
+			why, err = cls.checkPaymentReversal(ctx, in.Go, sourceID, reversed)
+			if err != nil {
+				return verdict{}, err
+			}
 		}
 		if why == "" {
 			why, err = cls.goPaymentLines(ctx, in.Go, id, true)
@@ -535,12 +541,14 @@ func (cls *classification) checkDocument(ctx context.Context, pool *pgxpool.Pool
 
 // checkBillPayment is why a BILL_PAYMENT entry does not match its Go
 // bill_payments row ("" when it does): the row exists, is REVERSED exactly
-// when the entry is reversed, the 2000 debit is its amount and currency, and
-// the bank credit is its amount at the rate on its payment date.
-func (cls *classification) checkBillPayment(ctx context.Context, pool *pgxpool.Pool, id string, lines []Row, reversed bool) (string, error) {
-	var amount, currency, day, status string
-	err := pool.QueryRow(ctx, `SELECT amount::text, currency, payment_date::text, status FROM bill_payments WHERE bill_payment_id = $1`, id).
-		Scan(&amount, &currency, &day, &status)
+// when the entry is reversed, the 2000 debit is its amount and currency at
+// the bill's issue basis or remaining basis with fx_rate = base / relief
+// (reliefAtBasis, PN 165), and the bank credit is its amount at the rate on
+// its payment date.
+func (cls *classification) checkBillPayment(ctx context.Context, pool *pgxpool.Pool, entryID, id string, lines []Row, reversed bool) (string, error) {
+	var billID, amount, currency, day, status string
+	err := pool.QueryRow(ctx, `SELECT bill_id::text, amount::text, currency, payment_date::text, status FROM bill_payments WHERE bill_payment_id = $1`, id).
+		Scan(&billID, &amount, &currency, &day, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Sprintf("bill payment %s does not exist", id), nil
 	}
@@ -556,11 +564,41 @@ func (cls *classification) checkBillPayment(ctx context.Context, pool *pgxpool.P
 			if !debit(l).Equal(dec(amount)) || valueString(l["currency"]) != currency {
 				return fmt.Sprintf("its payable line is %s %s, the bill payment %s %s", debit(l), valueString(l["currency"]), dec(amount), currency), nil
 			}
+			if why, err := cls.reliefAtBasis(ctx, pool, payableBasis, entryID, billID, l); why != "" || err != nil {
+				return why, err
+			}
 		case codeBank:
 			if why, err := cls.converted(ctx, pool, l, false, dec(amount), currency, day, "bank"); why != "" || err != nil {
 				return why, err
 			}
 		}
+	}
+	return "", nil
+}
+
+// checkPaymentReversal is why a PAYMENT entry's Go payment does not show
+// the entry's reversal state ("" when it does), as payments.Service.Reverse
+// leaves it (PN 161): FLAGGED with exactly one REVERSED reconciliation_log
+// row when the entry is reversed, CLEARED with none otherwise. A half-done
+// reversal (the entry reversed, the payment or log not) is not classified.
+func (cls *classification) checkPaymentReversal(ctx context.Context, pool *pgxpool.Pool, id string, reversed bool) (string, error) {
+	var status string
+	var logs int
+	err := pool.QueryRow(ctx, `SELECT p.status,
+		(SELECT count(*) FROM reconciliation_log l WHERE l.payment_id = p.payment_id AND l.action = 'REVERSED')
+		FROM payments p WHERE p.payment_id = $1`, id).Scan(&status, &logs)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Sprintf("payment %s does not exist", id), nil
+	}
+	if err != nil {
+		return "", err
+	}
+	wantStatus, wantLogs := "CLEARED", 0
+	if reversed {
+		wantStatus, wantLogs = "FLAGGED", 1
+	}
+	if status != wantStatus || logs != wantLogs {
+		return fmt.Sprintf("payment %s is %s with %d REVERSED log rows, want %s with %d", id, status, logs, wantStatus, wantLogs), nil
 	}
 	return "", nil
 }
@@ -688,7 +726,42 @@ func (cls *classification) goPaymentLines(ctx context.Context, pool *pgxpool.Poo
 // that matches either is accepted (a middle partial relief rounded against
 // an earlier remaining basis can miss both, and then stays unclassified).
 func (cls *classification) reliefAtIssueBasis(ctx context.Context, pool *pgxpool.Pool, entryID, invoiceID string, ar Row) (string, error) {
-	rows, err := pool.Query(ctx, `SELECT payment_id::text FROM payments WHERE invoice_id = $1`, invoiceID)
+	return cls.reliefAtBasis(ctx, pool, receivableBasis, entryID, invoiceID, ar)
+}
+
+// basisSide is what reliefAtBasis reads for one kind of document: the
+// document's and its payments' source types, the query listing its payment
+// ids, the control account, and whether that account is a payable (a credit
+// balance: the document credits it, a payment debits it).
+type basisSide struct {
+	doc, control, docSource, paySource, payments, code string
+	payable                                            bool
+}
+
+var (
+	receivableBasis = basisSide{
+		doc: "invoice", control: "receivable", docSource: "INVOICE", paySource: "PAYMENT",
+		payments: `SELECT payment_id::text FROM payments WHERE invoice_id = $1`, code: codeReceivable,
+	}
+	payableBasis = basisSide{
+		doc: "bill", control: "payable", docSource: "BILL", paySource: "BILL_PAYMENT",
+		payments: `SELECT bill_payment_id::text FROM bill_payments WHERE bill_id = $1`, code: codePayable, payable: true,
+	}
+)
+
+// reliefAtBasis is reliefAtIssueBasis for either side: a bill payment's
+// 2000 debit is relieved at the bill's basis the same way (PN 165).
+func (cls *classification) reliefAtBasis(ctx context.Context, pool *pgxpool.Pool, s basisSide, entryID, docID string, ctl Row) (string, error) {
+	// in is a line's amount and base into the control balance: debit less
+	// credit on a receivable, credit less debit on a payable.
+	in := func(l Row) (decimal.Decimal, decimal.Decimal) {
+		if s.payable {
+			return credit(l).Sub(debit(l)), baseCredit(l).Sub(baseDebit(l))
+		}
+		return debit(l).Sub(credit(l)), baseDebit(l).Sub(baseCredit(l))
+	}
+	opens := func(l Row) bool { return (s.payable && isCredit(l)) || (!s.payable && isDebit(l)) }
+	rows, err := pool.Query(ctx, s.payments, docID)
 	if err != nil {
 		return "", err
 	}
@@ -710,30 +783,33 @@ func (cls *classification) reliefAtIssueBasis(ctx context.Context, pool *pgxpool
 	issueActive := false
 	for id, e := range cls.entries {
 		st, sid := valueString(e["source_type"]), valueString(e["source_id"])
-		isInvoice := st == "INVOICE" && sid == invoiceID
-		isPayment := st == "PAYMENT" && payments[sid]
-		if !isInvoice && !isPayment {
+		isDoc := st == s.docSource && sid == docID
+		isPayment := st == s.paySource && payments[sid]
+		if !isDoc && !isPayment {
 			continue
 		}
 		_, isReversal := cls.reversalOf[id]
 		for _, l := range cls.lines[id] {
-			if cls.goAccount(l).code != codeReceivable {
+			if cls.goAccount(l).code != s.code {
 				continue
 			}
+			lineFace, lineBase := in(l)
 			if !skip[id] {
-				face = face.Add(debit(l)).Sub(credit(l))
-				base = base.Add(baseDebit(l)).Sub(baseCredit(l))
+				face, base = face.Add(lineFace), base.Add(lineBase)
 			}
 			active := valueString(e["reversed_by_entry_id"]) == ""
-			if isInvoice && !isReversal && isDebit(l) && (issueFace.IsZero() || (active && !issueActive)) {
-				issueFace, issueBase, issueActive = debit(l), baseDebit(l), active
+			if isDoc && !isReversal && opens(l) && (issueFace.IsZero() || (active && !issueActive)) {
+				issueFace, issueBase, issueActive = lineFace, lineBase, active
 			}
 		}
 	}
 	if !issueFace.IsPositive() {
-		return fmt.Sprintf("invoice %s has no issue entry", invoiceID), nil
+		return fmt.Sprintf("%s %s has no issue entry", s.doc, docID), nil
 	}
-	relief, got := credit(ar), baseCredit(ar)
+	relief, got := credit(ctl), baseCredit(ctl)
+	if s.payable {
+		relief, got = debit(ctl), baseDebit(ctl)
+	}
 	accepted := []decimal.Decimal{platform.RoundHalfEven4(relief.Mul(issueBase).Div(issueFace))}
 	if face.IsPositive() && base.IsPositive() {
 		switch {
@@ -750,10 +826,10 @@ func (cls *classification) reliefAtIssueBasis(ctx context.Context, pool *pgxpool
 		}
 	}
 	if !ok {
-		return fmt.Sprintf("its receivable base %s for %s is not the invoice's issue basis (%v)", got, relief, accepted), nil
+		return fmt.Sprintf("its %s base %s for %s is not the %s's issue basis (%v)", s.control, got, relief, s.doc, accepted), nil
 	}
-	if want := got.DivRound(relief, 8); !dec(ar["fx_rate"]).Equal(want) {
-		return fmt.Sprintf("its receivable rate %s is not base / relief %s", dec(ar["fx_rate"]), want), nil
+	if want := got.DivRound(relief, 8); !dec(ctl["fx_rate"]).Equal(want) {
+		return fmt.Sprintf("its %s rate %s is not base / relief %s", s.control, dec(ctl["fx_rate"]), want), nil
 	}
 	return "", nil
 }
@@ -877,16 +953,31 @@ func (c *rowComparer) reversedLog(gov Row) bool {
 // invoiceRestored is the invoices rule for the same reversal (PN 161), as
 // payments.Service.Reverse changes the invoice: its wht_booked is Python's
 // less the reversed payments' withholding; a VOID invoice stays VOID with
-// its balance; any other becomes OPEN with Python's balance plus their
-// amount and withholding. Every other column is equal.
+// its balance. Any other takes the receivable left once the payments are
+// reversed (PN 168): Python's balance plus their amount and withholding
+// (manual payments are in the invoice's currency), OPEN when that is the
+// invoice amount, PARTIAL between 0 and the amount, PAID with 0 at or below
+// 0; above the amount Go refuses the reversal, so nothing is classified.
+// Every other column is equal.
 func (c *rowComparer) invoiceRestored(py, gov Row) bool {
 	r, ok := c.cls.restored[valueString(gov["invoice_id"])]
 	if !ok {
 		return false
 	}
-	wantStatus, wantBalance := "OPEN", dec(py["balance_due"]).Add(r.amount).Add(r.wht)
-	if valueString(py["status"]) == "VOID" {
+	face, amount := dec(py["balance_due"]).Add(r.amount).Add(r.wht), dec(py["amount"])
+	var wantStatus string
+	wantBalance := face
+	switch {
+	case valueString(py["status"]) == "VOID":
 		wantStatus, wantBalance = "VOID", dec(py["balance_due"])
+	case !face.IsPositive():
+		wantStatus, wantBalance = "PAID", decimal.Zero
+	case face.Equal(amount):
+		wantStatus = "OPEN"
+	case face.LessThan(amount):
+		wantStatus = "PARTIAL"
+	default:
+		return false
 	}
 	if valueString(gov["status"]) != wantStatus || !dec(gov["balance_due"]).Equal(wantBalance) {
 		return false

@@ -299,7 +299,9 @@ func updateBill(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID, b Bil
 // repost is an edit of a posted bill (cur before it, row after it, both
 // locked): when its issue entry would change (postingChanged), the entry is
 // reversed, the balance re-baselined to the amount and the bill posted
-// again; refused while it has payments not reversed.
+// again; refused while it has payments not reversed, and for a bill with no
+// active entry whose balance is not its amount (paid in part under Python,
+// before the back-post).
 func repost(ctx context.Context, tx pgx.Tx, base string, cur, row billsdb.Bill) error {
 	changed, err := postingChanged(ctx, tx, cur, row)
 	if err != nil || !changed {
@@ -308,6 +310,17 @@ func repost(ctx context.Context, tx pgx.Tx, base string, cur, row billsdb.Bill) 
 	q := billsdb.New(tx)
 	if err := hasActivePayments(ctx, q, row.BillID, "cannot re-post a bill with payments — reverse them first"); err != nil {
 		return err
+	}
+	// A bill with no active entry whose balance is not its amount was paid
+	// in part under Python, which stored no bill payment: re-baselining
+	// the balance would drop that payment. The back-post posts it first.
+	_, posted, err := ledger.ActiveEntryFor(ctx, tx, ledger.SourceBill, row.BillID)
+	if err != nil {
+		return err
+	}
+	if !posted && !cur.BalanceDue.Equal(cur.Amount) {
+		return refuse("bill_not_posted", "bill %s has a balance of %s of its %s but no journal entry — run api backpost-ledger before editing it",
+			billLabel(cur), cur.BalanceDue.StringFixed(4), cur.Amount.StringFixed(4))
 	}
 	if err := unpostBill(ctx, tx, row.BillID, "Edit of bill "+billLabel(row)); err != nil {
 		return err
