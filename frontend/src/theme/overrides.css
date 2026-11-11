@@ -24,7 +24,8 @@
 .p-datatable-table-container {
   border: 1px solid var(--wb-line);
   border-radius: 0;
-  overflow: hidden;
+  /* Wide tables scroll inside their bordered wrapper, never the page. */
+  overflow: auto;
   background: var(--wb-surface);
 }
 .p-datatable .p-datatable-thead > tr > th {

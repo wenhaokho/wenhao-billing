@@ -27,6 +27,10 @@
   --wb-sidebar-bg: #501921;
   --wb-sidebar-fg: #f2dde0;
   --wb-sidebar-active: #a51c30;
+  --wb-sidebar-active-fg: #ffffff;
+  --wb-sidebar-eyebrow: #d8bf84;
+  --wb-sidebar-hover: rgba(255, 255, 255, 0.07);
+  --wb-sidebar-line: rgba(255, 255, 255, 0.14);
 
   /* Overlays only (dialogs, menus, panels, toasts). */
   --wb-overlay-shadow: 0 8px 24px rgba(80, 25, 33, 0.10), 0 2px 6px rgba(80, 25, 33, 0.06);
@@ -55,8 +59,10 @@
   --color-neutral: var(--wb-muted);
   --color-neutral-soft: var(--wb-tint);
 
-  --sidebar-width: 240px;
-  --topbar-height: 60px;
+  --sidebar-width: 252px;
+  --sidebar-rail-width: 76px;
+  --topbar-height: 64px;
+  --content-max-width: 1480px;
 
   /* Square cards and tables; 2px for chips and fields. */
   --radius-sm: 2px;
@@ -102,6 +108,7 @@
   --wb-sidebar-bg: #120c0b;
   --wb-sidebar-fg: #f2dde0;
   --wb-sidebar-active: #c9414f;
+  --wb-sidebar-line: rgba(255, 255, 255, 0.1);
   --wb-overlay-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
 
   color-scheme: dark;
@@ -150,6 +157,8 @@ h1, h2, h3, h4 { color: var(--wb-ink); font-family: var(--wb-font-display); font
   border-radius: 0;
 }
 .card-pad { padding: 1.25rem; }
+/* Wrapper for a wide plain table: it scrolls sideways, the page does not. */
+.table-wrap { overflow-x: auto; max-width: 100%; }
 
 .empty-state {
   padding: 3rem 1rem;
