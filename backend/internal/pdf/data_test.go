@@ -341,7 +341,7 @@ func TestReceiptSummaryLabelsOwnCurrency(t *testing.T) {
 			PaymentID: pid, Amount: dec("600.5"), Currency: "USD", PayerName: "Acme",
 			PayerReference: sp("INV-1"), PaymentDate: date(2026, 8, 7), IntakeSource: "EMAIL_PARSER",
 		},
-		Invoice: in.Invoice, Customer: cust(), Business: biz(),
+		Invoice: in.Invoice, Customer: cust(), Business: biz(), BalanceAfter: dec("6400000"),
 	})
 	eq(t, "Summary", d.Summary, []SummaryRow{
 		{"Invoice total", "16,000,000 IDR", "subtotal"},

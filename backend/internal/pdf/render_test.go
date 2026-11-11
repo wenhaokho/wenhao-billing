@@ -98,7 +98,7 @@ func receipt(balance string) ReceiptData {
 			PayerName: "Acme Pte Ltd", PayerReference: sp("TRF-991"), PaymentDate: date(2026, 8, 7),
 			IntakeSource: "MANUAL", Status: "CLEARED",
 		},
-		Invoice: i, Customer: cust(), Business: biz(),
+		Invoice: i, Customer: cust(), Business: biz(), BalanceAfter: dec(balance),
 	}
 }
 

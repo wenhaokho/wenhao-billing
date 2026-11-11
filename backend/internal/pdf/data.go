@@ -106,6 +106,9 @@ type ReceiptData struct {
 	Invoice  invoicesdb.Invoice
 	Customer *customersdb.Customer
 	Business *businessdb.BusinessProfile
+	// BalanceAfter is the invoice balance right after Payment (BalanceAfter), not
+	// the live balance: the receipt of an old partial payment must not read paid.
+	BalanceAfter decimal.Decimal
 }
 
 // ReceiptReference is the receipt's number: RCT- and the first 8 hex
@@ -483,11 +486,11 @@ func ReceiptDocument(in ReceiptData) Document {
 		},
 		Summary: []SummaryRow{
 			{"Invoice total", FmtAmount(inv.Amount, inv.Currency), "subtotal"},
-			{"Remaining balance", FmtAmount(inv.BalanceDue, inv.Currency), "total"},
+			{"Remaining balance", FmtAmount(in.BalanceAfter, inv.Currency), "total"},
 		},
 		HeroLabel:  "Amount Received",
 		HeroAmount: FmtNum(pay.Amount, cur),
-		Notes:      BalanceNote(inv.BalanceDue, inv.Currency) + "\nThank you for your payment.",
+		Notes:      BalanceNote(in.BalanceAfter, inv.Currency) + "\nThank you for your payment.",
 		FootName:   deref(businessName(in.Business)),
 		FootMeta:   footMeta(in.Business),
 		Date:       dateOf(pay.PaymentDate),

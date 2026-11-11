@@ -62,6 +62,7 @@ func (r PDFReceiptRenderer) RenderReceipt(ctx context.Context, d ReceiptData) ([
 			return nil, err
 		}
 		data.Invoice.Amount = full.Invoice.Amount
+		data.BalanceAfter = full.BalanceAfter
 		data.Customer = full.Customer
 		data.Business = full.Business
 	}
@@ -89,6 +90,8 @@ func receiptPDFData(d ReceiptData) pdf.ReceiptData {
 			Currency:   d.Currency,
 			BalanceDue: d.BalanceDue,
 		},
+		// With no DB the live balance is all there is.
+		BalanceAfter: d.BalanceDue,
 	}
 	if p.InvoiceID != nil {
 		out.Payment.InvoiceID = pgtype.UUID{Bytes: *p.InvoiceID, Valid: true}
