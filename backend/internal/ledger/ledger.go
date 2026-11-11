@@ -49,6 +49,11 @@ func (e ledgerError) Is(target error) bool { return target == ErrLedger }
 
 func refuse(format string, args ...any) error { return ledgerError{fmt.Sprintf(format, args...)} }
 
+// Refuse is an ErrLedger whose text is the formatted sentence: a caller's own
+// check on what it posts (a share's account that cannot take it) refuses as
+// the ledger does.
+func Refuse(format string, args ...any) error { return refuse(format, args...) }
+
 // Payment is the payment being posted. Date is its payment date: its
 // calendar date is the FX as-of date (see fx.GetRate).
 type Payment struct {

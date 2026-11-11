@@ -826,7 +826,7 @@ func registerWriteTools(s *mcp.Server, d Deps) {
 			if err != nil {
 				return Object{}, refuseArg(err)
 			}
-			out, err := invoices.FinalizeInvoice(ctx, tx, id)
+			out, err := invoices.FinalizeInvoice(ctx, tx, d.Cfg.BaseCurrency, id)
 			if err != nil {
 				return Object{}, writeErr(err, "invoice", id.String())
 			}

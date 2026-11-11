@@ -133,6 +133,12 @@ func PostIssued(ctx context.Context, tx pgx.Tx, baseCurrency string, d Document)
 		}
 	}
 	absorbed := ctl.BaseDebit.Add(ctl.BaseCredit).Sub(rest)
+	if !absorbed.IsPositive() {
+		// Only a rate far below 1 rounds the shares this far apart; a line of
+		// 0 (or less) in base is not posted.
+		return Entry{}, refuse("%s share on account %s converts to a base of %s after rounding; must be > 0",
+			who, codes[largest+1], absorbed.StringFixed(4))
+	}
 	if invoice {
 		lines[largest].BaseCredit = absorbed
 		lines = append([]Line{ctl}, lines...)

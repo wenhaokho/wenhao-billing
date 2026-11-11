@@ -257,6 +257,19 @@ func refusedFor(t *testing.T, tx pgx.Tx, err error, d Document, msg string) {
 	refused(t, tx, err, d.SourceType+" "+d.ID.String()+" "+msg)
 }
 
+// At a rate of 0.0003 each 0.5 share converts to 0.00015 → 0.0002 (half
+// even) and the 1.5 control to 0.00045 → 0.0004: the absorbing share (the
+// lowest code on the tie) would be left a base of 0, which is refused.
+func TestPostIssuedAbsorbedBaseNotPositiveRefused(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	addRate(t, pool, "USD", "0.0003", issueDay)
+	d := document(SourceInvoice, "USD", "1.5", shares(t, pool, UsageCode, "0.5", SupportCode, "0.5", FixedFeeCode, "0.5"))
+	tx := begin(t, pool)
+	_, err := PostIssued(context.Background(), tx, base, d)
+	refusedFor(t, tx, err, d, "share on account "+FixedFeeCode+" converts to a base of 0.0000 after rounding; must be > 0")
+}
+
 func TestPostIssuedRateMissing(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
@@ -358,6 +371,14 @@ func TestPostReversalAtKeepsDate(t *testing.T) {
 		{ReceivableCode, "0", "10", "IDR", "0", "10", "1"},
 		{FixedFeeCode, "10", "0", "IDR", "10", "0", "1"},
 	})
+	var reversedBy *uuid.UUID
+	if err := pool.QueryRow(context.Background(), `SELECT reversed_by_entry_id FROM journal_entries WHERE entry_id = $1`, orig.ID).
+		Scan(&reversedBy); err != nil {
+		t.Fatal(err)
+	}
+	if reversedBy == nil || *reversedBy != rev.ID {
+		t.Errorf("reversed_by_entry_id = %v, want %s", reversedBy, rev.ID)
+	}
 }
 
 func TestAccountsByIDAndCode(t *testing.T) {

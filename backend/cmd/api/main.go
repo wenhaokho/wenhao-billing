@@ -124,7 +124,7 @@ func register(api huma.API, f features) {
 	customers.Register(api, f.Pool)
 	business.Register(api, f.Pool, f.Clock)
 	fx.Register(api, f.Pool, f.Config, f.FXClient)
-	invoices.Register(api, f.Pool, f.Clock, svc.Notifier)
+	invoices.Register(api, f.Pool, f.Clock, f.Config.BaseCurrency, svc.Notifier)
 	quotations.Register(api, f.Pool, f.Clock)
 	quotations.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
 	invoices.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)

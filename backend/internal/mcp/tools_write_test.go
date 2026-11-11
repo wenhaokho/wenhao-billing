@@ -233,6 +233,8 @@ func TestCreateInvoiceAppliesPercentDiscount(t *testing.T) {
 func TestFinalizeMovesDraftToOpen(t *testing.T) {
 	t.Parallel()
 	h := newWriteHarness(t)
+	// Finalize posts the issue entry at the issue date's USD rate (PORT-NOTES 162).
+	h.exec(t, `INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source) VALUES ('USD', 'IDR', 16000, '2026-01-01', 'TEST')`)
 	c := h.customer(t, "Acme Pte Ltd")
 	created := h.done(t, "create_invoice", map[string]any{"customer_id": c.String(), "currency": "USD", "line_items": lines("x", "1", "10")})
 	out := h.done(t, "finalize_invoice", map[string]any{"invoice_id": created["invoice_id"]})
@@ -246,12 +248,47 @@ func TestVoidInvoiceSetsVoidAndZeroesBalance(t *testing.T) {
 	t.Parallel()
 	h := newWriteHarness(t)
 	c := h.customer(t, "Acme Pte Ltd")
-	inv := h.invoice(t, c, "INV-0001", "MILESTONE", "SENT", "1000.0000", false)
-	out := h.done(t, "void_invoice", map[string]any{"invoice_id": inv.String()})
+	// An issued invoice has its issue entry (PORT-NOTES 162): issue it through
+	// finalize, then mark it sent.
+	created := h.done(t, "create_invoice", map[string]any{"customer_id": c.String(), "currency": "IDR", "line_items": lines("x", "1", "1000")})
+	h.done(t, "finalize_invoice", map[string]any{"invoice_id": created["invoice_id"]})
+	h.exec(t, `UPDATE invoices SET status = 'SENT' WHERE invoice_id = $1`, created["invoice_id"])
+	out := h.done(t, "void_invoice", map[string]any{"invoice_id": created["invoice_id"]})
 	// Python printed "0": a computed value keeps Python's scale. Go prints
 	// the column scale (an allowed difference for write results).
 	if out["status"] != "VOID" || out["balance_due"] != "0.0000" {
 		t.Fatalf("invoice %v", out)
+	}
+}
+
+// The tools post as the routes do (PORT-NOTES 162): finalize_invoice the
+// issue entry, void_invoice its reversal.
+func TestMCPFinalizeAndVoidPost(t *testing.T) {
+	t.Parallel()
+	h := newWriteHarness(t)
+	h.exec(t, `INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source) VALUES ('USD', 'IDR', 16000, '2026-01-01', 'TEST')`)
+	c := h.customer(t, "Acme Pte Ltd")
+	created := h.done(t, "create_invoice", map[string]any{"customer_id": c.String(), "currency": "USD", "invoice_type": "RECURRING", "line_items": lines("x", "1", "10")})
+	id := created["invoice_id"]
+	h.done(t, "finalize_invoice", map[string]any{"invoice_id": id})
+	lineSQL := `SELECT string_agg(a.code || ' ' || l.debit::text || '/' || l.credit::text || ' ' || l.base_amount_debit::text || '/' || l.base_amount_credit::text, ', ' ORDER BY a.code)
+FROM journal_lines l JOIN journal_entries e ON e.entry_id = l.entry_id JOIN chart_of_accounts a ON a.account_id = l.account_id
+WHERE e.source_type = 'INVOICE' AND e.source_id = $1::uuid AND e.reversed_by_entry_id IS NULL
+  AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id)`
+	if got, want := h.cell(t, lineSQL, id), "1100 10.0000/0.0000 160000.0000/0.0000, 4100 0.0000/10.0000 0.0000/160000.0000"; got != want {
+		t.Errorf("issue entry %v, want %s", got, want)
+	}
+	h.done(t, "void_invoice", map[string]any{"invoice_id": id})
+	if n := h.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'INVOICE' AND source_id = $1::uuid`, id); n != 2 {
+		t.Errorf("%d entries, want the issue entry and its reversal", n)
+	}
+	if n := h.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'INVOICE' AND source_id = $1::uuid AND reversed_by_entry_id IS NOT NULL`, id); n != 1 {
+		t.Errorf("%d reversed entries, want 1", n)
+	}
+	// Refusals come back as the tool's error sentence.
+	other := h.done(t, "create_invoice", map[string]any{"customer_id": c.String(), "currency": "EUR", "line_items": lines("x", "1", "10")})
+	if msg := h.refused(t, "finalize_invoice", map[string]any{"invoice_id": other["invoice_id"]}); msg != "no fx rate for EUR->IDR on or before 2026-01-15" {
+		t.Errorf("refusal %q", msg)
 	}
 }
 

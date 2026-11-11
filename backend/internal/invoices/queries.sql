@@ -262,3 +262,18 @@ SELECT email FROM users ORDER BY created_at, email;
 -- Sending: an OPEN invoice becomes SENT; any other status stays as it is.
 -- A DRAFT cannot be sent at all (owner decision 2026-11-10).
 UPDATE invoices SET status = 'SENT' WHERE invoice_id = @invoice_id AND status = 'OPEN';
+
+-- name: ListInvoiceLineAccounts :many
+-- The issue entry's revenue split: each line's amount and its item's revenue
+-- account (NULL for a line without an item or an item without one), in
+-- ListInvoiceLines' order.
+SELECT l.amount, i.revenue_account_id
+  FROM invoice_line_items l
+  LEFT JOIN items i ON i.item_id = l.item_id
+ WHERE l.invoice_id = $1
+ ORDER BY l.position, l.line_item_id;
+
+-- name: HasClearedPayments :one
+-- Void's refusal: any CLEARED payment against the invoice, a withholding-only
+-- one (amount 0) included.
+SELECT EXISTS (SELECT 1 FROM payments WHERE invoice_id = $1 AND status = 'CLEARED');

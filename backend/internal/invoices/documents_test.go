@@ -38,7 +38,7 @@ func newDocApp(t *testing.T, failing bool) *apitest.App {
 func newDocAppWith(t *testing.T, mail func(d apitest.Deps) email.Sender) *apitest.App {
 	t.Helper()
 	return apitest.New(t, func(api huma.API, d apitest.Deps) {
-		Register(api, d.Pool, d.Clock, nil)
+		Register(api, d.Pool, d.Clock, base, nil)
 		RegisterDocuments(api, d.Pool, d.Clock, mail(d))
 	})
 }

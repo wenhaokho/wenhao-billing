@@ -12,7 +12,9 @@ import (
 
 	"github.com/LOQATO/gokit/db"
 
+	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
@@ -20,22 +22,25 @@ type routes struct {
 	pool  *pgxpool.Pool
 	q     *invoicesdb.Queries
 	clock platform.Clock
+	// base is the ledger's base currency: finalize posts the issue entry in it.
+	base string
 	// notify hears of the drafts the recurring trigger generates (Task 6).
 	notify DraftNotifier
 }
 
 // Register adds the invoice operations; every one is admin-only. notify
-// hears of generated recurring drafts; nil logs them (LogNotifier).
+// hears of generated recurring drafts; nil logs them (LogNotifier). base is
+// the ledger's base currency (finalize posts to the ledger).
 //
 // The literal paths (/milestone, /awaiting-finalization, /recurring-template,
 // /recurring-templates, /recurring-templates/rows) are their own routes: chi
 // matches a literal segment before {invoice_id} or {template_id}, whatever
 // the registration order.
-func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, notify DraftNotifier) {
+func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, base string, notify DraftNotifier) {
 	if notify == nil {
 		notify = LogNotifier{}
 	}
-	r := routes{pool: pool, q: invoicesdb.New(pool), clock: clock, notify: notify}
+	r := routes{pool: pool, q: invoicesdb.New(pool), clock: clock, base: base, notify: notify}
 	const prefix = "/api/v1/invoices"
 	tags := []string{"invoices"}
 
@@ -126,10 +131,17 @@ func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, notify Dra
 }
 
 // clientError is err as the client reads it: an ErrInvoicing refusal is a
-// 400 with Python's sentence; anything else is unchanged.
+// 400 with Python's sentence, a ledger refusal 400 ledger_refused and a
+// missing rate 400 fx_rate_missing (PORT-NOTES 161, 162); anything else is
+// unchanged.
 func clientError(err error) error {
-	if errors.Is(err, ErrInvoicing) {
+	switch {
+	case errors.Is(err, ErrInvoicing):
 		return platform.Err(http.StatusBadRequest, RefusalCode(err), err.Error())
+	case errors.Is(err, ledger.ErrLedger):
+		return platform.Err(http.StatusBadRequest, "ledger_refused", err.Error())
+	case errors.Is(err, fx.ErrRateMissing):
+		return platform.Err(http.StatusBadRequest, "fx_rate_missing", err.Error())
 	}
 	return err
 }
