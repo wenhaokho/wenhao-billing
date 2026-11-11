@@ -44,3 +44,16 @@ test("select panel follows dark mode", async ({ page }) => {
   const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
   expect(luminance, `overlay background "${bg}" is dark`).toBeLessThan(0.2);
 });
+
+test("primary colour is blue, as before the upgrade", async ({ page }) => {
+  await page.goto("/invoices");
+  const button = page.getByRole("button", { name: "New invoice" });
+  await expect(button).toBeVisible();
+  const bg = () => button.evaluate((el) => getComputedStyle(el).backgroundColor);
+  // Aura blue.500 in light mode.
+  await expect.poll(bg).toBe("rgb(59, 130, 246)");
+  await page.getByRole("button", { name: "Switch to dark theme" }).click();
+  await expect(page.getByRole("button", { name: "Switch to light theme" })).toBeVisible();
+  // Aura's dark-mode primary is primary.400 = blue.400.
+  await expect.poll(bg).toBe("rgb(96, 165, 250)");
+});
