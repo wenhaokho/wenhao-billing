@@ -124,6 +124,26 @@ func LoadAllowedFile(path string) (Allowed, error) {
 	return ParseAllowed(data)
 }
 
+// productionCopyMarker is the comment line that marks an allowed file for the
+// production-copy run only (port/allowed-diffs-prodcopy.yaml).
+const productionCopyMarker = "# compare-run: production-copy"
+
+// IsProductionCopyFile reports whether the allowed file at path carries the
+// production-copy marker line. `compare reads` loads such a file only with
+// --ledger-matches-aging.
+func IsProductionCopyFile(path string) (bool, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // path is a caller argument (the --allowed flag)
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == productionCopyMarker {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // LoadAllowedFiles reads the entries of every path, in order, and merges them
 // into one Allowed (the --allowed flag may be repeated: the shipped
 // allowed-diffs.yaml, then an overlay such as allowed-diffs-prodcopy.yaml used

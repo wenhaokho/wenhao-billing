@@ -154,6 +154,10 @@ func readsCommand(args []string, cio commandIO) int {
 		return 2
 	}
 	warnOverlaps(logger, "compare reads", overlaps)
+	if err := checkProductionCopy(allowedFiles, *ledgerAging); err != nil {
+		logger.Error("compare reads: " + err.Error())
+		return 2
+	}
 	tz, err := loadZone(*pythonTZ)
 	if err != nil {
 		logger.Error("compare reads: --python-tz", "err", err)
@@ -367,6 +371,25 @@ func warnUnused(logger *slog.Logger, cmd string, unused []compare.UnusedAllowed)
 	for _, u := range unused {
 		logger.Warn(cmd+": allowed entry never matched in this run", "route", u.Route, "path", u.Path, "rule", u.Rule, "note", u.Note)
 	}
+}
+
+// checkProductionCopy refuses an allowed file marked for the production-copy
+// run (it ignores Go's ledger figures) unless --ledger-matches-aging is given,
+// so that run always checks those figures against the agings instead.
+func checkProductionCopy(paths []string, ledgerAging bool) error {
+	if ledgerAging {
+		return nil
+	}
+	for _, p := range paths {
+		marked, err := compare.IsProductionCopyFile(p)
+		if err != nil {
+			return err
+		}
+		if marked {
+			return fmt.Errorf("%s is for the production-copy run only and needs --ledger-matches-aging", p)
+		}
+	}
+	return nil
 }
 
 // warnOverlaps prints one stderr warning per later-file allowed entry that

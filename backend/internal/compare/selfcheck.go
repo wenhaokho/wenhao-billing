@@ -76,15 +76,18 @@ func goObject(r Response) (map[string]any, bool) {
 	return obj, ok
 }
 
-// decField reads a decimal field (a JSON string or number); a missing or null
-// field is 0, anything else unreadable is reported by ok = false.
-func decField(obj map[string]any, key string) (decimal.Decimal, bool) {
+// decField reads a decimal field (a JSON string or number). A missing field
+// is never ok: a report without its figures must fail, not read as 0. A null
+// is 0 only where nullable allows it.
+func decField(obj map[string]any, key string, nullable bool) (decimal.Decimal, bool) {
 	v, present := obj[key]
-	if !present || v == nil {
-		return decimal.Zero, true
+	if !present {
+		return decimal.Zero, false
 	}
 	var s string
 	switch x := v.(type) {
+	case nil:
+		return decimal.Zero, nullable
 	case string:
 		s = x
 	case json.Number:
@@ -96,28 +99,56 @@ func decField(obj map[string]any, key string) (decimal.Decimal, bool) {
 	return d, err == nil
 }
 
-// objects is the JSON objects of an array field.
-func objects(obj map[string]any, key string) []map[string]any {
-	arr, _ := obj[key].([]any)
-	out := make([]map[string]any, 0, len(arr))
-	for _, v := range arr {
-		if o, ok := v.(map[string]any); ok {
-			out = append(out, o)
-		}
-	}
-	return out
-}
-
-// checker gathers failed checks; a field that is not a decimal fails too.
+// checker gathers failed checks; a missing field or array, or one of the
+// wrong type, fails too.
 type checker struct{ diffs []Difference }
 
-// get reads a decimal field, recording an unreadable one at path.
+// fail records a field that is missing or of the wrong type.
+func (c *checker) fail(path, want string, got any, present bool) {
+	shown := missing
+	if present {
+		shown = text(got)
+	}
+	c.diffs = append(c.diffs, Difference{Path: path, Python: "self-check: " + want, Go: shown, Rule: RuleSelfCheck})
+}
+
+// get reads a required decimal field.
 func (c *checker) get(obj map[string]any, key, path string) decimal.Decimal {
-	d, ok := decField(obj, key)
+	return c.read(obj, key, path, false)
+}
+
+// opt reads a decimal field that may be null (0).
+func (c *checker) opt(obj map[string]any, key, path string) decimal.Decimal {
+	return c.read(obj, key, path, true)
+}
+
+func (c *checker) read(obj map[string]any, key, path string, nullable bool) decimal.Decimal {
+	d, ok := decField(obj, key, nullable)
 	if !ok {
-		c.diffs = append(c.diffs, Difference{Path: path, Python: "self-check: a decimal", Go: text(obj[key]), Rule: RuleSelfCheck})
+		v, present := obj[key]
+		c.fail(path, "a decimal", v, present)
 	}
 	return d
+}
+
+// objects reads a required array of JSON objects (it may be empty).
+func (c *checker) objects(obj map[string]any, key, path string) []map[string]any {
+	v, present := obj[key]
+	arr, ok := v.([]any)
+	if !ok {
+		c.fail(path, "an array", v, present)
+		return nil
+	}
+	out := make([]map[string]any, 0, len(arr))
+	for i, el := range arr {
+		o, ok := el.(map[string]any)
+		if !ok {
+			c.fail(fmt.Sprintf("%s[%d]", path, i), "an object", el, true)
+			continue
+		}
+		out = append(out, o)
+	}
+	return out
 }
 
 // equal records a failed check when got is not want.
@@ -132,7 +163,7 @@ func (c *checker) equal(path string, got, want decimal.Decimal, what string) {
 func checkTrialBalance(tb map[string]any) []Difference {
 	c := &checker{}
 	var debit, credit decimal.Decimal
-	for i, r := range objects(tb, "rows") {
+	for i, r := range c.objects(tb, "rows", "$.rows") {
 		debit = debit.Add(c.get(r, "base_debit", fmt.Sprintf("$.rows[%d].base_debit", i)))
 		credit = credit.Add(c.get(r, "base_credit", fmt.Sprintf("$.rows[%d].base_credit", i)))
 	}
@@ -150,9 +181,9 @@ func checkTrialBalance(tb map[string]any) []Difference {
 func checkBalanceSheet(bs map[string]any) []Difference {
 	c := &checker{}
 	byType := map[string]decimal.Decimal{}
-	for i, g := range objects(bs, "groups") {
+	for i, g := range c.objects(bs, "groups", "$.groups") {
 		var sum decimal.Decimal
-		for j, l := range objects(g, "lines") {
+		for j, l := range c.objects(g, "lines", fmt.Sprintf("$.groups[%d].lines", i)) {
 			sum = sum.Add(c.get(l, "base_balance", fmt.Sprintf("$.groups[%d].lines[%d].base_balance", i, j)))
 		}
 		path := fmt.Sprintf("$.groups[%d].total_base", i)
@@ -182,8 +213,8 @@ func checkBalanceSheet(bs map[string]any) []Difference {
 func checkFxRevaluation(fx map[string]any) []Difference {
 	c := &checker{}
 	var gain, loss decimal.Decimal
-	for i, l := range objects(fx, "lines") {
-		u := c.get(l, "unrealised_gain_loss", fmt.Sprintf("$.lines[%d].unrealised_gain_loss", i))
+	for i, l := range c.objects(fx, "lines", "$.lines") {
+		u := c.opt(l, "unrealised_gain_loss", fmt.Sprintf("$.lines[%d].unrealised_gain_loss", i))
 		if u.IsPositive() {
 			gain = gain.Add(u)
 		} else {
@@ -211,7 +242,7 @@ func agingCheck(tb, ar, ap Response, haveAR, haveAP bool) []Difference {
 	}
 	c := &checker{}
 	net := map[string]map[string]decimal.Decimal{receivableCode: {}, payableCode: {}}
-	for i, r := range objects(tbObj, "rows") {
+	for i, r := range c.objects(tbObj, "rows", "$.rows") {
 		code, _ := r["code"].(string)
 		if _, ok := net[code]; !ok {
 			continue
@@ -237,7 +268,12 @@ func agingCheck(tb, ar, ap Response, haveAR, haveAP bool) []Difference {
 			c.diffs = append(c.diffs, Difference{Path: "$.as_of", Python: "self-check: " + side.name + " as_of " + text(agingObj["as_of"]), Go: text(tbObj["as_of"]), Rule: RuleSelfCheck})
 			continue
 		}
-		totals, _ := agingObj["totals_by_currency"].(map[string]any)
+		totals, ok := agingObj["totals_by_currency"].(map[string]any)
+		if !ok {
+			v, present := agingObj["totals_by_currency"]
+			c.fail("$.totals_by_currency", side.name+" totals_by_currency as an object", v, present)
+			continue
+		}
 		currencies := map[string]bool{}
 		for cur := range totals {
 			currencies[cur] = true
