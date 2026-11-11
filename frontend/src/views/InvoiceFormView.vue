@@ -12,6 +12,7 @@ import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import { useConfirm } from "primevue/useconfirm";
 import { api } from "@/api/client";
 import { formatAmount, formatMoney } from "@/utils/money";
@@ -783,34 +784,35 @@ const canSave = computed(() => {
       </Button>
     </div>
 
-    <header class="page-header sticky-header">
-      <div class="header-title">
-        <h1>
-          {{
-            isRecurring
-              ? (templateEnded ? "Recurring invoice" : isEdit ? "Edit recurring invoice" : "New recurring invoice")
-              : (isEdit ? "Edit invoice" : "New invoice")
-          }}
-        </h1>
-        <p v-if="templateEnded" class="readonly-note">
-          View only — this recurring template has ended and no longer generates invoices
-        </p>
-        <p v-else-if="readOnly" class="readonly-note">
-          Read-only — {{ existing?.status }} invoices cannot be edited
-        </p>
-        <p
+    <PageHeader
+      class="sticky-header"
+      eyebrow="02 / Sales"
+      :title="isRecurring
+        ? (templateEnded ? 'Recurring invoice' : isEdit ? 'Edit recurring invoice' : 'New recurring invoice')
+        : (isEdit ? 'Edit invoice' : 'New invoice')"
+    >
+      <template v-if="templateEnded || existing?.status" #status>
+        <StatusTag v-if="templateEnded" status="ENDED" />
+        <StatusTag v-else-if="existing?.status" :status="existing.status" />
+      </template>
+      <template v-if="templateEnded || readOnly || (existing?.coverage_start && existing?.coverage_end)" #lede>
+        <span v-if="templateEnded" class="readonly-note">
+          View only — this recurring template has ended and no longer generates invoices.
+        </span>
+        <span v-else-if="readOnly" class="readonly-note">
+          Read-only — {{ existing?.status }} invoices cannot be edited.
+        </span>
+        <span
           v-if="existing?.coverage_start && existing?.coverage_end"
           class="readonly-note"
         >
-          Hosting coverage {{ existing.coverage_start }} to {{ existing.coverage_end }}
-        </p>
-      </div>
-      <div class="page-actions">
-        <StatusTag v-if="templateEnded" status="ENDED" />
-        <StatusTag v-else-if="existing?.status" :status="existing.status" />
+          Hosting coverage {{ existing.coverage_start }} to {{ existing.coverage_end }}.
+        </span>
+      </template>
         <Button
           label="Preview PDF"
-          text
+          severity="secondary"
+          outlined
           :disabled="!isEdit"
           :title="isEdit ? 'Preview PDF' : 'Save first to preview'"
           @click="openPdfPreview">
@@ -860,8 +862,7 @@ const canSave = computed(() => {
             <template #icon><AppIcon name="save" /></template>
           </Button>
         </template>
-      </div>
-    </header>
+    </PageHeader>
 
     <div class="top-grid">
       <!-- Customer card -->
@@ -1218,37 +1219,39 @@ const canSave = computed(() => {
       </div>
     </div>
 
-    <div class="card notes-card">
-      <label class="section-label">Notes / Terms</label>
-      <Textarea
-        v-model="notes"
-        rows="5"
-        placeholder="e.g. Price is included of 11% VAT. Price is excluded of any bank or transfer fees."
-        class="notes-textarea"
-        :disabled="readOnly"
-      />
-    </div>
+    <div class="notes-grid">
+      <div class="card notes-card">
+        <label class="section-label">Notes / Terms</label>
+        <Textarea
+          v-model="notes"
+          rows="5"
+          placeholder="e.g. Price is included of 11% VAT. Price is excluded of any bank or transfer fees."
+          class="notes-textarea"
+          :disabled="readOnly"
+        />
+      </div>
 
-    <div class="card notes-card">
-      <label class="section-label">Internal note</label>
-      <Textarea
-        v-model="internalNote"
-        rows="3"
-        placeholder="Visible to your team only. Not shown to the customer or on the PDF."
-        class="notes-textarea"
-        :disabled="readOnly"
-      />
-    </div>
+      <div class="card notes-card">
+        <label class="section-label">Internal note</label>
+        <Textarea
+          v-model="internalNote"
+          rows="3"
+          placeholder="Visible to your team only. Not shown to the customer or on the PDF."
+          class="notes-textarea"
+          :disabled="readOnly"
+        />
+      </div>
 
-    <div v-if="isRecurring" class="card notes-card">
-      <label class="section-label">Footer</label>
-      <Textarea
-        v-model="footer"
-        rows="3"
-        placeholder="Footer shown on every generated invoice."
-        class="notes-textarea"
-        :disabled="readOnly"
-      />
+      <div v-if="isRecurring" class="card notes-card">
+        <label class="section-label">Footer</label>
+        <Textarea
+          v-model="footer"
+          rows="3"
+          placeholder="Footer shown on every generated invoice."
+          class="notes-textarea"
+          :disabled="readOnly"
+        />
+      </div>
     </div>
 
     <Message v-if="save.error.value" severity="error" :closable="false">
@@ -1298,39 +1301,35 @@ const canSave = computed(() => {
 .invoice-form {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 24px;
 }
 
-.back { margin-bottom: -0.5rem; }
+.back { margin-bottom: -16px; }
 
 .recurring-card {
-  max-width: 340px;
+  max-width: 360px;
   width: 100%;
   align-self: flex-start;
-  padding: 1.25rem 1.5rem;
+  padding: 24px 28px;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  transition: border-color 120ms ease;
+  gap: 16px;
 }
 .recurring-card.is-active {
   align-self: stretch;
 }
-.recurring-card.is-active {
-  border-color: var(--color-border-strong);
-}
 .recurring-toggle {
-  display: inline-flex; align-items: center; gap: 0.5rem;
-  font-size: 0.95rem; font-weight: 600; color: var(--color-text);
+  display: inline-flex; align-items: center; gap: 10px;
+  font: 500 18px/1.2 var(--wb-font-display); letter-spacing: -0.4px; color: var(--wb-ink);
   cursor: pointer; user-select: none;
 }
 .recurring-heading {
-  font-size: 0.95rem; font-weight: 600; color: var(--color-text);
+  font: 500 18px/1.2 var(--wb-font-display); letter-spacing: -0.4px; color: var(--wb-ink);
 }
 .schedule-grid {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 0.6rem 0.75rem;
+  gap: 12px 14px;
   align-items: center;
 }
 .schedule-freq { width: 100%; }
@@ -1339,55 +1338,34 @@ const canSave = computed(() => {
 .schedule-grid :deep(.p-select),
 .schedule-grid :deep(.p-datepicker),
 .schedule-grid :deep(.p-datepicker-input) { width: 100%; }
-.inline-row { display: flex; align-items: center; gap: 0.5rem; }
-.muted { color: var(--color-text-muted); }
-.small { font-size: 0.8rem; }
+.inline-row { display: flex; align-items: center; gap: 8px; }
+.muted { color: var(--wb-muted); }
+.small { font-size: 13px; }
 
 .auto {
-  color: var(--color-text-subtle);
+  color: var(--wb-muted-soft);
   font-style: italic;
-  font-size: 0.85rem;
+  font-size: 14px;
 }
 
+/* The page header stays in view while the long form scrolls. */
 .sticky-header {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--color-bg, rgba(248, 250, 252, 0.85));
-  padding: 1rem 0;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
+  background: var(--wb-bg);
+  padding: 12px 0 16px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--wb-line);
 }
-.header-title h1 {
-  margin: 0;
-}
-.readonly-note {
-  margin: 0.25rem 0 0;
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-}
-.page-actions {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
+.readonly-note { display: block; font-size: 15px; color: var(--wb-muted); }
 
-.card {
-  background: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 12px;
-  padding: 1.5rem 1.75rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
+.card { padding: 28px; }
 
 .top-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 1fr);
+  gap: 24px;
   align-items: stretch;
 }
 
@@ -1400,26 +1378,26 @@ const canSave = computed(() => {
   position: relative;
 }
 .customer-card.is-empty {
-  border: 1.5px dashed #cbd5e1;
-  background: var(--color-surface-alt);
+  border-style: dashed;
+  background: var(--wb-surface-2);
 }
 .customer-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.6rem;
-  color: var(--color-text-muted);
+  gap: 10px;
+  color: var(--wb-muted);
   width: 100%;
 }
 .customer-empty .app-icon {
-  width: 1.6rem;
-  height: 1.6rem;
-  color: var(--color-text-subtle);
+  width: 28px;
+  height: 28px;
+  color: var(--wb-muted-soft);
 }
 .customer-empty-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--color-text);
+  font: 500 20px/1.2 var(--wb-font-display);
+  letter-spacing: -0.5px;
+  color: var(--wb-ink);
 }
 .customer-dropdown {
   width: min(280px, 100%);
@@ -1442,7 +1420,7 @@ const canSave = computed(() => {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 8px;
 }
 .customer-header {
   display: flex;
@@ -1450,36 +1428,34 @@ const canSave = computed(() => {
   align-items: center;
 }
 .customer-label {
-  font-size: 0.72rem;
-  font-weight: 500;
-  color: var(--color-text-muted);
-  letter-spacing: 0.06em;
+  font: 500 11px/1.4 var(--wb-font-sans);
+  color: var(--wb-red);
+  letter-spacing: 1.3px;
   text-transform: uppercase;
 }
 .customer-name {
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: 0.25rem;
+  font: 500 26px/1.15 var(--wb-font-display);
+  letter-spacing: -0.8px;
+  color: var(--wb-ink);
+  margin: 2px 0 8px;
 }
 .customer-detail {
   display: flex;
-  gap: 0.5rem;
+  gap: 10px;
   align-items: flex-start;
-  font-size: 0.875rem;
-  color: var(--color-text-muted);
-  line-height: 1.35;
+  font-size: 14px;
+  color: var(--wb-muted);
+  line-height: 1.5;
 }
 .customer-detail .app-icon {
-  color: var(--color-text-subtle);
-  width: 0.85rem;
-  height: 0.85rem;
+  color: var(--wb-muted-soft);
+  width: 14px;
+  height: 14px;
   flex: none;
-  margin-top: 0.15rem;
-  min-width: 14px;
+  margin-top: 3px;
 }
 .customer-detail a {
-  color: #2563eb;
+  color: var(--wb-red);
   text-decoration: none;
 }
 .customer-detail a:hover { text-decoration: underline; }
@@ -1488,40 +1464,41 @@ const canSave = computed(() => {
   padding: 0.25rem 0.5rem;
 }
 .customer-project {
-  margin-top: 0.4rem;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--wb-line);
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 8px;
   min-height: 1.75rem;
 }
 .customer-project > .app-icon {
-  color: var(--color-text-subtle);
-  width: 0.85rem;
-  height: 0.85rem;
-  min-width: 14px;
+  color: var(--wb-muted-soft);
+  width: 14px;
+  height: 14px;
 }
 .customer-project-name {
   flex: 1;
-  font-size: 0.875rem;
-  color: var(--color-text);
+  font-size: 14px;
+  color: var(--wb-ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .customer-project-name code {
-  background: var(--color-surface-alt);
-  padding: 0.1rem 0.35rem;
-  border-radius: 4px;
-  font-size: 0.78em;
-  margin-right: 0.3rem;
+  background: var(--wb-tint);
+  padding: 2px 6px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-right: 6px;
 }
 .customer-project-btn { padding: 0.2rem 0.35rem; }
 .customer-project-link {
   padding: 0.15rem 0.25rem !important;
-  font-size: 0.82rem !important;
-  color: var(--color-text-muted) !important;
+  font-size: 13px !important;
+  color: var(--wb-muted) !important;
 }
-.customer-project-link :deep(.p-button-icon) { font-size: 0.8rem; }
+.customer-project-link :deep(.app-icon) { width: 13px; height: 13px; }
 .customer-project-picker { flex: 1; min-width: 0; }
 .customer-project-picker :deep(.p-select) { width: 100%; }
 
@@ -1533,24 +1510,14 @@ const canSave = computed(() => {
 .meta-grid {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 0.75rem 1rem;
+  gap: 14px 16px;
   align-items: center;
 }
 .meta-label {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--color-text-muted);
-  letter-spacing: 0.01em;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--wb-muted);
   text-align: right;
-}
-.meta-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-.helper {
-  font-size: 0.72rem;
-  color: var(--color-text-subtle);
 }
 .meta-grid :deep(.p-inputtext),
 .meta-grid :deep(.p-datepicker-input),
@@ -1563,28 +1530,28 @@ const canSave = computed(() => {
   display: flex;
   justify-content: flex-end;
   align-items: stretch;
-  gap: 1rem;
+  gap: 24px;
 }
 .totals {
-  max-width: 380px;
+  max-width: 400px;
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 1.25rem 1.5rem;
+  gap: 8px;
+  padding: 24px 28px;
 }
 .totals-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 0.75rem;
+  gap: 12px;
   min-height: 2rem;
 }
 .totals-label {
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
+  color: var(--wb-muted);
+  font-size: 14px;
   display: flex;
-  gap: 0.5rem;
+  gap: 8px;
   align-items: center;
 }
 .ccy-select {
@@ -1603,41 +1570,43 @@ const canSave = computed(() => {
 }
 .totals-value {
   font-variant-numeric: tabular-nums;
-  color: var(--color-text);
+  color: var(--wb-ink);
   text-align: right;
 }
 .totals-row.total {
-  border-top: 1px solid var(--color-border, #e2e8f0);
-  padding-top: 0.75rem;
-  margin-top: 0.25rem;
-  font-size: 1rem;
-  font-weight: 600;
+  border-top: 1px solid var(--wb-line);
+  padding-top: 12px;
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 500;
 }
 .totals-row.total .totals-label {
-  color: var(--color-text);
-  font-size: 1rem;
+  color: var(--wb-ink);
+  font-size: 15px;
 }
 .totals-value.wht-amount {
-  color: var(--color-danger);
+  color: var(--wb-red-fg);
 }
+/* Amount due (mockup): Manrope label, large red figure, a line above. */
 .totals-row.due {
-  margin-top: 0.25rem;
-  padding: 0.75rem 0.9rem;
-  border-top: 3px double var(--color-border-strong);
-  background: var(--color-primary-soft);
-  border-radius: 8px;
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--color-text);
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--wb-line);
+  align-items: baseline;
 }
 .totals-row.due .totals-label {
-  color: var(--color-text);
-  font-weight: 700;
-  font-size: 1rem;
+  font: 500 18px var(--wb-font-display);
+  letter-spacing: -0.4px;
+  color: var(--wb-ink);
+}
+.totals-row.due .totals-value {
+  font: 500 26px var(--wb-font-display);
+  letter-spacing: -0.8px;
+  color: var(--wb-red);
 }
 .discount-input {
   display: flex;
-  gap: 0.5rem;
+  gap: 8px;
   align-items: center;
   width: 100%;
 }
@@ -1668,26 +1637,43 @@ const canSave = computed(() => {
 .wht-gross {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
+  gap: 8px;
+  font-size: 14px;
+  color: var(--wb-muted);
 }
 .ccy-select { width: 110px; }
 .num { font-variant-numeric: tabular-nums; }
 
-/* Notes */
+/* Notes: side by side (mockup), one column on narrow screens. */
+.notes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+}
 .notes-card {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 14px;
 }
 .section-label {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--color-text);
-  letter-spacing: 0.01em;
+  font: 500 18px/1.2 var(--wb-font-display);
+  letter-spacing: -0.4px;
+  color: var(--wb-ink);
 }
 .notes-textarea {
   width: 100%;
+}
+
+@media (max-width: 900px) {
+  .top-grid { grid-template-columns: 1fr; }
+  .totals-wrap { flex-direction: column; align-items: stretch; }
+  .recurring-card, .totals { max-width: none; }
+}
+@media (max-width: 720px) {
+  .card { padding: 20px; }
+  .notes-grid { grid-template-columns: 1fr; }
+  .meta-grid, .schedule-grid { grid-template-columns: 1fr; gap: 6px; }
+  .meta-label { text-align: left; margin-top: 6px; }
+  .sticky-header { position: static; border-bottom: 0; padding: 0; }
 }
 </style>

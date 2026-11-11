@@ -84,6 +84,19 @@
 .card-tabs .p-tabpanels { padding: 0; background: transparent; }
 .card-tabs .p-datatable-table-container { border: 0; }
 
+/* Dialogs and confirm dialogs: square (preset), 1px line border, Manrope title,
+   a rule above the footer. The soft overlay shadow comes from the preset. */
+.p-dialog { border: 1px solid var(--wb-line); }
+.p-dialog .p-dialog-title {
+  font: 500 22px/1.2 var(--wb-font-display);
+  letter-spacing: -0.6px;
+  color: var(--wb-ink);
+}
+.p-dialog .p-dialog-footer { border-top: 1px solid var(--wb-line); padding-top: 16px; }
+
+/* Messages (inline alerts): square, tinted with the status pairs. */
+.p-message { border-radius: 0; }
+
 /* Right-aligned columns (header-style text-align: right): PrimeVue 4 wraps the
    header text in a flex box, so align that too. */
 .p-datatable-thead > tr > th[style*="text-align: right"] .p-datatable-column-header-content { justify-content: flex-end; }

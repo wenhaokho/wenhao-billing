@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppIcon from "@/components/AppIcon.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import { ref, watch, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import InputText from "primevue/inputtext";
@@ -271,16 +272,13 @@ function fmtDate(iso?: string) {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>My Account</h1>
-        <p class="subtitle">
-          Manage your profile, change your password, and review session details.
-        </p>
-      </div>
-    </header>
+    <PageHeader eyebrow="Your account" title="My Account">
+      <template #lede>
+        Manage your profile, change your password, and review session details.
+      </template>
+    </PageHeader>
 
-    <Tabs :value="activeTab" @update:value="onTabChange">
+    <Tabs :value="activeTab" class="account-tabs" @update:value="onTabChange">
       <TabList>
         <Tab value="profile">Profile & Company</Tab>
         <Tab value="security">Password & Session</Tab>
@@ -547,121 +545,134 @@ function fmtDate(iso?: string) {
 </template>
 
 <style scoped>
+/* Tabs: the brand strip (red active bar), panels on the page background. */
+.account-tabs :deep(.p-tablist-tab-list) { background: transparent; border-color: var(--wb-line); }
+.account-tabs :deep(.p-tab) { font: 500 14px var(--wb-font-sans); padding: 16px 14px; }
+.account-tabs :deep(.p-tab:not(.p-tab-active)) { color: var(--wb-muted); }
+.account-tabs :deep(.p-tablist-active-bar) { background: var(--wb-red); height: 2px; }
+.account-tabs :deep(.p-tabpanels) { background: transparent; padding: 24px 0 0; }
+
 .panel {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 1.5rem;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  padding: 28px;
   max-width: 560px;
 }
 .two-panel {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 560px));
-  gap: 1.25rem;
+  gap: 24px;
   align-items: start;
 }
 @media (max-width: 960px) {
   .two-panel { grid-template-columns: 1fr; }
 }
+@media (max-width: 720px) {
+  .panel { padding: 20px; }
+  .two-col { grid-template-columns: 1fr; }
+}
 .panel-heading {
-  margin: 0 0 1rem;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-text);
+  margin: 0 0 16px;
+  font: 500 20px/1.2 var(--wb-font-display);
+  letter-spacing: -0.5px;
+  color: var(--wb-ink);
 }
 
 .identity {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding-bottom: 1.25rem;
-  margin-bottom: 1.25rem;
-  border-bottom: 1px solid var(--color-border);
+  gap: 16px;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--wb-line);
 }
 .avatar-big {
   width: 56px; height: 56px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #2563eb, #60a5fa);
-  color: white;
+  background: var(--wb-red);
+  color: #fff;
   display: grid; place-items: center;
-  font-weight: 700; font-size: 1.1rem;
-  letter-spacing: 0.02em;
+  font: 500 18px var(--wb-font-display);
+  letter-spacing: 0.5px;
 }
-.identity-name { font-weight: 600; font-size: 1rem; }
-.identity-sub { color: var(--color-text-muted); font-size: 0.82rem; margin-top: 0.1rem; }
+.identity-name { font: 500 18px/1.2 var(--wb-font-display); letter-spacing: -0.3px; color: var(--wb-ink); }
+.identity-sub { color: var(--wb-muted); font-size: 13px; margin-top: 4px; }
 
-.form { display: flex; flex-direction: column; gap: 1rem; }
-.form label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500; }
-.form small { color: var(--color-text-muted); font-size: 0.75rem; font-weight: 400; }
+.form { display: flex; flex-direction: column; gap: 18px; }
+.form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--wb-muted); font-weight: 500; }
+.form small { color: var(--wb-muted-soft); font-size: 12px; font-weight: 400; }
 .form :deep(.p-password), .form :deep(.p-password-input), .form :deep(.pw-input) { width: 100%; }
 
-.actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
-.logo-field { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500; }
-.logo-label { color: var(--color-text-muted); }
-.logo-row { display: flex; align-items: center; gap: 1rem; }
+.logo-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--wb-muted); font-weight: 500; }
+.logo-label { color: var(--wb-muted); }
+.logo-row { display: flex; align-items: center; gap: 16px; }
 .logo-preview {
   width: 96px; height: 64px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--wb-line);
   display: grid; place-items: center;
   overflow: hidden;
-  background: var(--color-surface-alt, #f8fafc);
+  background: var(--wb-surface-2);
   flex-shrink: 0;
 }
 .logo-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.logo-empty { color: var(--color-text-muted); font-size: 1.4rem; }
-.logo-buttons { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; }
+.logo-empty { color: var(--wb-muted-soft); }
+.logo-buttons { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .logo-input-hidden { display: none; }
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-.muted { color: var(--color-text-muted, #64748b); }
-.small { font-size: 0.82rem; margin-bottom: 1rem; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.muted { color: var(--wb-muted); }
+.small { font-size: 13px; margin: 0 0 16px; line-height: 1.5; }
 
 .session-meta {
   display: grid;
   grid-template-columns: 160px 1fr;
-  gap: 0.5rem 1rem;
+  gap: 12px 16px;
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 14px;
 }
-.session-meta dt { color: var(--color-text-muted); font-weight: 500; }
-.session-meta dd { margin: 0; color: var(--color-text); }
+.session-meta dt { color: var(--wb-muted); font-weight: 400; }
+.session-meta dd { margin: 0; color: var(--wb-ink); min-width: 0; overflow-wrap: anywhere; }
 .session-meta code {
-  background: var(--color-surface-alt);
-  padding: 0.1rem 0.35rem;
-  border-radius: 4px;
-  font-size: 0.82em;
+  background: var(--wb-tint);
+  padding: 2px 6px;
+  font-size: 12px;
 }
+@media (max-width: 720px) { .session-meta { grid-template-columns: 1fr; gap: 4px; } .session-meta dd { margin-bottom: 8px; } }
 
+.pay-accounts { display: flex; flex-direction: column; gap: 6px; }
 .pay-accounts-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  font-size: 13px;
+  color: var(--wb-muted);
+  font-weight: 500;
 }
 .pay-account-row {
-  border: 1px solid var(--p-content-border-color);
-  border-radius: 6px;
-  padding: 0.75rem;
-  margin-top: 0.5rem;
+  border: 1px solid var(--wb-line);
+  padding: 14px;
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 10px;
 }
 .pay-account-controls {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 16px;
 }
 .pay-currency-label {
-  font-weight: 600;
-  font-size: 0.9rem;
+  font: 500 13px var(--wb-font-mono);
   min-width: 2.5rem;
-  color: var(--color-text);
+  color: var(--wb-ink);
 }
 .pay-default {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.85rem;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--wb-muted);
 }
+.pay-default input { accent-color: var(--wb-red); }
 </style>

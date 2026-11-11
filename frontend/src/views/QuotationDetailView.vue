@@ -7,6 +7,7 @@ import { useReturnTo } from "@/composables/useReturnTo";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import Menu from "primevue/menu";
 import type { MenuItem } from "primevue/menuitem";
 import Message from "primevue/message";
@@ -308,51 +309,48 @@ function toggleMoreMenu(event: Event) {
     <div v-if="isLoading" class="loading">Loading quotation…</div>
 
     <template v-else-if="quote">
-      <header class="page-header">
-        <div class="header-title">
-          <div class="title-row">
-            <h1>
-              {{ quote.quotation_number ?? "New quotation" }}
-            </h1>
-            <StatusTag :status="quote.status" />
-          </div>
-          <p class="subtitle">
+      <PageHeader eyebrow="02 / Sales" :title="quote.quotation_number ?? 'New quotation'">
+        <template #status>
+          <StatusTag :status="quote.status" />
+        </template>
+        <template #lede>
+          <span class="subtitle">
             <span v-if="customer">{{ customer.name }}</span>
             <span v-if="customer" class="sep">·</span>
             <span class="num">{{ formatAmount(quote.amount, quote.currency) }}</span>
             <span v-if="quote.valid_until" class="sep">·</span>
             <span v-if="quote.valid_until">Valid until {{ quote.valid_until }}</span>
-          </p>
-        </div>
-        <div class="page-actions">
-          <Button
-            label="Preview PDF"
-            text
-            @click="openPdfPreview">
-            <template #icon><AppIcon name="file-down" /></template>
-          </Button>
-          <Button
-            v-if="canEdit"
-            label="Edit"
-            outlined
-            @click="router.push({ path: `/quotations/${quote.quotation_id}/edit`, query: { from: route.fullPath } })">
-            <template #icon><AppIcon name="pencil" /></template>
-          </Button>
-          <Button
-            label="More actions"
-            severity="secondary"
-            outlined
-            aria-haspopup="true"
-            @click="toggleMoreMenu">
-            <template #icon><AppIcon name="ellipsis-vertical" /></template>
-          </Button>
-          <Menu ref="moreMenu" :model="moreMenuItems" :popup="true">
-            <template #itemicon="{ item, class: iconClass }">
-              <AppIcon :name="item.icon as IconName" :class="iconClass" />
-            </template>
-          </Menu>
-        </div>
-      </header>
+          </span>
+        </template>
+        <Button
+          label="Preview PDF"
+          severity="secondary"
+          outlined
+          @click="openPdfPreview">
+          <template #icon><AppIcon name="file-down" /></template>
+        </Button>
+        <Button
+          v-if="canEdit"
+          label="Edit"
+          severity="secondary"
+          outlined
+          @click="router.push({ path: `/quotations/${quote.quotation_id}/edit`, query: { from: route.fullPath } })">
+          <template #icon><AppIcon name="pencil" /></template>
+        </Button>
+        <Button
+          label="More actions"
+          severity="secondary"
+          outlined
+          aria-haspopup="true"
+          @click="toggleMoreMenu">
+          <template #icon><AppIcon name="ellipsis-vertical" /></template>
+        </Button>
+        <Menu ref="moreMenu" :model="moreMenuItems" :popup="true">
+          <template #itemicon="{ item, class: iconClass }">
+            <AppIcon :name="item.icon as IconName" :class="iconClass" />
+          </template>
+        </Menu>
+      </PageHeader>
 
       <Message v-if="errorMsg" severity="error" :closable="true" @close="errorMsg = null">
         {{ errorMsg }}
@@ -507,11 +505,11 @@ function toggleMoreMenu(event: Event) {
       <!-- Summary card -->
       <div class="summary-grid">
         <div class="card summary-card">
-          <h3 class="section-title">Details</h3>
+          <h3 class="card-title section-title">Details</h3>
           <dl class="kv">
             <dt>Quote #</dt>
             <dd>
-              <code v-if="quote.quotation_number">{{ quote.quotation_number }}</code>
+              <span v-if="quote.quotation_number" class="doc-no">{{ quote.quotation_number }}</span>
               <span v-else class="muted">—</span>
             </dd>
             <dt>P.O. / S.O.</dt>
@@ -531,7 +529,8 @@ function toggleMoreMenu(event: Event) {
         </div>
 
         <div class="card summary-card">
-          <h3 class="section-title">Line items</h3>
+          <h3 class="card-title section-title">Line items</h3>
+          <div class="table-scroll">
           <table class="items-table">
             <thead>
               <tr>
@@ -566,10 +565,11 @@ function toggleMoreMenu(event: Event) {
               </tr>
             </tfoot>
           </table>
+          </div>
         </div>
 
         <div v-if="quote.notes" class="card summary-card notes-card">
-          <h3 class="section-title">Notes / Terms</h3>
+          <h3 class="card-title section-title">Notes / Terms</h3>
           <p class="notes-body">{{ quote.notes }}</p>
         </div>
       </div>
@@ -592,57 +592,47 @@ function toggleMoreMenu(event: Event) {
 .quote-detail {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 24px;
 }
+.quote-detail :deep(.page-head) { margin-bottom: 0; }
 
-.back { margin-bottom: -0.5rem; }
-.loading { padding: 2rem; color: var(--color-text-muted); text-align: center; }
+.back { margin-bottom: -16px; }
+.loading { padding: 2rem; color: var(--wb-muted); text-align: center; }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-}
-.title-row { display: flex; align-items: center; gap: 0.75rem; }
-.title-row h1 { margin: 0; }
 .subtitle {
-  margin: 0.35rem 0 0;
-  color: var(--color-text-muted, #64748b);
-  font-size: 0.9rem;
-  display: flex;
-  gap: 0.5rem;
+  display: inline-flex;
+  gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
-.subtitle .sep { color: var(--color-border-strong); }
-.subtitle .num { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--color-text); }
-.page-actions { display: flex; gap: 0.5rem; align-items: center; }
+.subtitle .sep { color: var(--wb-muted-soft); }
+.subtitle .num { font-variant-numeric: tabular-nums; font-weight: 500; color: var(--wb-ink); }
 
+/* Converted banner: the green status pair, square, ruled on the left. */
 .invoiced-banner {
   display: flex;
   align-items: center;
-  gap: 0.9rem;
-  padding: 0.9rem 1.1rem;
-  background: #ecfdf5;
-  border: 1px solid #86efac;
-  border-radius: 10px;
-  color: #065f46;
+  gap: 14px;
+  padding: 16px 20px;
+  background: var(--wb-green-bg);
+  border: 1px solid var(--wb-line);
+  border-left: 3px solid var(--wb-green-fg);
+  color: var(--wb-green-fg);
 }
 .invoiced-banner > .app-icon {
-  width: 1.3rem;
-  height: 1.3rem;
+  width: 20px;
+  height: 20px;
   flex: none;
-  color: #10b981;
 }
-.banner-title { font-weight: 600; font-size: 0.95rem; }
-.banner-sub { font-size: 0.82rem; color: #047857; }
+.banner-title { font-weight: 500; font-size: 15px; }
+.banner-sub { font-size: 13px; color: var(--wb-ink); }
 .invoiced-banner > :last-child { margin-left: auto; }
 
+/* Workflow: three square bordered steps; the current one ruled in red. */
 .workflow {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: 1rem;
+  gap: 24px;
 }
 @media (max-width: 1000px) {
   .workflow { grid-template-columns: 1fr; }
@@ -651,16 +641,14 @@ function toggleMoreMenu(event: Event) {
 .step {
   position: relative;
   display: flex;
-  gap: 0.9rem;
-  padding: 1.1rem 1.25rem;
-  background: var(--color-surface, #fff);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  gap: 14px;
+  padding: 24px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
   min-height: 140px;
 }
-.step.active { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
-.step.done { background: var(--color-surface-alt); }
+.step.active { border-top: 3px solid var(--wb-red); padding-top: 22px; }
+.step.done { background: var(--wb-surface-2); }
 .step.disabled { opacity: 0.55; }
 .step.skipped { opacity: 0.55; }
 
@@ -669,74 +657,61 @@ function toggleMoreMenu(event: Event) {
   height: 32px;
   min-width: 32px;
   border-radius: 50%;
-  background: #e2e8f0;
-  color: var(--color-text-muted);
+  background: var(--wb-tint);
+  color: var(--wb-muted);
   display: grid;
   place-items: center;
-  font-weight: 600;
-  font-size: 0.9rem;
+  font: 500 15px var(--wb-font-display);
 }
-.step.active .step-num { background: #2563eb; color: white; }
-.step.done .step-num { background: #10b981; color: white; }
+.step.active .step-num { background: var(--wb-red); color: #fff; }
+.step.done .step-num { background: var(--wb-green-bg); color: var(--wb-green-fg); }
 
-.step-body { flex: 1; display: flex; flex-direction: column; gap: 0.4rem; }
-.step-title { font-weight: 600; color: var(--color-text); font-size: 0.98rem; }
-.step-desc { color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.45; flex: 1; }
-.step-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.35rem; }
+.step-body { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.step-title { font: 500 17px/1.25 var(--wb-font-display); letter-spacing: -0.3px; color: var(--wb-ink); }
+.step-desc { color: var(--wb-muted); font-size: 14px; line-height: 1.5; flex: 1; }
+.step-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
 .summary-grid {
   display: grid;
   grid-template-columns: 1fr 2fr;
-  gap: 1rem;
+  gap: 24px;
   align-items: start;
 }
 @media (max-width: 900px) { .summary-grid { grid-template-columns: 1fr; } }
 .summary-card.notes-card { grid-column: 1 / -1; }
 
-.card {
-  background: var(--color-surface, #fff);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 12px;
-  padding: 1.25rem 1.5rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-.section-title {
-  margin: 0 0 0.9rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
+.card { padding: 24px 28px; min-width: 0; }
+.section-title { margin: 0 0 16px; }
 .kv {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 0.5rem 1rem;
+  gap: 10px 20px;
   margin: 0;
-  font-size: 0.875rem;
+  font-size: 14px;
 }
-.kv dt { color: var(--color-text-muted); }
-.kv dd { margin: 0; color: var(--color-text); }
-code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
-.muted { color: var(--color-text-subtle); }
+.kv dt { color: var(--wb-muted); }
+.kv dd { margin: 0; color: var(--wb-ink); }
+.muted { color: var(--wb-muted-soft); }
 
+.table-scroll { overflow-x: auto; }
 .items-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.88rem;
+  font-size: 14px;
 }
 .items-table th,
 .items-table td {
-  padding: 0.55rem 0.6rem;
-  border-bottom: 1px solid #f1f5f9;
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--wb-line);
   text-align: left;
 }
-.items-table th { color: var(--color-text-muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
-.items-table .num-col { text-align: right; }
+.items-table th { color: var(--wb-muted-soft); font: 500 11px/1.4 var(--wb-font-sans); text-transform: uppercase; letter-spacing: 1.2px; }
+.items-table .num-col { text-align: right; white-space: nowrap; }
 .items-table .desc-col { white-space: pre-line; }
 .items-table .num { font-variant-numeric: tabular-nums; }
-.items-table tfoot td { border-bottom: none; color: var(--color-text-muted); padding-top: 0.7rem; }
-.items-table tfoot .total-row td { font-weight: 700; color: var(--color-text); font-size: 1rem; border-top: 2px solid var(--color-border); }
+.items-table tfoot td { border-bottom: none; color: var(--wb-muted); padding-top: 12px; }
+.items-table tfoot .total-row td { border-top: 1px solid var(--wb-line); color: var(--wb-ink); font: 500 18px var(--wb-font-display); letter-spacing: -0.4px; }
+.items-table tfoot .total-row td.num { color: var(--wb-red); font-size: 22px; }
 
-.notes-body { margin: 0; white-space: pre-wrap; color: var(--color-text); font-size: 0.9rem; line-height: 1.5; }
+.notes-body { margin: 0; white-space: pre-wrap; color: var(--wb-muted); font-size: 15px; line-height: 1.65; }
 </style>

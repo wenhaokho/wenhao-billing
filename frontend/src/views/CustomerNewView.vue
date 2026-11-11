@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppIcon from "@/components/AppIcon.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -61,18 +62,15 @@ function cancel() {
       </Button>
     </div>
 
-    <div class="cd-header">
-      <h1 class="cd-title">New customer</h1>
-      <div class="cd-actions">
-        <Button label="Cancel" text @click="cancel" />
-        <Button
-          label="Create customer"
-          :disabled="!form.name"
-          :loading="createCustomer.isPending.value"
-          @click="submit"
-        />
-      </div>
-    </div>
+    <PageHeader eyebrow="02 / Sales" title="New customer">
+      <Button label="Cancel" severity="secondary" outlined @click="cancel" />
+      <Button
+        label="Create customer"
+        :disabled="!form.name"
+        :loading="createCustomer.isPending.value"
+        @click="submit"
+      />
+    </PageHeader>
 
     <Message
       v-if="saveError"
@@ -93,30 +91,8 @@ function cancel() {
 .new-customer {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 16px;
   padding-bottom: 2rem;
 }
-.back { margin-bottom: -0.5rem; }
-.back :deep(.p-button-label) {
-  font-size: 0.9rem;
-}
-.cd-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-}
-.cd-title {
-  margin: 0;
-  font-size: 1.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-.cd-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-.form-wrap {
-  margin-top: 0.5rem;
-}
+.back { margin-bottom: -8px; }
 </style>

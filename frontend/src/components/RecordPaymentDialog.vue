@@ -234,10 +234,11 @@ function submit() {
 </template>
 
 <style scoped>
-.rp-grid { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.25rem 0 0.5rem; }
-.rp-balance { font-size: 0.88rem; color: var(--color-text-muted); padding-bottom: 0.25rem; border-bottom: 1px solid var(--color-border); margin-bottom: 0.25rem; }
-.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
-.field > span { font-weight: 600; color: var(--color-text); }
+.rp-grid { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 8px; }
+.rp-balance { font-size: 14px; color: var(--wb-muted); padding-bottom: 12px; border-bottom: 1px solid var(--wb-line); }
+.rp-balance :deep(strong), .rp-balance :deep(b) { color: var(--wb-ink); font-weight: 500; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.field > span { font: 500 13px/1.4 var(--wb-font-sans); color: var(--wb-muted); }
 .field-control { display: flex; align-items: stretch; width: 100%; }
 .field-control :deep(.p-inputnumber) { flex: 1 1 auto; }
 .field-control :deep(.p-inputtext),
@@ -247,18 +248,19 @@ function submit() {
   border-bottom-right-radius: 0;
   border-right: 0;
 }
+/* Input-group addon ("Full balance"): squared to the field it is attached to. */
 .field-control :deep(.p-button) {
   flex: 0 0 auto;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+  min-height: 0;
+  border-radius: 0 2px 2px 0;
   white-space: nowrap;
 }
-.field .muted { font-weight: 400; color: var(--color-text-muted); font-size: 0.78rem; }
+.field .muted { font-weight: 400; color: var(--wb-muted-soft); font-size: 12px; }
 .field :deep(.p-inputtext),
 .field :deep(.p-inputnumber),
 .field :deep(.p-datepicker) { width: 100%; }
-.receipt-check { border-top: 1px solid var(--color-border); padding-top: 0.6rem; }
-.receipt-row { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
-.note { font-size: 0.78rem; color: var(--color-text-muted); margin: 0; }
-.note .app-icon { margin-right: 0.3rem; vertical-align: -0.15em; }
+.receipt-check { border-top: 1px solid var(--wb-line); padding-top: 14px; }
+.receipt-row { display: flex; align-items: center; gap: 10px; font-weight: 500; color: var(--wb-ink); }
+.note { font-size: 12px; color: var(--wb-muted); margin: 0; line-height: 1.5; }
+.note .app-icon { margin-right: 4px; vertical-align: -0.15em; width: 13px; height: 13px; }
 </style>

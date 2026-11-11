@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Page header from the mockup: red uppercase eyebrow (the nav group, e.g.
-// "02 / Sales"), 40px Manrope H1, optional lede (#lede slot), actions on the
-// right (default slot).
+// "02 / Sales"), 40px Manrope H1, optional status chip beside it (#status
+// slot, as on the mockup's invoice page), optional lede (#lede slot), actions
+// on the right (default slot).
 defineProps<{ eyebrow?: string; title: string }>();
 </script>
 
@@ -9,7 +10,11 @@ defineProps<{ eyebrow?: string; title: string }>();
   <header class="page-head">
     <div class="page-heading">
       <div v-if="eyebrow" class="page-eyebrow">{{ eyebrow }}</div>
-      <h1>{{ title }}</h1>
+      <div v-if="$slots.status" class="page-title-row">
+        <h1>{{ title }}</h1>
+        <slot name="status" />
+      </div>
+      <h1 v-else>{{ title }}</h1>
       <p v-if="$slots.lede" class="page-lede"><slot name="lede" /></p>
     </div>
     <div v-if="$slots.default" class="page-head-actions">
@@ -40,6 +45,8 @@ defineProps<{ eyebrow?: string; title: string }>();
   color: var(--wb-ink);
   margin: 6px 0 8px;
 }
+.page-title-row { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin: 6px 0 8px; }
+.page-title-row h1 { margin: 0; }
 .page-lede { margin: 0; color: var(--wb-muted); font-size: 16px; line-height: 1.6; }
 .page-lede :deep(strong) { color: var(--wb-ink); font-weight: 500; }
 .page-lede :deep(code) {

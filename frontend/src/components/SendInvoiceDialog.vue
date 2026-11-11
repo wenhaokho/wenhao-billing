@@ -109,11 +109,11 @@ function submit() {
 </template>
 
 <style scoped>
-.send-grid { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.25rem 0 0.5rem; }
-.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
-.field > span { font-weight: 600; color: var(--color-text); }
-.field .muted { font-weight: 400; color: var(--color-text-muted); font-size: 0.78rem; }
+.send-grid { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 8px; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.field > span { font: 500 13px/1.4 var(--wb-font-sans); color: var(--wb-muted); }
+.field .muted { font-weight: 400; color: var(--wb-muted-soft); font-size: 12px; }
 .field :deep(.p-inputtext), .field :deep(textarea) { width: 100%; }
-.note { font-size: 0.78rem; color: var(--color-text-muted); margin: 0; }
-.note .app-icon { margin-right: 0.3rem; vertical-align: -0.15em; }
+.note { font-size: 12px; color: var(--wb-muted); margin: 0; line-height: 1.5; }
+.note .app-icon { margin-right: 4px; vertical-align: -0.15em; width: 13px; height: 13px; }
 </style>

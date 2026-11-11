@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/vue-query";
 import Button from "primevue/button";
 import Tag from "primevue/tag";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import { api } from "@/api/client";
 import { formatMoney } from "@/utils/money";
 
@@ -70,20 +71,15 @@ function goEdit() {
       </Button>
     </div>
 
-    <header class="page-header">
-      <div>
-        <h1>{{ item?.name ?? (isLoading ? "Loading…" : "Item") }}</h1>
-        <p v-if="item" class="subtitle tag-row">
-          <Tag :value="item.item_type" :severity="typeSeverity(item.item_type)" />
-          <StatusTag :status="item.active ? 'ACTIVE' : 'INACTIVE'" />
-        </p>
-      </div>
-      <div class="page-actions">
-        <Button label="Edit" @click="goEdit" :disabled="!item">
-          <template #icon><AppIcon name="pencil" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="04 / Accounting" :title="item?.name ?? (isLoading ? 'Loading…' : 'Item')">
+      <template v-if="item" #status>
+        <Tag :value="item.item_type" :severity="typeSeverity(item.item_type)" />
+        <StatusTag :status="item.active ? 'ACTIVE' : 'INACTIVE'" />
+      </template>
+      <Button label="Edit" @click="goEdit" :disabled="!item">
+        <template #icon><AppIcon name="pencil" /></template>
+      </Button>
+    </PageHeader>
 
     <div v-if="error" class="error">Failed to load item.</div>
 
@@ -114,17 +110,18 @@ function goEdit() {
 </template>
 
 <style scoped>
-.back { margin-bottom: -0.5rem; }
-.tag-row { display: flex; gap: 0.4rem; align-items: center; }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 2rem; }
-.field { display: flex; flex-direction: column; gap: 0.2rem; }
+.back { margin-bottom: 8px; }
+.card-pad { padding: 28px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 40px; max-width: 900px; }
+@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } .card-pad { padding: 20px; } }
+.field { display: flex; flex-direction: column; gap: 6px; }
 .field.full { grid-column: 1 / -1; }
-.field > span { font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.field > p { margin: 0; font-size: 0.92rem; }
+.field > span { font: 500 11px/1.4 var(--wb-font-sans); color: var(--wb-muted-soft); text-transform: uppercase; letter-spacing: 1.2px; }
+.field > p { margin: 0; font-size: 15px; color: var(--wb-ink); }
 .pre { white-space: pre-wrap; }
-.muted { color: var(--color-text-muted); }
-.small { font-size: 0.82rem; }
+.muted { color: var(--wb-muted); }
+.small { font-size: 13px; }
 .num { font-variant-numeric: tabular-nums; }
-code { background: var(--color-surface-alt); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.85em; font-weight: 600; }
-.error { color: #b91c1c; padding: 1rem; }
+code { background: var(--wb-tint); padding: 2px 6px; font-size: 12px; font-weight: 500; }
+.error { color: var(--wb-red-fg); padding: 16px 0; }
 </style>

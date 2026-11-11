@@ -12,6 +12,7 @@ import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import { api } from "@/api/client";
@@ -289,34 +290,31 @@ const canSave = computed(
       </Button>
     </div>
 
-    <header class="page-header">
-      <div class="header-title">
-        <h1>{{ isEdit ? "Edit bill" : "New bill" }}</h1>
-        <p v-if="readOnly" class="readonly-note">
-          Read-only — {{ existing?.status }} bills cannot be edited
-        </p>
-      </div>
-      <div class="page-actions">
-        <template v-if="readOnly">
-          <StatusTag v-if="existing?.status" :status="existing.status" />
-          <Button
-            v-if="canRecordPayment"
-            label="Record payment"
-            @click="paymentError = null; showPaymentDialog = true">
-            <template #icon><AppIcon name="wallet" /></template>
-          </Button>
-        </template>
-        <template v-else>
-          <Button
-            :label="isEdit ? 'Save changes' : 'Save as DRAFT'"
-            :loading="save.isPending.value"
-            :disabled="!canSave"
-            @click="save.mutate()">
-            <template #icon><AppIcon name="save" /></template>
-          </Button>
-        </template>
-      </div>
-    </header>
+    <PageHeader eyebrow="03 / Purchases" :title="isEdit ? 'Edit bill' : 'New bill'">
+      <template v-if="readOnly && existing?.status" #status>
+        <StatusTag :status="existing.status" />
+      </template>
+      <template v-if="readOnly" #lede>
+        <span class="readonly-note">Read-only — {{ existing?.status }} bills cannot be edited</span>
+      </template>
+      <template v-if="readOnly">
+        <Button
+          v-if="canRecordPayment"
+          label="Record payment"
+          @click="paymentError = null; showPaymentDialog = true">
+          <template #icon><AppIcon name="wallet" /></template>
+        </Button>
+      </template>
+      <template v-else>
+        <Button
+          :label="isEdit ? 'Save changes' : 'Save as DRAFT'"
+          :loading="save.isPending.value"
+          :disabled="!canSave"
+          @click="save.mutate()">
+          <template #icon><AppIcon name="save" /></template>
+        </Button>
+      </template>
+    </PageHeader>
 
     <div class="top-grid">
       <div class="card card-pad">
@@ -449,8 +447,8 @@ const canSave = computed(
       </div>
     </div>
 
-    <div class="card card-pad">
-      <label class="section-label">Notes</label>
+    <div class="card card-pad notes-card">
+      <label class="card-title">Notes</label>
       <Textarea v-model="notes" rows="4" :disabled="readOnly" />
     </div>
 
@@ -472,17 +470,31 @@ const canSave = computed(
 </template>
 
 <style scoped>
-.bill-form { display: flex; flex-direction: column; gap: 1.25rem; }
-.back { margin-bottom: -0.5rem; }
-.top-grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 1rem; }
+.bill-form { display: flex; flex-direction: column; gap: 24px; }
+.back { margin-bottom: -16px; }
+.bill-form :deep(.page-head) { margin-bottom: 8px; }
+.top-grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 24px; }
 @media (max-width: 900px) { .top-grid { grid-template-columns: 1fr; } }
+.card-pad { padding: 28px; }
 
-.section-label { font-weight: 600; font-size: 0.85rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; display: block; }
-.vendor-meta { margin-top: 0.75rem; font-size: 0.82rem; color: var(--color-text-muted); }
-.vendor-meta code { background: var(--color-surface-alt); padding: 0.05rem 0.35rem; border-radius: 4px; font-weight: 600; }
+.section-label {
+  font: 500 11px/1.4 var(--wb-font-sans);
+  color: var(--wb-red);
+  text-transform: uppercase;
+  letter-spacing: 1.3px;
+  margin-bottom: 12px;
+  display: block;
+}
+.vendor-meta { margin-top: 12px; font-size: 13px; color: var(--wb-muted); }
+.vendor-meta code { background: var(--wb-tint); color: var(--wb-ink); padding: 2px 6px; font-size: 12px; font-weight: 500; }
 
-.meta-grid { display: grid; grid-template-columns: 140px 1fr; gap: 0.5rem 0.75rem; align-items: center; }
-.meta-label { font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500; }
+.meta-grid { display: grid; grid-template-columns: 140px 1fr; gap: 12px 16px; align-items: center; }
+.meta-label { font-size: 13px; color: var(--wb-muted); font-weight: 400; text-align: right; }
+@media (max-width: 720px) {
+  .meta-grid { grid-template-columns: 1fr; gap: 6px; }
+  .meta-label { text-align: left; margin-top: 6px; }
+  .card-pad { padding: 20px; }
+}
 .meta-grid :deep(.p-inputtext),
 .meta-grid :deep(.p-select),
 .meta-grid :deep(.p-datepicker) { width: 100%; }
@@ -492,14 +504,17 @@ const canSave = computed(
 .lines-card :deep(.p-inputnumber),
 .lines-card :deep(.p-inputnumber-input),
 .lines-card :deep(.p-select) { width: 100%; }
-.add-line { padding-top: 0.25rem; }
+.lines-card :deep(.p-datatable-table-container) { border-left: 0; border-right: 0; }
+.add-line { padding-top: 4px; }
+.notes-card { display: flex; flex-direction: column; gap: 14px; }
+.notes-card :deep(.p-textarea) { width: 100%; }
 
 .totals-wrap { display: flex; justify-content: flex-end; }
-.totals { min-width: 320px; padding: 1rem 1.25rem; }
-.totals-row { display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0; }
-.totals-row.total { border-top: 1px solid var(--color-border); padding-top: 0.75rem; font-weight: 600; font-size: 1rem; }
+.totals { width: min(380px, 100%); padding: 20px 28px; }
+.totals-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 6px 0; }
+.totals-row.total .totals-label { font: 500 18px var(--wb-font-display); letter-spacing: -0.4px; color: var(--wb-ink); }
+.totals-row.total .totals-value { font: 500 26px var(--wb-font-display); letter-spacing: -0.8px; color: var(--wb-red); }
 .num { font-variant-numeric: tabular-nums; }
 
-.readonly-note { color: #b91c1c; font-size: 0.82rem; margin: 0.25rem 0 0; }
-.header-title h1 { margin: 0; }
+.readonly-note { color: var(--wb-muted); }
 </style>

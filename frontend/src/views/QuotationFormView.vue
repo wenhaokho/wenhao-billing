@@ -12,6 +12,7 @@ import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 import {
@@ -265,33 +266,31 @@ function openPdfPreview() {
       </Button>
     </div>
 
-    <header class="page-header">
-      <div class="header-title">
-        <h1>{{ isEdit ? "Edit quotation" : "New quotation" }}</h1>
-        <p v-if="readOnly" class="readonly-note">
-          Read-only — {{ existing?.status }} quotations cannot be edited
-        </p>
-      </div>
-      <div class="page-actions">
-        <StatusTag v-if="existing?.status" :status="existing.status" />
-        <Button
-          label="Preview PDF"
-          text
-          :disabled="!isEdit"
-          :title="isEdit ? 'Preview PDF' : 'Save first to preview'"
-          @click="openPdfPreview">
-          <template #icon><AppIcon name="file-down" /></template>
-        </Button>
-        <Button
-          v-if="!readOnly"
-          :label="isEdit ? 'Save changes' : 'Save as DRAFT'"
-          :loading="save.isPending.value"
-          :disabled="!canSave"
-          @click="save.mutate()">
-          <template #icon><AppIcon name="save" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="02 / Sales" :title="isEdit ? 'Edit quotation' : 'New quotation'">
+      <template v-if="existing?.status" #status>
+        <StatusTag :status="existing.status" />
+      </template>
+      <template v-if="readOnly" #lede>
+        Read-only — {{ existing?.status }} quotations cannot be edited
+      </template>
+      <Button
+        label="Preview PDF"
+        severity="secondary"
+        outlined
+        :disabled="!isEdit"
+        :title="isEdit ? 'Preview PDF' : 'Save first to preview'"
+        @click="openPdfPreview">
+        <template #icon><AppIcon name="file-down" /></template>
+      </Button>
+      <Button
+        v-if="!readOnly"
+        :label="isEdit ? 'Save changes' : 'Save as DRAFT'"
+        :loading="save.isPending.value"
+        :disabled="!canSave"
+        @click="save.mutate()">
+        <template #icon><AppIcon name="save" /></template>
+      </Button>
+    </PageHeader>
 
     <div class="top-grid">
       <div class="card card-pad">
@@ -412,8 +411,8 @@ function openPdfPreview() {
       </div>
     </div>
 
-    <div class="card card-pad">
-      <label class="section-label">Notes / Terms</label>
+    <div class="card card-pad notes-card">
+      <label class="card-title">Notes / Terms</label>
       <Textarea
         v-model="notes"
         rows="5"
@@ -430,36 +429,46 @@ function openPdfPreview() {
 </template>
 
 <style scoped>
-.quote-form { display: flex; flex-direction: column; gap: 1.25rem; }
-.back { margin-bottom: -0.5rem; }
-.page-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-.page-header h1 { margin: 0; }
-.page-actions { display: flex; gap: 0.5rem; align-items: center; }
-.readonly-note { color: #b91c1c; font-size: 0.82rem; margin: 0.25rem 0 0; }
+.quote-form { display: flex; flex-direction: column; gap: 24px; }
+.back { margin-bottom: -16px; }
+.quote-form :deep(.page-head) { margin-bottom: 8px; }
 
-.card { background: var(--color-surface); border: 1px solid var(--color-border, #e2e8f0); border-radius: 12px; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
-.card-pad { padding: 1.25rem 1.5rem; }
-.section-label { font-weight: 600; font-size: 0.85rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.5rem; }
+.card-pad { padding: 28px; }
+.section-label {
+  font: 500 11px/1.4 var(--wb-font-sans);
+  color: var(--wb-red);
+  text-transform: uppercase;
+  letter-spacing: 1.3px;
+  display: block;
+  margin-bottom: 12px;
+}
+.notes-card { display: flex; flex-direction: column; gap: 14px; }
 .full-w { width: 100%; }
 .full-w :deep(.p-select), .full-w :deep(.p-textarea) { width: 100%; }
-.cust-meta { margin-top: 0.5rem; font-size: 0.82rem; color: var(--color-text-muted); }
+.cust-meta { margin-top: 10px; font-size: 13px; color: var(--wb-muted); }
 
-.top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+.top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 @media (max-width: 900px) { .top-grid { grid-template-columns: 1fr; } }
 
-.meta-grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.6rem 1rem; align-items: center; }
-.meta-label { font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500; text-align: right; }
+.meta-grid { display: grid; grid-template-columns: max-content 1fr; gap: 12px 16px; align-items: center; }
+.meta-label { font-size: 13px; color: var(--wb-muted); font-weight: 400; text-align: right; }
 .meta-grid :deep(.p-inputtext), .meta-grid :deep(.p-datepicker), .meta-grid :deep(.p-select) { width: 100%; }
+@media (max-width: 720px) {
+  .meta-grid { grid-template-columns: 1fr; gap: 6px; }
+  .meta-label { text-align: left; margin-top: 6px; }
+  .card-pad { padding: 20px; }
+}
 
 .totals-wrap { display: flex; justify-content: flex-end; }
-.totals { max-width: 380px; width: 100%; padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; }
-.totals-row { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; min-height: 2rem; }
-.totals-label { color: var(--color-text-muted); font-size: 0.85rem; display: flex; gap: 0.5rem; align-items: center; }
+.totals { max-width: 380px; width: 100%; padding: 20px 28px; display: flex; flex-direction: column; gap: 8px; }
+.totals-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 2rem; }
+.totals-label { color: var(--wb-muted); font-size: 14px; display: flex; gap: 8px; align-items: center; }
 .ccy-select { width: 84px; flex: 0 0 auto; }
-.ccy-select :deep(.p-select-label) { padding: 0.35rem 0.5rem; font-size: 0.82rem; font-weight: 600; }
+.ccy-select :deep(.p-select-label) { padding: 0.35rem 0.5rem; font-size: 13px; font-weight: 500; }
 .ccy-select :deep(.p-select-dropdown) { width: 1.75rem; }
-.totals-row.total { border-top: 1px solid var(--color-border); padding-top: 0.75rem; font-weight: 600; font-size: 1rem; }
-.totals-row.total .totals-label { color: var(--color-text); font-size: 1rem; }
+.totals-row.total { border-top: 1px solid var(--wb-line); padding-top: 12px; margin-top: 4px; }
+.totals-row.total .totals-label { font: 500 18px var(--wb-font-display); letter-spacing: -0.4px; color: var(--wb-ink); }
+.totals-row.total .totals-value { font: 500 26px var(--wb-font-display); letter-spacing: -0.8px; color: var(--wb-red); }
 .discount-input { display: flex; gap: 0.5rem; align-items: center; width: 100%; }
 .discount-type { width: 110px; }
 .discount-value { flex: 1; }

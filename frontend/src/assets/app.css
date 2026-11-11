@@ -32,6 +32,9 @@
   --wb-sidebar-hover: rgba(255, 255, 255, 0.07);
   --wb-sidebar-line: rgba(255, 255, 255, 0.14);
 
+  /* Text on a filled success/warn button. */
+  --wb-on-tone: #ffffff;
+
   /* Overlays only (dialogs, menus, panels, toasts). */
   --wb-overlay-shadow: 0 8px 24px rgba(80, 25, 33, 0.10), 0 2px 6px rgba(80, 25, 33, 0.06);
 
@@ -110,6 +113,7 @@
   --wb-sidebar-active: #c9414f;
   --wb-sidebar-line: rgba(255, 255, 255, 0.1);
   --wb-overlay-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --wb-on-tone: #17110f;
 
   color-scheme: dark;
 }
@@ -179,6 +183,35 @@ h1, h2, h3, h4 { color: var(--wb-ink); font-family: var(--wb-font-display); font
   color: var(--wb-muted);
   font-size: 0.88rem;
 }
+
+/* ---------- forms and detail pages (screens the mockup does not design) ----------
+   Zero-specificity defaults (:where) so a view's scoped rules still win. */
+:where(.field) { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 14px; color: var(--wb-ink); }
+:where(.field) > :where(span:first-child) { font: 500 13px/1.4 var(--wb-font-sans); color: var(--wb-muted); }
+:where(.two-col) { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-width: 0; }
+@media (max-width: 720px) { :where(.two-col) { grid-template-columns: 1fr; } }
+/* Card section title (Manrope 18) and red uppercase card eyebrow (mockup). */
+.card-title {
+  font: 500 18px/1.2 var(--wb-font-display);
+  letter-spacing: -0.4px;
+  color: var(--wb-ink);
+  margin: 0;
+}
+.card-eyebrow {
+  font: 500 11px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  color: var(--wb-red);
+}
+/* Small uppercase label, as the table header (definition lists, meta rows). */
+.label-caps {
+  font: 500 11px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--wb-muted-soft);
+}
+/* Inline code / IDs: monospace on the tint, square like chips. */
+code { font-family: var(--wb-font-mono); }
 
 /* ---------- form validation helpers ---------- */
 .required::after {

@@ -468,33 +468,30 @@ function onToggleSameAsBilling(v: boolean) {
 .customer-form {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 24px;
   max-width: 760px;
 }
 
 .card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 12px;
-  padding: 1.25rem 1.25rem 1rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  padding: 28px;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 18px;
 }
 
 .card-head h3 {
-  margin: 0 0 0.25rem 0;
-  font-size: 1rem;
-  color: var(--color-text, #0f172a);
+  margin: 0;
+  font: 500 18px/1.2 var(--wb-font-display);
+  letter-spacing: -0.4px;
+  color: var(--wb-ink);
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.875rem;
-  color: var(--color-text);
+  gap: 6px;
+  font-size: 14px;
+  color: var(--wb-ink);
   min-width: 0;
 }
 .field :deep(.p-inputtext),
@@ -504,20 +501,18 @@ function onToggleSameAsBilling(v: boolean) {
   width: 100%;
 }
 .field-label {
-  font-weight: 600;
-  color: var(--color-text);
-  font-size: 0.85rem;
+  font: 500 13px/1.4 var(--wb-font-sans);
+  color: var(--wb-muted);
 }
 .field-label.muted {
-  font-weight: 500;
-  color: var(--color-text-muted, #64748b);
-  font-size: 0.78rem;
+  font: 500 11px/1.4 var(--wb-font-sans);
+  color: var(--wb-muted-soft);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 1.2px;
 }
 .help {
-  color: var(--color-text-muted, #64748b);
-  font-size: 0.78rem;
+  color: var(--wb-muted-soft);
+  font-size: 12px;
 }
 
 .primary-contact-label {
@@ -547,9 +542,9 @@ function onToggleSameAsBilling(v: boolean) {
 .same-as-billing {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--color-text);
+  gap: 10px;
+  font-size: 14px;
+  color: var(--wb-ink);
   cursor: pointer;
   user-select: none;
 }
@@ -572,5 +567,9 @@ function onToggleSameAsBilling(v: boolean) {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+@media (max-width: 720px) {
+  .card { padding: 20px; }
+  .two-col { grid-template-columns: 1fr; }
 }
 </style>

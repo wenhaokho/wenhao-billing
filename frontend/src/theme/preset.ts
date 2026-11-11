@@ -61,6 +61,36 @@ const darkInk = {
 // the value switches with dark mode in app.css.
 const softShadow = "var(--wb-overlay-shadow)";
 
+// Success / warn / danger buttons (Record payment, Mark as paid, Reset,
+// Confirm reversal) take the status tones instead of Aura's green/orange/red
+// palettes. The --wb-* values switch with dark mode in app.css.
+const toneFill = (fg: string, on = "var(--wb-on-tone)") => ({
+  background: fg,
+  hoverBackground: `color-mix(in srgb, ${fg}, black 12%)`,
+  activeBackground: `color-mix(in srgb, ${fg}, black 20%)`,
+  borderColor: fg,
+  hoverBorderColor: `color-mix(in srgb, ${fg}, black 12%)`,
+  activeBorderColor: `color-mix(in srgb, ${fg}, black 20%)`,
+  color: on,
+  hoverColor: on,
+  activeColor: on,
+  focusRing: { color: fg, shadow: "none" },
+});
+const toneButtons = {
+  success: toneFill("var(--wb-green-fg)"),
+  warn: toneFill("var(--wb-amber-fg)"),
+  // Same white-on-red as the primary button in both themes.
+  danger: toneFill("var(--wb-red)", "#ffffff"),
+};
+const toneText = (fg: string, bg: string) => ({ hoverBackground: bg, activeBackground: bg, color: fg });
+const toneTextButtons = {
+  text: {
+    success: toneText("var(--wb-green-fg)", "var(--wb-green-bg)"),
+    warn: toneText("var(--wb-amber-fg)", "var(--wb-amber-bg)"),
+    danger: toneText("var(--wb-red)", "var(--wb-red-bg)"),
+  },
+};
+
 export const AppPreset = definePreset(Aura, {
   semantic: {
     primary: brandRed,
@@ -130,7 +160,9 @@ export const AppPreset = definePreset(Aura, {
               hoverColor: "{surface.700}",
               activeColor: "{surface.800}",
             },
+            ...toneButtons,
           },
+          ...toneTextButtons,
         },
         dark: {
           root: {
@@ -145,7 +177,9 @@ export const AppPreset = definePreset(Aura, {
               hoverColor: "{surface.50}",
               activeColor: "{surface.50}",
             },
+            ...toneButtons,
           },
+          ...toneTextButtons,
         },
       },
     },
