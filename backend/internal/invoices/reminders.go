@@ -119,6 +119,17 @@ func PrepareReminder(ctx context.Context, tx pgx.Tx, in ReminderIn, now time.Tim
 	if inv.Status == "DRAFT" {
 		return ReminderDraft{}, refuse("invoice_not_finalized", "finalize the invoice before sending it")
 	}
+	// Serialise reminders to one customer (the invoice itself when it has no
+	// customer), forced or not, so two concurrent sends cannot both pass the
+	// guard. An advisory lock, not the customers row: its FK KEY SHARE locks
+	// from invoice writes would conflict.
+	lockKey := inv.InvoiceID.String()
+	if inv.CustomerID.Valid {
+		lockKey = uuid.UUID(inv.CustomerID.Bytes).String()
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('invoice_reminder:' || $1::text, 0))`, lockKey); err != nil {
+		return ReminderDraft{}, err
+	}
 	recipient, err := DefaultRecipient(ctx, tx, inv, in.ToEmail)
 	if err != nil {
 		return ReminderDraft{}, err

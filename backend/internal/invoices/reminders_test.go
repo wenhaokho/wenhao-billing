@@ -2,7 +2,9 @@ package invoices
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -230,5 +232,87 @@ func TestReminderAmountExpectedCash(t *testing.T) {
 	if len(msgs) != 1 || msgs[0].To != "ap@acme.example" || msgs[0].Subject != "Payment reminder: invoice INV-W" ||
 		msgs[0].Text != "This is a reminder that invoice INV-W has an outstanding balance of 98.0000 USD." || msgs[0].IdempotencyKey == "" {
 		t.Fatalf("messages %+v", msgs)
+	}
+}
+
+func reminderApp(t *testing.T) *apitest.App {
+	t.Helper()
+	return apitest.New(t, func(api huma.API, d apitest.Deps) {
+		RegisterReminders(api, d.Pool, d.Clock, d.Mail)
+	})
+}
+
+func remindersPath(id uuid.UUID) string { return "/api/v1/invoices/" + id.String() + "/reminders" }
+
+func TestReminderRoutes(t *testing.T) {
+	t.Parallel()
+	a := reminderApp(t)
+	acme := docCustomer(t, a, "ap@acme.example")
+	x := docInv{number: str("INV-X"), customer: &acme, status: "SENT"}.insert(t, a)
+	y := docInv{number: str("INV-Y"), customer: &acme, status: "SENT"}.insert(t, a)
+	paid := docInv{status: "PAID", balance: "0"}.insert(t, a)
+
+	rec := a.Do(t, http.MethodPost, remindersPath(x), map[string]any{})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("first: %d %s", rec.Code, rec.Body)
+	}
+	var first Reminder
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.InvoiceID != x || first.Channel != "REST" || first.Recipient != "ap@acme.example" || first.SentByUserID == nil || *first.SentByUserID != a.AdminID {
+		t.Errorf("first %+v", first)
+	}
+	if n := len(a.Mail.Messages()); n != 1 {
+		t.Fatalf("%d emails, want 1", n)
+	}
+
+	// Same customer, other invoice: 409 naming INV-X.
+	rec = a.Do(t, http.MethodPost, remindersPath(y), map[string]any{})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("guard: %d %s", rec.Code, rec.Body)
+	}
+	for _, want := range []string{"INV-X", "invoice_number", "sent_at", "reminder_recent"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("409 body lacks %q: %s", want, rec.Body)
+		}
+	}
+	if n := len(a.Mail.Messages()); n != 1 {
+		t.Fatalf("guarded send emailed: %d", n)
+	}
+
+	// Forced: 201.
+	rec = a.Do(t, http.MethodPost, remindersPath(y), map[string]any{"force": true})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("forced: %d %s", rec.Code, rec.Body)
+	}
+
+	// PAID: 422 with the refusal sentence.
+	rec = a.Do(t, http.MethodPost, remindersPath(paid), map[string]any{"to_email": "a@b.example"})
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "cannot remind on a PAID invoice") {
+		t.Errorf("paid: %d %s", rec.Code, rec.Body)
+	}
+	// Unknown: 404.
+	rec = a.Do(t, http.MethodPost, remindersPath(uuid.New()), map[string]any{"to_email": "a@b.example"})
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown: %d %s", rec.Code, rec.Body)
+	}
+
+	// History: newest first, per invoice.
+	a.Clock.Advance(time.Hour)
+	rec = a.Do(t, http.MethodPost, remindersPath(x), map[string]any{"force": true})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("third: %d %s", rec.Code, rec.Body)
+	}
+	rec = a.Do(t, http.MethodGet, remindersPath(x), nil)
+	var list []Reminder
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("list: %d %s %v", rec.Code, rec.Body, err)
+	}
+	if len(list) != 2 || !list[0].SentAt.After(list[1].SentAt.Time) || list[1].ReminderID != first.ReminderID {
+		t.Errorf("list %+v", list)
+	}
+	if rec = a.Do(t, http.MethodGet, remindersPath(uuid.New()), nil); rec.Code != http.StatusNotFound {
+		t.Errorf("list unknown: %d", rec.Code)
 	}
 }

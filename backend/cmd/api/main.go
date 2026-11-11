@@ -134,6 +134,7 @@ func register(api huma.API, f features) {
 	quotations.Register(api, f.Pool, f.Clock)
 	quotations.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
 	invoices.RegisterDocuments(api, f.Pool, f.Clock, f.Mail)
+	invoices.RegisterReminders(api, f.Pool, f.Clock, f.Mail)
 	bills.Register(api, f.Pool, f.Clock, f.Config.BaseCurrency)
 	payments.Register(api, f.Pool, svc.Payments, f.Config, f.Clock,
 		payments.ReceiptDeps{Sender: f.Mail, Renderer: payments.PDFReceiptRenderer{DB: f.Pool}})

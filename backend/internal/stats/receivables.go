@@ -119,7 +119,7 @@ func Receivables(ctx context.Context, db statsdb.DBTX, base string, today time.T
 	if out.CashIn, err = cashIn(ctx, db, q, today, conv); err != nil {
 		return out, err
 	}
-	if out.NeedsAttention, err = needsAttention(ctx, q, today); err != nil {
+	if out.NeedsAttention, err = needsAttention(ctx, db, q, today); err != nil {
 		return out, err
 	}
 
@@ -194,19 +194,36 @@ func cashIn(ctx context.Context, db statsdb.DBTX, q *statsdb.Queries, today time
 	return out, nil
 }
 
-func needsAttention(ctx context.Context, q *statsdb.Queries, today time.Time) ([]AttentionRow, error) {
+func needsAttention(ctx context.Context, db statsdb.DBTX, q *statsdb.Queries, today time.Time) ([]AttentionRow, error) {
 	rows, err := q.OverdueOldest(ctx, statsdb.OverdueOldestParams{Today: pgDay(today), Lim: needsAttentionLimit})
+	if err != nil {
+		return nil, err
+	}
+	var customers []uuid.UUID
+	for _, r := range rows {
+		if c := platform.UUIDPtr(r.CustomerID); c != nil {
+			customers = append(customers, *c)
+		}
+	}
+	// A row with no customer has no reminder history here: last_reminder_at stays null.
+	last, err := invoices.LastReminderByCustomer(ctx, db, customers)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]AttentionRow, 0, len(rows))
 	for _, r := range rows {
 		due := r.DueDate.Time
+		var lastAt *platform.Time
+		if c := platform.UUIDPtr(r.CustomerID); c != nil {
+			if t, ok := last[*c]; ok {
+				lastAt = &platform.Time{Time: t.UTC()}
+			}
+		}
 		out = append(out, AttentionRow{
 			InvoiceID: r.InvoiceID, InvoiceNumber: r.InvoiceNumber, CustomerID: platform.UUIDPtr(r.CustomerID), CustomerName: r.CustomerName,
 			BalanceDue:   platform.NewDec4(r.BalanceDue),
 			ExpectedCash: platform.NewDec4(withholding.ExpectedCash(r.BalanceDue, r.WhtAmount, r.WhtBooked)),
-			Currency:     r.Currency, DueDate: platform.Date{Time: due}, DaysLate: int(today.Sub(due).Hours() / 24),
+			Currency:     r.Currency, DueDate: platform.Date{Time: due}, DaysLate: int(today.Sub(due).Hours() / 24), LastReminderAt: lastAt,
 		})
 	}
 	return out, nil

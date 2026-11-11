@@ -210,3 +210,35 @@ VALUES ($1, NULL, 'MILESTONE', 'IDR', 100, 100, 'SENT', $2)`, uuid.New(), days(-
 		t.Errorf("needs attention = %+v, want one row with null customer", r.NeedsAttention)
 	}
 }
+
+func TestReceivablesLastReminderAt(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	reminded := newCustomer(t, a, "Acme")
+	quiet := newCustomer(t, a, "Quiet")
+	var ids []uuid.UUID
+	for i := 1; i <= 2; i++ {
+		ids = append(ids, inv{cur: "IDR", amount: "100", due: days(-i)}.insert(t, a, reminded))
+	}
+	other := inv{cur: "IDR", amount: "100", due: days(-5)}.insert(t, a, quiet)
+	// Two reminders on one invoice of the reminded customer; the latest counts for every row of it.
+	exec(t, a, `INSERT INTO invoice_reminders (reminder_id, invoice_id, sent_at, channel, recipient, amount, currency)
+VALUES ($1, $3, '2026-07-01T10:00:00Z', 'REST', 'a@b.example', 100, 'IDR'), ($2, $3, '2026-07-02T10:00:00Z', 'MCP', 'a@b.example', 100, 'IDR')`,
+		uuid.New(), uuid.New(), ids[0])
+	r := receivables(t, a)
+	if len(r.NeedsAttention) != 3 {
+		t.Fatalf("rows = %d, want 3", len(r.NeedsAttention))
+	}
+	for _, row := range r.NeedsAttention {
+		switch row.InvoiceID {
+		case other:
+			if row.LastReminderAt != nil {
+				t.Errorf("unreminded customer: last reminder %v, want null", row.LastReminderAt)
+			}
+		default:
+			if row.LastReminderAt == nil || row.LastReminderAt.Format("2006-01-02T15:04") != "2026-07-02T10:00" {
+				t.Errorf("row %s: last reminder %v, want 2026-07-02T10:00", row.InvoiceID, row.LastReminderAt)
+			}
+		}
+	}
+}
