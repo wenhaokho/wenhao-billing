@@ -511,16 +511,18 @@ test("dashboard charts are named images under the page heading", async ({ page }
   expect(levels[0], `heading order ${levels.join(",")}`).toBe("h1");
   expect(levels.filter((l) => l === "h1")).toHaveLength(1);
   await expect(page.locator("header.topbar").getByRole("heading")).toHaveCount(0);
-  await expect(main.getByRole("heading", { level: 2, name: "Open receivables" })).toBeVisible();
-  // Each chart canvas is an image with a short description.
-  for (const id of ["revenue-chart", "ar-chart"]) {
-    const canvas = main.getByTestId(id).locator("canvas");
-    if ((await main.getByTestId(id).count()) === 0) continue; // no data for this chart in the dev database
-    await expect(canvas, id).toHaveAttribute("role", "img");
-    await expect(canvas, id).toHaveAttribute("aria-label", /.{20,}/);
+  await expect(main.getByRole("heading", { level: 2, name: "Receivables aging" })).toBeVisible();
+  // Each chart (the revenue canvas, the reconciliation SVG) is an image with a
+  // short description. The revenue chart must be there (the dev database has
+  // IDR revenue); the donut only when the period had payments.
+  const revenue = main.getByTestId("revenue-chart").locator("canvas");
+  await expect(revenue).toHaveAttribute("role", "img");
+  await expect(revenue).toHaveAttribute("aria-label", /.{20,}/);
+  const donut = main.getByTestId("recon-chart").locator("svg");
+  if ((await donut.count()) > 0) {
+    await expect(donut).toHaveAttribute("role", "img");
+    await expect(donut).toHaveAttribute("aria-label", /.{20,}/);
   }
-  // At least the revenue chart must be there to check (the dev database has IDR revenue).
-  await expect(main.getByTestId("revenue-chart").locator("canvas")).toHaveAttribute("role", "img");
 });
 
 // WCAG 2.4.7: the keyboard focus ring must be visible on every control. The

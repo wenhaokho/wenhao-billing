@@ -65,6 +65,27 @@ export function collectConsoleErrors(page: Page): () => string[] {
   return () => [...errors];
 }
 
+/**
+ * Every visible element larger than 200×100px whose computed background is a
+ * light-theme surface: white (--wb-surface) or cream (#fcfbf6, --wb-bg).
+ */
+export async function lightSurfaces(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const light = new Set(["rgb(255, 255, 255)", "rgb(252, 251, 246)"]);
+    const out: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>("body, body *"))) {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 200 || r.height <= 100) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === "hidden" || cs.display === "none" || Number(cs.opacity) === 0) continue;
+      if (!light.has(cs.backgroundColor)) continue;
+      const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/).slice(0, 3).join(".") : "";
+      out.push(`${el.tagName.toLowerCase()}${cls ? "." + cls : ""} ${Math.round(r.width)}x${Math.round(r.height)} bg=${cs.backgroundColor}`);
+    }
+    return [...new Set(out)];
+  });
+}
+
 /** The page's own heading inside <main>. */
 export function mainHeading(page: Page) {
   return page.locator("main h1, main h2").first();

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { ROUTES, openRecordPayment, selectIn } from "./helpers";
+import { ROUTES, lightSurfaces, openRecordPayment, selectIn } from "./helpers";
 
 test.use({ colorScheme: "light" });
 
@@ -57,27 +57,6 @@ test("primary colour is the brand red, light and dark", async ({ page }) => {
   // The dark-mode red #c9414f (spec "Dark tokens").
   await expect.poll(bg).toBe("rgb(201, 65, 79)");
 });
-
-/**
- * Every visible element larger than 200×100px whose computed background is a
- * light-theme surface: white (--wb-surface) or cream (#fcfbf6, --wb-bg).
- */
-async function lightSurfaces(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const light = new Set(["rgb(255, 255, 255)", "rgb(252, 251, 246)"]);
-    const out: string[] = [];
-    for (const el of Array.from(document.querySelectorAll<HTMLElement>("body, body *"))) {
-      const r = el.getBoundingClientRect();
-      if (r.width <= 200 || r.height <= 100) continue;
-      const cs = getComputedStyle(el);
-      if (cs.visibility === "hidden" || cs.display === "none" || Number(cs.opacity) === 0) continue;
-      if (!light.has(cs.backgroundColor)) continue;
-      const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/).slice(0, 3).join(".") : "";
-      out.push(`${el.tagName.toLowerCase()}${cls ? "." + cls : ""} ${Math.round(r.width)}x${Math.round(r.height)} bg=${cs.backgroundColor}`);
-    }
-    return [...new Set(out)];
-  });
-}
 
 test.describe("dark mode has no light surfaces", () => {
   test.use({ colorScheme: "dark", viewport: { width: 1440, height: 900 } });

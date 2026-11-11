@@ -5,17 +5,21 @@ import PageHeader from "@/components/PageHeader.vue";
 import PeriodSelector from "@/components/dashboard/PeriodSelector.vue";
 import KpiTile from "@/components/dashboard/KpiTile.vue";
 import RevenueCard from "@/components/dashboard/RevenueCard.vue";
-import { computed, defineAsyncComponent, ref, watch } from "vue";
+import AgingCard from "@/components/dashboard/AgingCard.vue";
+import CashInCard from "@/components/dashboard/CashInCard.vue";
+import ReconDonut from "@/components/dashboard/ReconDonut.vue";
+import TopCustomersCard from "@/components/dashboard/TopCustomersCard.vue";
+import NeedsAttentionCard from "@/components/dashboard/NeedsAttentionCard.vue";
+import { computed, ref, watch } from "vue";
 import { keepPreviousData, useQuery } from "@tanstack/vue-query";
 import { useRoute, useRouter } from "vue-router";
 import Tag from "primevue/tag";
 import Button from "primevue/button";
 import ProgressSpinner from "primevue/progressspinner";
-const Chart = defineAsyncComponent(() => import("primevue/chart"));
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 import { useTheme } from "@/composables/useTheme";
-import { chartColors, currencySlot } from "@/theme/chartColors";
+import { chartColors } from "@/theme/chartColors";
 import {
   DEFAULT_PERIOD,
   isPeriod,
@@ -23,6 +27,7 @@ import {
   type MonthlyRevenueResponse,
   type OverviewResponse,
   type Period,
+  type ReceivablesResponse,
 } from "@/components/dashboard/types";
 import { decIsZero, deltaOf, formatCompact, formatShare } from "@/components/dashboard/format";
 
@@ -115,13 +120,29 @@ const {
   refetchInterval: 60_000,
 });
 
+// Point in time (today's open AR), so no period in the key.
+const {
+  data: receivables,
+  isError: receivablesError,
+  refetch: refetchReceivables,
+} = useQuery<ReceivablesResponse>({
+  queryKey: ["stats-receivables"],
+  queryFn: async () => (await api.get<ReceivablesResponse>("/stats/receivables")).data,
+  refetchInterval: 60_000,
+});
+
 function refreshAll() {
   refetch();
   refetchOverview();
   refetchRevenue();
+  refetchReceivables();
 }
 
 const PERIOD_WORDS: Record<Period, string> = { "30d": "30 d", "90d": "90 d", "12m": "12 mo" };
+// Card subtitles: "last 90 days", "last 12 months".
+const PERIOD_PHRASE: Record<Period, string> = { "30d": "30 days", "90d": "90 days", "12m": "12 months" };
+// The overview's own period once loaded (it lags the URL while a new period loads).
+const shownPeriod = computed<Period>(() => overview.value?.period ?? period.value);
 
 interface Tile {
   key: string;
@@ -241,113 +262,15 @@ const queueLinks = computed(() => {
 });
 
 // Brand colours come from the CSS tokens. Re-read them after a theme switch
-// has been applied to <html> (useTheme's own watcher runs first), so both
-// charts rebuild in the new theme's colours.
+// has been applied to <html> (useTheme's own watcher runs first), so the
+// revenue chart rebuilds in the new theme's colours. The SVG cards use the
+// CSS tokens directly and follow the theme by themselves.
 const { theme } = useTheme();
 const colors = ref(chartColors());
 watch(theme, () => { colors.value = chartColors(); }, { flush: "post" });
 
-// Colour follows the currency, never its position in the dataset (the revenue
-// chart orders currencies one way, the AR pie by amount), so every chart on
-// this page agrees: IDR red, SGD gold, USD blue, MYR green (mockup variant A).
-function colorForCurrency(ccy: string): string {
-  return colors.value.series[currencySlot(ccy)];
-}
-
 // Short month names for formatDate (upcoming invoices, payment dates).
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-function cssToken(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-// Shared look: brand ink text, hairline grid, square ink tooltip (mockup).
-const baseChartLook = computed(() => {
-  const c = colors.value;
-  const onInk = cssToken("--wb-bg");
-  return {
-    legend: {
-      position: "bottom" as const,
-      labels: { color: c.text, font: { family: "DM Sans", size: 12 }, boxWidth: 10, boxHeight: 10 },
-    },
-    tooltip: {
-      backgroundColor: c.text,
-      titleColor: onInk,
-      bodyColor: onInk,
-      footerColor: onInk,
-      cornerRadius: 0,
-      titleFont: { family: "DM Sans", weight: 500 },
-      bodyFont: { family: "DM Sans" },
-      footerFont: { family: "DM Sans", weight: 500 },
-    },
-  };
-});
-
-// Accessible names for the chart canvases (role="img"): what the chart shows;
-// the visible list beside the pie carries the figures.
-const arChartLabel = computed(() => {
-  const ccys = (stats.value?.open_ar_base_by_currency ?? []).map((r) => r.currency).join(", ");
-  return `Pie chart of open receivables by currency (${ccys}), converted to ${stats.value?.base_currency ?? ""}.`;
-});
-
-const arPieData = computed(() => {
-  const rows = stats.value?.open_ar_base_by_currency ?? [];
-  // colorForCurrency reads colors.value, so the pie also rebuilds on a theme
-  // switch, and by then the surface token holds the new theme's value.
-  const backgroundColor = rows.map((r) => colorForCurrency(r.currency));
-  const surface = cssToken("--wb-surface");
-  return {
-    labels: rows.map((r) => r.currency),
-    datasets: [
-      {
-        data: rows.map((r) => Number(r.base_amount)),
-        backgroundColor,
-        borderColor: surface,
-        // A hairline between slices; a single slice would show it as a seam.
-        borderWidth: rows.length > 1 ? 2 : 0,
-      },
-    ],
-  };
-});
-
-const hasArPie = computed(
-  () => (stats.value?.open_ar_base_by_currency.length ?? 0) > 0,
-);
-
-// Native (original-currency) AR total per currency, for the pie tooltip.
-const arNativeByCcy = computed<Record<string, string>>(() => {
-  const m: Record<string, string> = {};
-  for (const r of stats.value?.open_ar_by_currency ?? []) m[r.currency] = r.amount;
-  return m;
-});
-
-const arPieOptions = computed(() => {
-  const base = stats.value?.base_currency ?? "";
-  const look = baseChartLook.value;
-  return {
-    maintainAspectRatio: false,
-    responsive: true,
-    plugins: {
-      legend: look.legend,
-      tooltip: {
-        ...look.tooltip,
-        callbacks: {
-          // Show the native amount and the IDR-converted amount together.
-          label: (ctx: { label?: string; parsed: number }) => {
-            const ccy = ctx.label ?? "";
-            const converted = `${formatAmount(String(ctx.parsed), base)} ${base}`;
-            // The base-currency slice is already IDR — a "= … IDR" line would repeat it.
-            if (ccy === base) return converted;
-            const native = arNativeByCcy.value[ccy];
-            return native
-              ? [`${formatAmount(native, ccy)} ${ccy}`, `= ${converted}`]
-              : converted;
-          },
-        },
-      },
-    },
-  };
-});
 
 function formatDate(iso: string) {
   // next_date is a plain YYYY-MM-DD (no timezone) — format without Date() drift.
@@ -454,6 +377,62 @@ function timeAgo(iso: string) {
       </div>
       <RevenueCard v-else :data="revenueData" :colors="colors" />
 
+      <!-- Beside the revenue card: aging, with days to pay. -->
+      <div v-if="receivablesError && !receivables" class="card card-pad error">
+        Failed to load receivables.
+        <Button label="Retry" text @click="refetchReceivables()" />
+      </div>
+      <div v-else-if="!receivables" class="card loading">
+        <ProgressSpinner style="width: 40px; height: 40px" />
+      </div>
+      <AgingCard
+        v-else
+        :data="receivables"
+        :days-to-pay="overview?.days_to_pay"
+        :period-words="PERIOD_WORDS[shownPeriod]"
+      />
+    </div>
+
+    <!-- The mockup stacks these two under aging; at this app's widths (sidebar
+         included) that column is too narrow to pair them, and stacked they ran
+         far below the revenue card. A row of their own keeps them side by side. -->
+    <div class="grid-2">
+      <CashInCard v-if="receivables" :data="receivables" />
+      <div v-if="overviewError && !overview" class="card card-pad error">
+        Failed to load reconciliation.
+        <Button label="Retry" text @click="refetchOverview()" />
+      </div>
+      <div v-else-if="!overview" class="card loading">
+        <ProgressSpinner style="width: 40px; height: 40px" />
+      </div>
+      <ReconDonut v-else :data="overview.reconciliation" :period-words="PERIOD_PHRASE[shownPeriod]" />
+    </div>
+
+    <div class="grid-2">
+      <div v-if="overviewError && !overview" class="card card-pad error">
+        Failed to load top customers.
+        <Button label="Retry" text @click="refetchOverview()" />
+      </div>
+      <div v-else-if="!overview" class="card loading">
+        <ProgressSpinner style="width: 40px; height: 40px" />
+      </div>
+      <TopCustomersCard
+        v-else
+        :data="overview.top_customers"
+        :base="overview.base_currency"
+        :period-words="PERIOD_PHRASE[shownPeriod]"
+        :unconverted="overview.unconverted"
+      />
+
+      <div v-if="receivablesError && !receivables" class="card card-pad error">
+        Failed to load overdue invoices.
+        <Button label="Retry" text @click="refetchReceivables()" />
+      </div>
+      <div v-else-if="!receivables" class="card loading">
+        <ProgressSpinner style="width: 40px; height: 40px" />
+      </div>
+      <NeedsAttentionCard v-else :rows="receivables.needs_attention" />
+
       <div v-if="isError && !stats" class="card card-pad error">
         Failed to load dashboard stats.
         <Button label="Retry" text @click="refetch()" />
@@ -461,46 +440,7 @@ function timeAgo(iso: string) {
       <div v-else-if="!stats" class="card loading">
         <ProgressSpinner style="width: 40px; height: 40px" />
       </div>
-      <!-- Open AR -->
-      <div v-else class="card dash-card">
-        <div class="dash-card-head">
-          <div>
-            <h2 class="card-title">Open receivables</h2>
-            <p class="card-sub">Outstanding invoice balances, by currency.</p>
-          </div>
-          <Tag class="head-tag" :value="`${stats.auto_cleared_last_30d} auto-cleared · 30d`" severity="success" />
-        </div>
-        <div v-if="!stats.open_ar_by_currency.length" class="empty-state">
-          <AppIcon name="circle-check" />
-          <div>No open AR. You're all caught up.</div>
-        </div>
-        <ul v-else class="ar-list">
-          <li v-for="row in stats.open_ar_by_currency" :key="row.currency">
-            <span class="ar-ccy">
-              <span class="swatch" :style="{ background: colorForCurrency(row.currency) }" />
-              {{ row.currency }}
-            </span>
-            <span class="ar-amt num">{{ formatAmount(row.amount, row.currency) }}</span>
-          </li>
-        </ul>
-        <div v-if="hasArPie" class="ar-pie-block">
-          <p class="card-sub">Share of open AR, converted to {{ stats.base_currency }}.</p>
-          <div class="chart-wrap ar-pie" data-testid="ar-chart">
-            <Chart
-              type="pie"
-              :data="arPieData"
-              :options="arPieOptions"
-              :canvas-props="{ role: 'img', 'aria-label': arChartLabel }" />
-          </div>
-        </div>
-        <p v-if="stats.open_ar_unconverted.length" class="card-note">
-          Not shown (no FX rate): {{ stats.open_ar_unconverted.join(', ') }}
-        </p>
-      </div>
-    </div>
-
-    <template v-if="stats">
-      <div class="two-col">
+      <template v-else>
         <!-- Upcoming -->
         <div class="card dash-card list-card upcoming-card">
           <div class="dash-card-head ruled">
@@ -568,8 +508,8 @@ function timeAgo(iso: string) {
             </li>
           </ul>
         </div>
-      </div>
-    </template>
+      </template>
+    </div>
   </section>
 </template>
 
@@ -632,12 +572,14 @@ function timeAgo(iso: string) {
   gap: 24px;
 }
 @media (max-width: 1000px) { .chart-row { grid-template-columns: minmax(0, 1fr); } }
-.two-col {
+/* Cash in | reconciliation; top customers | needs attention; upcoming | recent activity. */
+.grid-2 {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
+  align-items: stretch;
 }
-@media (max-width: 1000px) { .two-col { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1000px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
 
 .dash-card { display: flex; flex-direction: column; min-width: 0; }
 .dash-card-head {
@@ -665,46 +607,6 @@ function timeAgo(iso: string) {
   .dash-card-head { padding: 20px 18px 0; }
   .dash-card-head.ruled { padding: 18px 18px 14px; }
   .card-note { margin: 0 18px 16px; }
-}
-
-/* ---------- charts ---------- */
-.chart-wrap { position: relative; padding: 22px 28px 24px; }
-.chart-wrap :deep(.p-chart),
-.chart-wrap :deep(.p-chart > *) { height: 100%; width: 100%; }
-.chart-wrap :deep(canvas) { height: 100% !important; width: 100% !important; }
-@media (max-width: 640px) { .chart-wrap { padding: 18px 12px 18px; } }
-
-.ar-list { list-style: none; padding: 0; margin: 18px 28px 0; }
-.ar-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--wb-line);
-}
-.ar-ccy {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font: 500 11px/1.4 var(--wb-font-sans);
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--wb-muted-soft);
-}
-.swatch { width: 10px; height: 10px; flex: none; }
-.ar-amt {
-  font: 500 20px var(--wb-font-display);
-  letter-spacing: -0.6px;
-  color: var(--wb-ink);
-  white-space: nowrap;
-}
-.ar-pie-block { padding: 18px 28px 0; }
-.ar-pie-block .chart-wrap { padding: 12px 0 24px; }
-.ar-pie { height: 260px; }
-@media (max-width: 640px) {
-  .ar-list { margin: 14px 18px 0; }
-  .ar-pie-block { padding: 14px 18px 0; }
 }
 
 /* ---------- list cards ---------- */
