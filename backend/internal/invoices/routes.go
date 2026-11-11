@@ -246,7 +246,9 @@ type idIn struct {
 	InvoiceID uuid.UUID `path:"invoice_id"`
 }
 
-func (r routes) get(ctx context.Context, in *idIn) (*invoiceBody, error) {
+type detailBody struct{ Body InvoiceDetail }
+
+func (r routes) get(ctx context.Context, in *idIn) (*detailBody, error) {
 	out, err := Get(ctx, r.q, in.InvoiceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, platform.Err(http.StatusNotFound, "invoice_not_found", "invoice not found")
@@ -254,7 +256,23 @@ func (r routes) get(ctx context.Context, in *idIn) (*invoiceBody, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &invoiceBody{Body: out}, nil
+	detail := InvoiceDetail{InvoiceOut: out}
+	if out.Status == "PAID" {
+		row, err := r.q.InvoiceLastCleared(ctx, pgUUID(&in.InvoiceID))
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// PAID with nothing logged (mark-paid, a zero invoice): no line.
+		case err != nil:
+			return nil, err
+		default:
+			detail.ClearedAt = &platform.Time{Time: row.ClearedAt}
+			detail.ClearedBy = row.ActorDisplayName
+			if detail.ClearedBy == nil || *detail.ClearedBy == "" {
+				detail.ClearedBy = row.ActorEmail
+			}
+		}
+	}
+	return &detailBody{Body: detail}, nil
 }
 
 type updateIn struct {

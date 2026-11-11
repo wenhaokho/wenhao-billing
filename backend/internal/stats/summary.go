@@ -17,7 +17,10 @@ type InvoicesSummaryResponse struct {
 	Overdue []invoices.CurrencyAmount `json:"overdue" nullable:"false" doc:"Open balance per currency of invoices due before today, by currency."`
 	Due30d  []invoices.CurrencyAmount `json:"due_30d" nullable:"false" doc:"Open balance per currency of invoices due from today to 30 days ahead, both inclusive, by currency."`
 	//nolint:forbidigo // a mean of whole days is a JSON number, not money
-	AvgDaysToPay *float64 `json:"avg_days_to_pay" doc:"Mean days from issue to payment over every CLEARED payment of a PAID invoice in the last 90 days; null when there is none."`
+	AvgDaysToPay      *float64 `json:"avg_days_to_pay" doc:"Mean days from issue to payment over every CLEARED payment of a PAID invoice in the last 90 days; null when there is none."`
+	OverdueCount      int      `json:"overdue_count" doc:"How many invoices make up overdue, over every currency."`
+	Due30dCount       int      `json:"due_30d_count" doc:"How many invoices make up due_30d, over every currency."`
+	OldestOverdueDays *int     `json:"oldest_overdue_days" doc:"Days the oldest overdue invoice is past its due date (today minus its due date); null when nothing is overdue."`
 }
 
 func pgDay(t time.Time) pgtype.Date { return pgtype.Date{Time: t, Valid: true} }
@@ -35,7 +38,9 @@ func currencyAmounts[R any](rows []R, get func(R) (string, platform.Dec4)) []inv
 // are the open balance (OPEN, SENT and PARTIAL, never a template, a positive
 // balance, a due date) per currency: overdue is due before today, due_30d is
 // due from today through today+30. avg_days_to_pay averages issue-to-payment
-// days per payment, not per invoice.
+// days per payment, not per invoice. The counts and the oldest overdue days
+// come from the same queries (OverdueByCurrency, DueWithinByCurrency), so the
+// tiles' second lines always describe the amounts above them.
 func InvoicesSummary(ctx context.Context, db statsdb.DBTX, today time.Time) (InvoicesSummaryResponse, error) {
 	q := statsdb.New(db)
 	overdue, err := q.OverdueByCurrency(ctx, pgDay(today))
@@ -57,6 +62,18 @@ func InvoicesSummary(ctx context.Context, db statsdb.DBTX, today time.Time) (Inv
 		Due30d: currencyAmounts(due, func(r statsdb.DueWithinByCurrencyRow) (string, platform.Dec4) {
 			return r.Currency, platform.NewDec4(r.Amount)
 		}),
+	}
+	for _, r := range overdue {
+		out.OverdueCount += int(r.Invoices)
+		if r.OldestDue.Valid {
+			late := int(today.Sub(r.OldestDue.Time) / (24 * time.Hour))
+			if out.OldestOverdueDays == nil || late > *out.OldestOverdueDays {
+				out.OldestOverdueDays = &late
+			}
+		}
+	}
+	for _, r := range due {
+		out.Due30dCount += int(r.Invoices)
 	}
 	if days.Payments > 0 {
 		avg := float64(days.TotalDays) / float64(days.Payments) //nolint:forbidigo // see AvgDaysToPay

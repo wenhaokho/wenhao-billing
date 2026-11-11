@@ -448,6 +448,37 @@ func (q *Queries) InvoiceHasHostingItem(ctx context.Context, invoiceID uuid.UUID
 	return exists, err
 }
 
+const invoiceLastCleared = `-- name: InvoiceLastCleared :one
+SELECT l.created_at::timestamp AS cleared_at,
+       u.display_name AS actor_display_name, u.email AS actor_email
+  FROM reconciliation_log l
+  JOIN payments p ON p.payment_id = l.payment_id
+  LEFT JOIN users u ON u.user_id = l.actor_user_id
+ WHERE p.invoice_id = $1 AND l.action IN ('CLEARED', 'OVERRIDDEN')
+   AND l.created_at IS NOT NULL
+ ORDER BY l.created_at DESC, l.log_id DESC
+ LIMIT 1
+`
+
+type InvoiceLastClearedRow struct {
+	ClearedAt        time.Time
+	ActorDisplayName *string
+	ActorEmail       *string
+}
+
+// The newest CLEARED (auto-clear, manual entry) or OVERRIDDEN (manual
+// approval) reconciliation_log row over the invoice's payments, as
+// payments' ListInvoiceClearTimes reads them: its time and its actor's
+// display name and email (the detail shows the name, else the email). A null
+// actor (the matching engine) gives null for both. Rows without created_at
+// are skipped; log_id breaks a tie.
+func (q *Queries) InvoiceLastCleared(ctx context.Context, invoiceID pgtype.UUID) (InvoiceLastClearedRow, error) {
+	row := q.db.QueryRow(ctx, invoiceLastCleared, invoiceID)
+	var i InvoiceLastClearedRow
+	err := row.Scan(&i.ClearedAt, &i.ActorDisplayName, &i.ActorEmail)
+	return i, err
+}
+
 const listAwaitingFinalization = `-- name: ListAwaitingFinalization :many
 SELECT invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, billing_cycle_ref, issue_date, due_date, created_at, invoice_number, po_so_number, subtotal, discount_type, discount_value, notes, footer, payment_terms, is_template, project_id, source_quote_id, coverage_start, coverage_end, internal_note, wht_type, wht_rate, wht_gross_up, wht_base, wht_amount, wht_booked FROM invoices
 WHERE status = 'DRAFT' AND is_template = false

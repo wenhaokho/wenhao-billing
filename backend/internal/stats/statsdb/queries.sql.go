@@ -273,7 +273,7 @@ func (q *Queries) DaysToPayBetween(ctx context.Context, arg DaysToPayBetweenPara
 }
 
 const dueWithinByCurrency = `-- name: DueWithinByCurrency :many
-SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount, COUNT(*)::int AS invoices
   FROM invoices
  WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
    AND due_date IS NOT NULL AND due_date >= $1::date AND due_date <= $2::date
@@ -289,9 +289,11 @@ type DueWithinByCurrencyParams struct {
 type DueWithinByCurrencyRow struct {
 	Currency string
 	Amount   decimal.Decimal
+	Invoices int32
 }
 
-// The open-AR rule with a due date from today to until, both inclusive.
+// The open-AR rule with a due date from today to until, both inclusive;
+// invoices counts them.
 func (q *Queries) DueWithinByCurrency(ctx context.Context, arg DueWithinByCurrencyParams) ([]DueWithinByCurrencyRow, error) {
 	rows, err := q.db.Query(ctx, dueWithinByCurrency, arg.Today, arg.Until)
 	if err != nil {
@@ -301,7 +303,7 @@ func (q *Queries) DueWithinByCurrency(ctx context.Context, arg DueWithinByCurren
 	var items []DueWithinByCurrencyRow
 	for rows.Next() {
 		var i DueWithinByCurrencyRow
-		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+		if err := rows.Scan(&i.Currency, &i.Amount, &i.Invoices); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -707,7 +709,8 @@ func (q *Queries) OpenQuotationPipeline(ctx context.Context) ([]OpenQuotationPip
 }
 
 const overdueByCurrency = `-- name: OverdueByCurrency :many
-SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount,
+       COUNT(*)::int AS invoices, MIN(due_date)::date AS oldest_due
   FROM invoices
  WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
    AND due_date IS NOT NULL AND due_date < $1::date
@@ -716,12 +719,15 @@ SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
 `
 
 type OverdueByCurrencyRow struct {
-	Currency string
-	Amount   decimal.Decimal
+	Currency  string
+	Amount    decimal.Decimal
+	Invoices  int32
+	OldestDue pgtype.Date
 }
 
 // The open-AR rule (OPEN, SENT, PARTIAL, no template, positive balance) with
-// a due date before today.
+// a due date before today. invoices counts them and oldest_due is the
+// earliest due date (the invoices tiles' second lines).
 func (q *Queries) OverdueByCurrency(ctx context.Context, today pgtype.Date) ([]OverdueByCurrencyRow, error) {
 	rows, err := q.db.Query(ctx, overdueByCurrency, today)
 	if err != nil {
@@ -731,7 +737,12 @@ func (q *Queries) OverdueByCurrency(ctx context.Context, today pgtype.Date) ([]O
 	var items []OverdueByCurrencyRow
 	for rows.Next() {
 		var i OverdueByCurrencyRow
-		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+		if err := rows.Scan(
+			&i.Currency,
+			&i.Amount,
+			&i.Invoices,
+			&i.OldestDue,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
