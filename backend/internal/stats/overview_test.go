@@ -1,6 +1,10 @@
 package stats_test
 
 import (
+	"fmt"
+	"math"
+	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -181,5 +185,152 @@ func TestOverviewPreviousWindowEdges(t *testing.T) {
 	k := overview(t, a).KPIs
 	if k.Invoiced.Previous.Decimal().StringFixed(4) != "70.0000" || k.Invoiced.Amount.Decimal().StringFixed(4) != "0.0000" {
 		t.Errorf("previous/amount = %s/%s", k.Invoiced.Previous.Decimal(), k.Invoiced.Amount.Decimal())
+	}
+}
+
+func TestOverviewDaysToPay(t *testing.T) {
+	t.Parallel()
+	t.Run("averages the window and the previous window", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		c := newCustomer(t, a, "Acme")
+		w := ovWindow()
+		pay := func(issue, paid time.Time) {
+			id := inv{cur: "IDR", amount: "100", balance: "0", status: "PAID", issue: d(issue)}.insert(t, a, c)
+			paymentFull(t, a, id, "IDR", "100", "0", "CLEARED", paid)
+		}
+		in := w.From.AddDate(0, 0, 30)
+		pay(in.AddDate(0, 0, -10), in)
+		pay(in.AddDate(0, 0, -20), in)
+		prev := w.PrevFrom.AddDate(0, 0, 60)
+		pay(prev.AddDate(0, 0, -40), prev)
+		r := overview(t, a)
+		if r.DaysToPay.Avg == nil || *r.DaysToPay.Avg != 15 {
+			t.Errorf("avg = %v, want 15", r.DaysToPay.Avg)
+		}
+		if r.DaysToPay.PreviousAvg == nil || *r.DaysToPay.PreviousAvg != 40 {
+			t.Errorf("previous_avg = %v, want 40", r.DaysToPay.PreviousAvg)
+		}
+	})
+	t.Run("nil with nothing paid", func(t *testing.T) {
+		t.Parallel()
+		r := overview(t, newApp(t))
+		if r.DaysToPay.Avg != nil || r.DaysToPay.PreviousAvg != nil {
+			t.Errorf("days to pay = %+v, want nils", r.DaysToPay)
+		}
+	})
+}
+
+// reconPayment inserts a payment with the given status, source, score and
+// created_at plus, when action is set, one log row by actor (nil = engine).
+func reconPayment(t *testing.T, a *apitest.App, status, source string, score *string, created time.Time, action string, actor *uuid.UUID) {
+	t.Helper()
+	id := uuid.New()
+	exec(t, a, `INSERT INTO payments (payment_id, amount, currency, payer_name, payment_date, intake_source, external_ref, status, confidence_score, created_at)
+VALUES ($1, 10, 'IDR', 'Acme', '2026-07-01', $2, $3, $4, $5, $6)`, id, source, uuid.NewString(), status, score, created)
+	if action != "" {
+		exec(t, a, `INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, actor_user_id, created_at) VALUES ($1, $2, $3, ARRAY['x'], $4, $5)`,
+			uuid.New(), id, action, actor, created)
+	}
+}
+
+func TestOverviewRecon(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	w := ovWindow()
+	in := w.From.AddDate(0, 0, 10)
+	admin := uuid.New()
+	exec(t, a, `INSERT INTO users (user_id, email, password_hash) VALUES ($1, 'a@example.com', 'x')`, admin)
+	s90, s80 := "90", "80"
+	reconPayment(t, a, "CLEARED", "WEBHOOK", &s90, in, "CLEARED", nil)
+	reconPayment(t, a, "CLEARED", "MANUAL", nil, in, "CLEARED", &admin)
+	reconPayment(t, a, "PENDING_MANUAL_REVIEW", "WEBHOOK", &s80, in, "HELD", nil)
+	reconPayment(t, a, "FLAGGED", "WEBHOOK", nil, in, "FLAGGED", nil)
+	reconPayment(t, a, "CLEARED", "WEBHOOK", &s90, w.From.AddDate(0, 0, -1), "CLEARED", nil)
+	c1, c2 := newCustomer(t, a, "A"), newCustomer(t, a, "B")
+	exec(t, a, `UPDATE customers SET matching_aliases = '["a","b"]'::jsonb WHERE customer_id = $1`, c1)
+	exec(t, a, `UPDATE customers SET matching_aliases = '[]'::jsonb WHERE customer_id = $1`, c2)
+	rc := overview(t, a).Reconciliation
+	if rc.AutoCleared != 1 || rc.Manual != 1 || rc.Held != 2 {
+		t.Errorf("counts = %d/%d/%d, want 1/1/2", rc.AutoCleared, rc.Manual, rc.Held)
+	}
+	if rc.AvgConfidence == nil || *rc.AvgConfidence != 85 {
+		t.Errorf("avg confidence = %v, want 85", rc.AvgConfidence)
+	}
+	if rc.AliasesInUse != 2 || rc.CustomersWithAliases != 1 {
+		t.Errorf("aliases = %d across %d customers, want 2 across 1", rc.AliasesInUse, rc.CustomersWithAliases)
+	}
+}
+
+func TestOverviewTopCustomers(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	w := ovWindow()
+	in := w.From.AddDate(0, 0, 5)
+	var overdueCust uuid.UUID
+	for i := 1; i <= 12; i++ {
+		c := newCustomer(t, a, fmt.Sprintf("Cust %02d", i))
+		inv{cur: "IDR", amount: strconv.Itoa(i * 100), status: "PAID", balance: "0", issue: d(in)}.insert(t, a, c)
+		if i == 12 {
+			overdueCust = c
+			inv{cur: "IDR", amount: "40", status: "SENT", issue: d(w.PrevFrom), due: d(ovDay.AddDate(0, 0, -5))}.insert(t, a, c)
+		}
+	}
+	tc := overview(t, a).TopCustomers
+	if len(tc.Rows) != 10 {
+		t.Fatalf("rows = %d, want 10", len(tc.Rows))
+	}
+	if tc.Rows[0].Name != "Cust 12" || tc.Rows[0].Amount.Decimal().StringFixed(4) != "1200.0000" || tc.Rows[9].Name != "Cust 03" {
+		t.Errorf("order wrong: first %+v last %+v", tc.Rows[0], tc.Rows[9])
+	}
+	if tc.Rows[0].CustomerID != overdueCust || tc.Rows[0].Overdue.Decimal().StringFixed(4) != "40.0000" || !tc.Rows[1].Overdue.Decimal().IsZero() {
+		t.Errorf("overdue wrong: %+v / %+v", tc.Rows[0], tc.Rows[1])
+	}
+	if tc.Others.Count != 2 || tc.Others.Amount.Decimal().StringFixed(4) != "300.0000" {
+		t.Errorf("others = %+v, want 2 / 300", tc.Others)
+	}
+	sum := tc.Others.Share
+	for _, r := range tc.Rows {
+		sum += r.Share
+	}
+	if math.Abs(sum-100) > 0.01 {
+		t.Errorf("shares sum to %v", sum)
+	}
+	// 1200+1100+1000 of 7800
+	if tc.Top3Share == nil || math.Abs(*tc.Top3Share-100*3300.0/7800) > 0.1 {
+		t.Errorf("top3 = %v", tc.Top3Share)
+	}
+}
+
+func TestOverviewTopCustomersUnconverted(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "Acme")
+	in := ovWindow().From.AddDate(0, 0, 5)
+	inv{cur: "IDR", amount: "100", issue: d(in)}.insert(t, a, c)
+	inv{cur: "XXX", amount: "999", issue: d(in)}.insert(t, a, c)
+	r := overview(t, a)
+	if len(r.Unconverted) != 1 || r.Unconverted[0] != "XXX" {
+		t.Errorf("unconverted = %v", r.Unconverted)
+	}
+	if len(r.TopCustomers.Rows) != 1 || r.TopCustomers.Rows[0].Amount.Decimal().StringFixed(4) != "100.0000" {
+		t.Errorf("rows = %+v", r.TopCustomers.Rows)
+	}
+}
+
+func TestOverviewRoute(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	const path = "/api/v1/stats/overview"
+	got := apitest.Decode[stats.OverviewResponse](t, a.Do(t, http.MethodGet, path+"?period=90d", nil), http.StatusOK)
+	if got.Period != "90d" {
+		t.Errorf("period = %q", got.Period)
+	}
+	if rec := a.Do(t, http.MethodGet, path+"?period=7d", nil); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("7d status %d: %s", rec.Code, rec.Body)
+	}
+	got = apitest.Decode[stats.OverviewResponse](t, a.Do(t, http.MethodGet, path, nil), http.StatusOK)
+	if got.Period != "12m" {
+		t.Errorf("default period = %q", got.Period)
 	}
 }

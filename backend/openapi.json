@@ -2422,6 +2422,32 @@
         ],
         "type": "object"
       },
+      "DaysToPay": {
+        "additionalProperties": true,
+        "properties": {
+          "avg": {
+            "description": "Mean days from issue to payment over CLEARED payments of PAID invoices dated in the window; null when there is none.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "previous_avg": {
+            "description": "The same over the previous window; null when there is none.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "avg",
+          "previous_avg"
+        ],
+        "type": "object"
+      },
       "ForgotPasswordRequest": {
         "additionalProperties": true,
         "properties": {
@@ -3704,6 +3730,160 @@
         },
         "type": "object"
       },
+      "KPICollected": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "previous": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "type": "array"
+          },
+          "share_of_invoiced": {
+            "description": "Percent; null when nothing was invoiced.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "share_of_invoiced",
+          "amount",
+          "previous",
+          "series"
+        ],
+        "type": "object"
+      },
+      "KPIFlow": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "previous": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "amount",
+          "previous",
+          "series"
+        ],
+        "type": "object"
+      },
+      "KPIOpenAR": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "customer_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "invoice_count": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "amount",
+          "invoice_count",
+          "customer_count"
+        ],
+        "type": "object"
+      },
+      "KPIOverdue": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "share_of_open_ar": {
+            "description": "Percent; null when nothing is open.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "amount",
+          "share_of_open_ar"
+        ],
+        "type": "object"
+      },
+      "KPIRecurring": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "foreign_share": {
+            "description": "Percent not in the base currency; null when there is none.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "top_foreign_currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "amount",
+          "foreign_share",
+          "top_foreign_currency"
+        ],
+        "type": "object"
+      },
       "LineItemIn": {
         "additionalProperties": true,
         "properties": {
@@ -4048,6 +4228,113 @@
           "currencies",
           "unconverted",
           "months"
+        ],
+        "type": "object"
+      },
+      "OverviewKPIs": {
+        "additionalProperties": true,
+        "properties": {
+          "collected": {
+            "$ref": "#/components/schemas/KPICollected",
+            "description": "CLEARED payments dated in the window, withholding tax included."
+          },
+          "invoiced": {
+            "$ref": "#/components/schemas/KPIFlow",
+            "description": "Issued in the window; DRAFT, VOID and templates excluded."
+          },
+          "monthly_recurring": {
+            "$ref": "#/components/schemas/KPIRecurring"
+          },
+          "open_ar": {
+            "$ref": "#/components/schemas/KPIOpenAR"
+          },
+          "overdue": {
+            "$ref": "#/components/schemas/KPIOverdue"
+          }
+        },
+        "required": [
+          "invoiced",
+          "collected",
+          "open_ar",
+          "overdue",
+          "monthly_recurring"
+        ],
+        "type": "object"
+      },
+      "OverviewResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "base_currency": {
+            "type": "string"
+          },
+          "days_to_pay": {
+            "$ref": "#/components/schemas/DaysToPay"
+          },
+          "from": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "kpis": {
+            "$ref": "#/components/schemas/OverviewKPIs"
+          },
+          "period": {
+            "enum": [
+              "30d",
+              "90d",
+              "12m"
+            ],
+            "type": "string"
+          },
+          "previous_from": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "previous_to": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "reconciliation": {
+            "$ref": "#/components/schemas/ReconHealth"
+          },
+          "to": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "top_customers": {
+            "$ref": "#/components/schemas/TopCustomers"
+          },
+          "unconverted": {
+            "description": "Sorted currencies with no FX rate, left out of every figure.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "period",
+          "from",
+          "to",
+          "previous_from",
+          "previous_to",
+          "base_currency",
+          "unconverted",
+          "kpis",
+          "days_to_pay",
+          "reconciliation",
+          "top_customers"
         ],
         "type": "object"
       },
@@ -5374,6 +5661,53 @@
         ],
         "type": "object"
       },
+      "ReconHealth": {
+        "additionalProperties": true,
+        "properties": {
+          "aliases_in_use": {
+            "description": "Matching aliases across all customers (not windowed).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "auto_cleared": {
+            "description": "CLEARED payments created in the window whose CLEARED log row was written by the matching engine (no actor); manual entry and manual override write an actor.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "avg_confidence": {
+            "description": "Mean confidence score of the window's scored, non-manual payments; null when there is none.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "customers_with_aliases": {
+            "description": "Customers with at least one matching alias (not windowed).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "held": {
+            "description": "Payments created in the window that are PENDING_MANUAL_REVIEW or FLAGGED.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "manual": {
+            "description": "CLEARED payments created in the window with no engine-written CLEARED log row, i.e. cleared by an admin.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "auto_cleared",
+          "manual",
+          "held",
+          "avg_confidence",
+          "aliases_in_use",
+          "customers_with_aliases"
+        ],
+        "type": "object"
+      },
       "RecordPaymentRequest": {
         "additionalProperties": true,
         "properties": {
@@ -5928,6 +6262,27 @@
         ],
         "type": "object"
       },
+      "SeriesPoint": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "description": "Base-currency equivalent at today's rate; 0.0000 for a bucket with nothing.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "amount"
+        ],
+        "type": "object"
+      },
       "SyncResult": {
         "additionalProperties": true,
         "properties": {
@@ -5962,6 +6317,102 @@
           "fetched",
           "pairs",
           "source"
+        ],
+        "type": "object"
+      },
+      "TopCustomer": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "description": "Invoiced in the window, base-currency equivalent.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "overdue": {
+            "description": "The customer's overdue open balance now, base-currency equivalent.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "share": {
+            "description": "Percent (0-100) of the window's invoiced total over all customers.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "customer_id",
+          "name",
+          "amount",
+          "share",
+          "overdue"
+        ],
+        "type": "object"
+      },
+      "TopCustomers": {
+        "additionalProperties": true,
+        "properties": {
+          "others": {
+            "$ref": "#/components/schemas/TopOthers"
+          },
+          "rows": {
+            "description": "Up to ten, biggest first. A currency with no FX rate is left out of a customer's amount.",
+            "items": {
+              "$ref": "#/components/schemas/TopCustomer"
+            },
+            "type": "array"
+          },
+          "top3_share": {
+            "description": "Percent (0-100) of the invoiced total in the top three; null when nothing was invoiced.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "rows",
+          "others",
+          "top3_share"
+        ],
+        "type": "object"
+      },
+      "TopOthers": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "share": {
+            "description": "Percent (0-100).",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "count",
+          "amount",
+          "share"
         ],
         "type": "object"
       },
@@ -12562,6 +13013,49 @@
           }
         },
         "summary": "Overdue and due-in-30-days totals and the average days to pay",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/api/v1/stats/overview": {
+      "get": {
+        "operationId": "stats-overview",
+        "parameters": [
+          {
+            "description": "30d, 90d or 12m; default 12m.",
+            "explode": false,
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "description": "30d, 90d or 12m; default 12m.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Dashboard KPIs, days to pay, reconciliation health and top customers for a period",
         "tags": [
           "stats"
         ]

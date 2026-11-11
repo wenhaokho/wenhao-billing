@@ -15,6 +15,51 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const aliasStats = `-- name: AliasStats :one
+SELECT COALESCE(SUM(jsonb_array_length(matching_aliases)), 0)::bigint AS aliases,
+       COUNT(*) FILTER (WHERE jsonb_array_length(matching_aliases) > 0)::bigint AS customers
+  FROM customers
+`
+
+type AliasStatsRow struct {
+	Aliases   int64
+	Customers int64
+}
+
+// Matching aliases in use across customers, and how many customers have any.
+func (q *Queries) AliasStats(ctx context.Context) (AliasStatsRow, error) {
+	row := q.db.QueryRow(ctx, aliasStats)
+	var i AliasStatsRow
+	err := row.Scan(&i.Aliases, &i.Customers)
+	return i, err
+}
+
+const avgConfidenceBetween = `-- name: AvgConfidenceBetween :one
+SELECT COALESCE(AVG(p.confidence_score), 0)::float8 AS avg_confidence, COUNT(p.confidence_score)::bigint AS scored
+  FROM payments p
+ WHERE p.confidence_score IS NOT NULL AND p.intake_source <> 'MANUAL'
+   AND p.created_at::date >= $1::date AND p.created_at::date <= $2::date
+`
+
+type AvgConfidenceBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type AvgConfidenceBetweenRow struct {
+	AvgConfidence float64
+	Scored        int64
+}
+
+// Mean match confidence of payments created in [from, to] that have a score
+// and did not come from manual entry (scored = how many; 0 means no mean).
+func (q *Queries) AvgConfidenceBetween(ctx context.Context, arg AvgConfidenceBetweenParams) (AvgConfidenceBetweenRow, error) {
+	row := q.db.QueryRow(ctx, avgConfidenceBetween, arg.FromDate, arg.ToDate)
+	var i AvgConfidenceBetweenRow
+	err := row.Scan(&i.AvgConfidence, &i.Scored)
+	return i, err
+}
+
 const collectedByCurrencyBetween = `-- name: CollectedByCurrencyBetween :many
 SELECT currency, COALESCE(SUM(amount + COALESCE(wht_amount, 0)), 0)::numeric AS amount
   FROM payments
@@ -149,6 +194,34 @@ func (q *Queries) DaysToPay(ctx context.Context, since pgtype.Date) (DaysToPayRo
 	return i, err
 }
 
+const daysToPayBetween = `-- name: DaysToPayBetween :one
+SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+  FROM payments p
+  JOIN invoices i ON i.invoice_id = p.invoice_id
+ WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
+   AND p.status = 'CLEARED'
+   AND p.payment_date >= $1::date AND p.payment_date <= $2::date
+`
+
+type DaysToPayBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type DaysToPayBetweenRow struct {
+	TotalDays int64
+	Payments  int64
+}
+
+// DaysToPay with an upper bound: payments dated from since to until, both
+// inclusive.
+func (q *Queries) DaysToPayBetween(ctx context.Context, arg DaysToPayBetweenParams) (DaysToPayBetweenRow, error) {
+	row := q.db.QueryRow(ctx, daysToPayBetween, arg.FromDate, arg.ToDate)
+	var i DaysToPayBetweenRow
+	err := row.Scan(&i.TotalDays, &i.Payments)
+	return i, err
+}
+
 const dueWithinByCurrency = `-- name: DueWithinByCurrency :many
 SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
   FROM invoices
@@ -220,6 +293,54 @@ func (q *Queries) InvoicedByCurrencyBetween(ctx context.Context, arg InvoicedByC
 	for rows.Next() {
 		var i InvoicedByCurrencyBetweenRow
 		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const invoicedByCustomerCurrencyBetween = `-- name: InvoicedByCustomerCurrencyBetween :many
+SELECT i.customer_id, c.name, i.currency, COALESCE(SUM(i.amount), 0)::numeric AS amount
+  FROM invoices i
+  JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.is_template = false AND i.status NOT IN ('DRAFT', 'VOID')
+   AND i.issue_date >= $1::date AND i.issue_date <= $2::date
+ GROUP BY i.customer_id, c.name, i.currency
+ ORDER BY i.customer_id, i.currency
+`
+
+type InvoicedByCustomerCurrencyBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type InvoicedByCustomerCurrencyBetweenRow struct {
+	CustomerID pgtype.UUID
+	Name       string
+	Currency   string
+	Amount     decimal.Decimal
+}
+
+// InvoicedByCurrencyBetween per customer.
+func (q *Queries) InvoicedByCustomerCurrencyBetween(ctx context.Context, arg InvoicedByCustomerCurrencyBetweenParams) ([]InvoicedByCustomerCurrencyBetweenRow, error) {
+	rows, err := q.db.Query(ctx, invoicedByCustomerCurrencyBetween, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InvoicedByCustomerCurrencyBetweenRow
+	for rows.Next() {
+		var i InvoicedByCustomerCurrencyBetweenRow
+		if err := rows.Scan(
+			&i.CustomerID,
+			&i.Name,
+			&i.Currency,
+			&i.Amount,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -530,6 +651,42 @@ func (q *Queries) OverdueByCurrency(ctx context.Context, today pgtype.Date) ([]O
 	return items, nil
 }
 
+const overdueByCustomerCurrency = `-- name: OverdueByCustomerCurrency :many
+SELECT customer_id, currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date < $1::date
+ GROUP BY customer_id, currency
+ ORDER BY customer_id, currency
+`
+
+type OverdueByCustomerCurrencyRow struct {
+	CustomerID pgtype.UUID
+	Currency   string
+	Amount     decimal.Decimal
+}
+
+// OverdueByCurrency per customer.
+func (q *Queries) OverdueByCustomerCurrency(ctx context.Context, today pgtype.Date) ([]OverdueByCustomerCurrencyRow, error) {
+	rows, err := q.db.Query(ctx, overdueByCustomerCurrency, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OverdueByCustomerCurrencyRow
+	for rows.Next() {
+		var i OverdueByCustomerCurrencyRow
+		if err := rows.Scan(&i.CustomerID, &i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recentActivity = `-- name: RecentActivity :many
 SELECT l.log_id, l.payment_id, l.action, l.reasons, l.actor_user_id, l.created_at,
        p.payer_name, p.amount, p.currency, p.payment_date, p.payer_reference, p.wht_amount,
@@ -607,4 +764,39 @@ func (q *Queries) RecentActivity(ctx context.Context) ([]RecentActivityRow, erro
 		return nil, err
 	}
 	return items, nil
+}
+
+const reconCountsBetween = `-- name: ReconCountsBetween :one
+SELECT
+  COUNT(*) FILTER (WHERE p.status = 'CLEARED' AND EXISTS (
+    SELECT 1 FROM reconciliation_log l
+     WHERE l.payment_id = p.payment_id AND l.action = 'CLEARED' AND l.actor_user_id IS NULL))::bigint AS auto_cleared,
+  COUNT(*) FILTER (WHERE p.status = 'CLEARED' AND NOT EXISTS (
+    SELECT 1 FROM reconciliation_log l
+     WHERE l.payment_id = p.payment_id AND l.action = 'CLEARED' AND l.actor_user_id IS NULL))::bigint AS manual,
+  COUNT(*) FILTER (WHERE p.status IN ('PENDING_MANUAL_REVIEW', 'FLAGGED'))::bigint AS held
+  FROM payments p
+ WHERE p.created_at::date >= $1::date AND p.created_at::date <= $2::date
+`
+
+type ReconCountsBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type ReconCountsBetweenRow struct {
+	AutoCleared int64
+	Manual      int64
+	Held        int64
+}
+
+// Payments created in [from, to] by outcome. Auto = CLEARED with a CLEARED log
+// row written by the engine (actor_user_id NULL); manual = any other CLEARED
+// (manual entry and override write an actor); held = PENDING_MANUAL_REVIEW or
+// FLAGGED.
+func (q *Queries) ReconCountsBetween(ctx context.Context, arg ReconCountsBetweenParams) (ReconCountsBetweenRow, error) {
+	row := q.db.QueryRow(ctx, reconCountsBetween, arg.FromDate, arg.ToDate)
+	var i ReconCountsBetweenRow
+	err := row.Scan(&i.AutoCleared, &i.Manual, &i.Held)
+	return i, err
 }

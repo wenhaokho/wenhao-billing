@@ -64,16 +64,6 @@ type OverviewKPIs struct {
 	MonthlyRecurring KPIRecurring `json:"monthly_recurring"`
 }
 
-// DaysToPay, ReconHealth and TopCustomers are filled in by the next change.
-type (
-	// DaysToPay is a placeholder.
-	DaysToPay struct{}
-	// ReconHealth is a placeholder.
-	ReconHealth struct{}
-	// TopCustomers is a placeholder.
-	TopCustomers struct{}
-)
-
 // OverviewResponse is GET /stats/overview.
 type OverviewResponse struct {
 	Period         string        `json:"period" enum:"30d,90d,12m"`
@@ -232,6 +222,16 @@ func Overview(ctx context.Context, db statsdb.DBTX, base string, today time.Time
 	out.KPIs.MonthlyRecurring.ForeignShare = percent(foreign, total)
 	if top != "" {
 		out.KPIs.MonthlyRecurring.TopForeignCurrency = &top
+	}
+
+	if out.DaysToPay, err = daysToPay(ctx, q, w); err != nil {
+		return OverviewResponse{}, err
+	}
+	if out.Reconciliation, err = reconHealth(ctx, q, w); err != nil {
+		return OverviewResponse{}, err
+	}
+	if out.TopCustomers, err = topCustomers(ctx, q, today, w, conv); err != nil {
+		return OverviewResponse{}, err
 	}
 
 	out.Period = string(w.Period)

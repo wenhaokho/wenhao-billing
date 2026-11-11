@@ -143,3 +143,62 @@ SELECT currency, COALESCE(SUM(amount + COALESCE(wht_amount, 0)), 0)::numeric AS 
 SELECT count(*)::bigint AS invoice_count, count(DISTINCT customer_id)::bigint AS customer_count
   FROM invoices
  WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0;
+
+-- name: DaysToPayBetween :one
+-- DaysToPay with an upper bound: payments dated from since to until, both
+-- inclusive.
+SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+  FROM payments p
+  JOIN invoices i ON i.invoice_id = p.invoice_id
+ WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
+   AND p.status = 'CLEARED'
+   AND p.payment_date >= @from_date::date AND p.payment_date <= @to_date::date;
+
+-- name: ReconCountsBetween :one
+-- Payments created in [from, to] by outcome. Auto = CLEARED with a CLEARED log
+-- row written by the engine (actor_user_id NULL); manual = any other CLEARED
+-- (manual entry and override write an actor); held = PENDING_MANUAL_REVIEW or
+-- FLAGGED.
+SELECT
+  COUNT(*) FILTER (WHERE p.status = 'CLEARED' AND EXISTS (
+    SELECT 1 FROM reconciliation_log l
+     WHERE l.payment_id = p.payment_id AND l.action = 'CLEARED' AND l.actor_user_id IS NULL))::bigint AS auto_cleared,
+  COUNT(*) FILTER (WHERE p.status = 'CLEARED' AND NOT EXISTS (
+    SELECT 1 FROM reconciliation_log l
+     WHERE l.payment_id = p.payment_id AND l.action = 'CLEARED' AND l.actor_user_id IS NULL))::bigint AS manual,
+  COUNT(*) FILTER (WHERE p.status IN ('PENDING_MANUAL_REVIEW', 'FLAGGED'))::bigint AS held
+  FROM payments p
+ WHERE p.created_at::date >= @from_date::date AND p.created_at::date <= @to_date::date;
+
+-- name: AvgConfidenceBetween :one
+-- Mean match confidence of payments created in [from, to] that have a score
+-- and did not come from manual entry (scored = how many; 0 means no mean).
+SELECT COALESCE(AVG(p.confidence_score), 0)::float8 AS avg_confidence, COUNT(p.confidence_score)::bigint AS scored
+  FROM payments p
+ WHERE p.confidence_score IS NOT NULL AND p.intake_source <> 'MANUAL'
+   AND p.created_at::date >= @from_date::date AND p.created_at::date <= @to_date::date;
+
+-- name: AliasStats :one
+-- Matching aliases in use across customers, and how many customers have any.
+SELECT COALESCE(SUM(jsonb_array_length(matching_aliases)), 0)::bigint AS aliases,
+       COUNT(*) FILTER (WHERE jsonb_array_length(matching_aliases) > 0)::bigint AS customers
+  FROM customers;
+
+-- name: InvoicedByCustomerCurrencyBetween :many
+-- InvoicedByCurrencyBetween per customer.
+SELECT i.customer_id, c.name, i.currency, COALESCE(SUM(i.amount), 0)::numeric AS amount
+  FROM invoices i
+  JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.is_template = false AND i.status NOT IN ('DRAFT', 'VOID')
+   AND i.issue_date >= @from_date::date AND i.issue_date <= @to_date::date
+ GROUP BY i.customer_id, c.name, i.currency
+ ORDER BY i.customer_id, i.currency;
+
+-- name: OverdueByCustomerCurrency :many
+-- OverdueByCurrency per customer.
+SELECT customer_id, currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date < @today::date
+ GROUP BY customer_id, currency
+ ORDER BY customer_id, currency;
