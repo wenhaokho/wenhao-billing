@@ -79,8 +79,15 @@ const toneFill = (fg: string, on = "var(--wb-on-tone)") => ({
 const toneButtons = {
   success: toneFill("var(--wb-green-fg)"),
   warn: toneFill("var(--wb-amber-fg)"),
-  // Same white-on-red as the primary button in both themes.
-  danger: toneFill("var(--wb-red)", "#ffffff"),
+  // Ruling R10: destructive actions must not read as a routine primary. White
+  // on --wb-red-deep (8.3:1 light, 5.8:1 dark) inside an ink edge (maroon in
+  // light, cream in dark); overrides.css adds the inner light line.
+  danger: {
+    ...toneFill("var(--wb-red-deep)", "#ffffff"),
+    borderColor: "var(--wb-ink)",
+    hoverBorderColor: "var(--wb-ink)",
+    activeBorderColor: "var(--wb-ink)",
+  },
 };
 const toneText = (fg: string, bg: string) => ({ hoverBackground: bg, activeBackground: bg, color: fg });
 const toneTextButtons = {

@@ -9,6 +9,13 @@
 .p-button:not(.p-button-sm):not(.p-button-lg):not(.p-button-icon-only):not(.p-button-text) { min-height: 42px; }
 .p-button.p-button-sm { padding: 0.35rem 0.85rem; font-size: 0.82rem; }
 
+/* Filled danger buttons (ruling R10): a thin light line inside the ink edge, so
+   a destructive action reads as a double-ruled pill, never as the plain red
+   primary. Text and outlined danger buttons keep their own look. */
+.p-button-danger:not(.p-button-text):not(.p-button-outlined):not(.p-button-link) {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
 /* Status chips (StatusTag) only: 10px uppercase, 1px tracking. Other Tags keep
    Aura's readable size and case. */
 .p-tag.status-tag {
