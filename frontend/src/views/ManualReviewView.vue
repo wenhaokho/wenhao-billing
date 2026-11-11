@@ -82,7 +82,7 @@ const reverse = useMutation({
 
 function statusSeverity(status: string) {
   if (status === "CLEARED") return "success";
-  if (status === "FLAGGED") return "warning";
+  if (status === "FLAGGED") return "warn";
   return "danger";
 }
 </script>

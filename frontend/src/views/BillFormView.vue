@@ -282,7 +282,7 @@ function statusSeverity(status: string) {
   switch (status) {
     case "PAID": return "success";
     case "OPEN": return "info";
-    case "PARTIAL": return "warning";
+    case "PARTIAL": return "warn";
     case "VOID": return "secondary";
     case "DRAFT": return "contrast";
     default: return undefined;

@@ -254,7 +254,7 @@ function statusSeverity(status: string) {
   switch (status) {
     case "ACCEPTED": case "INVOICED": return "success";
     case "SENT": return "info";
-    case "EXPIRED": return "warning";
+    case "EXPIRED": return "warn";
     case "DECLINED": return "danger";
     case "VOID": return "secondary";
     case "DRAFT": return "contrast";

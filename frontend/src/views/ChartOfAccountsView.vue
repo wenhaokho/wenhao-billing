@@ -74,7 +74,7 @@ function confirmDeactivate(row: Account) {
 function typeSeverity(t: string) {
   switch (t) {
     case "ASSET": return "info";
-    case "LIABILITY": return "warning";
+    case "LIABILITY": return "warn";
     case "INCOME": return "success";
     case "COGS": return "danger";
     case "EXPENSE": return "danger";

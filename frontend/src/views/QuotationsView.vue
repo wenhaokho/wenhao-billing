@@ -79,7 +79,7 @@ function statusSeverity(status: string) {
     case "ACCEPTED": return "success";
     case "SENT": return "info";
     case "INVOICED": return "success";
-    case "EXPIRED": return "warning";
+    case "EXPIRED": return "warn";
     case "DECLINED": return "danger";
     case "VOID": return "secondary";
     case "DRAFT": return "contrast";

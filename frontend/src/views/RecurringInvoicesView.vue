@@ -110,7 +110,7 @@ function statusSeverity(status: string) {
     ? "success"
     : status === "ENDED"
       ? "secondary"
-      : "warning";
+      : "warn";
 }
 
 function fmtDate(d: string | null) {

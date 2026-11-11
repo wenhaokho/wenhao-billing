@@ -163,7 +163,7 @@ function gainLossSeverity(v: string | null) {
 function typeSeverity(t: string) {
   switch (t) {
     case "ASSET": return "info";
-    case "LIABILITY": return "warning";
+    case "LIABILITY": return "warn";
     case "EQUITY": return "success";
     case "INCOME": return "success";
     case "EXPENSE":

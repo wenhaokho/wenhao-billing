@@ -185,7 +185,7 @@ function statusSeverity(s: string | null | undefined) {
   switch (s) {
     case "ACTIVE": return "success";
     case "SUSPENDED": return "danger";
-    case "SUSPEND_PENDING": return "warning";
+    case "SUSPEND_PENDING": return "warn";
     case "CANCELLED": return "secondary";
     default: return undefined;
   }

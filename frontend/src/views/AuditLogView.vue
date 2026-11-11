@@ -61,7 +61,7 @@ const { data, isLoading, refetch } = useQuery<AuditRow[]>({
 function actionSeverity(a: string) {
   switch (a) {
     case "CLEARED": return "success";
-    case "HELD": return "warning";
+    case "HELD": return "warn";
     case "MATCHED": return "info";
     case "REVERSED": return "danger";
     case "OVERRIDDEN": return "secondary";

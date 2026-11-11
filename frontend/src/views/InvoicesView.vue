@@ -206,7 +206,7 @@ function statusSeverity(status: string) {
     case "PAID": return "success";
     case "OPEN": return "info";
     case "SENT": return "info";
-    case "PARTIAL": return "warning";
+    case "PARTIAL": return "warn";
     case "VOID": return "secondary";
     case "DRAFT": return "contrast";
     default: return undefined;

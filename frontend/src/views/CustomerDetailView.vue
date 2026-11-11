@@ -128,12 +128,12 @@ const quotationsQuery = useQuery<QuotationRow[]>({
     ).data,
 });
 
-function quotationStatusSeverity(status: string): "success" | "info" | "warning" | "secondary" | "danger" | "contrast" | undefined {
+function quotationStatusSeverity(status: string): "success" | "info" | "warn" | "secondary" | "danger" | "contrast" | undefined {
   switch (status) {
     case "ACCEPTED": return "success";
     case "SENT": return "info";
     case "INVOICED": return "success";
-    case "EXPIRED": return "warning";
+    case "EXPIRED": return "warn";
     case "DECLINED": return "danger";
     case "VOID": return "secondary";
     case "DRAFT": return "contrast";
@@ -161,12 +161,12 @@ function dueLabel(row: InvoiceRow): string {
   return `Due in ${days} days`;
 }
 
-function statusSeverity(status: string): "success" | "info" | "warning" | "secondary" | "danger" {
+function statusSeverity(status: string): "success" | "info" | "warn" | "secondary" | "danger" {
   switch (status) {
     case "PAID": return "success";
     case "OPEN": return "info";
     case "SENT": return "info";
-    case "PARTIAL": return "warning";
+    case "PARTIAL": return "warn";
     case "DRAFT": return "secondary";
     case "VOID": return "danger";
     default: return "secondary";

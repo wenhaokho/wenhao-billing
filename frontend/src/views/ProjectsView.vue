@@ -89,7 +89,7 @@ function openDetail(row: Project) {
 function statusSeverity(s: string) {
   switch (s) {
     case "ACTIVE": return "success";
-    case "ON_HOLD": return "warning";
+    case "ON_HOLD": return "warn";
     case "COMPLETED": return "info";
     case "CANCELLED": return "danger";
     default: return undefined;

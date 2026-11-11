@@ -50,7 +50,7 @@ function typeSeverity(t: string) {
   switch (t) {
     case "FIXED_FEE": return "info";
     case "SERVICE": return "success";
-    case "USAGE": return "warning";
+    case "USAGE": return "warn";
     default: return undefined;
   }
 }
