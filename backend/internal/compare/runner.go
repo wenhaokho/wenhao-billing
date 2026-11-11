@@ -24,6 +24,10 @@ type Report struct {
 	Cases       []CaseResult `json:"cases"`
 	Differences int          `json:"differences"`
 	Summary     Summary      `json:"summary"`
+	// UnusedAllowed is the allowed entries whose route the run requested but
+	// that never applied to an answer (Allowed.Unused): a warning, never a
+	// failure, so a dead or misnamed entry is seen.
+	UnusedAllowed []UnusedAllowed `json:"unused_allowed"`
 }
 
 // Summary counts the run's skipped request variants. A skip is one variant that
@@ -88,7 +92,7 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 		now = time.Now
 	}
 	client := readClient(o)
-	allowed := o.Allowed
+	allowed := o.Allowed.TrackUsage()
 	allowed.PythonTZ = o.PythonTZ
 	allowed.PythonHost = hostOf(o.PythonURL)
 	allowed.GoHost = hostOf(o.GoURL)
@@ -141,6 +145,7 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 			report.Summary.Skipped++
 		}
 	}
+	report.UnusedAllowed = allowed.Unused()
 	return report, nil
 }
 

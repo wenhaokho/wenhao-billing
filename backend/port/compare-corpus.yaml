@@ -33,6 +33,17 @@
 # PN 6 (two identical open invoices) is a write-time matching tie: a read only
 # sees the rows already written, so it cannot manifest here. The PN 6 read
 # classification lives in Task 4's write comparison, never in this corpus.
+#
+# PN 166: the trial balance, balance sheet and FX revaluation read the ledger.
+# On a production copy Go's ledger holds `api backpost-ledger --apply`'s
+# entries and Python's has none, so these three cases carry `classify: PN 166`.
+# Their exact report paths are allowed only for that run, in
+# port/allowed-diffs-prodcopy.yaml (a second --allowed); on any other run they
+# are compared in full.
+#
+# PN 164: Go's migration 00008 adds account 6000 Uncategorised Expense. The
+# production-copy runbook (plan 11 Task 6 Step 2) inserts it into the Python
+# copy too, so the chart of accounts compares with no allowance.
 
 cases:
   # --- auth and users -----------------------------------------------------
@@ -66,14 +77,17 @@ cases:
     route: GET /api/v1/accounting/reports/trial-balance
     queries:
       - "as_of={today}"
+    classify: PN 166
   - id: report-balance-sheet
     route: GET /api/v1/accounting/reports/balance-sheet
     queries:
       - "as_of={today}"
+    classify: PN 166
   - id: report-fx-revaluation
     route: GET /api/v1/accounting/reports/fx-revaluation
     queries:
       - "as_of={today}"
+    classify: PN 166
   - id: report-ar-aging
     route: GET /api/v1/accounting/reports/ar-aging
     queries:

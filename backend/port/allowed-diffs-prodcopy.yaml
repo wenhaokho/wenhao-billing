@@ -1,0 +1,76 @@
+# Allowed differences for the PRODUCTION-COPY read run only (plan 11, Task 6).
+#
+# Pass it as a second --allowed after port/allowed-diffs.yaml:
+#
+#   compare reads ... --allowed port/allowed-diffs.yaml \
+#     --allowed port/allowed-diffs-prodcopy.yaml ...
+#
+# Never pass it on any other run, and never move these entries into
+# allowed-diffs.yaml: on every other run the three ledger reports are compared
+# in full.
+#
+# Why (PN 166, with 161/162/163/167): the three reports below read the ledger.
+# On the production copy Python's ledger is empty: production's payments are
+# all MANUAL CLEARED, and Python never posted a manual payment (PN 161) nor an
+# issue entry (PN 162), so billing_cmp_py had 0 journal entries at read time.
+# Go's copy holds what `api backpost-ledger --apply` posted (on the first run,
+# 2026-11-11: 42 INVOICE and 39 PAYMENT entries). The two cannot agree, and a
+# Python comparison cannot test these figures. The corpus marks the three
+# cases `classify: PN 166`, and each entry here names one exact report path.
+#
+# The figures were checked by hand against the documents in billing_cmp_py
+# (triage of the first production-copy run, 2026-11-11, R4); every one agreed:
+#   - the trial balance is balanced (total debit = total credit);
+#   - 1100 IDR net = the sum of balance_due of the SENT IDR invoices, and 1100
+#     SGD net is 0 (both SGD invoices PAID);
+#   - 1100 IDR debit = the sum of the amounts of the PAID and SENT IDR invoices
+#     = 4000 + 4100 IDR; VOID invoices are excluded;
+#   - 1000 IDR and 1000 SGD = the sums of the CLEARED payments in each currency;
+#   - 1300 = the sum of wht_amount of the PAID IDR invoices;
+#   - 4900 = the SGD payments cleared at their payment-date base minus their
+#     issue base (PN 163);
+#   - FX revaluation: the SGD bank balance x the latest SGD rate minus its
+#     base = the unrealised gain.
+# Repeat those checks on each production-copy run; this file only stops the
+# runner from reporting what the comparison cannot test.
+#
+# ar-aging, ap-aging, customers/balances and the stats routes read the
+# documents, not the ledger, and are compared in full (no entry here).
+
+# PN 166: trial balance.
+- route: GET /api/v1/accounting/reports/trial-balance
+  path: $.rows
+  rule: ignore
+  note: PN 166
+- route: GET /api/v1/accounting/reports/trial-balance
+  path: $.total_debit_base
+  rule: ignore
+  note: PN 166
+- route: GET /api/v1/accounting/reports/trial-balance
+  path: $.total_credit_base
+  rule: ignore
+  note: PN 166
+
+# PN 166: balance sheet.
+- route: GET /api/v1/accounting/reports/balance-sheet
+  path: $.groups
+  rule: ignore
+  note: PN 166
+- route: GET /api/v1/accounting/reports/balance-sheet
+  path: $.assets_total_base
+  rule: ignore
+  note: PN 166
+- route: GET /api/v1/accounting/reports/balance-sheet
+  path: $.income_total_base
+  rule: ignore
+  note: PN 166
+
+# PN 166: FX revaluation.
+- route: GET /api/v1/accounting/reports/fx-revaluation
+  path: $.lines
+  rule: ignore
+  note: PN 166
+- route: GET /api/v1/accounting/reports/fx-revaluation
+  path: $.total_unrealised_gain
+  rule: ignore
+  note: PN 166

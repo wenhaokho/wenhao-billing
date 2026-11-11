@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v2"
@@ -67,6 +68,9 @@ type Allowed struct {
 	// only between the backends themselves.
 	PythonHost string `yaml:"-"`
 	GoHost     string `yaml:"-"`
+	// usage records which entries one run reached and matched. A runner sets
+	// it (TrackUsage); every copy of the Allowed shares it. nil records nothing.
+	usage *allowedUsage
 }
 
 // ParseAllowed reads the entries of an allowed-diffs.yaml document. Every
@@ -96,6 +100,22 @@ func LoadAllowedFile(path string) (Allowed, error) {
 		return Allowed{}, err
 	}
 	return ParseAllowed(data)
+}
+
+// LoadAllowedFiles reads the entries of every path, in order, and merges them
+// into one Allowed (the --allowed flag may be repeated: the shipped
+// allowed-diffs.yaml, then an overlay such as allowed-diffs-prodcopy.yaml used
+// for one kind of run only). An error names the file it came from.
+func LoadAllowedFiles(paths ...string) (Allowed, error) {
+	var merged []AllowedEntry
+	for _, path := range paths {
+		a, err := LoadAllowedFile(path)
+		if err != nil {
+			return Allowed{}, fmt.Errorf("%s: %w", path, err)
+		}
+		merged = append(merged, a.Entries...)
+	}
+	return newAllowed(merged)
 }
 
 // newAllowed validates the entries and returns them.
@@ -160,6 +180,85 @@ func validateEntry(i int, e AllowedEntry) error {
 		}
 	}
 	return nil
+}
+
+// UnusedAllowed is one allowed entry a run never needed, as the report lists
+// it.
+type UnusedAllowed struct {
+	Route string `json:"route"`
+	Path  string `json:"path"`
+	Rule  string `json:"rule"`
+	Note  string `json:"note"`
+}
+
+// allowedUsage is one run's record of the entries a request's route reached
+// (exercised) and the entries that applied to a path or a status pair of an
+// answer (matched). An entry is keyed by its value, so a repeated identical
+// entry counts once.
+type allowedUsage struct {
+	mu        sync.Mutex
+	exercised map[AllowedEntry]bool
+	matched   map[AllowedEntry]bool
+}
+
+// TrackUsage returns a copy of a that records, from now on, which entries the
+// diffs it is used for reach and match; Unused reads the record. A runner
+// calls it once per run, so each run starts with an empty record.
+func (a Allowed) TrackUsage() Allowed {
+	a.usage = &allowedUsage{exercised: map[AllowedEntry]bool{}, matched: map[AllowedEntry]bool{}}
+	return a
+}
+
+// exercise records that a request's route reached the entries.
+func (u *allowedUsage) exercise(entries []AllowedEntry) {
+	if u == nil {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for _, e := range entries {
+		u.exercised[e] = true
+	}
+}
+
+// match records that the entry applied to an answer.
+func (u *allowedUsage) match(e AllowedEntry) {
+	if u == nil {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.matched[e] = true
+}
+
+// documentaryRules never change the comparison (decimals and instants compare
+// by value anyway, see allowed-diffs.yaml), so they can never match and are
+// never reported as unused.
+var documentaryRules = map[string]bool{RuleDecimalEqual: true, RuleInstantEqual: true}
+
+// Unused is the entries, in file order, whose route the run requested but that
+// never applied to anything: a path that no answer had (an ignore, unordered
+// or number-equal entry), a status pair that never occurred, or a detail that
+// never differed. Such an entry is dead or names the wrong field, as the PN 40
+// `$.open_invoices` entry did. An entry whose route was never requested is not
+// listed (the run did not exercise it), nor is a documentary rule. It is a
+// warning only; without TrackUsage it is always empty.
+func (a Allowed) Unused() []UnusedAllowed {
+	out := []UnusedAllowed{}
+	if a.usage == nil {
+		return out
+	}
+	a.usage.mu.Lock()
+	defer a.usage.mu.Unlock()
+	seen := map[AllowedEntry]bool{}
+	for _, e := range a.Entries {
+		if seen[e] || documentaryRules[e.Rule] || !a.usage.exercised[e] || a.usage.matched[e] {
+			continue
+		}
+		seen[e] = true
+		out = append(out, UnusedAllowed{Route: e.Route, Path: e.Path, Rule: e.Rule, Note: e.Note})
+	}
+	return out
 }
 
 // isWholeBodyPath reports whether a path names the whole response: $, or $

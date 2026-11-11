@@ -73,7 +73,9 @@ func Diff(route string, py, gov Response, a Allowed) []Difference {
 		pythonHost: a.PythonHost,
 		goHost:     a.GoHost,
 		govStatus:  gov.Status,
+		usage:      a.usage,
 	}
+	d.usage.exercise(d.entries)
 	if isPDF(py) || isPDF(gov) {
 		d.comparePDF(py, gov)
 		return d.diffs
@@ -107,6 +109,7 @@ type differ struct {
 	pythonHost string
 	goHost     string
 	govStatus  int
+	usage      *allowedUsage
 	diffs      []Difference
 	// override tags a plain difference as this rule (the error body).
 	override string
@@ -117,6 +120,7 @@ func (d *differ) ignored(path string) bool {
 	np := normalizePath(path)
 	for _, e := range d.entries {
 		if e.Rule == RuleIgnore && pathCovers(e.Path, np) {
+			d.usage.match(e)
 			return true
 		}
 	}
@@ -132,6 +136,7 @@ func (d *differ) unorderedAt(path string) bool {
 		}
 		ep := normalizePath(e.Path)
 		if ep == np || ep == np+"[*]" {
+			d.usage.match(e)
 			return true
 		}
 	}
@@ -143,6 +148,7 @@ func (d *differ) numberEqual(path string) bool {
 	np := normalizePath(path)
 	for _, e := range d.entries {
 		if e.Rule == RuleNumberEqual && pathCovers(e.Path, np) {
+			d.usage.match(e)
 			return true
 		}
 	}
@@ -153,6 +159,7 @@ func (d *differ) numberEqual(path string) bool {
 func (d *differ) statusAllowed(py, gov int) bool {
 	for _, e := range d.entries {
 		if e.Rule == RuleStatus && e.Python == py && e.Go == gov {
+			d.usage.match(e)
 			return true
 		}
 	}
@@ -180,6 +187,7 @@ func (d *differ) detailAllowed(path, gov string) bool {
 				continue
 			}
 		}
+		d.usage.match(e)
 		return true
 	}
 	return false
@@ -480,10 +488,13 @@ func (d *differ) multisetEqual(path string, py, gov []any) bool {
 
 // numbersEqual compares two JSON numbers, by value where allowed.
 func (d *differ) numbersEqual(path string, py, gov json.Number) bool {
+	// Asked first, so an entry for a path whose numbers print alike still
+	// counts as used (Allowed.Unused).
+	byValue := d.numberEqual(path)
 	if py.String() == gov.String() {
 		return true
 	}
-	return d.numberEqual(path) && decimalsEqual(py.String(), gov.String())
+	return byValue && decimalsEqual(py.String(), gov.String())
 }
 
 // compareStatus records a status difference at @status, a path no body field

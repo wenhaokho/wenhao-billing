@@ -115,8 +115,25 @@
   path: $[*]
   rule: unordered
   note: PN 40
+# The billing summary's four invoice lists (BillingSummary: milestone,
+# recurring, usage, unpaid_invoices). Python orders each by due_date only, so
+# templates with a NULL due_date tie; Go breaks the tie by created_at, then
+# invoice_id. This replaces an entry for `$.open_invoices`, a field the answer
+# never had (found by the production-copy run, 2026-11-11).
 - route: GET /api/v1/customers/{customer_id}/billing-summary
-  path: $.open_invoices
+  path: $.milestone
+  rule: unordered
+  note: PN 40
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.recurring
+  rule: unordered
+  note: PN 40
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.usage
+  rule: unordered
+  note: PN 40
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.unpaid_invoices
   rule: unordered
   note: PN 40
 
@@ -137,6 +154,38 @@
   note: PN 44
 - route: GET /api/v1/bills/{bill_id}
   path: $.line_items
+  rule: unordered
+  note: PN 44
+
+# PN 44: lines of equal position, in the lists that embed them. Python orders
+# lines by position only; Go by position, then line_item_id. The query string
+# is not part of the route, so the invoice list's status variants are covered.
+- route: GET /api/v1/invoices
+  path: $[*].line_items
+  rule: unordered
+  note: PN 44
+- route: GET /api/v1/customers/{customer_id}/invoices
+  path: $[*].line_items
+  rule: unordered
+  note: PN 44
+- route: GET /api/v1/invoices/recurring-templates
+  path: $[*].line_items
+  rule: unordered
+  note: PN 44
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.milestone[*].line_items
+  rule: unordered
+  note: PN 44
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.recurring[*].line_items
+  rule: unordered
+  note: PN 44
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.usage[*].line_items
+  rule: unordered
+  note: PN 44
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.unpaid_invoices[*].line_items
   rule: unordered
   note: PN 44
 
@@ -171,6 +220,12 @@
   note: PN 78
 
 # PN 100: deterministic order where Python followed the database.
+# The invoice list orders by created_at DESC only in Python; invoices one
+# scheduler run created share created_at, and Go breaks the tie by invoice_id.
+- route: GET /api/v1/invoices
+  path: $[*]
+  rule: unordered
+  note: PN 100
 - route: GET /api/v1/stats/dashboard
   path: $.recent_activity
   rule: unordered
@@ -590,6 +645,19 @@
   go_code: 401
   detail_pattern: "^invalid email webhook token$"
   note: PN 87
+
+# PN 91: the intake answers print confidence_score at the engine's 4 places in
+# Python (no refresh after commit) and at the stored 2 in Go. Only the answer's
+# field is ignored: the stored value is still compared by the write run's
+# payments row comparison.
+- route: POST /api/v1/payments/intake/webhook
+  path: $.confidence_score
+  rule: ignore
+  note: PN 91
+- route: POST /api/v1/payments/intake/email
+  path: $.confidence_score
+  rule: ignore
+  note: PN 91
 
 # PN 112: a DRAFT invoice send is refused in Go. The detail-shape is deleted:
 # Python succeeds (200), so the bodies are compared field by field.
