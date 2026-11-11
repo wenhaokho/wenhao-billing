@@ -6,6 +6,8 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Tag from "primevue/tag";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
@@ -34,6 +36,17 @@ interface LogEntry {
   action: string;
   reasons: string[];
   created_at: string;
+}
+
+// confidence_score is on the matching engine's 0–100 scale; 95 is its
+// auto-clear threshold (backend internal/matching AutoClearThreshold).
+const AUTO_CLEAR = 95;
+function scorePct(score: string): number {
+  const n = Number(score);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+}
+function scoreTone(score: string): "ok" | "low" {
+  return Number(score) >= AUTO_CLEAR ? "ok" : "low";
 }
 
 const queryClient = useQueryClient();
@@ -86,54 +99,86 @@ const reverse = useMutation({
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Manual Review</h1>
-        <p class="subtitle">
-          Payments held by the safe-stop gate — amount/currency mismatch or low confidence.
-          Review the reasons, then approve or reverse.
-        </p>
-      </div>
-    </header>
+    <PageHeader eyebrow="05 / Operations" title="Manual Review">
+      <template #lede>
+        Payments held by the safe-stop gate — amount/currency mismatch or low confidence.
+        Review the reasons, then approve or reverse.
+      </template>
+    </PageHeader>
 
     <div class="layout">
-      <div class="list">
-      <DataTable
-        :value="data ?? []"
-        :loading="isLoading"
-        data-key="payment_id"
-        selection-mode="single"
-        v-model:selection="selected"
-        striped-rows
-      >
-        <template #empty>
-          <div class="empty-state">
-            <AppIcon name="circle-check" />
-            <div>Nothing held. All recent payments auto-cleared.</div>
-          </div>
-        </template>
-        <Column field="payer_name" header="Payer" />
-        <Column header="Amount" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
-          <template #body="{ data: r }">
-            <span class="num">{{ formatAmount(r.amount, r.currency) }}</span>
+      <div class="list card">
+        <div class="list-head">
+          <span class="card-title">Held payments</span>
+          <Tag
+            v-if="(data ?? []).length"
+            class="status-tag"
+            severity="warn"
+            :value="`${(data ?? []).length} waiting`"
+          />
+        </div>
+        <DataTable
+          :value="data ?? []"
+          :loading="isLoading"
+          data-key="payment_id"
+          selection-mode="single"
+          v-model:selection="selected"
+          striped-rows
+        >
+          <template #empty>
+            <EmptyState icon="circle-check" title="Nothing held" message="All recent payments auto-cleared." />
           </template>
-        </Column>
-        <Column field="currency" header="Ccy" />
-        <Column field="payment_date" header="Date" />
-        <Column field="confidence_score" header="Score" />
-        <Column field="adjustment_type" header="Adjustment">
-          <template #body="{ data: r }">
-            <Tag :value="r.adjustment_type" severity="info" />
-          </template>
-        </Column>
-      </DataTable>
-    </div>
+          <Column header="Payer">
+            <template #body="{ data: r }">
+              <span class="payer">{{ r.payer_name }}</span>
+            </template>
+          </Column>
+          <Column header="Amount" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+            <template #body="{ data: r }">
+              <span class="num strong">{{ formatAmount(r.amount, r.currency) }}</span>
+            </template>
+          </Column>
+          <Column field="currency" header="Ccy" body-class="cell-nowrap cell-muted" />
+          <Column field="payment_date" header="Date" body-class="cell-nowrap cell-muted" />
+          <Column header="Score" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+            <template #body="{ data: r }">
+              <span v-if="r.confidence_score != null" class="num score" :class="scoreTone(r.confidence_score)">{{ r.confidence_score }}</span>
+              <span v-else class="muted">—</span>
+            </template>
+          </Column>
+          <Column field="adjustment_type" header="Adjustment">
+            <template #body="{ data: r }">
+              <Tag :value="r.adjustment_type" severity="info" />
+            </template>
+          </Column>
+        </DataTable>
+      </div>
 
       <aside v-if="selected" class="detail card">
         <div class="detail-head">
-          <h2>Payment {{ selected.payment_id.slice(0, 8) }}…</h2>
+          <span class="card-eyebrow">Why it was held</span>
           <StatusTag :status="selected.status" />
         </div>
+        <h2 class="detail-payer">{{ selected.payer_name }}</h2>
+        <div class="detail-amount num">{{ formatMoney(selected.amount, selected.currency) }}</div>
+        <div class="detail-sub">
+          Received {{ selected.payment_date }} · payment <code>{{ selected.payment_id.slice(0, 8) }}…</code>
+        </div>
+
+        <div v-if="selected.confidence_score != null" class="confidence">
+          <div class="confidence-row">
+            <span>Match confidence</span>
+            <span class="num score" :class="scoreTone(selected.confidence_score)">{{ selected.confidence_score }}</span>
+          </div>
+          <div class="confidence-track">
+            <div
+              class="confidence-bar"
+              :class="scoreTone(selected.confidence_score)"
+              :style="{ width: `${scorePct(selected.confidence_score)}%` }"
+            />
+          </div>
+        </div>
+
         <dl>
           <dt>Payer</dt><dd>{{ selected.payer_name }}</dd>
           <dt>Reference</dt><dd>{{ selected.payer_reference ?? '—' }}</dd>
@@ -179,7 +224,7 @@ const reverse = useMutation({
         </div>
       </aside>
 
-      <aside v-else class="detail card card-pad placeholder">
+      <aside v-else class="card card-pad placeholder">
         <AppIcon name="arrow-left" />
         <div>Select a payment on the left to see its match reasons and take action.</div>
       </aside>
@@ -203,28 +248,99 @@ const reverse = useMutation({
 </template>
 
 <style scoped>
-.layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 1.25rem; }
+/* Mockup: held-payments card on the left, "why it was held" on the right. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(340px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
 @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
 
-.detail { padding: 1.1rem 1.25rem; }
-.detail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
-.detail h2 { margin: 0; font-size: 1rem; font-weight: 600; }
-.detail h3 { margin: 0 0 0.5rem; font-size: 0.85rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
-.section { margin-top: 1.1rem; padding-top: 1.1rem; border-top: 1px solid var(--color-border); }
-dl { display: grid; grid-template-columns: 110px 1fr; gap: 0.4rem 0.75rem; margin: 0; font-size: 0.88rem; }
-dt { color: var(--color-text-muted); }
-dd { margin: 0; color: var(--color-text); }
+.list { min-width: 0; }
+.list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--wb-line);
+}
+.list :deep(.p-datatable-table-container) { border: 0; }
+.list :deep(.p-datatable-tbody > tr) { cursor: pointer; }
+.list :deep(.p-datatable-tbody > tr.p-datatable-row-selected) {
+  background: var(--wb-surface-2) !important;
+  color: var(--wb-ink);
+  box-shadow: inset 3px 0 0 var(--wb-red);
+}
+.payer { font-weight: 500; }
+.strong { font-weight: 500; }
+.num { font-variant-numeric: tabular-nums; }
+/* Confidence against the 95 auto-clear threshold (matching engine). */
+.score { font-weight: 500; }
+.score.ok { color: var(--wb-green-fg); }
+.score.low { color: var(--wb-amber-fg); }
+
+.detail { padding: 28px; min-width: 0; }
+.detail-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.detail .detail-payer {
+  margin: 10px 0 0;
+  font: 500 24px/1.15 var(--wb-font-display);
+  letter-spacing: -0.7px;
+  color: var(--wb-ink);
+  overflow-wrap: anywhere;
+}
+.detail-amount {
+  font: 500 32px/1.1 var(--wb-font-display);
+  letter-spacing: -1.2px;
+  color: var(--wb-ink);
+  margin-top: 6px;
+}
+.detail-sub { font-size: 13px; color: var(--wb-muted); margin-top: 4px; }
+.detail-sub code { background: var(--wb-tint); color: var(--wb-ink); padding: 1px 5px; font-size: 12px; }
+
+.confidence { margin-top: 24px; }
+.confidence-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--wb-muted); }
+.confidence-track { height: 6px; background: var(--wb-tint); margin-top: 8px; }
+.confidence-bar { height: 100%; }
+.confidence-bar.ok { background: var(--wb-green-fg); }
+.confidence-bar.low { background: var(--wb-amber-fg); }
+
+dl { display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px; margin: 24px 0 0; font-size: 14px; }
+dt { color: var(--wb-muted); }
+dd { margin: 0; color: var(--wb-ink); min-width: 0; overflow-wrap: anywhere; }
 dd.num { font-variant-numeric: tabular-nums; font-weight: 500; }
-.reasons { padding-left: 1.1rem; color: var(--color-text-muted); margin: 0; font-size: 0.88rem; }
-.reasons li { margin-bottom: 0.2rem; }
-.muted { color: var(--color-text-muted); font-size: 0.85rem; margin: 0; }
-.approve-row { display: flex; gap: 0.5rem; }
-.approve-row .p-inputtext { flex: 1; }
+.section { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--wb-line); }
+.detail h3 {
+  margin: 0 0 12px;
+  font: 500 11px/1.4 var(--wb-font-sans);
+  color: var(--wb-muted-soft);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+/* Each logged reason as its own bordered row (mockup). */
+.reasons { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.reasons li {
+  padding: 12px 16px;
+  border: 1px solid var(--wb-line);
+  border-left: 3px solid var(--wb-amber-fg);
+  color: var(--wb-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.muted { color: var(--wb-muted); font-size: 14px; margin: 0; }
+.approve-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.approve-row .p-inputtext { flex: 1 1 220px; }
 .w-full { width: 100%; }
 .placeholder {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 0.75rem; color: var(--color-text-muted); text-align: center;
-  min-height: 200px;
+  gap: 12px; color: var(--wb-muted); text-align: center;
+  min-height: 240px;
 }
-.placeholder .app-icon { width: 1.5rem; height: 1.5rem; color: var(--color-text-subtle); }
+.placeholder .app-icon { width: 24px; height: 24px; color: var(--wb-muted-soft); }
+.card-pad { padding: 28px; }
+@media (max-width: 720px) {
+  .detail, .card-pad { padding: 20px; }
+  .list-head { padding: 16px 20px; }
+}
 </style>
