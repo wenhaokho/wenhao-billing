@@ -280,12 +280,21 @@ func (je jentry) nets() (net, base decimal.Decimal) {
 	return net, base
 }
 
-// entries are the journal entries whose source is the payment, oldest first.
+// entries are the journal entries whose source is the payment, in the order
+// they were recorded. Every clearing is posted on the payment date and every
+// reversal at now (PORT-NOTES 167), so posted_at alone ties the clearings: a
+// reversed clearing sorts just before its reversal, a reversal at its own
+// posted_at, and the active clearing last.
 func (e *env) entries(t *testing.T, paymentID uuid.UUID) []jentry {
 	t.Helper()
 	ctx := context.Background()
-	rows, err := e.pool.Query(ctx, `SELECT entry_id, reversed_by_entry_id, COALESCE(memo, '') FROM journal_entries
-WHERE source_id = $1 ORDER BY posted_at, entry_id`, paymentID)
+	rows, err := e.pool.Query(ctx, `SELECT e.entry_id, e.reversed_by_entry_id, COALESCE(e.memo, '') FROM journal_entries e
+WHERE e.source_id = $1
+ORDER BY CASE
+    WHEN e.reversed_by_entry_id IS NOT NULL THEN (SELECT r.posted_at FROM journal_entries r WHERE r.entry_id = e.reversed_by_entry_id)
+    WHEN EXISTS (SELECT 1 FROM journal_entries o WHERE o.reversed_by_entry_id = e.entry_id) THEN e.posted_at
+    ELSE 'infinity'::timestamp END,
+  EXISTS (SELECT 1 FROM journal_entries o WHERE o.reversed_by_entry_id = e.entry_id), e.entry_id`, paymentID)
 	if err != nil {
 		t.Fatal(err)
 	}

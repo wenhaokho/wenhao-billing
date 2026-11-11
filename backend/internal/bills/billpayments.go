@@ -150,10 +150,18 @@ func payBill(ctx context.Context, tx pgx.Tx, base string, cur billsdb.Bill, p ne
 	if err != nil {
 		return err
 	}
-	if _, err := ledger.PostBillPayment(ctx, tx, base, ledger.BillPayment{
+	bp := ledger.BillPayment{
 		ID: row.BillPaymentID, Amount: row.Amount, Currency: row.Currency, Date: dateOf(row.PaymentDate),
 		Memo: "Payment " + row.BillPaymentID.String() + " of bill " + billLabel(cur),
-	}, cur.BillID); err != nil {
+	}
+	// Posted on the payment date (never later than now), the date the bank
+	// and FX lines convert on; no date posts at now (PORT-NOTES 167).
+	if row.PaymentDate.Valid {
+		_, err = ledger.PostBillPaymentAt(ctx, tx, base, bp, cur.BillID, ledger.Midnight(row.PaymentDate.Time))
+	} else {
+		_, err = ledger.PostBillPayment(ctx, tx, base, bp, cur.BillID)
+	}
+	if err != nil {
 		return err
 	}
 	balance, status := cur.BalanceDue.Sub(p.amount), "PARTIAL"

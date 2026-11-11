@@ -24,11 +24,16 @@ import (
 // Rates USD→IDR: 15000 on 2025-01-01, 16000 on 2025-02-01, 14000 on
 // 2025-03-01, and 17000 on accrualAsOf (the revaluation rate). Every
 // document is issued on 2025-01-01, so its issue entry is posted at
-// 2025-01-01 00:00; payments post at the database's now, which is before
-// accrualAsOf.
+// 2025-01-01 00:00, and every payment is dated accrualPaid, so it is posted
+// at accrualPaid 00:00 (PORT-NOTES 167). The void's reversal is a new event,
+// posted at the database's now (2026), so the whole book's reports are as of
+// accrualAsOf, after it; TestTrialBalanceBalancesAfterAccrualFlow also reads
+// the book as of accrualPaid, before the void. accrualAsOf is the only date
+// with the revaluation rate.
 const (
 	accrualIssue  = "2025-01-01"
 	accrualPaid   = "2025-02-01"
+	accrualPaidQ  = "?as_of=" + accrualPaid
 	accrualAsOf   = "2030-01-01"
 	accrualAsOfQ  = "?as_of=" + accrualAsOf
 	accrualRevalQ = "17000"
@@ -216,6 +221,19 @@ func TestTrialBalanceBalancesAfterAccrualFlow(t *testing.T) {
 	// 4100 USD: 1000 at 15000, never relieved by its payment.
 	wantEq(t, "4100 USD net", rev4100.Net, "-1000.0000")
 	wantEq(t, "4100 USD base net", rev4100.BaseNet, "-15000000.0000")
+
+	// As of accrualPaid every payment is in and the void is not yet: the
+	// voided invoice's 300,000 is still receivable, and the book balances.
+	paid := tb(t, a, accrualPaidQ)
+	if paid.TotalDebitBase != paid.TotalCreditBase {
+		t.Errorf("as of %s: Σ base debit %s ≠ Σ base credit %s", accrualPaid, paid.TotalDebitBase, paid.TotalCreditBase)
+	}
+	wantEq(t, "1100 IDR base net as of paid", tbBaseNet(paid, "1100", "IDR"), "800000.0000")
+	wantEq(t, "1100 USD base net as of paid", tbBaseNet(paid, "1100", "USD"), "7500000.0000")
+	// Bank: 500,000 IDR + 1000 USD at 16000 − 2,000,000 IDR bill.
+	wantEq(t, "1000 IDR base net as of paid", tbBaseNet(paid, "1000", "IDR"), "-1500000.0000")
+	wantEq(t, "1000 USD base net as of paid", tbBaseNet(paid, "1000", "USD"), "16000000.0000")
+	wantEq(t, "4900 IDR base net as of paid", tbBaseNet(paid, "4900", "IDR"), "-1000000.0000")
 }
 
 func TestBalanceSheetARAPAtIssueBasis(t *testing.T) {
@@ -340,6 +358,47 @@ func TestRevaluationRevaluesOpenForeignARAndAP(t *testing.T) {
 	}
 	wantEq(t, "total gain", r.TotalUnrealisedGain, "2000000.0000")
 	wantEq(t, "total loss", r.TotalUnrealisedLoss, "400000.0000")
+}
+
+// A small book of its own, so the whole book's totals stay put: two USD
+// invoices of 1000 issued at 15000, one paid on 2025-02-01 at 16000 (4900
+// gain 1,000,000), the other on 2025-03-01 at 14000 (5900 loss 1,000,000).
+// The loss is an expense, posted on its payment date.
+func TestBalanceSheetRealisedFXLossIsExpense(t *testing.T) {
+	t.Parallel()
+	a := accrualApp(t)
+	c := newCustomer(t, a, "Acme")
+	gain := issueInvoice(t, a, c, "USD", "RECURRING", "1000").InvoiceID
+	recordInvoicePayment(t, a, gain, "1000", accrualPaid)
+	loss := issueInvoice(t, a, c, "USD", "MILESTONE", "1000").InvoiceID
+	recordInvoicePayment(t, a, loss, "1000", "2025-03-01")
+
+	if l := bsFind(bs(t, a, "?as_of=2025-02-28"), "5900"); l != nil {
+		t.Errorf("as of the day before the losing payment: 5900 line %+v, want none", l)
+	}
+	r := bs(t, a, "?as_of=2025-03-01")
+	if l := bsFind(r, "5900"); l == nil || bsGroupOf(r, "5900") != "EXPENSE" {
+		t.Errorf("5900 line %+v in group %q, want EXPENSE", l, bsGroupOf(r, "5900"))
+	} else {
+		wantEq(t, "5900 base balance", l.BaseBalance, "1000000.0000")
+	}
+	if l := bsFind(r, "4900"); l == nil {
+		t.Errorf("no 4900 line")
+	} else {
+		wantEq(t, "4900 base balance", l.BaseBalance, "1000000.0000")
+	}
+	if l := bsFind(r, "1100"); l != nil && !dec(l.BaseBalance).IsZero() {
+		t.Errorf("1100 line %+v, want nothing receivable", l)
+	}
+	// 4000 15,000,000 + 4100 15,000,000 + 4900 1,000,000.
+	wantEq(t, "income total", r.IncomeTotalBase, "31000000.0000")
+	wantEq(t, "expense total", r.ExpenseTotalBase, "1000000.0000")
+	// 1000: 1000 × 16000 + 1000 × 14000.
+	wantEq(t, "assets total", r.AssetsTotalBase, "30000000.0000")
+	rhs := dec(r.LiabilitiesTotalBase).Add(dec(r.EquityTotalBase)).Add(dec(r.IncomeTotalBase)).Sub(dec(r.ExpenseTotalBase))
+	if !dec(r.AssetsTotalBase).Equal(rhs) {
+		t.Errorf("assets %s ≠ liabilities + equity + income − expense %s", r.AssetsTotalBase, rhs)
+	}
 }
 
 // The issue entry is posted at the issue date: a trial balance as of the

@@ -372,6 +372,12 @@ func checkBalanced(lines []Line) error {
 	return nil
 }
 
+// Midnight is d's calendar day at 00:00 UTC: the posted_at of an entry dated
+// on a document's date (an issue date, a payment date; PORT-NOTES 162, 167).
+func Midnight(d time.Time) time.Time {
+	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
+}
+
 // insert writes e, posted at postedAt (nil = now; never later than now).
 func insert(ctx context.Context, q *ledgerdb.Queries, e Entry, postedAt *time.Time) error {
 	if err := q.InsertEntry(ctx, ledgerdb.InsertEntryParams{

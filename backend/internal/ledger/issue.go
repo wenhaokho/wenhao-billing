@@ -157,7 +157,7 @@ func PostIssued(ctx context.Context, tx pgx.Tx, baseCurrency string, d Document)
 	}
 	var postedAt *time.Time
 	if !d.IssueDate.IsZero() {
-		day := time.Date(d.IssueDate.Year(), d.IssueDate.Month(), d.IssueDate.Day(), 0, 0, 0, 0, time.UTC)
+		day := Midnight(d.IssueDate)
 		postedAt = &day
 	}
 	if err := insert(ctx, q, e, postedAt); err != nil {
