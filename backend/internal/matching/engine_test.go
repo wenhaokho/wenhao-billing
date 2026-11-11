@@ -1,6 +1,7 @@
 package matching
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -492,34 +493,72 @@ func TestAliasMatchNotWhenNameWins(t *testing.T) {
 	}
 }
 
-// Aliases only add a trailing reason: status, confidence, adjustment and the
-// other reasons equal those of the same candidate without aliases' influence.
+// Aliases only add a trailing reason. Each case runs Match twice: once with a
+// candidate whose payer matches through an alias (the customer name is
+// unrelated), and once with a baseline candidate that has no aliases and
+// carries the alias as its name, so both score the same. The decision must be
+// identical and the reasons must differ only by the trailing alias reason.
 func TestAliasReasonLeavesDecisionUnchanged(t *testing.T) {
 	t.Parallel()
-	amounts := []string{"1000.0000", "999.9000", "1500.0000"}
-	for _, amt := range amounts {
-		t.Run(amt, func(t *testing.T) {
+	cases := []struct {
+		name    string
+		alias   string
+		payment func(*Incoming)
+		cand    func(*Candidate)
+	}{
+		{name: "exact match clears", alias: "Acme Corp"},
+		{name: "within epsilon over", alias: "Acme Corp", payment: func(p *Incoming) { p.Amount = dec("1000.0001") }},
+		{name: "small underpayment", alias: "Acme Corp", payment: func(p *Incoming) { p.Amount = dec("999.9000") }},
+		{name: "partial payment", alias: "Acme Corp", payment: func(p *Incoming) { p.Amount = dec("500.0000") }},
+		{name: "overpayment", alias: "Acme Corp", payment: func(p *Incoming) { p.Amount = dec("1500.0000") }},
+		{name: "currency mismatch", alias: "Acme Corp", payment: func(p *Incoming) { p.Currency = "EUR" }},
+		{name: "low confidence exact amount", alias: "Acme Corp", cand: func(c *Candidate) {
+			c.IssueDate, c.DueDate = day(2026, 1, 1), day(2026, 1, 15)
+		}},
+		{name: "partial alias similarity", alias: "Acme Co"},
+		{name: "partial alias similarity mismatch", alias: "Acme Co", payment: func(p *Incoming) { p.Amount = dec("750.0000") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			p := incoming(func(p *Incoming) { p.Amount = dec(amt) })
-			c := candidate(func(c *Candidate) {
-				c.CustomerName = "Totally Different Name Ltd"
-				c.Aliases = []string{"Acme Corp"}
-			})
-			r := match(p, c)
-			if !r.Confidence.Equal(Score(p, c)) {
-				t.Fatalf("confidence %s != Score %s", r.Confidence, Score(p, c))
-			}
-			base := r.Reasons
-			if n := len(base); n > 0 && strings.HasPrefix(base[n-1], "alias match:") {
-				base = base[:n-1]
-			}
-			if r.Status == StatusCleared && len(r.Reasons) != 1 {
-				t.Fatalf("cleared reasons %v", r.Reasons)
-			}
-			for _, reason := range base {
-				if strings.HasPrefix(reason, "alias match:") {
-					t.Fatalf("alias reason not last: %v", r.Reasons)
+			p := incoming(tc.payment)
+			withAlias := candidate(func(c *Candidate) {
+				if tc.cand != nil {
+					tc.cand(c)
 				}
+				c.CustomerName = "Totally Different Name Ltd"
+				c.Aliases = []string{tc.alias}
+			})
+			baseline := withAlias
+			baseline.CustomerName = tc.alias
+			baseline.Aliases = nil
+			if a, b := Score(p, withAlias), Score(p, baseline); !a.Equal(b) {
+				t.Fatalf("setup: alias score %s != baseline score %s", a, b)
+			}
+
+			got, want := match(p, withAlias), match(p, baseline)
+			if got.Status != want.Status || !got.Confidence.Equal(want.Confidence) ||
+				got.AdjustmentType != want.AdjustmentType ||
+				got.CurrencyMismatch != want.CurrencyMismatch || got.AmountMismatch != want.AmountMismatch {
+				t.Fatalf("decision differs:\n alias    %s %s %s cur=%v amt=%v\n baseline %s %s %s cur=%v amt=%v",
+					got.Status, got.Confidence, got.AdjustmentType, got.CurrencyMismatch, got.AmountMismatch,
+					want.Status, want.Confidence, want.AdjustmentType, want.CurrencyMismatch, want.AmountMismatch)
+			}
+			for _, r := range want.Reasons {
+				if strings.HasPrefix(r, "alias match:") {
+					t.Fatalf("baseline has an alias reason: %v", want.Reasons)
+				}
+			}
+			reasons := got.Reasons
+			if got.Status == StatusPending {
+				n := len(reasons)
+				if n == 0 || !strings.HasPrefix(reasons[n-1], "alias match: '"+tc.alias+"'") {
+					t.Fatalf("held without trailing alias reason: %v", reasons)
+				}
+				reasons = reasons[:n-1]
+			}
+			if !slices.Equal(reasons, want.Reasons) {
+				t.Fatalf("reasons minus alias %v, baseline %v", reasons, want.Reasons)
 			}
 		})
 	}
