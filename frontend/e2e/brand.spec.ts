@@ -408,7 +408,9 @@ test.describe("overlays are square with the overlay shadow", () => {
 });
 
 // Ruling R10: a destructive (danger) button must not look like a routine
-// primary one, in either theme, and keeps white text at 4.5:1 or better.
+// primary one, in either theme: primary is a filled pill, danger is outlined
+// (no fill, a line in its own text colour), its text at 4.5:1 or better on the
+// dialog surface.
 test("danger button differs from the primary button, light and dark", async ({ page }) => {
   const name = `E2E Danger Customer ${uniq()}`;
   await apiPost(page.request, "/customers", { name, default_currency: "IDR" });
@@ -416,7 +418,7 @@ test("danger button differs from the primary button, light and dark", async ({ p
   const style = (el: Locator) =>
     el.evaluate((n) => {
       const cs = getComputedStyle(n);
-      return { bg: cs.backgroundColor, border: cs.borderTopColor, shadow: cs.boxShadow, color: cs.color };
+      return { bg: cs.backgroundColor, border: cs.borderTopColor, color: cs.color };
     });
   const lum = (rgb: string) => {
     const [r, g, b] = rgb.match(/\d+(\.\d+)?/g)!.slice(0, 3).map(Number);
@@ -438,10 +440,20 @@ test("danger button differs from the primary button, light and dark", async ({ p
     await expect(danger).toHaveClass(/p-button-danger/);
     const p = await style(primary);
     const d = await style(danger);
-    expect(d.bg, `${theme}: danger fill differs from primary`).not.toBe(p.bg);
-    expect(d.border, `${theme}: danger edge differs from primary`).not.toBe(p.border);
-    expect(d.border, `${theme}: danger edge differs from its fill`).not.toBe(d.bg);
-    expect(contrast(d.color, d.bg), `${theme}: danger text contrast`).toBeGreaterThanOrEqual(4.5);
+    const alpha = (c: string) => {
+      const m = c.match(/^rgba\(.*,\s*([\d.]+)\)$/);
+      return m ? Number(m[1]) : c === "transparent" ? 0 : 1;
+    };
+    expect(alpha(p.bg), `${theme}: primary is filled (${p.bg})`).toBe(1);
+    expect(alpha(d.bg), `${theme}: danger has no fill (${d.bg})`).toBe(0);
+    expect(d.border, `${theme}: danger is outlined in its text colour`).toBe(d.color);
+    expect(d.color, `${theme}: danger text is not the primary's white`).not.toBe(p.color);
+    const surface = await dialog.evaluate((n) => getComputedStyle(n).backgroundColor);
+    expect(contrast(d.color, surface), `${theme}: danger text on ${surface}`).toBeGreaterThanOrEqual(4.5);
+    // Cancel is the quiet secondary pill, not a filled primary competing with the action.
+    const cancel = await style(dialog.getByRole("button", { name: "Cancel" }));
+    expect(alpha(cancel.bg), `${theme}: Cancel has no fill (${cancel.bg})`).toBe(0);
+    expect(cancel.border, `${theme}: Cancel is not red-edged`).not.toBe(d.border);
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
   }

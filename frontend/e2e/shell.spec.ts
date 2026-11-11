@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { initials } from "../src/utils/initials";
-import { ROUTES } from "./helpers";
+import { ROUTES, apiPost } from "./helpers";
 
 // The app shell: burgundy sidebar (252px) on desktop, a 76px icon rail on
 // tablet (721–1100px) and an off-canvas drawer on phones (≤720px).
@@ -133,4 +133,38 @@ test("designed screens do not scroll sideways at 375", async ({ page }) => {
     if (over > 0) wide.push(`${path} +${over}px`);
   }
   expect(wide).toEqual([]);
+});
+
+test("edit routes name themselves like their page heading", async ({ page }) => {
+  const c = await apiPost<{ customer_id: string }>(page.request, "/customers", { name: `E2E Title Customer ${Date.now()}`, default_currency: "IDR" });
+  const inv = await apiPost<{ invoice_id: string }>(page.request, "/invoices", {
+    customer_id: c.customer_id,
+    currency: "IDR",
+    line_items: [{ description: "E2E title line", quantity: "1", unit_price: "1000" }],
+  });
+  const accounts = (await (await page.request.get("/api/v1/accounting/chart-of-accounts")).json()) as { account_id: string }[];
+  expect(accounts.length, "chart of accounts").toBeGreaterThan(0);
+  for (const [path, title] of [
+    [`/invoices/${inv.invoice_id}/edit`, "Edit invoice"],
+    [`/chart-of-accounts/${accounts[0].account_id}`, "Edit account"],
+  ]) {
+    await page.goto(path);
+    await expect(page.locator("main").getByRole("heading", { level: 1 }).first(), path).toHaveText(title);
+    await expect(page.locator("header.topbar .topbar-title"), path).toHaveText(title);
+  }
+});
+
+test("manual review empty state fits its card at 375", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  // Nothing held, whatever the dev database holds.
+  await page.route("**/api/v1/payments/awaiting-review", (r) => r.fulfill({ json: [] }));
+  await page.goto("/review");
+  const empty = page.locator("main .wb-empty");
+  await expect(empty).toBeVisible();
+  const card = empty.locator("xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' card ')][1]");
+  const [e, c] = [await empty.getByText("All recent payments auto-cleared.").boundingBox(), await card.boundingBox()];
+  expect(e && c).toBeTruthy();
+  expect(e!.x, "message left edge").toBeGreaterThanOrEqual(c!.x);
+  expect(e!.x + e!.width, "message right edge").toBeLessThanOrEqual(c!.x + c!.width);
+  await expect(page.locator("main")).not.toContainText("on the left");
 });

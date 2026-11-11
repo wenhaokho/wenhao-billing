@@ -79,14 +79,21 @@ const toneFill = (fg: string, on = "var(--wb-on-tone)") => ({
 const toneButtons = {
   success: toneFill("var(--wb-green-fg)"),
   warn: toneFill("var(--wb-amber-fg)"),
-  // Ruling R10: destructive actions must not read as a routine primary. White
-  // on --wb-red-deep (8.3:1 light, 5.8:1 dark) inside an ink edge (maroon in
-  // light, cream in dark); overrides.css adds the inner light line.
+  // Ruling R10: a destructive action must never read as the routine (filled
+  // red) primary, so danger is outlined: no fill, a 1px red line and red text,
+  // red tint on hover. --wb-red-fg is #a51c30 in light (7.6:1 on white) and
+  // #ec8f99 in dark (7.6:1 on the dark surface).
   danger: {
-    ...toneFill("var(--wb-red-deep)", "#ffffff"),
-    borderColor: "var(--wb-ink)",
-    hoverBorderColor: "var(--wb-ink)",
-    activeBorderColor: "var(--wb-ink)",
+    background: "transparent",
+    hoverBackground: "var(--wb-red-bg)",
+    activeBackground: "var(--wb-red-bg)",
+    borderColor: "var(--wb-red-fg)",
+    hoverBorderColor: "var(--wb-red-fg)",
+    activeBorderColor: "var(--wb-red-fg)",
+    color: "var(--wb-red-fg)",
+    hoverColor: "var(--wb-red-fg)",
+    activeColor: "var(--wb-red-fg)",
+    focusRing: { color: "var(--wb-red-fg)", shadow: "none" },
   },
 };
 const toneText = (fg: string, bg: string) => ({ hoverBackground: bg, activeBackground: bg, color: fg });

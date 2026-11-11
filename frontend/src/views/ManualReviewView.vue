@@ -117,7 +117,15 @@ const reverse = useMutation({
             :value="`${(data ?? []).length} waiting`"
           />
         </div>
+        <!-- Outside the table: inside it the message centres across the table's
+             scrolling width and is clipped on a phone. -->
+        <EmptyState
+          v-if="!isLoading && !(data ?? []).length"
+          icon="circle-check"
+          title="Nothing held"
+          message="All recent payments auto-cleared." />
         <DataTable
+          v-else
           :value="data ?? []"
           :loading="isLoading"
           data-key="payment_id"
@@ -125,9 +133,6 @@ const reverse = useMutation({
           v-model:selection="selected"
           striped-rows
         >
-          <template #empty>
-            <EmptyState icon="circle-check" title="Nothing held" message="All recent payments auto-cleared." />
-          </template>
           <Column header="Payer">
             <template #body="{ data: r }">
               <span class="payer">{{ r.payer_name }}</span>
@@ -226,7 +231,7 @@ const reverse = useMutation({
 
       <aside v-else class="card card-pad placeholder">
         <AppIcon name="arrow-left" />
-        <div>Select a payment on the left to see its match reasons and take action.</div>
+        <div>Select a held payment to see its match reasons and take action.</div>
       </aside>
     </div>
 
@@ -256,6 +261,8 @@ const reverse = useMutation({
   align-items: start;
 }
 @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+/* Stacked, the list sits above the placeholder: drop its left-pointing arrow. */
+@media (max-width: 1100px) { .placeholder :deep(.app-icon) { display: none; } }
 
 .list { min-width: 0; }
 .list-head {
