@@ -35,6 +35,9 @@ type RowDiff struct {
 	// classifyRowDiff), or is empty. It never hides the difference: a
 	// classified difference is still counted and listed.
 	Classify string `json:"classify,omitempty"`
+	// Check, on an unclassified difference, names the rule's check the rows
+	// failed ("PN 162 check failed: …"), so a near miss is visible.
+	Check string `json:"check,omitempty"`
 }
 
 // tableName is the plain identifier a table name may be. It is a first line
@@ -249,6 +252,9 @@ type RowsInput struct {
 	Maps           IDMaps
 	PythonSnapshot Snapshot
 	GoSnapshot     Snapshot
+	// BaseCurrency is the ledger's base currency, for the issue entries'
+	// rate check; empty means DefaultBaseCurrency (IDR).
+	BaseCurrency string
 }
 
 // tableState is one table's touched rows on both sides: the pre-existing rows
@@ -263,6 +269,9 @@ type tableState struct {
 	goPre  map[string]Row
 	pyNew  []Row
 	goNew  []Row
+	// goAll is every Go row, touched or not: the classification checks read
+	// a Go entry's siblings and lines whether or not the run touched them.
+	goAll []Row
 }
 
 // Rows compares the rows the run touched. It reads each table on both
@@ -302,17 +311,8 @@ func Rows(ctx context.Context, in RowsInput) ([]RowDiff, error) {
 		}
 	}
 	c.uuids = in.Maps.uuidMap()
-	if st := states["journal_entries"]; st != nil {
-		c.goSources = entrySources(st)
-	}
-	if states["journal_lines"] != nil {
-		var err error
-		if c.pyFX, err = fxAccounts(ctx, in.Python); err != nil {
-			return nil, fmt.Errorf("row comparison: python fx accounts: %w", err)
-		}
-		if c.goFX, err = fxAccounts(ctx, in.Go); err != nil {
-			return nil, fmt.Errorf("row comparison: go fx accounts: %w", err)
-		}
+	if err := c.prepareClassification(ctx, in, states); err != nil {
+		return nil, fmt.Errorf("row comparison: classification: %w", err)
 	}
 
 	var diffs []RowDiff
@@ -338,7 +338,7 @@ func readState(ctx context.Context, in RowsInput, table string) (*tableState, er
 		return nil, fmt.Errorf("row comparison: go %s: %w", table, err)
 	}
 	pk := in.Schema.PK[table]
-	st := &tableState{table: table, pk: pk, pyPre: map[string]Row{}, goPre: map[string]Row{}}
+	st := &tableState{table: table, pk: pk, pyPre: map[string]Row{}, goPre: map[string]Row{}, goAll: goRows}
 	pySnap, goSnap := in.PythonSnapshot[table], in.GoSnapshot[table]
 	touched := map[string]bool{}
 	split := func(rows []Row, snap map[string]string) (pre map[string]Row, created []Row) {
@@ -439,10 +439,9 @@ type rowComparer struct {
 	schema Schema
 	maps   IDMaps
 	uuids  map[string]string
-	// goSources is each touched Go journal entry's source_type, by entry id.
-	goSources map[string]string
-	// pyFX and goFX are each side's realised FX account ids (4900, 5900).
-	pyFX, goFX map[string]bool
+	// cls is the classification state (classify.go); nil when Rows has not
+	// prepared it, and then nothing is classified.
+	cls *classification
 }
 
 // newRowComparer is a comparer over the final maps, for the step answers.
@@ -666,7 +665,7 @@ func (c *rowComparer) comparePaired(st *tableState) []RowDiff {
 		// it: a row deleted on one side is never an accrual posting.
 		for _, d := range c.pair(st.table, key, py, pyOK, gov, goOK, nil) {
 			if pyOK && goOK {
-				d.Classify = c.classifyRowDiff(d, gov, py, nil)
+				d = c.classifyRowDiff(d, gov, py)
 			}
 			diffs = append(diffs, d)
 		}
@@ -686,165 +685,17 @@ func (c *rowComparer) comparePaired(st *tableState) []RowDiff {
 		}
 		used[goID] = true
 		for _, d := range c.pair(st.table, goID, py, true, gov, true, nil) {
-			d.Classify = c.classifyRowDiff(d, gov, py, nil)
-			diffs = append(diffs, d)
+			diffs = append(diffs, c.classifyRowDiff(d, gov, py))
 		}
 	}
 	for _, gov := range st.goNew {
 		goKey := valueString(gov[st.pk])
 		if !used[goKey] {
 			d := RowDiff{Table: st.table, Key: goKey, Go: c.canonical(st.table, gov, false, nil)}
-			d.Classify = c.classifyRowDiff(d, gov, nil, nil)
-			diffs = append(diffs, d)
+			diffs = append(diffs, c.classifyRowDiff(d, gov, nil))
 		}
 	}
 	return diffs
-}
-
-// accrualNotes is the note for a journal entry Go posts and Python never
-// does, by source_type: an invoice's issue and void (PN 162), a bill's open,
-// edit and void (PN 164) and a bill payment and its reversal (PN 165). A
-// reversal copies its original's source_type, so it takes the same note.
-// PAYMENT is not here: Python posts payments too, so a Go-only PAYMENT entry
-// (a manual payment, PN 161) stays unclassified.
-var accrualNotes = map[string]string{
-	"INVOICE":      "PN 162",
-	"BILL":         "PN 164",
-	"BILL_PAYMENT": "PN 165",
-}
-
-// classifyRowDiff names the PORT-NOTES note one row difference is known for,
-// or "" when no rule describes it. A rule is a table and a predicate on the
-// rows' content; it never hides the difference, it only names it.
-//
-//   - journal_entries: a Go-only row (no Python row) whose source_type is in
-//     accrualNotes.
-//   - journal_lines: a Go-only line whose entry goEntrySource names with a
-//     source_type in accrualNotes. goEntrySource answers only for a Go
-//     entry no Python entry pairs with and whose group has no Python line
-//     (compareMultiset), so a line of a paired entry is never classified
-//     here. A PAYMENT group's PN 163 is a whole-group rule
-//     (paymentLinesMatch).
-//   - bills: Python is VOID with balance_due ≠ 0 (a PATCH to VOID only sets
-//     the status) and Go is VOID with 0, its notes are Python's plus one
-//     "[voided] " line, and every other column is equal (PN 164).
-//
-// goRow and pyRow are nil for a side the difference does not have.
-func (c *rowComparer) classifyRowDiff(d RowDiff, goRow, pyRow Row, goEntrySource func(entryID string) string) string {
-	switch d.Table {
-	case "journal_entries":
-		if pyRow == nil && goRow != nil && d.Python == "" && d.Go != "" {
-			return accrualNotes[valueString(goRow["source_type"])]
-		}
-	case "journal_lines":
-		if d.Python == "" && d.Go != "" && goEntrySource != nil {
-			return accrualNotes[goEntrySource(d.Key)]
-		}
-	case "bills":
-		if pyRow != nil && goRow != nil && c.voidedByPatch(pyRow, goRow) {
-			return "PN 164"
-		}
-	}
-	return ""
-}
-
-// voidedByPatch is the bills rule: the two rows differ only in the void a
-// PATCH to VOID does on Go (balance_due 0 and a "[voided] " notes line) and
-// does not on Python (the status alone).
-func (c *rowComparer) voidedByPatch(py, gov Row) bool {
-	if valueString(py["status"]) != "VOID" || valueString(gov["status"]) != "VOID" {
-		return false
-	}
-	pyBalance, err := decimal.NewFromString(valueString(py["balance_due"]))
-	if err != nil || pyBalance.IsZero() {
-		return false
-	}
-	goBalance, err := decimal.NewFromString(valueString(gov["balance_due"]))
-	if err != nil || !goBalance.IsZero() {
-		return false
-	}
-	added, ok := strings.CutPrefix(valueString(gov["notes"]), c.mapped("bills", "notes", py, true))
-	if !ok || !strings.HasPrefix(added, "\n[voided] ") || strings.Contains(added[1:], "\n") {
-		return false
-	}
-	rest := map[string]bool{"balance_due": true, "notes": true}
-	return c.canonical("bills", py, true, rest) == c.canonical("bills", gov, false, rest)
-}
-
-// paymentLineIgnored are the journal_lines columns PN 163 changes on a
-// payment's lines: Go relieves AR at the invoice's issue basis, so the base
-// amounts and the rate differ, and the 4900/5900 lines are left out by
-// fxAccounts.
-var paymentLineIgnored = map[string]bool{
-	"line_id":            true,
-	"base_amount_debit":  true,
-	"base_amount_credit": true,
-	"fx_rate":            true,
-}
-
-// paymentLinesMatch is the PN 163 rule for one PAYMENT entry's lines: both
-// sides have lines, and the lines other than the realised FX ones are equal
-// as a multiset once the base amounts and the rate are dropped. A bank,
-// receivable or withholding line whose amount, currency, account or side
-// differs is not described by PN 163.
-func (c *rowComparer) paymentLinesMatch(py, gov []Row) bool {
-	count := func(rows []Row, python bool, fx map[string]bool) map[string]int {
-		out := map[string]int{}
-		for _, row := range rows {
-			if fx[valueString(row["account_id"])] {
-				continue
-			}
-			out[c.canonical("journal_lines", row, python, paymentLineIgnored)]++
-		}
-		return out
-	}
-	if len(py) == 0 || len(gov) == 0 {
-		return false
-	}
-	p, g := count(py, true, c.pyFX), count(gov, false, c.goFX)
-	if len(p) == 0 || len(p) != len(g) {
-		return false
-	}
-	for text, n := range p {
-		if g[text] != n {
-			return false
-		}
-	}
-	return true
-}
-
-// entrySources is each touched Go journal entry's source_type, by entry id.
-func entrySources(st *tableState) map[string]string {
-	out := map[string]string{}
-	add := func(row Row) {
-		out[valueString(row[st.pk])] = valueString(row["source_type"])
-	}
-	for _, row := range st.goNew {
-		add(row)
-	}
-	for _, row := range st.goPre {
-		add(row)
-	}
-	return out
-}
-
-// fxAccounts is one database's realised FX account ids (codes 4900 and
-// 5900), as text.
-func fxAccounts(ctx context.Context, pool *pgxpool.Pool) (map[string]bool, error) {
-	rows, err := pool.Query(ctx, `SELECT account_id::text FROM chart_of_accounts WHERE code IN ('4900', '5900')`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]bool{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out[id] = true
-	}
-	return out, rows.Err()
 }
 
 // pair compares one row pair; a side that is missing is reported alone.
@@ -888,37 +739,9 @@ func (c *rowComparer) compareMultiset(st *tableState, group string) []RowDiff {
 		}
 	}
 	pyCounts, goCounts := count(pyRows, true), count(goRows, false)
-	byGroup := func(rows []Row, python bool) map[string][]Row {
-		out := map[string][]Row{}
-		for _, row := range rows {
-			g := c.mapped(st.table, group, row, python)
-			out[g] = append(out[g], row)
-		}
-		return out
-	}
-	pyGroups, goGroups := byGroup(pyRows, true), byGroup(goRows, false)
-	paired := map[string]bool{}
-	for _, goID := range c.maps["journal_entries"] {
-		paired[goID] = true
-	}
-	// goEntrySource answers only for a Go entry that is Go-only: no Python
-	// entry pairs with it and no Python line is in its group.
-	goEntrySource := func(entryID string) string {
-		if paired[entryID] || len(pyGroups[entryID]) > 0 {
-			return ""
-		}
-		return c.goSources[entryID]
-	}
-	classify := func(g string, d RowDiff) RowDiff {
-		if st.table != "journal_lines" {
-			return d
-		}
-		if c.goSources[g] == "PAYMENT" && paired[g] && c.paymentLinesMatch(pyGroups[g], goGroups[g]) {
-			d.Classify = "PN 163"
-			return d
-		}
-		d.Classify = c.classifyRowDiff(d, nil, nil, goEntrySource)
-		return d
+	classify := func(_ string, d RowDiff) RowDiff { return d }
+	if st.table == "journal_lines" {
+		classify = c.lineClassifier(pyRows, goRows)
 	}
 	groups := map[string]bool{}
 	for g := range pyCounts {

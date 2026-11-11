@@ -69,7 +69,20 @@ type WriteStep struct {
 	// be 2xx and is not compared; its extracts are Go's alone, so no step
 	// sent to both backends may use them.
 	GoOnly bool `yaml:"go_only"`
+	// ClassifyAnswers names the PORT-NOTES note for answer differences at the
+	// listed JSON paths only. The differences are still counted and listed.
+	ClassifyAnswers *ClassifyAnswers `yaml:"classify_answers"`
 }
+
+// ClassifyAnswers is a step's classification of its answer differences: a
+// difference whose path is one of Paths takes Note ("PN n").
+type ClassifyAnswers struct {
+	Note  string   `yaml:"note"`
+	Paths []string `yaml:"paths"`
+}
+
+// pnNote is the shape every step note has: one PORT-NOTES number.
+var pnNote = regexp.MustCompile(`^PN [0-9]+$`)
 
 // ExpectStatus is the status each backend is expected to answer a step with.
 type ExpectStatus struct {
@@ -164,8 +177,11 @@ type WritesOptions struct {
 	PythonCookie string
 	// GoToken is `api issue-session` output, sent as the billing_session
 	// cookie.
-	GoToken   string
-	Scenarios WritesScenarios
+	GoToken string
+	// BaseCurrency is the ledger's base currency (the row classification's
+	// rate check); empty means DefaultBaseCurrency (IDR).
+	BaseCurrency string
+	Scenarios    WritesScenarios
 	// Allowed is the allowed-diffs entries the step answers are compared
 	// under; the zero value allows nothing.
 	Allowed Allowed
@@ -213,6 +229,7 @@ type stepAnswers struct {
 	// statusDiffers marks a step expected to answer differently per backend
 	// (and did): its bodies are not compared.
 	statusDiffers bool
+	classify      *ClassifyAnswers
 }
 
 // RunWrites runs the write scenarios against both backends, then compares the
@@ -316,7 +333,7 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 
 	diffs, err := Rows(ctx, RowsInput{
 		Python: pyDB, Go: goDB, Schema: schema, Tables: tables, Maps: r.maps,
-		PythonSnapshot: pySnap, GoSnapshot: goSnap,
+		PythonSnapshot: pySnap, GoSnapshot: goSnap, BaseCurrency: o.BaseCurrency,
 	})
 	if err != nil {
 		return report, dbErr("row comparison", err)
@@ -340,9 +357,16 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 		py := Response{Status: a.py.Status, Header: a.py.Header, Body: c.normalizeBody(a.py.Body, true)}
 		gov := Response{Status: a.gov.Status, Header: a.gov.Header, Body: c.normalizeBody(a.gov.Body, false)}
 		d := Diff(a.route, py, gov, allowed)
+		for i := range d {
+			if a.classify != nil && containsString(a.classify.Paths, d[i].Path) {
+				d[i].Classify = a.classify.Note
+			}
+			if d[i].Classify == "" {
+				report.Unclassified++
+			}
+		}
 		report.Scenarios[a.scenario].Steps[a.step].Differences = d
 		report.Differences += len(d)
-		report.Unclassified += len(d)
 	}
 	return report, nil
 }
@@ -449,7 +473,7 @@ func (r *writesRun) scenario(ctx context.Context, index int, sc WritesScenario) 
 		r.answers = append(r.answers, stepAnswers{
 			scenario: index, step: len(result.Steps) - 1,
 			route: strings.ToUpper(step.Method) + " " + step.Path, py: pyResp, gov: goResp,
-			statusDiffers: differs,
+			statusDiffers: differs, classify: step.ClassifyAnswers,
 		})
 		if step.ExpectStatus == nil {
 			if pyResp.Status < 200 || pyResp.Status >= 300 {
@@ -520,6 +544,16 @@ func (r *writesRun) goOnly(ctx context.Context, step WriteStep) (WritesStepResul
 		r.extracted[name] = pair
 	}
 	return result, nil
+}
+
+// containsString reports whether list holds s.
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // sortedExtracts is a step's extract names in order, so a run is repeatable.
@@ -936,6 +970,25 @@ func (w WritesScenarios) validate() error {
 			}
 			if !strings.HasPrefix(step.Path, "/") {
 				return fmt.Errorf("compare writes: %s: path %q has no leading slash", stepWhere, step.Path)
+			}
+			if strings.TrimSpace(step.Note) != "" && !pnNote.MatchString(step.Note) {
+				return fmt.Errorf("compare writes: %s: note %q is not one PN (\"PN n\")", stepWhere, step.Note)
+			}
+			if ca := step.ClassifyAnswers; ca != nil {
+				if !pnNote.MatchString(ca.Note) {
+					return fmt.Errorf("compare writes: %s: classify_answers note %q is not one PN (\"PN n\")", stepWhere, ca.Note)
+				}
+				if len(ca.Paths) == 0 {
+					return fmt.Errorf("compare writes: %s: classify_answers names no paths", stepWhere)
+				}
+				for _, p := range ca.Paths {
+					if !strings.HasPrefix(p, "$.") || strings.ContainsAny(p, "*?") {
+						return fmt.Errorf("compare writes: %s: classify_answers path %q is not one JSON path ($.key)", stepWhere, p)
+					}
+				}
+				if step.GoOnly {
+					return fmt.Errorf("compare writes: %s: a go_only step's answer is not compared; classify_answers does not apply", stepWhere)
+				}
 			}
 			if step.GoOnly {
 				if strings.TrimSpace(step.Note) == "" {

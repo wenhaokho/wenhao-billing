@@ -896,6 +896,23 @@ func TestWritesFileLoads(t *testing.T) {
 	if got := strings.Join(tables["bill-lifecycle"], ","); got != "bills,bill_line_items,journal_entries,journal_lines" {
 		t.Fatalf("bill-lifecycle tables %s", got)
 	}
+	const voidWithPayment = "create-paid-void-bill,open-paid-void-bill,pay-paid-void-bill,void-bill-with-payment," +
+		"list-paid-void-bill-payments,reverse-paid-void-bill-payment,void-paid-void-bill-on-go"
+	if got := order("bill-void-with-payment"); got != voidWithPayment {
+		t.Fatalf("bill-void-with-payment steps %s, want %s", got, voidWithPayment)
+	}
+	for _, s := range steps["bill-void-with-payment"] {
+		if s.ID == "void-bill-with-payment" && (s.ExpectStatus == nil || *s.ExpectStatus != (ExpectStatus{200, 400}) ||
+			s.Note != "PN 165" || s.ExpectDetail != "cannot void a bill with payments") {
+			t.Fatalf("void-bill-with-payment %+v, want python 200 go 400 with Go's refusal and PN 165", s)
+		}
+	}
+	for _, s := range steps["bill"] {
+		if s.ID == "patch-void-bill" && (s.ClassifyAnswers == nil || s.ClassifyAnswers.Note != "PN 164" ||
+			strings.Join(s.ClassifyAnswers.Paths, ",") != "$.balance_due,$.notes") {
+			t.Fatalf("patch-void-bill %+v, want balance_due and notes classified PN 164", s)
+		}
+	}
 	for _, s := range steps["bill-lifecycle"] {
 		switch s.ID {
 		case "list-bill-payments", "reverse-bill-payment", "pay-part-again":
