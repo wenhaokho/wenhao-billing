@@ -494,41 +494,6 @@ func (q *Queries) OpenQuotationPipeline(ctx context.Context) ([]OpenQuotationPip
 	return items, nil
 }
 
-const overdueARByCurrency = `-- name: OverdueARByCurrency :many
-SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
-  FROM invoices
- WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
-   AND due_date IS NOT NULL AND due_date < $1::date
- GROUP BY currency
- ORDER BY currency
-`
-
-type OverdueARByCurrencyRow struct {
-	Currency string
-	Amount   decimal.Decimal
-}
-
-// The open AR rule with a due date before today.
-func (q *Queries) OverdueARByCurrency(ctx context.Context, today pgtype.Date) ([]OverdueARByCurrencyRow, error) {
-	rows, err := q.db.Query(ctx, overdueARByCurrency, today)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []OverdueARByCurrencyRow
-	for rows.Next() {
-		var i OverdueARByCurrencyRow
-		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const overdueByCurrency = `-- name: OverdueByCurrency :many
 SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
   FROM invoices

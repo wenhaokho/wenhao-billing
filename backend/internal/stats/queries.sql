@@ -143,12 +143,3 @@ SELECT currency, COALESCE(SUM(amount + COALESCE(wht_amount, 0)), 0)::numeric AS 
 SELECT count(*)::bigint AS invoice_count, count(DISTINCT customer_id)::bigint AS customer_count
   FROM invoices
  WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0;
-
--- name: OverdueARByCurrency :many
--- The open AR rule with a due date before today.
-SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
-  FROM invoices
- WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
-   AND due_date IS NOT NULL AND due_date < @today::date
- GROUP BY currency
- ORDER BY currency;

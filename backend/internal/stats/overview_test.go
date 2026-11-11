@@ -39,14 +39,14 @@ func TestOverviewEmpty(t *testing.T) {
 	k := r.KPIs
 	for name, got := range map[string]string{
 		"invoiced": k.Invoiced.Amount.Decimal().StringFixed(4), "invoiced prev": k.Invoiced.Previous.Decimal().StringFixed(4),
-		"collected": k.Collected.Amount.Decimal().StringFixed(4), "open_ar": k.OpenAR.Decimal().StringFixed(4),
-		"overdue": k.Overdue.Decimal().StringFixed(4), "mrr": k.MonthlyRecurring.Decimal().StringFixed(4),
+		"collected": k.Collected.Amount.Decimal().StringFixed(4), "open_ar": k.OpenAR.Amount.Decimal().StringFixed(4),
+		"overdue": k.Overdue.Amount.Decimal().StringFixed(4), "mrr": k.MonthlyRecurring.Amount.Decimal().StringFixed(4),
 	} {
 		if got != "0.0000" {
 			t.Errorf("%s = %s, want 0.0000", name, got)
 		}
 	}
-	if k.CollectedShareOfInvoiced != nil || k.OverdueShareOfOpenAR != nil || k.RecurringForeignShare != nil || k.RecurringTopForeignCurrency != nil {
+	if k.Collected.ShareOfInvoiced != nil || k.Overdue.ShareOfOpenAR != nil || k.MonthlyRecurring.ForeignShare != nil || k.MonthlyRecurring.TopForeignCurrency != nil {
 		t.Errorf("shares not nil: %+v", k)
 	}
 	if len(r.Unconverted) != 0 || r.Unconverted == nil {
@@ -103,7 +103,7 @@ func TestOverviewCollectedAddsWHT(t *testing.T) {
 	if got := r.KPIs.Collected.Amount.Decimal().StringFixed(4); got != "100.0000" {
 		t.Errorf("collected = %s", got)
 	}
-	if s := r.KPIs.CollectedShareOfInvoiced; s == nil || *s != 50 {
+	if s := r.KPIs.Collected.ShareOfInvoiced; s == nil || *s != 50 {
 		t.Errorf("share = %v, want 50", s)
 	}
 }
@@ -130,14 +130,14 @@ func TestOverviewOverdueShare(t *testing.T) {
 	inv{cur: "IDR", amount: "100", status: "PARTIAL", due: d(ovDay.AddDate(0, 0, -1))}.insert(t, a, c2)
 	r := overview(t, a)
 	k := r.KPIs
-	if k.OpenAR.Decimal().StringFixed(4) != "400.0000" || k.Overdue.Decimal().StringFixed(4) != "100.0000" {
-		t.Errorf("open/overdue = %s/%s", k.OpenAR.Decimal(), k.Overdue.Decimal())
+	if k.OpenAR.Amount.Decimal().StringFixed(4) != "400.0000" || k.Overdue.Amount.Decimal().StringFixed(4) != "100.0000" {
+		t.Errorf("open/overdue = %s/%s", k.OpenAR.Amount.Decimal(), k.Overdue.Amount.Decimal())
 	}
-	if k.OverdueShareOfOpenAR == nil || *k.OverdueShareOfOpenAR != 25 {
-		t.Errorf("share = %v, want 25", k.OverdueShareOfOpenAR)
+	if k.Overdue.ShareOfOpenAR == nil || *k.Overdue.ShareOfOpenAR != 25 {
+		t.Errorf("share = %v, want 25", k.Overdue.ShareOfOpenAR)
 	}
-	if k.OpenARInvoiceCount != 2 || k.OpenARCustomerCount != 2 {
-		t.Errorf("counts = %d, %d", k.OpenARInvoiceCount, k.OpenARCustomerCount)
+	if k.OpenAR.InvoiceCount != 2 || k.OpenAR.CustomerCount != 2 {
+		t.Errorf("counts = %d, %d", k.OpenAR.InvoiceCount, k.OpenAR.CustomerCount)
 	}
 }
 
@@ -149,13 +149,37 @@ func TestOverviewRecurringForeignShare(t *testing.T) {
 	template(t, a, c, "SGD", "1", monthly())
 	r := overview(t, a)
 	k := r.KPIs
-	if got := k.MonthlyRecurring.Decimal().StringFixed(4); got != "24000.0000" {
+	if got := k.MonthlyRecurring.Amount.Decimal().StringFixed(4); got != "24000.0000" {
 		t.Errorf("mrr = %s", got)
 	}
-	if k.RecurringForeignShare == nil || *k.RecurringForeignShare != 50 {
-		t.Errorf("share = %v, want 50", k.RecurringForeignShare)
+	if k.MonthlyRecurring.ForeignShare == nil || *k.MonthlyRecurring.ForeignShare != 50 {
+		t.Errorf("share = %v, want 50", k.MonthlyRecurring.ForeignShare)
 	}
-	if k.RecurringTopForeignCurrency == nil || *k.RecurringTopForeignCurrency != "SGD" {
-		t.Errorf("top = %v, want SGD", k.RecurringTopForeignCurrency)
+	if k.MonthlyRecurring.TopForeignCurrency == nil || *k.MonthlyRecurring.TopForeignCurrency != "SGD" {
+		t.Errorf("top = %v, want SGD", k.MonthlyRecurring.TopForeignCurrency)
+	}
+}
+
+func TestOverviewDueTodayIsNotOverdue(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "Acme")
+	inv{cur: "IDR", amount: "100", due: d(ovDay)}.insert(t, a, c)
+	k := overview(t, a).KPIs
+	if k.OpenAR.Amount.Decimal().StringFixed(4) != "100.0000" || k.Overdue.Amount.Decimal().StringFixed(4) != "0.0000" {
+		t.Errorf("open/overdue = %s/%s", k.OpenAR.Amount.Decimal(), k.Overdue.Amount.Decimal())
+	}
+}
+
+func TestOverviewPreviousWindowEdges(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "Acme")
+	w := ovWindow()
+	inv{cur: "IDR", amount: "70", issue: d(w.PrevFrom)}.insert(t, a, c)
+	inv{cur: "IDR", amount: "900", issue: d(w.PrevFrom.AddDate(0, 0, -1))}.insert(t, a, c)
+	k := overview(t, a).KPIs
+	if k.Invoiced.Previous.Decimal().StringFixed(4) != "70.0000" || k.Invoiced.Amount.Decimal().StringFixed(4) != "0.0000" {
+		t.Errorf("previous/amount = %s/%s", k.Invoiced.Previous.Decimal(), k.Invoiced.Amount.Decimal())
 	}
 }
