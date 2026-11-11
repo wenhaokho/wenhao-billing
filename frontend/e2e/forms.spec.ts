@@ -241,6 +241,8 @@ test("clearing a list filter select sends no filter", async ({ page }) => {
   await expect(page.locator("main").getByRole("heading", { name: "Audit Log" })).toBeVisible();
   await page.waitForLoadState("networkidle");
   const action = selectIn(field(page, "Action"));
+  // No action picked: the filter says so rather than rendering blank.
+  await expect(action).toHaveText("All actions");
 
   const picked = page.waitForRequest((r) => isApi(r, "GET", path) && new URL(r.url()).searchParams.get("action") === "HELD");
   await pickOption(page, action, "HELD");
@@ -251,5 +253,6 @@ test("clearing a list filter select sends no filter", async ({ page }) => {
   const req = await cleared;
   expect(new URL(req.url()).searchParams.has("action")).toBe(false);
   await expect(action).not.toContainText("HELD");
+  await expect(action).toHaveText("All actions");
   expect(errors()).toEqual([]);
 });

@@ -102,6 +102,7 @@ function openPayment(row: AuditRow) {
           :options="actionOptions"
           option-label="label"
           option-value="value"
+          placeholder="All actions"
           show-clear
         />
       </label>
