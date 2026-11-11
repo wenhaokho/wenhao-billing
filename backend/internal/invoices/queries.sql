@@ -56,12 +56,20 @@ DELETE FROM invoice_line_items WHERE invoice_id = $1;
 
 -- name: ListInvoices :many
 -- GET /invoices (invoices.py:426-450): never templates; each filter applies
--- when given; newest first, the id breaking ties.
+-- when given; newest first, the id breaking ties. search is an already
+-- LIKE-escaped substring of the number or the customer's name; open_only is
+-- the open-AR rule (templates are excluded above).
 SELECT * FROM invoices
 WHERE is_template = false
   AND (sqlc.narg(statuses)::text[] IS NULL OR status = ANY (sqlc.narg(statuses)::text[]))
   AND (sqlc.narg(customer_id)::uuid IS NULL OR customer_id = sqlc.narg(customer_id)::uuid)
   AND (sqlc.narg(invoice_type)::text IS NULL OR invoice_type = sqlc.narg(invoice_type)::text)
+  AND (sqlc.narg(search)::text IS NULL
+       OR invoice_number ILIKE '%' || sqlc.narg(search)::text || '%' ESCAPE '\'
+       OR customer_id IN (SELECT c.customer_id FROM customers c
+                          WHERE c.name ILIKE '%' || sqlc.narg(search)::text || '%' ESCAPE '\'))
+  AND (NOT @open_only::boolean
+       OR (status IN ('OPEN', 'SENT', 'PARTIAL') AND balance_due > 0))
 ORDER BY created_at DESC, invoice_id DESC
 LIMIT @row_limit;
 

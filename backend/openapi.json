@@ -9722,6 +9722,26 @@
             }
           },
           {
+            "description": "Case-insensitive substring of the invoice number or the customer's name. Empty is no filter.",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Case-insensitive substring of the invoice number or the customer's name. Empty is no filter.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only open receivables: status OPEN, SENT or PARTIAL with a balance due.",
+            "explode": false,
+            "in": "query",
+            "name": "open",
+            "schema": {
+              "description": "Only open receivables: status OPEN, SENT or PARTIAL with a balance due.",
+              "type": "boolean"
+            }
+          },
+          {
             "explode": false,
             "in": "query",
             "name": "limit",

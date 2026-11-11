@@ -839,3 +839,72 @@ func TestCurrencyIsAnyThreeCharacters(t *testing.T) {
 		t.Errorf("patched currency = %q, want ZZZ", got.Currency)
 	}
 }
+
+func TestListSearchAndOpenFilters(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	named := func(name string) uuid.UUID {
+		id := uuid.New()
+		if _, err := a.Pool.Exec(t.Context(), `INSERT INTO customers (customer_id, name) VALUES ($1, $2)`, id, name); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	mk := func(customer uuid.UUID, number, status, created string) uuid.UUID {
+		id := listed(t, a, createBody(customer, "100", nil), created)
+		setStatus(t, a.Pool, id, status)
+		if _, err := a.Pool.Exec(t.Context(), `UPDATE invoices SET invoice_number = $2 WHERE invoice_id = $1`, id, number); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	citra, other := named("Citra Maju"), named("Budi 100%_Corp")
+	byNumber := mk(other, "WH2026-0001", "OPEN", "2026-01-01 10:00:00")
+	byName := mk(citra, "INV-77", "SENT", "2026-01-02 10:00:00")
+	partial := mk(other, "INV-88", "PARTIAL", "2026-01-03 10:00:00")
+	paid := mk(citra, "INV-99", "PAID", "2026-01-04 10:00:00")
+	draft := mk(citra, "INV-DR", "DRAFT", "2026-01-05 10:00:00")
+	void := mk(citra, "INV-VD", "VOID", "2026-01-06 10:00:00")
+	zero := mk(citra, "INV-00", "OPEN", "2026-01-07 10:00:00")
+	template := mk(citra, "INV-TP", "OPEN", "2026-01-08 10:00:00")
+	exec := func(q string, id uuid.UUID) {
+		if _, err := a.Pool.Exec(t.Context(), q, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`UPDATE invoices SET balance_due = 0 WHERE invoice_id = $1`, zero)
+	exec(`UPDATE invoices SET is_template = true WHERE invoice_id = $1`, template)
+	_ = []uuid.UUID{paid, draft, void}
+
+	t.Run("number", func(t *testing.T) {
+		t.Parallel()
+		wantIDs(t, "wh2026", listIDs(t, a, "?q=wh2026"), byNumber)
+	})
+	t.Run("customer", func(t *testing.T) {
+		t.Parallel()
+		wantIDs(t, "CITRA", listIDs(t, a, "?q=CITRA&status=SENT"), byName)
+	})
+	t.Run("empty q is no filter", func(t *testing.T) {
+		t.Parallel()
+		if n := len(listIDs(t, a, "?q=")); n != 7 {
+			t.Errorf("len = %d, want 7 (all but the template)", n)
+		}
+	})
+	t.Run("open", func(t *testing.T) {
+		t.Parallel()
+		wantIDs(t, "open", listIDs(t, a, "?open=true"), partial, byName, byNumber)
+	})
+	t.Run("open and q and status", func(t *testing.T) {
+		t.Parallel()
+		wantIDs(t, "open+q", listIDs(t, a, "?open=true&q=citra"), byName)
+		wantIDs(t, "open+status", listIDs(t, a, "?open=true&status=PARTIAL"), partial)
+	})
+	t.Run("wildcards are literal", func(t *testing.T) {
+		t.Parallel()
+		wantIDs(t, "percent", listIDs(t, a, "?q=100%25"), partial, byNumber)
+		wantIDs(t, "underscore", listIDs(t, a, "?q=%25_X"))
+		wantIDs(t, "underscore literal", listIDs(t, a, "?q=0%25_"), partial, byNumber)
+		wantIDs(t, "lone percent", listIDs(t, a, "?q=%25"), partial, byNumber)
+		wantIDs(t, "backslash", listIDs(t, a, "?q=%5C"))
+	})
+}

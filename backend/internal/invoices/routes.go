@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
@@ -183,10 +184,15 @@ type listIn struct {
 	Status      []string                          `query:"status,explode" doc:"Repeat for several (status=SENT&status=PARTIAL)."`
 	CustomerID  platform.OptionalParam[uuid.UUID] `query:"customer_id"`
 	InvoiceType string                            `query:"invoice_type" doc:"Empty lists every type."`
+	Q           string                            `query:"q" doc:"Case-insensitive substring of the invoice number or the customer's name. Empty is no filter."`
+	Open        bool                              `query:"open" doc:"Only open receivables: status OPEN, SENT or PARTIAL with a balance due."`
 	Limit       int32                             `query:"limit" default:"200" minimum:"1" maximum:"500"`
 }
 
 type listOut struct{ Body []InvoiceOut }
+
+// likeEscaper makes a user's text match literally inside ILIKE ... ESCAPE '\'.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 // list filters as Python's truthiness does (invoices.py:444-449): no status
 // or an empty invoice_type is no filter.
@@ -199,8 +205,14 @@ func (r routes) list(ctx context.Context, in *listIn) (*listOut, error) {
 	if in.InvoiceType != "" {
 		invoiceType = &in.InvoiceType
 	}
+	var search *string
+	if in.Q != "" {
+		s := likeEscaper.Replace(in.Q)
+		search = &s
+	}
 	invs, err := r.q.ListInvoices(ctx, invoicesdb.ListInvoicesParams{
-		Statuses: statuses, CustomerID: pgUUID(in.CustomerID.Ptr()), InvoiceType: invoiceType, RowLimit: in.Limit,
+		Statuses: statuses, CustomerID: pgUUID(in.CustomerID.Ptr()), InvoiceType: invoiceType,
+		Search: search, OpenOnly: in.Open, RowLimit: in.Limit,
 	})
 	if err != nil {
 		return nil, err
