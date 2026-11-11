@@ -803,7 +803,7 @@ func TestWritesRejectsGoOnlyTable(t *testing.T) {
 
 // TestWritesFileLoads pins the shipped scenarios file: every scenario, step
 // and table validates (no placeholder is extracted twice or used after its
-// DELETE), and approve-intake applies the intake payment to the
+// DELETE), and approve-intake applies the intake payment to its own
 // invoice-lifecycle invoice.
 func TestWritesFileLoads(t *testing.T) {
 	t.Parallel()
@@ -821,8 +821,8 @@ func TestWritesFileLoads(t *testing.T) {
 				extractedBy = step.ID
 			}
 			if step.ID == "approve-intake" {
-				if !strings.Contains(step.BodyString(), "{invoice_id}") || !strings.Contains(step.Path, "{intake_payment_id}") {
-					t.Fatalf("approve-intake %+v, want {intake_payment_id} applied to {invoice_id}", step)
+				if !strings.Contains(step.BodyString(), "{intake_invoice_id}") || !strings.Contains(step.Path, "{intake_payment_id}") {
+					t.Fatalf("approve-intake %+v, want {intake_payment_id} applied to {intake_invoice_id}", step)
 				}
 			}
 		}

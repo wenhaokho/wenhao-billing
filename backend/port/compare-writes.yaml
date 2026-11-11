@@ -41,12 +41,14 @@
 # The webhook body is signed with the shared local WEBHOOK_HMAC_SECRET in the
 # X-Signature header. The webhook pays the invoice-lifecycle invoice's amount;
 # approve-intake applies the intake payment to it. The payment reversal runs
-# last (reverse-manual-payment), because Go and Python answer it differently.
+# last, on an invoice of its own (reverse-manual-payment), because Go and Python
+# answer it differently.
 #
 # A step may declare `expect_status: N` (both backends) or
 # `expect_status: {python: N, go: N}`. The run continues past a non-2xx answer
 # that matches it; a step whose expected statuses differ needs a `note: "PN n"`
-# and its bodies are not compared. Extracts are not taken from a non-2xx side.
+# and its bodies are not compared. `expect_detail: "text"` also requires that
+# text in the body of every non-2xx answer of the step. Extracts are not taken from a non-2xx side.
 # A body value that is exactly one placeholder ("{account_id}") keeps the
 # extracted value's JSON type; a placeholder inside a longer string is text.
 #
@@ -320,8 +322,10 @@ scenarios:
   # --- webhook intake, approve and reverse --------------------------------
   # The intake payment goes to manual review (the payer name is not the
   # customer's, so the confidence stays under 95); approve-intake applies it to
-  # the invoice-lifecycle invoice, {invoice_id}. {intake_payment_id} never
-  # overwrites {payment_id}.
+  # {intake_invoice_id}, a fresh OPEN invoice of its own, so the normal "approve
+  # a held payment against an OPEN invoice" path is what is compared. The
+  # lifecycle invoice is already PAID by then and is not an auto-match
+  # candidate. {intake_payment_id} never overwrites {payment_id}.
   - id: webhook-intake
     classify: PN 6
     tables:
@@ -332,6 +336,26 @@ scenarios:
       - invoices
       - invoice_line_items
     steps:
+      - id: create-intake-invoice
+        method: POST
+        path: /api/v1/invoices
+        body:
+          customer_id: "{customer_id}"
+          project_id: "{project_id}"
+          invoice_type: "MILESTONE"
+          currency: "IDR"
+          issue_date: "2026-01-01"
+          due_date: "2026-02-01"
+          payment_terms: "Net 30"
+          wht_type: "NONE"
+          wht_rate: "0.0000"
+          wht_gross_up: false
+          line_items:
+            - {item_id: "{item_id}", description: "Compare intake service", quantity: "1.0000", unit_price: "1000.0000", position: 1}
+        extract: {intake_invoice_id: "$.invoice_id"}
+      - id: finalize-intake-invoice
+        method: POST
+        path: /api/v1/invoices/{intake_invoice_id}/finalize
       - id: intake-webhook
         method: POST
         path: /api/v1/payments/intake/webhook
@@ -347,7 +371,7 @@ scenarios:
       - id: approve-intake
         method: POST
         path: /api/v1/payments/{intake_payment_id}/manual-review
-        body: {invoice_id: "{invoice_id}", adjustment_type: "NONE"}
+        body: {invoice_id: "{intake_invoice_id}", adjustment_type: "NONE"}
       - id: reverse-intake
         method: POST
         path: /api/v1/payments/{intake_payment_id}/reverse
@@ -356,23 +380,50 @@ scenarios:
   # --- reverse a manual payment (PN 161) ------------------------------------
   # Go posts manual payments to the ledger and can reverse them (200, the
   # payment becomes FLAGGED and the invoice balance is restored); Python
-  # refuses with 400 no_active_entry. After this step the two sides differ in
-  # state on {invoice_id} and {payment_id} (rows are reported as row
-  # differences, classified by this scenario), so it is the LAST scenario:
-  # nothing after it can depend on the invoice being payable again, and
-  # webhook-intake above has already applied its payment.
+  # refuses with 400 no_active_entry. The scenario has an invoice and payment
+  # of its own, so the rows that differ under PN 161 are only this scenario's
+  # (row differences are not attributed to a scenario in the report; `classify`
+  # records which PORT-NOTES note the scenario is known for). It is the last
+  # scenario so nothing after it depends on the two sides' diverged state.
   - id: reverse-manual-payment
     classify: PN 161
     tables:
       - invoices
+      - invoice_line_items
       - payments
       - reconciliation_log
       - journal_entries
       - journal_lines
     steps:
+      - id: create-rev-invoice
+        method: POST
+        path: /api/v1/invoices
+        body:
+          customer_id: "{customer_id}"
+          project_id: "{project_id}"
+          invoice_type: "MILESTONE"
+          currency: "IDR"
+          issue_date: "2026-01-01"
+          due_date: "2026-02-01"
+          payment_terms: "Net 30"
+          wht_type: "NONE"
+          wht_rate: "0.0000"
+          wht_gross_up: false
+          line_items:
+            - {item_id: "{item_id}", description: "Compare reversal service", quantity: "1.0000", unit_price: "1000.0000", position: 1}
+        extract: {rev_invoice_id: "$.invoice_id"}
+      - id: finalize-rev-invoice
+        method: POST
+        path: /api/v1/invoices/{rev_invoice_id}/finalize
+      - id: record-rev-payment
+        method: POST
+        path: /api/v1/invoices/{rev_invoice_id}/record-payment
+        body: {amount: "1000.0000", payment_date: "2026-01-02", payer_name: "Compare payer", payer_reference: "compare-rev-payment", notes: "compare"}
+        extract: {rev_payment_id: "$.payment_id"}
       - id: reverse-payment
         method: POST
-        path: /api/v1/payments/{payment_id}/reverse
+        path: /api/v1/payments/{rev_payment_id}/reverse
         body: {reason: "compare"}
         expect_status: {python: 400, go: 200}
+        expect_detail: "no active journal entry"
         note: "PN 161"

@@ -247,3 +247,36 @@ func TestExtractValueKeepsNumbers(t *testing.T) {
 		t.Fatalf("extractValue = %q, %#v, %v", id, v, err)
 	}
 }
+
+// TestWritesExpectDetail pins expect_detail: every non-2xx side must contain
+// the text, a 2xx side is not checked, and a miss is a hard failure.
+func TestWritesExpectDetail(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		pyBody  string
+		wantErr bool
+	}{
+		{"contained", `{"detail":"no active journal entry to reverse"}`, false},
+		{"missing", `{"detail":"something else"}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			pyDB, goDB := openTestDB(t), openTestDB(t)
+			py := writeBackend(t, true, func(w http.ResponseWriter, _ *http.Request) { jsonBody(w, http.StatusBadRequest, tc.pyBody) })
+			gov := writeBackend(t, false, func(w http.ResponseWriter, _ *http.Request) { jsonBody(w, http.StatusOK, `{"status":"FLAGGED"}`) })
+			sc := thingsScenario(&ExpectStatus{400, 200}, "PN 161", nil, "/api/v1/things")
+			sc.Scenarios[0].Steps[0].ExpectDetail = "no active journal entry"
+			_, err := RunWrites(context.Background(), writeOptions(t, py, gov, pyDB, goDB, sc))
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "python answered 400 without expect_detail") {
+					t.Fatalf("error %v, want the expect_detail failure", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("RunWrites: %v", err)
+			}
+		})
+	}
+}

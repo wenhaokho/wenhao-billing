@@ -61,6 +61,9 @@ type WriteStep struct {
 	// required whenever the two expected statuses differ.
 	ExpectStatus *ExpectStatus `yaml:"expect_status"`
 	Note         string        `yaml:"note"`
+	// ExpectDetail, when set, is a substring every non-2xx answer of the step
+	// must contain in its body; a miss is a hard failure.
+	ExpectDetail string `yaml:"expect_detail"`
 }
 
 // ExpectStatus is the status each backend is expected to answer a step with.
@@ -394,6 +397,20 @@ func (r *writesRun) scenario(ctx context.Context, index int, sc WritesScenario) 
 				stepResult.ExpectedStatusDiff = step.Note
 			}
 		}
+		if step.ExpectDetail != "" {
+			for _, side := range []struct {
+				name string
+				resp Response
+			}{{"python", pyResp}, {"go", goResp}} {
+				if side.resp.Status >= 200 && side.resp.Status < 300 {
+					continue
+				}
+				if !strings.Contains(string(side.resp.Body), step.ExpectDetail) {
+					result.Steps = append(result.Steps, stepResult)
+					return result, fail("%s answered %d without expect_detail %q", side.name, side.resp.Status, step.ExpectDetail)
+				}
+			}
+		}
 		result.Steps = append(result.Steps, stepResult)
 		r.answers = append(r.answers, stepAnswers{
 			scenario: index, step: len(result.Steps) - 1,
@@ -618,38 +635,24 @@ func expandString(s string, extracted map[string]idPair, goSide bool) (string, e
 	return out.String(), nil
 }
 
-// extractID reads one JSONPath from a response body. The id is a string or a
-// number; a missing or null value is an error.
-func extractID(body []byte, path string) (string, error) {
+// extractValue reads one JSONPath from a response body: the id string and the
+// value with its JSON type (a json.Number for a number, the string otherwise).
+// The id is a string or a number; a missing or null value is an error.
+func extractValue(body []byte, path string) (string, any, error) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 	var v any
 	if err := dec.Decode(&v); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	got, err := jsonPath(v, path)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	id := idString(got)
 	if id == "" {
-		return "", fmt.Errorf("path %q has no id", path)
+		return "", nil, fmt.Errorf("path %q has no id", path)
 	}
-	return id, nil
-}
-
-// extractValue is extractID that also returns the value with its JSON type: a
-// json.Number for a number, the string otherwise.
-func extractValue(body []byte, path string) (string, any, error) {
-	id, err := extractID(body, path)
-	if err != nil {
-		return "", nil, err
-	}
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
-	var v any
-	_ = dec.Decode(&v)
-	got, _ := jsonPath(v, path)
 	if n, ok := got.(json.Number); ok {
 		return id, n, nil
 	}
