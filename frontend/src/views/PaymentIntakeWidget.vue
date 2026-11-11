@@ -2,9 +2,12 @@
 import AppIcon from "@/components/AppIcon.vue";
 import StatusTag from "@/components/StatusTag.vue";
 import PageHeader from "@/components/PageHeader.vue";
+import PeriodSelector from "@/components/dashboard/PeriodSelector.vue";
+import KpiTile from "@/components/dashboard/KpiTile.vue";
+import RevenueCard from "@/components/dashboard/RevenueCard.vue";
 import { computed, defineAsyncComponent, ref, watch } from "vue";
-import { useQuery } from "@tanstack/vue-query";
-import { useRouter } from "vue-router";
+import { keepPreviousData, useQuery } from "@tanstack/vue-query";
+import { useRoute, useRouter } from "vue-router";
 import Tag from "primevue/tag";
 import Button from "primevue/button";
 import ProgressSpinner from "primevue/progressspinner";
@@ -12,7 +15,16 @@ const Chart = defineAsyncComponent(() => import("primevue/chart"));
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 import { useTheme } from "@/composables/useTheme";
-import { chartColors, currencySlot, withAlpha } from "@/theme/chartColors";
+import { chartColors, currencySlot } from "@/theme/chartColors";
+import {
+  DEFAULT_PERIOD,
+  isPeriod,
+  type KpiDelta,
+  type MonthlyRevenueResponse,
+  type OverviewResponse,
+  type Period,
+} from "@/components/dashboard/types";
+import { decIsZero, deltaOf, formatCompact, formatShare } from "@/components/dashboard/format";
 
 interface CurrencyAmount { currency: string; amount: string }
 interface CurrencyBaseAmount { currency: string; base_amount: string }
@@ -62,23 +74,17 @@ interface DashboardStats {
   open_ar_unconverted: string[];
   upcoming_invoices: UpcomingInvoiceItem[];
 }
-interface MonthlyRevenueBucket {
-  month: string;
-  totals: Record<string, string>;         // base-currency (IDR) per source currency
-  native_totals: Record<string, string>;  // original currency per source currency
-  unpaid_totals: Record<string, string>;         // still-owed part of totals
-  native_unpaid_totals: Record<string, string>;  // still-owed part of native_totals
-}
-interface MonthlyRevenueResponse {
-  base_currency: string;
-  currencies: string[];
-  unconverted: string[];
-  months: MonthlyRevenueBucket[];
-}
-
 const router = useRouter();
+const route = useRoute();
 
-const { data, isLoading, isError, refetch } = useQuery<DashboardStats>({
+// The period lives in the URL (?period=), so a reload or a shared link keeps it.
+// replace, not push: switching periods shouldn't fill the back button.
+const period = computed<Period>({
+  get: () => (isPeriod(route.query.period) ? route.query.period : DEFAULT_PERIOD),
+  set: (p) => { router.replace({ query: { ...route.query, period: p } }); },
+});
+
+const { data, isError, refetch } = useQuery<DashboardStats>({
   queryKey: ["dashboard-stats"],
   queryFn: async () => (await api.get<DashboardStats>("/stats/dashboard")).data,
   refetchInterval: 30_000,
@@ -86,20 +92,136 @@ const { data, isLoading, isError, refetch } = useQuery<DashboardStats>({
 
 const stats = computed(() => data.value);
 
-const openQuotationCount = computed(() => stats.value?.open_quotation_count ?? 0);
-
-const openQuotationHint = computed(() => {
-  const list = stats.value?.open_quotation_pipeline ?? [];
-  if (!list.length) return "No pipeline";
-  const [top, ...rest] = list;
-  const head = `${top.currency} ${formatAmount(top.amount, top.currency)}`;
-  return rest.length ? `${head} +${rest.length} more` : head;
+const {
+  data: overview,
+  isError: overviewError,
+  refetch: refetchOverview,
+} = useQuery<OverviewResponse>({
+  queryKey: computed(() => ["stats-overview", period.value]),
+  queryFn: async () =>
+    (await api.get<OverviewResponse>("/stats/overview", { params: { period: period.value } })).data,
+  // Keep the old figures on screen while the new period loads, rather than blanking the row.
+  placeholderData: keepPreviousData,
+  refetchInterval: 60_000,
 });
 
-const { data: revenueData } = useQuery<MonthlyRevenueResponse>({
+const {
+  data: revenueData,
+  isError: revenueError,
+  refetch: refetchRevenue,
+} = useQuery<MonthlyRevenueResponse>({
   queryKey: ["dashboard-revenue-monthly"],
   queryFn: async () => (await api.get<MonthlyRevenueResponse>("/stats/revenue-monthly")).data,
   refetchInterval: 60_000,
+});
+
+function refreshAll() {
+  refetch();
+  refetchOverview();
+  refetchRevenue();
+}
+
+const PERIOD_WORDS: Record<Period, string> = { "30d": "30 d", "90d": "90 d", "12m": "12 mo" };
+
+interface Tile {
+  key: string;
+  label: string;
+  value: string;
+  valueTitle: string;
+  unit: string;
+  delta?: KpiDelta;
+  sub: string;
+  series?: { label: string; amount: string }[];
+  sparkColor?: string;
+  valueTone?: "neutral" | "bad";
+}
+
+// The KPI row (mockup): every figure converted to the base currency.
+const kpiTiles = computed<Tile[]>(() => {
+  const o = overview.value;
+  if (!o) return [];
+  const k = o.kpis;
+  const base = o.base_currency;
+  const words = PERIOD_WORDS[o.period] ?? PERIOD_WORDS[period.value];
+  const full = (v: string) => `${formatAmount(v, base)} ${base}`;
+  const unit = `${base} eq.`;
+
+  const collectedShare =
+    k.collected.share_of_invoiced === null ? "" : ` · ${formatShare(k.collected.share_of_invoiced)} of invoiced`;
+
+  const ar = k.open_ar;
+  const arSub =
+    ar.invoice_count === 0
+      ? "nothing open"
+      : `${ar.invoice_count} invoice${ar.invoice_count === 1 ? "" : "s"} · ${ar.customer_count} customer${ar.customer_count === 1 ? "" : "s"}`;
+
+  const od = k.overdue;
+  const overdueDelta: KpiDelta | undefined =
+    od.share_of_open_ar === null ? undefined : { text: formatShare(od.share_of_open_ar), tone: od.share_of_open_ar > 0 ? "bad" : "neutral" };
+
+  // foreign_share covers every non-base currency, so name the largest as "mostly",
+  // not as if it were the only one.
+  const mrr = k.monthly_recurring;
+  let mrrDelta: KpiDelta | undefined;
+  let mrrSub: string;
+  if (mrr.foreign_share && mrr.top_foreign_currency) {
+    mrrDelta = { text: formatShare(mrr.foreign_share), tone: "neutral" };
+    mrrSub = `billed in foreign ccy, mostly ${mrr.top_foreign_currency}`;
+  } else {
+    mrrSub = !decIsZero(mrr.amount) ? `all billed in ${base}` : "no active recurring invoices";
+  }
+
+  return [
+    {
+      key: "invoiced",
+      label: `Invoiced · ${words}`,
+      value: formatCompact(k.invoiced.amount),
+      valueTitle: full(k.invoiced.amount),
+      unit,
+      delta: deltaOf(k.invoiced.amount, k.invoiced.previous, true),
+      sub: `vs prior ${words}`,
+      series: k.invoiced.series,
+      sparkColor: "var(--wb-red)",
+    },
+    {
+      key: "collected",
+      label: `Collected · ${words}`,
+      value: formatCompact(k.collected.amount),
+      valueTitle: full(k.collected.amount),
+      unit,
+      delta: deltaOf(k.collected.amount, k.collected.previous, true),
+      sub: `vs prior ${words}${collectedShare}`,
+      series: k.collected.series,
+      sparkColor: "var(--wb-gold)",
+    },
+    {
+      key: "open-ar",
+      label: "Open AR",
+      value: formatCompact(ar.amount),
+      valueTitle: full(ar.amount),
+      unit,
+      sub: arSub,
+    },
+    {
+      key: "overdue",
+      label: "Overdue",
+      value: formatCompact(od.amount),
+      valueTitle: full(od.amount),
+      unit,
+      delta: overdueDelta,
+      sub: od.share_of_open_ar === null ? "nothing open" : "of open AR",
+      valueTone: !decIsZero(od.amount) ? "bad" : "neutral",
+    },
+    {
+      key: "mrr",
+      label: "Monthly recurring",
+      value: formatCompact(mrr.amount),
+      valueTitle: full(mrr.amount),
+      unit,
+      delta: mrrDelta,
+      sub: mrrSub,
+    },
+  ];
 });
 
 // Brand colours come from the CSS tokens. Re-read them after a theme switch
@@ -116,68 +238,13 @@ function colorForCurrency(ccy: string): string {
   return colors.value.series[currencySlot(ccy)];
 }
 
-// The base currency first, so it sits at the bottom of every bar, as in the mockup.
-const revenueCurrencies = computed(() => {
-  const r = revenueData.value;
-  if (!r) return [];
-  return [...r.currencies].sort((a, b) => Number(b === r.base_currency) - Number(a === r.base_currency));
-});
-
-const chartData = computed(() => {
-  const r = revenueData.value;
-  if (!r) return { labels: [], datasets: [] };
-  const labels = r.months.map((m, i) => monthLabel(m.month, i === 0));
-  const ccys = revenueCurrencies.value;
-  const paid = ccys.map((ccy) => ({
-    label: ccy,
-    currency: ccy,
-    unpaid: false,
-    backgroundColor: colorForCurrency(ccy),
-    borderColor: colorForCurrency(ccy),
-    borderWidth: 0,
-    maxBarThickness: 28,
-    data: r.months.map(
-      (m) => Number(m.totals[ccy] ?? 0) - Number(m.unpaid_totals[ccy] ?? 0),
-    ),
-    stack: "revenue",
-  }));
-  // Same hue as the paid segment, faded, stacked above every paid segment so the
-  // faded top of a bar reads as the whole unpaid portion of that month. The solid
-  // outline keeps the pale fill visible against the card in both themes.
-  const unpaid = ccys.map((ccy) => ({
-    label: `${ccy} unpaid`,
-    currency: ccy,
-    unpaid: true,
-    backgroundColor: withAlpha(colorForCurrency(ccy), colors.value.unpaidAlpha),
-    borderColor: colorForCurrency(ccy),
-    borderWidth: 1,
-    maxBarThickness: 28,
-    data: r.months.map((m) => Number(m.unpaid_totals[ccy] ?? 0)),
-    stack: "revenue",
-  }));
-  return { labels, datasets: [...paid, ...unpaid] };
-});
-
-// Shared look: brand ink text, hairline grid, square ink tooltip (mockup).
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-// Axis label for a "YYYY-MM" bucket: the short month, with the year under the
-// first bar and under every January.
-function monthLabel(ym: string, first: boolean): string | string[] {
-  const [y, m] = ym.split("-");
-  const name = MONTHS[Number(m) - 1] ?? ym;
-  return first || m === "01" ? [name, y] : name;
-}
-
-function monthTitle(ym: string): string {
-  const [y, m] = ym.split("-");
-  return `${MONTHS[Number(m) - 1] ?? ym} ${y}`;
-}
 
 function cssToken(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+// Shared look: brand ink text, hairline grid, square ink tooltip (mockup).
 const baseChartLook = computed(() => {
   const c = colors.value;
   const onInk = cssToken("--wb-bg");
@@ -199,96 +266,8 @@ const baseChartLook = computed(() => {
   };
 });
 
-const chartOptions = computed(() => {
-  const base = revenueData.value?.base_currency ?? "";
-  const months = revenueData.value?.months ?? [];
-  const c = colors.value;
-  const look = baseChartLook.value;
-  return {
-  maintainAspectRatio: false,
-  responsive: true,
-  // One tooltip per bar: hovering anywhere over a month lists all its segments.
-  interaction: { mode: "index" as const, intersect: false },
-  plugins: {
-    legend: look.legend,
-    tooltip: {
-      ...look.tooltip,
-      // Most months have only some of the series; a month with none shows no tooltip.
-      filter: (ctx: { parsed: { y: number } }) => ctx.parsed.y !== 0,
-      callbacks: {
-        title: (items: { dataIndex: number }[]) =>
-          items.length ? monthTitle(months[items[0].dataIndex]?.month ?? "") : "",
-        // Plotted value is the IDR-converted amount; show the native amount
-        // alongside it (same shape as the open-AR pie tooltip).
-        label: (ctx: {
-          dataset: { currency?: string; unpaid?: boolean };
-          parsed: { y: number };
-          dataIndex: number;
-        }) => {
-          const ccy = ctx.dataset.currency ?? "";
-          const state = ctx.dataset.unpaid ? "unpaid" : "paid";
-          const converted = `${formatAmount(String(ctx.parsed.y), base)} ${base}`;
-          // The base-currency series is already IDR — a "= … IDR" part would repeat it.
-          if (ccy === base) return `${ccy} ${state}: ${converted}`;
-          const m = months[ctx.dataIndex];
-          const nativeUnpaid = Number(m?.native_unpaid_totals?.[ccy] ?? 0);
-          const native = ctx.dataset.unpaid
-            ? nativeUnpaid
-            : Number(m?.native_totals?.[ccy] ?? 0) - nativeUnpaid;
-          return `${ccy} ${state}: ${formatAmount(String(native), ccy)} ${ccy} = ${converted}`;
-        },
-        footer: (items: { dataset: { unpaid?: boolean }; parsed: { y: number } }[]) => {
-          if (!items.length) return "";
-          const sum = (rows: typeof items) => rows.reduce((acc, i) => acc + i.parsed.y, 0);
-          const unpaid = sum(items.filter((i) => i.dataset.unpaid));
-          const lines = [`Total: ${formatAmount(String(sum(items)), base)} ${base}`];
-          if (unpaid) lines.push(`Unpaid: ${formatAmount(String(unpaid), base)} ${base}`);
-          return lines;
-        },
-      },
-    },
-  },
-  scales: {
-    x: {
-      stacked: true,
-      grid: { display: false },
-      border: { color: c.grid },
-      ticks: { color: c.text, font: { family: "DM Sans", size: 11 }, maxRotation: 0, autoSkipPadding: 8 },
-    },
-    y: {
-      stacked: true,
-      beginAtZero: true,
-      grid: { color: c.grid },
-      border: { display: false },
-      ticks: {
-        color: c.text,
-        font: { family: "DM Sans", size: 11 },
-        callback: (v: number | string) => {
-          const n = Number(v);
-          // One decimal, but drop a trailing ".0" (1800.0M -> 1.8B, 600.0M -> 600M).
-          const compact = (val: number, suffix: string) =>
-            (Number.isInteger(val) ? val.toFixed(0) : val.toFixed(1)) + suffix;
-          if (n >= 1_000_000_000) return compact(n / 1_000_000_000, "B");
-          if (n >= 1_000_000) return compact(n / 1_000_000, "M");
-          if (n >= 1_000) return compact(n / 1_000, "K");
-          return String(n);
-        },
-      },
-    },
-  },
-  };
-});
-
-const hasRevenueData = computed(
-  () => (revenueData.value?.currencies.length ?? 0) > 0,
-);
-
 // Accessible names for the chart canvases (role="img"): what the chart shows;
 // the visible list beside the pie carries the figures.
-const revenueChartLabel = computed(
-  () =>
-    `Bar chart of invoiced revenue per month over the last 12 months, stacked by currency, converted to ${revenueData.value?.base_currency ?? "IDR"}.`,
-);
 const arChartLabel = computed(() => {
   const ccys = (stats.value?.open_ar_base_by_currency ?? []).map((r) => r.currency).join(", ");
   return `Pie chart of open receivables by currency (${ccys}), converted to ${stats.value?.base_currency ?? ""}.`;
@@ -385,136 +364,107 @@ function timeAgo(iso: string) {
   const d = Math.floor(h / 24);
   return `${d}d ago`;
 }
-
-function go(path: string) {
-  router.push(path);
-}
 </script>
 
 <template>
   <section class="dash">
     <PageHeader eyebrow="01 / Overview" title="Dashboard">
-      <template #lede>Reconciliation health, revenue and open receivables at a glance.</template>
-      <Button label="Refresh" outlined severity="secondary" @click="refetch()">
+      <template #lede>
+        Revenue, receivables and reconciliation health. Figures in
+        {{ overview?.base_currency ?? revenueData?.base_currency ?? "IDR" }}, foreign currency converted at today's rate.
+      </template>
+      <PeriodSelector v-model="period" />
+      <Button label="Refresh" outlined severity="secondary" @click="refreshAll()">
         <template #icon><AppIcon name="refresh-cw" /></template>
       </Button>
     </PageHeader>
 
-    <div v-if="isLoading && !stats" class="loading">
-      <ProgressSpinner style="width: 40px; height: 40px" />
+    <!-- KPI row: one bordered strip, cells split by hairlines. -->
+    <div v-if="overviewError && !overview" class="card card-pad error">
+      Failed to load the KPI figures.
+      <Button label="Retry" text @click="refetchOverview()" />
     </div>
-
-    <div v-else-if="isError" class="card card-pad error">
-      Failed to load dashboard stats.
-      <Button label="Retry" text @click="refetch()" />
+    <div v-else-if="!overview" class="card kpi-loading">
+      <ProgressSpinner style="width: 32px; height: 32px" />
     </div>
-
-    <template v-else-if="stats">
-      <!-- KPI strip: one bordered card, cells split by hairlines. -->
-      <div class="kpi-strip">
-        <div class="kpi" role="button" tabindex="0" @click="go('/review')" @keydown.enter.space.prevent="go('/review')">
-          <div class="kpi-label">Manual review</div>
-          <div class="kpi-value" :class="{ alert: stats.awaiting_review_count > 0 }">{{ stats.awaiting_review_count }}</div>
-          <div class="kpi-hint">Payments held by safe-stop</div>
-        </div>
-        <div class="kpi" role="button" tabindex="0" @click="go('/queue')" @keydown.enter.space.prevent="go('/queue')">
-          <div class="kpi-label">Draft invoices</div>
-          <div class="kpi-value">{{ stats.draft_count }}</div>
-          <div class="kpi-hint">Awaiting finalization</div>
-        </div>
-        <div class="kpi" role="button" tabindex="0" @click="go('/invoices')" @keydown.enter.space.prevent="go('/invoices')">
-          <div class="kpi-label">Open invoices</div>
-          <div class="kpi-value">{{ stats.sent_count }}</div>
-          <div class="kpi-hint">Outstanding to customers</div>
-        </div>
-        <div class="kpi" role="button" tabindex="0" @click="go('/quotations')" @keydown.enter.space.prevent="go('/quotations')">
-          <div class="kpi-label">Open quotations</div>
-          <div class="kpi-value">{{ openQuotationCount }}</div>
-          <div class="kpi-hint num">{{ openQuotationHint }}</div>
-        </div>
-        <div class="kpi" role="button" tabindex="0" @click="go('/customers')" @keydown.enter.space.prevent="go('/customers')">
-          <div class="kpi-label">Customers</div>
-          <div class="kpi-value">{{ stats.customer_count }}</div>
-          <div class="kpi-hint">Active</div>
-        </div>
-        <div class="kpi" role="button" tabindex="0" @click="go('/invoices/recurring')" @keydown.enter.space.prevent="go('/invoices/recurring')">
-          <div class="kpi-label">Monthly recurring</div>
-          <div v-if="!stats.mrr_by_currency.length" class="kpi-value">0</div>
-          <ul v-else class="mrr-list">
-            <li v-for="row in stats.mrr_by_currency" :key="row.currency" class="num">
-              {{ formatAmount(row.amount, row.currency) }} <span class="ccy">{{ row.currency }}</span>
-            </li>
-          </ul>
-          <div class="kpi-hint">Active recurring templates</div>
-        </div>
+    <div v-else class="kpi-block">
+      <div class="kpi-strip" data-testid="kpi-row">
+        <KpiTile
+          v-for="t in kpiTiles"
+          :key="t.key"
+          :data-kpi="t.key"
+          :label="t.label"
+          :value="t.value"
+          :value-title="t.valueTitle"
+          :unit="t.unit"
+          :delta="t.delta"
+          :sub="t.sub"
+          :series="t.series"
+          :spark-color="t.sparkColor"
+          :value-tone="t.valueTone"
+        />
       </div>
+      <p v-if="overview.unconverted?.length" class="dash-note">
+        Not converted: {{ overview.unconverted.join(", ") }} (no FX rate)
+      </p>
+    </div>
 
-      <div class="chart-row">
-        <!-- Revenue chart (mockup variant A: stacked by currency). -->
-        <div class="card dash-card">
-          <div class="dash-card-head">
-            <div>
-              <h2 class="card-title">Revenue — last 12 months</h2>
-              <p class="card-sub">
-                Invoiced revenue by month, stacked per currency and converted to
-                {{ revenueData?.base_currency ?? 'IDR' }}. Faded segments are still unpaid.
-              </p>
-            </div>
+    <div class="chart-row">
+      <div v-if="revenueError && !revenueData" class="card card-pad error">
+        Failed to load revenue.
+        <Button label="Retry" text @click="refetchRevenue()" />
+      </div>
+      <div v-else-if="!revenueData" class="card loading">
+        <ProgressSpinner style="width: 40px; height: 40px" />
+      </div>
+      <RevenueCard v-else :data="revenueData" :colors="colors" />
+
+      <div v-if="isError && !stats" class="card card-pad error">
+        Failed to load dashboard stats.
+        <Button label="Retry" text @click="refetch()" />
+      </div>
+      <div v-else-if="!stats" class="card loading">
+        <ProgressSpinner style="width: 40px; height: 40px" />
+      </div>
+      <!-- Open AR -->
+      <div v-else class="card dash-card">
+        <div class="dash-card-head">
+          <div>
+            <h2 class="card-title">Open receivables</h2>
+            <p class="card-sub">Outstanding invoice balances, by currency.</p>
           </div>
-          <div v-if="!hasRevenueData" class="empty-state chart-empty">
-            <AppIcon name="chart-column" />
-            <div>No invoiced revenue yet in the last 12 months.</div>
-          </div>
-          <div v-else class="chart-wrap revenue-wrap" data-testid="revenue-chart">
+          <Tag class="head-tag" :value="`${stats.auto_cleared_last_30d} auto-cleared · 30d`" severity="success" />
+        </div>
+        <div v-if="!stats.open_ar_by_currency.length" class="empty-state">
+          <AppIcon name="circle-check" />
+          <div>No open AR. You're all caught up.</div>
+        </div>
+        <ul v-else class="ar-list">
+          <li v-for="row in stats.open_ar_by_currency" :key="row.currency">
+            <span class="ar-ccy">
+              <span class="swatch" :style="{ background: colorForCurrency(row.currency) }" />
+              {{ row.currency }}
+            </span>
+            <span class="ar-amt num">{{ formatAmount(row.amount, row.currency) }}</span>
+          </li>
+        </ul>
+        <div v-if="hasArPie" class="ar-pie-block">
+          <p class="card-sub">Share of open AR, converted to {{ stats.base_currency }}.</p>
+          <div class="chart-wrap ar-pie" data-testid="ar-chart">
             <Chart
-              type="bar"
-              :data="chartData"
-              :options="chartOptions"
-              :canvas-props="{ role: 'img', 'aria-label': revenueChartLabel }" />
+              type="pie"
+              :data="arPieData"
+              :options="arPieOptions"
+              :canvas-props="{ role: 'img', 'aria-label': arChartLabel }" />
           </div>
-          <p v-if="revenueData && revenueData.unconverted.length" class="card-note">
-            Not shown (no FX rate): {{ revenueData.unconverted.join(', ') }}
-          </p>
         </div>
-
-        <!-- Open AR -->
-        <div class="card dash-card">
-          <div class="dash-card-head">
-            <div>
-              <h2 class="card-title">Open receivables</h2>
-              <p class="card-sub">Outstanding invoice balances, by currency.</p>
-            </div>
-            <Tag class="head-tag" :value="`${stats.auto_cleared_last_30d} auto-cleared · 30d`" severity="success" />
-          </div>
-          <div v-if="!stats.open_ar_by_currency.length" class="empty-state">
-            <AppIcon name="circle-check" />
-            <div>No open AR. You're all caught up.</div>
-          </div>
-          <ul v-else class="ar-list">
-            <li v-for="row in stats.open_ar_by_currency" :key="row.currency">
-              <span class="ar-ccy">
-                <span class="swatch" :style="{ background: colorForCurrency(row.currency) }" />
-                {{ row.currency }}
-              </span>
-              <span class="ar-amt num">{{ formatAmount(row.amount, row.currency) }}</span>
-            </li>
-          </ul>
-          <div v-if="hasArPie" class="ar-pie-block">
-            <p class="card-sub">Share of open AR, converted to {{ stats.base_currency }}.</p>
-            <div class="chart-wrap ar-pie" data-testid="ar-chart">
-              <Chart
-                type="pie"
-                :data="arPieData"
-                :options="arPieOptions"
-                :canvas-props="{ role: 'img', 'aria-label': arChartLabel }" />
-            </div>
-          </div>
-          <p v-if="stats.open_ar_unconverted.length" class="card-note">
-            Not shown (no FX rate): {{ stats.open_ar_unconverted.join(', ') }}
-          </p>
-        </div>
+        <p v-if="stats.open_ar_unconverted.length" class="card-note">
+          Not shown (no FX rate): {{ stats.open_ar_unconverted.join(', ') }}
+        </p>
       </div>
+    </div>
 
+    <template v-if="stats">
       <div class="two-col">
         <!-- Upcoming -->
         <div class="card dash-card list-card upcoming-card">
@@ -598,65 +548,24 @@ function go(path: string) {
 /* Page header: the shared PageHeader; the section's 24px gap adds to its margin. */
 .dash > .page-head { margin-bottom: 8px; }
 
-/* ---------- KPI strip ---------- */
+/* ---------- KPI row ---------- */
 /* Hairlines between cells: the strip's line-coloured background shows through
-   a 1px gap, whatever the number of columns. */
+   a 1px gap, whatever the number of columns. Five tiles leave a gap on the
+   narrower grids, so the last tile spans two columns there. */
 .kpi-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1.35fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 1px;
   background: var(--wb-line);
   border: 1px solid var(--wb-line);
 }
-@media (max-width: 1280px) { .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1100px) {
+  .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .kpi-strip > :last-child { grid-column: span 2; }
+}
 @media (max-width: 640px) { .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.kpi {
-  background: var(--wb-surface);
-  padding: 20px 18px 18px;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.kpi:hover { background: var(--wb-surface-2); }
-.kpi:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.kpi-label {
-  font: 500 10.5px/1.4 var(--wb-font-sans);
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--wb-muted-soft);
-}
-.kpi-value {
-  font: 500 34px/1.1 var(--wb-font-display);
-  letter-spacing: -1.5px;
-  color: var(--wb-ink);
-  margin-top: 8px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.kpi-value.alert { color: var(--wb-red); }
-.kpi-hint {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--wb-muted);
-  margin-top: auto;
-  padding-top: 10px;
-}
-.mrr-list {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0 0;
-  font: 500 17px/1.35 var(--wb-font-display);
-  letter-spacing: -0.4px;
-  color: var(--wb-ink);
-}
-.mrr-list li { white-space: nowrap; }
-.mrr-list .ccy { font-size: 12px; color: var(--wb-muted-soft); letter-spacing: 0.2px; }
-@media (max-width: 640px) {
-  .kpi { padding: 16px 14px 14px; }
-  .kpi-value { font-size: 28px; }
-}
+.kpi-loading { display: grid; place-items: center; min-height: 148px; }
+.dash-note { margin: 8px 0 0; color: var(--wb-muted-soft); font-size: 12px; }
 
 /* ---------- cards ---------- */
 .chart-row {
@@ -705,10 +614,6 @@ function go(path: string) {
 .chart-wrap :deep(.p-chart),
 .chart-wrap :deep(.p-chart > *) { height: 100%; width: 100%; }
 .chart-wrap :deep(canvas) { height: 100% !important; width: 100% !important; }
-/* Bar chart gets the width its 12 months need; it grows to the AR card's height. */
-.revenue-wrap { flex: 1 1 340px; min-height: 340px; }
-.chart-empty { padding: 3rem 1.25rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; color: var(--wb-muted); }
-.chart-empty .app-icon { width: 1.5rem; height: 1.5rem; }
 @media (max-width: 640px) { .chart-wrap { padding: 18px 12px 18px; } }
 
 .ar-list { list-style: none; padding: 0; margin: 18px 28px 0; }
