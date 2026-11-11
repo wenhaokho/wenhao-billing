@@ -3,6 +3,7 @@ package invoices
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 
 	"github.com/LOQATO/gokit/apierr"
 	"github.com/LOQATO/gokit/db"
@@ -37,7 +39,7 @@ func RegisterReminders(api huma.API, pool *pgxpool.Pool, clock platform.Clock, m
 	huma.Register(api, platform.Admin(huma.Operation{
 		OperationID: "invoices-send-reminder", Method: http.MethodPost, Path: path, Tags: tags,
 		Summary:       "Email a payment reminder for an outstanding invoice and log it",
-		Description:   "Refuses a VOID or PAID invoice, a recurring template, a DRAFT and a send with no recipient (422). A reminder already sent to the same customer in the last 24 hours is 409 (the details name the earlier invoice_number and sent_at) unless force is true. A send failure is 502 and logs nothing.",
+		Description:   "Refuses a VOID or PAID invoice, a recurring template, a DRAFT and a send with no recipient (422). A reminder already sent to the same customer in the last 24 hours is 409 (the details name the earlier invoice_number and sent_at) unless force is true. An expected_amount that is not the cash still expected is 409 reminder_amount_changed (the details name the current amount and currency); nothing is sent. A send failure is 502 and logs nothing.",
 		DefaultStatus: http.StatusCreated,
 		Errors:        []int{http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity, http.StatusBadGateway},
 	}), r.send)
@@ -50,8 +52,9 @@ func RegisterReminders(api huma.API, pool *pgxpool.Pool, clock platform.Clock, m
 
 // SendReminderRequest is the body of POST .../reminders.
 type SendReminderRequest struct {
-	ToEmail platform.Optional[string] `json:"to_email" doc:"The recipient; empty or null falls back to the customer's contact email."`
-	Force   bool                      `json:"force,omitempty" doc:"Send although a reminder went to the same customer in the last 24 hours."`
+	ToEmail        platform.Optional[string]        `json:"to_email" doc:"The recipient; empty or null falls back to the customer's contact email."`
+	Force          bool                             `json:"force,omitempty" doc:"Send although a reminder went to the same customer in the last 24 hours."`
+	ExpectedAmount platform.Optional[platform.Dec4] `json:"expected_amount" doc:"The amount the user confirmed (the cash still expected: balance_due less the withholding not yet booked). When set and it differs from the current amount the send is 409 reminder_amount_changed, naming the current amount and currency; nothing is sent."`
 }
 
 type sendReminderIn struct {
@@ -77,6 +80,11 @@ func (r reminderRoutes) send(ctx context.Context, in *sendReminderIn) (*reminder
 	if uid := platform.PrincipalFrom(ctx).UserID; uid != uuid.Nil {
 		rin.ActorUserID = &uid
 	}
+	var expected *decimal.Decimal
+	if v := in.Body.ExpectedAmount.Merge(nil); v != nil {
+		d := v.Decimal()
+		expected = &d
+	}
 	now := r.clock.Now()
 	var out Reminder
 	// The transaction runs uncancellable so a hang-up after the email went
@@ -86,7 +94,14 @@ func (r reminderRoutes) send(ctx context.Context, in *sendReminderIn) (*reminder
 		if err != nil {
 			return err
 		}
-		out, err = SendReminder(ctx, tx, r.mail, d, rin, now)
+		// The amount the user confirmed binds the send: a payment since the
+		// dialog opened makes it stale.
+		if expected != nil && !expected.Equal(d.Amount) {
+			return &AmountChangedError{Amount: d.Amount, Currency: d.Invoice.Currency}
+		}
+		// Past this point the send is not abandoned on a hang-up: an email
+		// delivered without its log row would slip the 24 h guard.
+		out, err = SendReminder(context.WithoutCancel(ctx), tx, r.mail, d, rin, now)
 		return err
 	})
 	if err != nil {
@@ -110,10 +125,32 @@ func (r reminderRoutes) list(ctx context.Context, in *idIn) (*remindersBody, err
 	return &remindersBody{Body: out}, nil
 }
 
-// reminderError is err as the client reads it: the repeat guard 409 (with
+// AmountChangedError refuses a REST send whose expected_amount is not the
+// cash still expected now (Amount, in Currency).
+type AmountChangedError struct {
+	Amount   decimal.Decimal
+	Currency string
+}
+
+// AmountText is the current amount as the email prints it.
+func (e *AmountChangedError) AmountText() string { return platform.PyDecimalStr(e.Amount) }
+
+func (e *AmountChangedError) Error() string {
+	return fmt.Sprintf("the amount due is now %s %s, not the amount you confirmed; review it and send again",
+		e.AmountText(), e.Currency)
+}
+
+// reminderError is err as the client reads it: the amount-changed 409 (with
+// the current amount and currency as details), the repeat guard 409 (with
 // the earlier invoice_number and sent_at as details), an unknown invoice 404,
 // a failed send 502, every other refusal 422.
 func reminderError(err error) error {
+	var changed *AmountChangedError
+	if errors.As(err, &changed) {
+		return apierr.New(http.StatusConflict, "reminder_amount_changed", i18n.T(err.Error()),
+			apierr.Detail{Field: "amount", Message: i18n.T(changed.AmountText())},
+			apierr.Detail{Field: "currency", Message: i18n.T(changed.Currency)})
+	}
 	var recent *RecentReminderError
 	if errors.As(err, &recent) {
 		details := []apierr.Detail{{Field: "sent_at", Message: i18n.T(recent.SentAt.UTC().Format(time.RFC3339))}}

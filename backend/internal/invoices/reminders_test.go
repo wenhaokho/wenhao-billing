@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 )
 
 func newReminderApp(t *testing.T) *apitest.App {
@@ -340,6 +342,95 @@ func TestReminderRoutes(t *testing.T) {
 	}
 	if rec = a.Do(t, http.MethodGet, remindersPath(uuid.New()), nil); rec.Code != http.StatusNotFound {
 		t.Errorf("list unknown: %d", rec.Code)
+	}
+}
+
+// The amount the user confirmed binds the send: a different expected cash is
+// 409 reminder_amount_changed naming the current amount, and nothing is
+// emailed or logged.
+func TestReminderRouteExpectedAmount(t *testing.T) {
+	t.Parallel()
+	a := reminderApp(t)
+	acme := docCustomer(t, a, "ap@acme.example")
+	x := docInv{number: str("INV-A"), customer: &acme, amount: "1000", balance: "750"}.insert(t, a)
+
+	rec := a.Do(t, http.MethodPost, remindersPath(x), map[string]any{"expected_amount": "1000.0000"})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("mismatch: %d %s", rec.Code, rec.Body)
+	}
+	var prob struct {
+		Code   string                               `json:"code"`
+		Detail string                               `json:"detail"`
+		Errors []struct{ Location, Message string } `json:"errors"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &prob); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rec.Body.String(), "reminder_amount_changed") || !strings.Contains(prob.Detail, "750.0000 IDR") {
+		t.Errorf("mismatch body: %s", rec.Body)
+	}
+	var amount, currency string
+	for _, e := range prob.Errors {
+		switch e.Location {
+		case "amount":
+			amount = e.Message
+		case "currency":
+			currency = e.Message
+		}
+	}
+	if amount != "750.0000" || currency != "IDR" {
+		t.Errorf("details amount %q currency %q: %s", amount, currency, rec.Body)
+	}
+	if n := len(a.Mail.Messages()); n != 0 {
+		t.Errorf("%d emails after a mismatch, want 0", n)
+	}
+	if n := countReminders(t, a); n != 0 {
+		t.Errorf("%d reminder rows after a mismatch, want 0", n)
+	}
+
+	// The same value in another notation matches.
+	rec = a.Do(t, http.MethodPost, remindersPath(x), map[string]any{"expected_amount": "750", "to_email": "ap@acme.example"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("match: %d %s", rec.Code, rec.Body)
+	}
+	if n := len(a.Mail.Messages()); n != 1 {
+		t.Errorf("%d emails after a match, want 1", n)
+	}
+	if n := countReminders(t, a); n != 1 {
+		t.Errorf("%d reminder rows after a match, want 1", n)
+	}
+}
+
+// cancelSeenSender records whether Send's context could be cancelled.
+type cancelSeenSender struct {
+	mu          sync.Mutex
+	cancellable []bool
+}
+
+func (s *cancelSeenSender) Send(ctx context.Context, _ email.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancellable = append(s.cancellable, ctx.Done() != nil)
+	return nil
+}
+
+// The REST send runs without the request's cancellation, so a hang-up
+// mid-send cannot deliver an email that is never logged.
+func TestReminderRouteSendUncancellable(t *testing.T) {
+	t.Parallel()
+	s := &cancelSeenSender{}
+	a := apitest.New(t, func(api huma.API, d apitest.Deps) { RegisterReminders(api, d.Pool, d.Clock, s) })
+	acme := docCustomer(t, a, "ap@acme.example")
+	x := docInv{number: str("INV-C"), customer: &acme}.insert(t, a)
+	// a.Do sends with t.Context(), which can be cancelled.
+	rec := a.Do(t, http.MethodPost, remindersPath(x), map[string]any{})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.cancellable) != 1 || s.cancellable[0] {
+		t.Errorf("send contexts cancellable %v, want [false]", s.cancellable)
 	}
 }
 

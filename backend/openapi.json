@@ -6618,6 +6618,24 @@
       "SendReminderRequest": {
         "additionalProperties": true,
         "properties": {
+          "expected_amount": {
+            "description": "The amount the user confirmed (the cash still expected: balance_due less the withholding not yet booked). When set and it differs from the current amount the send is 409 reminder_amount_changed, naming the current amount and currency; nothing is sent.",
+            "oneOf": [
+              {
+                "examples": [
+                  "1500000.0000"
+                ],
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "force": {
             "description": "Send although a reminder went to the same customer in the last 24 hours.",
             "type": "boolean"
@@ -11097,7 +11115,7 @@
         ]
       },
       "post": {
-        "description": "Refuses a VOID or PAID invoice, a recurring template, a DRAFT and a send with no recipient (422). A reminder already sent to the same customer in the last 24 hours is 409 (the details name the earlier invoice_number and sent_at) unless force is true. A send failure is 502 and logs nothing.",
+        "description": "Refuses a VOID or PAID invoice, a recurring template, a DRAFT and a send with no recipient (422). A reminder already sent to the same customer in the last 24 hours is 409 (the details name the earlier invoice_number and sent_at) unless force is true. An expected_amount that is not the cash still expected is 409 reminder_amount_changed (the details name the current amount and currency); nothing is sent. A send failure is 502 and logs nothing.",
         "operationId": "invoices-send-reminder",
         "parameters": [
           {
