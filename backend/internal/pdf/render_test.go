@@ -431,6 +431,11 @@ func TestLongInvoiceRepeatsHeaderAndFooter(t *testing.T) {
 						t.Errorf("page %d has no %q", i+1, w)
 					}
 				}
+				// The number is in the page's top (page 1's band or the
+				// continuation strip) as well as in its footer.
+				if got := strings.Count(p, "INV-2026-0042"); got < 2 {
+					t.Errorf("page %d has the number %d time(s), want the top and the footer", i+1, got)
+				}
 				// The parties band is page 1's alone.
 				if got := strings.Contains(p, "Bill to"); got != (i == 0) {
 					t.Errorf("page %d: has \"Bill to\" = %v", i+1, got)
