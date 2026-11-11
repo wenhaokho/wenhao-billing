@@ -148,6 +148,16 @@ type FxRate struct {
 	CreatedAt    time.Time
 }
 
+type FxSyncRun struct {
+	RunID       int64
+	RanAt       time.Time
+	Source      string
+	Trigger     string
+	Created     int32
+	Updated     int32
+	ActorUserID pgtype.UUID
+}
+
 type Invoice struct {
 	InvoiceID       uuid.UUID
 	CustomerID      pgtype.UUID

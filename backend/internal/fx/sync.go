@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,6 +16,12 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
+// The triggers of a recorded sync run (fx_sync_runs.trigger).
+const (
+	TriggerScheduled = "SCHEDULED"
+	TriggerManual    = "MANUAL"
+)
+
 // Sync pulls the latest provider rate of each cfg.FXSyncCurrencies currency
 // into the base currency and stores them (Python's run_fx_sync), for the
 // "sync now" route and the weekly job. Every pair is fetched first, then all
@@ -23,7 +30,11 @@ import (
 // and counts updated, an identical row counts neither. A provider failure
 // returns an error matching ErrProvider and writes nothing. client must not be
 // nil; each request also has cfg.FXProviderTimeout.
-func Sync(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config, client *http.Client) (SyncResult, error) {
+//
+// A successful sync also records an fx_sync_runs row in the same
+// transaction: trigger is TriggerScheduled (the job, actor nil) or
+// TriggerManual (the route, actor the caller). A failed one records nothing.
+func Sync(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config, client *http.Client, trigger string, actor *uuid.UUID) (SyncResult, error) {
 	rates, err := fetchLatest(ctx, client, cfg, cfg.FXSyncCurrencies, strings.ToUpper(cfg.BaseCurrency))
 	if err != nil {
 		return SyncResult{}, err
@@ -48,7 +59,14 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, cfg platform.Config, client *
 				}
 			}
 		}
-		return nil
+		run := fxdb.InsertSyncRunParams{
+			Source: res.Source, Trigger: trigger,
+			Created: int32(res.Created), Updated: int32(res.Updated), //nolint:gosec // a sync writes a handful of rows
+		}
+		if actor != nil {
+			run.ActorUserID = pgtype.UUID{Bytes: *actor, Valid: true}
+		}
+		return q.InsertSyncRun(ctx, run)
 	})
 	if err != nil {
 		return SyncResult{}, err

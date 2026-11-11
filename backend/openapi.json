@@ -1739,6 +1739,66 @@
         ],
         "type": "object"
       },
+      "CurrencySummary": {
+        "additionalProperties": true,
+        "properties": {
+          "change_pct": {
+            "description": "(latest - previous) / previous x 100, rounded to 4 places; null when there is no previous rate.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "latest_as_of": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "latest_rate": {
+            "examples": [
+              "16000.50000000"
+            ],
+            "pattern": "^-?[0-9]{1,11}\\.[0-9]{8}$",
+            "type": "string"
+          },
+          "previous_as_of": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previous_rate": {
+            "description": "The rate of the newest earlier date; null when there is none.",
+            "examples": [
+              "16000.50000000"
+            ],
+            "pattern": "^-?[0-9]{1,11}\\.[0-9]{8}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "currency",
+          "latest_rate",
+          "latest_as_of",
+          "previous_rate",
+          "previous_as_of",
+          "change_pct"
+        ],
+        "type": "object"
+      },
       "CustomerBalanceRow": {
         "additionalProperties": true,
         "properties": {
@@ -4055,6 +4115,34 @@
           "amount",
           "foreign_share",
           "top_foreign_currency"
+        ],
+        "type": "object"
+      },
+      "LastSyncOut": {
+        "additionalProperties": true,
+        "properties": {
+          "ran_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "SCHEDULED",
+              "MANUAL"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "ran_at",
+          "trigger",
+          "source"
         ],
         "type": "object"
       },
@@ -6707,6 +6795,38 @@
         ],
         "type": "object"
       },
+      "SummaryOut": {
+        "additionalProperties": true,
+        "properties": {
+          "base_currency": {
+            "type": "string"
+          },
+          "currencies": {
+            "description": "One entry per currency with any rate to the base currency, sorted by currency.",
+            "items": {
+              "$ref": "#/components/schemas/CurrencySummary"
+            },
+            "type": "array"
+          },
+          "last_sync": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastSyncOut",
+                "description": "The newest successful provider sync; null when none has run."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "base_currency",
+          "currencies",
+          "last_sync"
+        ],
+        "type": "object"
+      },
       "SyncResult": {
         "additionalProperties": true,
         "properties": {
@@ -7901,6 +8021,37 @@
           }
         },
         "summary": "The newest rate of a pair, optionally on or before a date",
+        "tags": [
+          "accounting"
+        ]
+      }
+    },
+    "/api/v1/accounting/fx-rates/summary": {
+      "get": {
+        "operationId": "fx-rates-summary",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Each currency's newest rate to the base currency, its change, and the last sync",
         "tags": [
           "accounting"
         ]

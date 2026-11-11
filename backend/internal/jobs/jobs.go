@@ -72,13 +72,13 @@ func StubAccrual(_ context.Context, _ uuid.UUID) (decimal.Decimal, error) {
 }
 
 // FXRatesSync is sync_fx_rates (workers/tasks/fx_sync.py:60-66): the
-// provider's rates are pulled into fx_rates.
+// provider's rates are pulled into fx_rates, recorded as a SCHEDULED run.
 func FXRatesSync(pool *pgxpool.Pool, cfg platform.Config, client *http.Client) Job {
 	return Job{
 		ID:  FXRatesSyncID,
 		Due: WeeklySlot(time.Monday, FXRatesSyncHour),
 		Run: func(ctx context.Context, _ time.Time) error {
-			_, err := fx.Sync(ctx, pool, cfg, client)
+			_, err := fx.Sync(ctx, pool, cfg, client, fx.TriggerScheduled, nil)
 			return err
 		},
 	}

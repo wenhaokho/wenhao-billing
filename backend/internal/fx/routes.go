@@ -55,6 +55,10 @@ func Register(api huma.API, pool *pgxpool.Pool, cfg platform.Config, client *htt
 		Summary: "Pull the latest provider rates now", Errors: []int{http.StatusBadGateway},
 	}), r.sync)
 	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "fx-rates-summary", Method: http.MethodGet, Path: rates + "/summary", Tags: tags,
+		Summary: "Each currency's newest rate to the base currency, its change, and the last sync",
+	}), r.summary)
+	huma.Register(api, platform.Admin(huma.Operation{
 		OperationID: "fx-rates-latest", Method: http.MethodGet, Path: rates + "/latest", Tags: tags,
 		Summary: "The newest rate of a pair, optionally on or before a date", Errors: []int{http.StatusNotFound},
 	}), r.latest)
@@ -120,9 +124,10 @@ func (r routes) create(ctx context.Context, in *createIn) (*rateBody, error) {
 
 type syncOut struct{ Body SyncResult }
 
-// sync runs Sync; a provider failure is a 502 whose detail is its sentence.
+// sync runs Sync as a MANUAL run by the caller; a provider failure is a 502 whose detail is its sentence.
 func (r routes) sync(ctx context.Context, _ *struct{}) (*syncOut, error) {
-	res, err := Sync(ctx, r.pool, r.cfg, r.client)
+	actor := platform.PrincipalFrom(ctx).UserID
+	res, err := Sync(ctx, r.pool, r.cfg, r.client, TriggerManual, &actor)
 	if errors.Is(err, ErrProvider) {
 		return nil, platform.Err(http.StatusBadGateway, "fx_provider_error", err.Error())
 	}
@@ -130,6 +135,29 @@ func (r routes) sync(ctx context.Context, _ *struct{}) (*syncOut, error) {
 		return nil, err
 	}
 	return &syncOut{Body: res}, nil
+}
+
+type summaryOut struct{ Body SummaryOut }
+
+func (r routes) summary(ctx context.Context, _ *struct{}) (*summaryOut, error) {
+	base := strings.ToUpper(r.cfg.BaseCurrency)
+	rows, err := r.q.RateSummary(ctx, base)
+	if err != nil {
+		return nil, err
+	}
+	out := &summaryOut{Body: SummaryOut{BaseCurrency: base, Currencies: make([]CurrencySummary, 0, len(rows))}}
+	for _, row := range rows {
+		out.Body.Currencies = append(out.Body.Currencies, currencySummary(row))
+	}
+	last, err := r.q.LastSyncRun(ctx)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return nil, err
+	default:
+		out.Body.LastSync = &LastSyncOut{RanAt: platform.Time{Time: last.RanAt}, Trigger: last.Trigger, Source: last.Source}
+	}
+	return out, nil
 }
 
 type latestIn struct {
