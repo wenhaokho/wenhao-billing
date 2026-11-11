@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -6,7 +7,8 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import Chip from "primevue/chip";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
@@ -128,19 +130,6 @@ const quotationsQuery = useQuery<QuotationRow[]>({
     ).data,
 });
 
-function quotationStatusSeverity(status: string): "success" | "info" | "warn" | "secondary" | "danger" | "contrast" | undefined {
-  switch (status) {
-    case "ACCEPTED": return "success";
-    case "SENT": return "info";
-    case "INVOICED": return "success";
-    case "EXPIRED": return "warn";
-    case "DECLINED": return "danger";
-    case "VOID": return "secondary";
-    case "DRAFT": return "contrast";
-    default: return undefined;
-  }
-}
-
 const today = new Date();
 
 function daysUntilDue(dueDate: string): number {
@@ -159,18 +148,6 @@ function dueLabel(row: InvoiceRow): string {
   if (days < 0) return `Due ${Math.abs(days)} days ago`;
   if (days === 0) return "Due today";
   return `Due in ${days} days`;
-}
-
-function statusSeverity(status: string): "success" | "info" | "warn" | "secondary" | "danger" {
-  switch (status) {
-    case "PAID": return "success";
-    case "OPEN": return "info";
-    case "SENT": return "info";
-    case "PARTIAL": return "warn";
-    case "DRAFT": return "secondary";
-    case "VOID": return "danger";
-    default: return "secondary";
-  }
 }
 
 function invoiceTypeLabel(type: string): string {
@@ -304,36 +281,33 @@ watch(
     <div class="back">
       <Button
         label="Customers"
-        icon="pi pi-arrow-left"
         text
         size="small"
-        @click="goBack"
-      />
+        @click="goBack">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <Message v-if="customerQuery.error.value" severity="error" :closable="false">
       Failed to load customer.
     </Message>
 
-    <div v-if="customerQuery.data.value" class="cd-header">
-      <h1 class="cd-title">{{ customerQuery.data.value.name }}</h1>
-      <div class="cd-actions">
-        <Button
-          v-if="activeTab === 'edit'"
-          label="Save changes"
-          :disabled="!form.name"
-          :loading="saveCustomer.isPending.value"
-          @click="saveCustomer.mutate()"
-        />
-        <Button v-else label="Edit customer" outlined @click="activeTab = 'edit'" />
-      </div>
-    </div>
+    <PageHeader v-if="customerQuery.data.value" eyebrow="02 / Sales" :title="customerQuery.data.value.name">
+      <Button
+        v-if="activeTab === 'edit'"
+        label="Save changes"
+        :disabled="!form.name"
+        :loading="saveCustomer.isPending.value"
+        @click="saveCustomer.mutate()"
+      />
+      <Button v-else label="Edit customer" severity="secondary" outlined @click="activeTab = 'edit'" />
+    </PageHeader>
 
     <div v-if="customerQuery.data.value" class="cd-layout">
       <aside class="cd-sidebar">
         <div class="cd-card">
           <div class="cd-avatar">
-            <i class="pi pi-user" />
+            <AppIcon name="user" />
           </div>
 
           <div class="cd-group">
@@ -343,17 +317,17 @@ watch(
             </div>
             <div v-else class="muted">No contact set</div>
             <div v-if="customerQuery.data.value.contact_email" class="cd-line">
-              <i class="pi pi-envelope" />
+              <AppIcon name="mail" />
               <a :href="`mailto:${customerQuery.data.value.contact_email}`">
                 {{ customerQuery.data.value.contact_email }}
               </a>
             </div>
             <div v-if="customerQuery.data.value.contact_phone" class="cd-line">
-              <i class="pi pi-phone" />
+              <AppIcon name="phone" />
               <span>{{ customerQuery.data.value.contact_phone }}</span>
             </div>
             <div v-if="customerQuery.data.value.website" class="cd-line">
-              <i class="pi pi-link" />
+              <AppIcon name="link" />
               <a :href="customerQuery.data.value.website" target="_blank" rel="noopener">
                 {{ customerQuery.data.value.website }}
               </a>
@@ -389,10 +363,7 @@ watch(
 
           <div class="cd-group">
             <div class="cd-label">Status</div>
-            <Tag
-              :value="customerQuery.data.value.active ? 'Active' : 'Inactive'"
-              :severity="customerQuery.data.value.active ? 'success' : 'secondary'"
-            />
+            <StatusTag :status="customerQuery.data.value.active ? 'ACTIVE' : 'INACTIVE'" />
           </div>
 
           <div
@@ -417,7 +388,7 @@ watch(
       </aside>
 
       <div class="cd-main">
-        <Tabs v-model:value="activeTab">
+        <Tabs v-model:value="activeTab" class="card-tabs">
           <TabList>
             <Tab value="overview">Overview</Tab>
             <Tab value="invoices">Invoices</Tab>
@@ -457,7 +428,7 @@ watch(
 
             <div class="card-section">
               <div class="section-head">
-                <h3>Unpaid invoices</h3>
+                <h3 class="card-title">Unpaid invoices</h3>
               </div>
               <DataTable
                 :value="billingQuery.data.value?.unpaid_invoices ?? []"
@@ -471,16 +442,8 @@ watch(
                 </template>
                 <Column header="Status" :style="{ width: '120px' }">
                   <template #body="{ data: row }">
-                    <Tag
-                      v-if="isOverdue(row)"
-                      value="Overdue"
-                      severity="danger"
-                    />
-                    <Tag
-                      v-else
-                      :value="row.status"
-                      :severity="statusSeverity(row.status)"
-                    />
+                    <StatusTag v-if="isOverdue(row)" status="OVERDUE" />
+                    <StatusTag v-else :status="row.status" />
                   </template>
                 </Column>
                 <Column header="Type" :style="{ width: '110px' }">
@@ -488,12 +451,12 @@ watch(
                     {{ invoiceTypeLabel(row.invoice_type) }}
                   </template>
                 </Column>
-                <Column header="Invoice">
+                <Column header="Invoice" body-class="cell-nowrap">
                   <template #body="{ data: row }">
-                    <code class="small">{{ row.invoice_id.slice(0, 8) }}</code>
+                    <span class="doc-no">{{ row.invoice_id.slice(0, 8) }}</span>
                   </template>
                 </Column>
-                <Column header="Due">
+                <Column header="Due" body-class="cell-nowrap">
                   <template #body="{ data: row }">
                     <span :class="{ 'text-danger': isOverdue(row) }">
                       {{ dueLabel(row) }}
@@ -525,16 +488,8 @@ watch(
               </template>
               <Column header="Status" :style="{ width: '120px' }">
                 <template #body="{ data: row }">
-                  <Tag
-                    v-if="isOverdue(row)"
-                    value="Overdue"
-                    severity="danger"
-                  />
-                  <Tag
-                    v-else
-                    :value="row.status"
-                    :severity="statusSeverity(row.status)"
-                  />
+                  <StatusTag v-if="isOverdue(row)" status="OVERDUE" />
+                  <StatusTag v-else :status="row.status" />
                 </template>
               </Column>
               <Column header="Type">
@@ -542,9 +497,9 @@ watch(
                   {{ invoiceTypeLabel(row.invoice_type) }}
                 </template>
               </Column>
-              <Column field="issue_date" header="Issued" />
-              <Column field="due_date" header="Due" />
-              <Column header="Amount" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+              <Column field="issue_date" header="Issued" body-class="cell-nowrap cell-muted" />
+              <Column field="due_date" header="Due" body-class="cell-nowrap" />
+              <Column header="Amount" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
                 <template #body="{ data: row }">
                   <span class="num">{{ formatAmount(row.amount, row.currency) }}</span>
                   <span class="ccy"> {{ row.currency }}</span>
@@ -574,19 +529,19 @@ watch(
               <template #empty>
                 <div class="empty-mini">No quotations for this customer.</div>
               </template>
-              <Column header="Quote #">
+              <Column header="Quote #" body-class="cell-nowrap">
                 <template #body="{ data: row }">
-                  <code v-if="row.quotation_number" class="small">{{ row.quotation_number }}</code>
+                  <span v-if="row.quotation_number" class="doc-no">{{ row.quotation_number }}</span>
                   <span v-else class="muted">—</span>
                 </template>
               </Column>
               <Column header="Status" :style="{ width: '120px' }">
                 <template #body="{ data: row }">
-                  <Tag :value="row.status" :severity="quotationStatusSeverity(row.status)" />
+                  <StatusTag :status="row.status" />
                 </template>
               </Column>
-              <Column field="issue_date" header="Issued" />
-              <Column field="valid_until" header="Valid until" />
+              <Column field="issue_date" header="Issued" body-class="cell-nowrap cell-muted" />
+              <Column field="valid_until" header="Valid until" body-class="cell-nowrap" />
               <Column header="Amount" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
                 <template #body="{ data: row }">
                   <span class="num">{{ formatAmount(row.amount, row.currency) }}</span>
@@ -616,114 +571,97 @@ watch(
 </template>
 
 <style scoped>
-.back { margin-bottom: -0.5rem; }
-
-.cd-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.25rem;
-}
-.cd-title { margin: 0; font-size: 1.5rem; text-transform: uppercase; letter-spacing: 0.02em; }
-.cd-actions { display: flex; gap: 0.5rem; }
+.back { margin-bottom: 8px; }
 
 .cd-layout {
   display: grid;
   grid-template-columns: 300px 1fr;
-  gap: 1.25rem;
+  gap: 24px;
   align-items: start;
 }
 @media (max-width: 900px) {
   .cd-layout { grid-template-columns: 1fr; }
+  .cd-sidebar { position: static; }
 }
 
 .cd-sidebar { position: sticky; top: 1rem; }
 .cd-card {
-  background: var(--color-surface, #fff);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 10px;
-  padding: 1rem;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 16px;
 }
 .cd-avatar {
-  width: 120px; height: 120px;
+  width: 96px; height: 96px;
   border-radius: 50%;
-  background: #dbeafe;
-  color: #2563eb;
+  background: var(--wb-tint);
+  color: var(--wb-red);
   display: grid; place-items: center;
-  font-size: 3.5rem;
   align-self: center;
-  border: 2px dashed #93c5fd;
 }
+.cd-avatar .app-icon { width: 36px; height: 36px; }
 
-.cd-group { display: flex; flex-direction: column; gap: 0.3rem; }
+.cd-group { display: flex; flex-direction: column; gap: 6px; }
 .cd-label {
-  font-size: 0.72rem;
+  font: 500 11px/1.4 var(--wb-font-sans);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-muted);
-  font-weight: 600;
+  letter-spacing: 1.2px;
+  color: var(--wb-muted-soft);
 }
-.cd-strong { font-weight: 600; color: var(--color-text); }
-.cd-line { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; color: var(--color-text); }
-.cd-line i { color: var(--color-text-muted); font-size: 0.8rem; }
-.cd-line a { color: inherit; text-decoration: none; }
+.cd-strong { font-weight: 500; color: var(--wb-ink); }
+.cd-line { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--wb-ink); min-width: 0; }
+.cd-line .app-icon { color: var(--wb-muted-soft); width: 14px; height: 14px; }
+.cd-line a { color: var(--wb-red); text-decoration: none; overflow-wrap: anywhere; }
 .cd-line a:hover { text-decoration: underline; }
-.cd-address { font-size: 0.88rem; white-space: pre-line; color: var(--color-text); }
-.cd-divider { height: 1px; background: var(--color-border, #e2e8f0); margin: 0.1rem 0; }
+.cd-address { font-size: 14px; line-height: 1.5; white-space: pre-line; color: var(--wb-ink); }
+.cd-divider { height: 1px; background: var(--wb-line); }
 
 .cd-main { min-width: 0; }
 
+/* KPI strip at the top of the Overview panel, hairlines between cells. */
 .kpi-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
-  padding: 0.75rem 0 1rem;
-  border-bottom: 1px solid var(--color-border, #e2e8f0);
-  margin-bottom: 1rem;
+  gap: 1px;
+  background: var(--wb-line);
+  border-bottom: 1px solid var(--wb-line);
 }
 @media (max-width: 720px) { .kpi-row { grid-template-columns: 1fr; } }
-.kpi { display: flex; flex-direction: column; gap: 0.25rem; }
-.kpi-label { color: var(--color-text-muted); font-size: 0.82rem; }
-.kpi-value { font-size: 1.25rem; font-weight: 600; color: var(--color-text); font-variant-numeric: tabular-nums; }
-.kpi-link { color: #2563eb; font-size: 1rem; }
+.kpi { display: flex; flex-direction: column; gap: 8px; background: var(--wb-surface); padding: 22px 24px; min-width: 0; }
+.kpi-label { font: 500 11px/1.4 var(--wb-font-sans); letter-spacing: 1.3px; text-transform: uppercase; color: var(--wb-muted-soft); }
+.kpi-value { font: 500 22px/1.2 var(--wb-font-display); letter-spacing: -0.6px; color: var(--wb-ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpi-link { color: var(--wb-red); font-size: 16px; letter-spacing: -0.2px; }
 
-.card-section { margin-top: 0.5rem; }
+.card-section { margin-top: 0; }
 .section-head {
   display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 0.5rem;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--wb-line);
 }
-.section-head h3 { margin: 0; font-size: 1rem; color: var(--color-text); }
 
-.muted { color: var(--color-text-muted); }
-.small { font-size: 0.82rem; }
-.chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.muted { color: var(--wb-muted); }
+.small { font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips :deep(.p-chip) {
+  padding: 4px 9px;
+  border: 1px solid var(--wb-line);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--wb-muted);
+  font-size: 13px;
+}
 .num { font-variant-numeric: tabular-nums; }
-.ccy { color: var(--color-text-muted); font-size: 0.8rem; margin-left: 0.15rem; }
-.text-danger { color: #dc2626; }
-code { background: var(--color-surface-alt); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.85em; }
+.ccy { color: var(--wb-muted-soft); font-size: 12px; margin-left: 2px; }
+.text-danger { color: var(--wb-red-fg); }
+code { background: var(--wb-tint); color: var(--wb-ink); padding: 2px 6px; font-size: 12px; overflow-wrap: anywhere; }
 
 .edit-wrap {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  padding-top: 0.25rem;
+  gap: 14px;
+  padding: 24px;
+  background: var(--wb-surface-2);
 }
-.sticky-header {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 10px;
-  padding: 0.75rem 1rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-.sticky-actions { display: flex; gap: 0.5rem; }
 </style>

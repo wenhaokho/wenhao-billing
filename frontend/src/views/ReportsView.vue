@@ -11,6 +11,8 @@ import TabPanels from "primevue/tabpanels";
 import TabPanel from "primevue/tabpanel";
 import Tag from "primevue/tag";
 import Message from "primevue/message";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
@@ -175,23 +177,18 @@ function typeSeverity(t: string) {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Accounting Reports</h1>
-        <p class="subtitle">
-          Trial balance and balance sheet, consolidated in the base currency.
-          Per-currency breakdown is shown on the trial balance.
-        </p>
-      </div>
-      <div class="page-actions">
-        <label class="as-of">
-          As of
-          <DatePicker v-model="asOf" date-format="yy-mm-dd" show-icon />
-        </label>
-      </div>
-    </header>
+    <PageHeader eyebrow="04 / Accounting" title="Accounting Reports">
+      <template #lede>
+        Trial balance and balance sheet, consolidated in the base currency.
+        Per-currency breakdown is shown on the trial balance.
+      </template>
+      <label class="as-of">
+        As of
+        <DatePicker v-model="asOf" date-format="yy-mm-dd" show-icon />
+      </label>
+    </PageHeader>
 
-    <Tabs value="trial-balance">
+    <Tabs value="trial-balance" class="card-tabs">
       <TabList>
         <Tab value="trial-balance">Trial Balance</Tab>
         <Tab value="balance-sheet">Balance Sheet</Tab>
@@ -202,50 +199,45 @@ function typeSeverity(t: string) {
       <TabPanels>
       <TabPanel value="trial-balance">
         <div v-if="trialBalance.data.value" class="meta">
-          Base currency:
-          <strong>{{ trialBalance.data.value.base_currency }}</strong>
-          · Total debit
-          <span class="num">{{ formatAmount(trialBalance.data.value.total_debit_base, trialBalance.data.value.base_currency) }}</span>
-          · Total credit
-          <span class="num">{{ formatAmount(trialBalance.data.value.total_credit_base, trialBalance.data.value.base_currency) }}</span>
+          <span>Base currency <strong>{{ trialBalance.data.value.base_currency }}</strong></span>
+          <span>Total debit <strong class="num">{{ formatAmount(trialBalance.data.value.total_debit_base, trialBalance.data.value.base_currency) }}</strong></span>
+          <span>Total credit <strong class="num">{{ formatAmount(trialBalance.data.value.total_credit_base, trialBalance.data.value.base_currency) }}</strong></span>
         </div>
         <DataTable
           :value="trialBalance.data.value?.rows ?? []"
           :loading="trialBalance.isLoading.value"
           data-key="account_id"
           striped-rows
-          size="small"
         >
           <template #empty>
-            <div class="empty-state">
-              <i class="pi pi-inbox" />
-              <div>No postings as of this date.</div>
-            </div>
+            <EmptyState icon="inbox" title="Nothing posted yet" message="No postings as of this date." />
           </template>
-          <Column field="code" header="Code" />
+          <Column header="Code" body-class="cell-nowrap">
+            <template #body="{ data: r }"><span class="code">{{ r.code }}</span></template>
+          </Column>
           <Column field="name" header="Account" />
           <Column header="Type">
             <template #body="{ data: r }">
               <Tag :value="r.type" :severity="typeSeverity(r.type)" />
             </template>
           </Column>
-          <Column field="currency" header="Ccy" />
-          <Column header="Debit" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column field="currency" header="Ccy" body-class="cell-nowrap cell-muted" />
+          <Column header="Debit" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }">
               <span class="num">{{ formatAmount(r.debit, r.currency) }}</span>
             </template>
           </Column>
-          <Column header="Credit" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="Credit" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }">
               <span class="num">{{ formatAmount(r.credit, r.currency) }}</span>
             </template>
           </Column>
-          <Column header="Base Debit" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="Base Debit" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }">
               <span class="num muted">{{ formatAmount(r.base_debit, trialBalance.data.value?.base_currency) }}</span>
             </template>
           </Column>
-          <Column header="Base Credit" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="Base Credit" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }">
               <span class="num muted">{{ formatAmount(r.base_credit, trialBalance.data.value?.base_currency) }}</span>
             </template>
@@ -255,20 +247,13 @@ function typeSeverity(t: string) {
 
       <TabPanel value="balance-sheet">
         <div v-if="balanceSheet.data.value" class="meta">
-          Base currency:
-          <strong>{{ balanceSheet.data.value.base_currency }}</strong>
-          · Assets
-          <span class="num">{{ formatAmount(balanceSheet.data.value.assets_total_base, balanceSheet.data.value.base_currency) }}</span>
-          · Liabilities
-          <span class="num">{{ formatAmount(balanceSheet.data.value.liabilities_total_base, balanceSheet.data.value.base_currency) }}</span>
-          · Equity
-          <span class="num">{{ formatAmount(balanceSheet.data.value.equity_total_base, balanceSheet.data.value.base_currency) }}</span>
+          <span>Base currency <strong>{{ balanceSheet.data.value.base_currency }}</strong></span>
+          <span>Assets <strong class="num">{{ formatAmount(balanceSheet.data.value.assets_total_base, balanceSheet.data.value.base_currency) }}</strong></span>
+          <span>Liabilities <strong class="num">{{ formatAmount(balanceSheet.data.value.liabilities_total_base, balanceSheet.data.value.base_currency) }}</strong></span>
+          <span>Equity <strong class="num">{{ formatAmount(balanceSheet.data.value.equity_total_base, balanceSheet.data.value.base_currency) }}</strong></span>
         </div>
         <div v-if="balanceSheet.isLoading.value" class="empty-mini">Loading…</div>
-        <div v-else-if="!(balanceSheet.data.value?.groups?.length)" class="empty-state">
-          <i class="pi pi-inbox" />
-          <div>No balances as of this date.</div>
-        </div>
+        <EmptyState v-else-if="!(balanceSheet.data.value?.groups?.length)" title="No balances" message="No balances as of this date." />
         <div v-else class="bs-groups">
           <div v-for="g in balanceSheet.data.value.groups" :key="g.type" class="bs-group">
             <div class="bs-group-head">
@@ -280,7 +265,7 @@ function typeSeverity(t: string) {
             </div>
             <ul class="bs-lines">
               <li v-for="line in g.lines" :key="line.account_id">
-                <span class="bs-code"><code>{{ line.code }}</code></span>
+                <span class="bs-code code">{{ line.code }}</span>
                 <span class="bs-name">{{ line.name }}</span>
                 <span class="bs-amt num">{{ formatAmount(line.base_balance, balanceSheet.data.value.base_currency) }}</span>
               </li>
@@ -291,22 +276,23 @@ function typeSeverity(t: string) {
 
       <TabPanel value="fx-revaluation">
         <div v-if="fxReval.data.value" class="meta">
-          Unrealised gain/loss on open foreign-currency balances at the latest
-          rate on or before <strong>{{ fxReval.data.value.as_of }}</strong>.
-          Base currency: <strong>{{ fxReval.data.value.base_currency }}</strong>
-          · Total gain
-          <span class="num" style="color: #059669">
-            {{ formatAmount(fxReval.data.value.total_unrealised_gain, fxReval.data.value.base_currency) }}
+          <span class="meta-note">
+            Unrealised gain/loss on open foreign-currency balances at the latest
+            rate on or before <strong class="num">{{ fxReval.data.value.as_of }}</strong>.
           </span>
-          · Total loss
-          <span class="num" style="color: #dc2626">
-            {{ formatAmount(fxReval.data.value.total_unrealised_loss, fxReval.data.value.base_currency) }}
+          <span>Base currency <strong>{{ fxReval.data.value.base_currency }}</strong></span>
+          <span>Total gain
+            <strong class="num gain">{{ formatAmount(fxReval.data.value.total_unrealised_gain, fxReval.data.value.base_currency) }}</strong>
+          </span>
+          <span>Total loss
+            <strong class="num loss">{{ formatAmount(fxReval.data.value.total_unrealised_loss, fxReval.data.value.base_currency) }}</strong>
           </span>
         </div>
         <Message
           v-if="fxReval.data.value?.missing_rates?.length"
           severity="warn"
           :closable="false"
+          class="panel-message"
         >
           Missing rates for: {{ fxReval.data.value.missing_rates.join(", ") }}.
           Add them on the FX Rates page so those balances can be revalued.
@@ -316,39 +302,37 @@ function typeSeverity(t: string) {
           :loading="fxReval.isLoading.value"
           data-key="account_id"
           striped-rows
-          size="small"
         >
           <template #empty>
-            <div class="empty-state">
-              <i class="pi pi-inbox" />
-              <div>No open foreign-currency balances as of this date.</div>
-            </div>
+            <EmptyState icon="inbox" title="Nothing to revalue" message="No open foreign-currency balances as of this date." />
           </template>
-          <Column field="code" header="Code" />
+          <Column header="Code" body-class="cell-nowrap">
+            <template #body="{ data: r }"><span class="code">{{ r.code }}</span></template>
+          </Column>
           <Column field="name" header="Account" />
           <Column header="Type">
             <template #body="{ data: r }">
               <Tag :value="r.type" :severity="typeSeverity(r.type)" />
             </template>
           </Column>
-          <Column field="currency" header="Ccy" />
-          <Column header="Face balance" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column field="currency" header="Ccy" body-class="cell-nowrap cell-muted" />
+          <Column header="Face balance" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }">
               <span class="num">{{ formatAmount(r.face_balance, r.currency) }}</span>
             </template>
           </Column>
-          <Column header="Original base" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="Original base" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }">
               <span class="num muted">{{ formatAmount(r.original_base, fxReval.data.value?.base_currency) }}</span>
             </template>
           </Column>
-          <Column header="Rate" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="Rate" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }">
               <span class="num muted">{{ formatRate(r.rate) }}</span>
               <span v-if="r.rate_as_of" class="rate-date">@{{ r.rate_as_of }}</span>
             </template>
           </Column>
-          <Column header="Revalued base" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="Revalued base" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }">
               <span v-if="r.revalued_base !== null" class="num">
                 {{ formatAmount(r.revalued_base, fxReval.data.value?.base_currency) }}
@@ -356,7 +340,7 @@ function typeSeverity(t: string) {
               <span v-else class="muted">—</span>
             </template>
           </Column>
-          <Column header="Unrealised" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="Unrealised" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }">
               <Tag
                 v-if="r.unrealised_gain_loss !== null"
@@ -371,88 +355,78 @@ function typeSeverity(t: string) {
 
       <TabPanel value="ar-aging">
         <div v-if="arAging.data.value" class="meta">
-          Open customer balances (SENT + PARTIAL) bucketed by days past due.
-          <template v-for="(b, ccy) in arAging.data.value.totals_by_currency" :key="ccy">
-            · <strong>{{ ccy }}</strong>
-            <span class="num">{{ formatAmount(b.total, ccy) }}</span>
-          </template>
+          <span class="meta-note">Open customer balances (SENT + PARTIAL) bucketed by days past due.</span>
+          <span v-for="(b, ccy) in arAging.data.value.totals_by_currency" :key="ccy">
+            {{ ccy }} <strong class="num">{{ formatAmount(b.total, ccy) }}</strong>
+          </span>
         </div>
         <DataTable
           :value="arAging.data.value?.rows ?? []"
           :loading="arAging.isLoading.value"
           data-key="party_id"
           striped-rows
-          size="small"
         >
           <template #empty>
-            <div class="empty-state">
-              <i class="pi pi-check-circle" />
-              <div>No open AR as of this date.</div>
-            </div>
+            <EmptyState icon="circle-check" title="No open receivables" message="No open AR as of this date." />
           </template>
           <Column field="party_name" header="Customer" />
-          <Column field="currency" header="Ccy" style="width: 70px" />
-          <Column header="Current" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column field="currency" header="Ccy" style="width: 70px" body-class="cell-nowrap cell-muted" />
+          <Column header="Current" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }"><span class="num">{{ formatAmount(r.buckets.current, r.currency) }}</span></template>
           </Column>
-          <Column header="1–30" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="1–30" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }"><span class="num">{{ formatAmount(r.buckets.d_1_30, r.currency) }}</span></template>
           </Column>
-          <Column header="31–60" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="31–60" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }"><span class="num">{{ formatAmount(r.buckets.d_31_60, r.currency) }}</span></template>
           </Column>
-          <Column header="61–90" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="61–90" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }"><span class="num">{{ formatAmount(r.buckets.d_61_90, r.currency) }}</span></template>
           </Column>
-          <Column header="90+" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
-            <template #body="{ data: r }"><span class="num" style="color: #dc2626">{{ formatAmount(r.buckets.d_90_plus, r.currency) }}</span></template>
+          <Column header="90+" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
+            <template #body="{ data: r }"><span class="num loss">{{ formatAmount(r.buckets.d_90_plus, r.currency) }}</span></template>
           </Column>
-          <Column header="Total" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
-            <template #body="{ data: r }"><span class="num" style="font-weight:600">{{ formatAmount(r.buckets.total, r.currency) }}</span></template>
+          <Column header="Total" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
+            <template #body="{ data: r }"><span class="num strong">{{ formatAmount(r.buckets.total, r.currency) }}</span></template>
           </Column>
         </DataTable>
       </TabPanel>
 
       <TabPanel value="ap-aging">
         <div v-if="apAging.data.value" class="meta">
-          Open vendor bills (OPEN + PARTIAL) bucketed by days past due.
-          <template v-for="(b, ccy) in apAging.data.value.totals_by_currency" :key="ccy">
-            · <strong>{{ ccy }}</strong>
-            <span class="num">{{ formatAmount(b.total, ccy) }}</span>
-          </template>
+          <span class="meta-note">Open vendor bills (OPEN + PARTIAL) bucketed by days past due.</span>
+          <span v-for="(b, ccy) in apAging.data.value.totals_by_currency" :key="ccy">
+            {{ ccy }} <strong class="num">{{ formatAmount(b.total, ccy) }}</strong>
+          </span>
         </div>
         <DataTable
           :value="apAging.data.value?.rows ?? []"
           :loading="apAging.isLoading.value"
           data-key="party_id"
           striped-rows
-          size="small"
         >
           <template #empty>
-            <div class="empty-state">
-              <i class="pi pi-check-circle" />
-              <div>No open AP as of this date.</div>
-            </div>
+            <EmptyState icon="circle-check" title="No open payables" message="No open AP as of this date." />
           </template>
           <Column field="party_name" header="Vendor" />
-          <Column field="currency" header="Ccy" style="width: 70px" />
-          <Column header="Current" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column field="currency" header="Ccy" style="width: 70px" body-class="cell-nowrap cell-muted" />
+          <Column header="Current" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }"><span class="num">{{ formatAmount(r.buckets.current, r.currency) }}</span></template>
           </Column>
-          <Column header="1–30" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="1–30" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }"><span class="num">{{ formatAmount(r.buckets.d_1_30, r.currency) }}</span></template>
           </Column>
-          <Column header="31–60" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="31–60" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }"><span class="num">{{ formatAmount(r.buckets.d_31_60, r.currency) }}</span></template>
           </Column>
-          <Column header="61–90" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+          <Column header="61–90" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
             <template #body="{ data: r }"><span class="num">{{ formatAmount(r.buckets.d_61_90, r.currency) }}</span></template>
           </Column>
-          <Column header="90+" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
-            <template #body="{ data: r }"><span class="num" style="color: #dc2626">{{ formatAmount(r.buckets.d_90_plus, r.currency) }}</span></template>
+          <Column header="90+" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
+            <template #body="{ data: r }"><span class="num loss">{{ formatAmount(r.buckets.d_90_plus, r.currency) }}</span></template>
           </Column>
-          <Column header="Total" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
-            <template #body="{ data: r }"><span class="num" style="font-weight:600">{{ formatAmount(r.buckets.total, r.currency) }}</span></template>
+          <Column header="Total" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }" body-class="cell-nowrap">
+            <template #body="{ data: r }"><span class="num strong">{{ formatAmount(r.buckets.total, r.currency) }}</span></template>
           </Column>
         </DataTable>
       </TabPanel>
@@ -462,38 +436,59 @@ function typeSeverity(t: string) {
 </template>
 
 <style scoped>
-.as-of { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted); }
-.meta { font-size: 0.85rem; color: var(--color-text-muted); margin: 0 0 0.75rem; }
-.meta .num { font-weight: 600; color: var(--color-text); }
-.num { font-variant-numeric: tabular-nums; }
-.muted { color: var(--color-text-muted); }
-
-.bs-groups { display: flex; flex-direction: column; gap: 1.25rem; }
-.bs-group {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 0.9rem 1.1rem;
+.as-of { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--wb-muted); }
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  padding: 18px 24px;
+  font-size: 13px;
+  color: var(--wb-muted);
+  border-bottom: 1px solid var(--wb-line);
 }
+.meta strong { color: var(--wb-ink); font-weight: 500; }
+.meta-note { flex-basis: 100%; }
+.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.muted { color: var(--wb-muted); }
+.strong { font-weight: 500; }
+.meta .gain, .gain { color: var(--wb-green-fg); }
+.meta .loss, .loss { color: var(--wb-red-fg); }
+.code { font: 500 13px var(--wb-font-mono); color: var(--wb-muted); }
+.panel-message { margin: 16px 24px; }
+
+.bs-groups { display: flex; flex-direction: column; gap: 20px; padding: 24px; }
+.bs-group { border: 1px solid var(--wb-line); }
 .bs-group-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 0.5rem;
-  margin-bottom: 0.5rem;
-  border-bottom: 1px solid var(--color-border);
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--wb-line);
 }
-.bs-total { font-weight: 700; font-size: 1.05rem; }
+.bs-total {
+  font: 500 18px var(--wb-font-display);
+  letter-spacing: -0.4px;
+  color: var(--wb-ink);
+}
 .bs-lines { list-style: none; margin: 0; padding: 0; }
 .bs-lines li {
   display: grid;
-  grid-template-columns: 80px 1fr auto;
-  gap: 0.75rem;
-  padding: 0.25rem 0;
-  font-size: 0.88rem;
+  grid-template-columns: 80px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--wb-line);
 }
-.bs-code code { background: var(--color-surface-alt); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
+.bs-lines li:last-child { border-bottom: 0; }
+.bs-lines li:hover { background: var(--wb-surface-2); }
 .bs-amt { font-weight: 500; }
+@media (max-width: 720px) {
+  .meta { padding: 14px 16px; gap: 6px 20px; }
+  .bs-groups { padding: 16px; }
+  .bs-group-head, .bs-lines li { padding-left: 14px; padding-right: 14px; }
+  .bs-lines li { grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; }
+}
 
-.rate-date { margin-left: 0.4rem; color: var(--color-text-muted); font-size: 0.78em; }
+.rate-date { margin-left: 0.4rem; color: var(--wb-muted); font-size: 0.78em; }
 </style>

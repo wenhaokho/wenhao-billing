@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, onMounted } from "vue";
 import { useRouter, useRoute, RouterLink } from "vue-router";
 import InputText from "primevue/inputtext";
@@ -118,11 +119,11 @@ async function submit() {
       <Button
         type="submit"
         label="Sign in"
-        icon="pi pi-arrow-right"
         icon-pos="right"
         :loading="submitting"
-        class="submit-btn"
-      />
+        class="submit-btn">
+        <template #icon><AppIcon name="arrow-right" /></template>
+      </Button>
     </form>
 
     <template #footer>

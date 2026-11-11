@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { useRouter } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import Button from "primevue/button";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import { api } from "@/api/client";
 
 interface Vendor {
@@ -34,23 +36,19 @@ function goEdit() {
 <template>
   <section>
     <div class="back">
-      <Button label="Vendors" icon="pi pi-arrow-left" text size="small" @click="router.push('/vendors')" />
+      <Button label="Vendors" text size="small" @click="router.push('/vendors')">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
-    <header class="page-header">
-      <div>
-        <h1>{{ vendor?.name ?? (isLoading ? "Loading…" : "Vendor") }}</h1>
-        <p v-if="vendor" class="subtitle">
-          <Tag
-            :value="vendor.active ? 'Active' : 'Inactive'"
-            :severity="vendor.active ? 'success' : 'secondary'"
-          />
-        </p>
-      </div>
-      <div class="page-actions">
-        <Button label="Edit" icon="pi pi-pencil" @click="goEdit" :disabled="!vendor" />
-      </div>
-    </header>
+    <PageHeader eyebrow="03 / Purchases" :title="vendor?.name ?? (isLoading ? 'Loading…' : 'Vendor')">
+      <template v-if="vendor" #status>
+        <StatusTag :status="vendor.active ? 'ACTIVE' : 'INACTIVE'" />
+      </template>
+      <Button label="Edit" @click="goEdit" :disabled="!vendor">
+        <template #icon><AppIcon name="pencil" /></template>
+      </Button>
+    </PageHeader>
 
     <div v-if="error" class="error">Failed to load vendor.</div>
 
@@ -73,15 +71,17 @@ function goEdit() {
 </template>
 
 <style scoped>
-.back { margin-bottom: -0.5rem; }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 2rem; }
-.field { display: flex; flex-direction: column; gap: 0.2rem; }
+.back { margin-bottom: 8px; }
+.card-pad { padding: 28px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 40px; max-width: 900px; }
+@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } .card-pad { padding: 20px; } }
+.field { display: flex; flex-direction: column; gap: 6px; }
 .field.full { grid-column: 1 / -1; }
-.field > span { font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.field > p { margin: 0; font-size: 0.92rem; }
+.field > span { font: 500 11px/1.4 var(--wb-font-sans); color: var(--wb-muted-soft); text-transform: uppercase; letter-spacing: 1.2px; }
+.field > p { margin: 0; font-size: 15px; color: var(--wb-ink); }
 .pre { white-space: pre-wrap; }
-.muted { color: var(--color-text-muted); }
-.small { font-size: 0.82rem; }
-code { background: var(--color-surface-alt); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.85em; font-weight: 600; }
-.error { color: #b91c1c; padding: 1rem; }
+.muted { color: var(--wb-muted); }
+.small { font-size: 13px; }
+code { background: var(--wb-tint); padding: 2px 6px; font-size: 12px; font-weight: 500; }
+.error { color: var(--wb-red-fg); padding: 16px 0; }
 </style>

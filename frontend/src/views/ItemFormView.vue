@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -9,7 +11,7 @@ import Checkbox from "primevue/checkbox";
 import Textarea from "primevue/textarea";
 import Select from "primevue/select";
 import Message from "primevue/message";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 
 interface CloudflareTarget {
@@ -181,16 +183,6 @@ const expenseAccounts = computed(
   () => (accounts.value ?? []).filter((a) => a.type === "EXPENSE" || a.type === "COGS"),
 );
 
-function statusSeverity(s: string | null | undefined) {
-  switch (s) {
-    case "ACTIVE": return "success";
-    case "SUSPENDED": return "danger";
-    case "SUSPEND_PENDING": return "warn";
-    case "CANCELLED": return "secondary";
-    default: return undefined;
-  }
-}
-
 function buildBody() {
   const body: Record<string, unknown> = {
     name: form.value.name,
@@ -273,21 +265,20 @@ function cancel() {
 <template>
   <section class="page">
     <div class="back">
-      <Button label="Products &amp; Services" icon="pi pi-arrow-left" text size="small" @click="cancel" />
+      <Button label="Products &amp; Services" text size="small" @click="cancel">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
-    <div class="header">
-      <h1>{{ isEdit ? "Edit item" : "New item" }}</h1>
-      <div class="actions">
-        <Button label="Cancel" text @click="cancel" />
-        <Button
-          :label="isEdit ? 'Save changes' : 'Create item'"
-          :disabled="!canSubmit"
-          :loading="save.isPending.value"
-          @click="submit"
-        />
-      </div>
-    </div>
+    <PageHeader eyebrow="04 / Accounting" :title="isEdit ? 'Edit item' : 'New item'">
+      <Button label="Cancel" severity="secondary" outlined @click="cancel" />
+      <Button
+        :label="isEdit ? 'Save changes' : 'Create item'"
+        :disabled="!canSubmit"
+        :loading="save.isPending.value"
+        @click="submit"
+      />
+    </PageHeader>
 
     <Message v-if="saveError" severity="error" role="alert" aria-live="assertive" :closable="true" @close="saveError = null">
       {{ saveError }}
@@ -397,13 +388,9 @@ function cancel() {
         <div v-if="form.is_hosting" class="sub-body">
           <div v-if="isEdit && existing?.hosting_status" class="status-row">
             <span class="status-label">Status</span>
-            <Tag :value="existing.hosting_status" :severity="statusSeverity(existing.hosting_status)" />
+            <StatusTag :status="existing.hosting_status" />
             <span v-if="existing.cloudflare_target?.provider_status" class="status-label">Provider</span>
-            <Tag
-              v-if="existing.cloudflare_target?.provider_status"
-              :value="existing.cloudflare_target.provider_status"
-              :severity="statusSeverity(existing.cloudflare_target.provider_status)"
-            />
+            <StatusTag v-if="existing.cloudflare_target?.provider_status" :status="existing.cloudflare_target.provider_status" />
             <span v-if="existing.hosting_last_error" class="error-detail">{{ existing.hosting_last_error }}</span>
           </div>
 
@@ -466,24 +453,15 @@ function cancel() {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 2rem; }
-.back { margin-bottom: -0.5rem; }
-.header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-.header h1 { margin: 0; font-size: 1.5rem; text-transform: uppercase; letter-spacing: 0.02em; }
-.actions { display: flex; gap: 0.5rem; }
+.page { display: flex; flex-direction: column; gap: 16px; padding-bottom: 2rem; }
+.back { margin-bottom: -8px; }
 .card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 12px;
-  padding: 1.25rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  padding: 28px;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 18px;
   max-width: 760px;
 }
-.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: var(--color-text); }
-.field > span { font-weight: 600; font-size: 0.85rem; }
 .field :deep(.p-inputtext),
 .field :deep(.p-textarea),
 .field :deep(.p-inputnumber),
@@ -491,13 +469,13 @@ function cancel() {
 .field :deep(.p-select) { width: 100%; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; min-width: 0; }
 .two-col > .field { min-width: 0; }
-.sub { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.75rem 0; border-top: 1px dashed var(--color-border, #e2e8f0); }
-.sub:first-of-type { border-top: none; padding-top: 0.25rem; }
-.check { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.9rem; color: var(--color-text); cursor: pointer; }
-.sub-body { padding-left: 1.75rem; display: flex; flex-direction: column; gap: 0.75rem; }
-.hosting-cf { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 0.5rem; border-top: 1px dashed var(--color-border, #e2e8f0); }
-.cf-title { font-weight: 600; font-size: 0.82rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.status-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.85rem; }
-.status-label { color: var(--color-text-muted); }
-.error-detail { color: var(--color-danger, #c44); font-size: 0.82rem; }
+.sub { display: flex; flex-direction: column; gap: 12px; padding: 16px 0 0; border-top: 1px solid var(--wb-line); }
+.sub:first-of-type { border-top: none; padding-top: 4px; }
+.check { display: flex; align-items: center; gap: 10px; font-weight: 500; font-size: 14px; color: var(--wb-ink); cursor: pointer; }
+.sub-body { padding-left: 30px; display: flex; flex-direction: column; gap: 14px; }
+.hosting-cf { display: flex; flex-direction: column; gap: 14px; padding-top: 14px; border-top: 1px solid var(--wb-line); }
+.cf-title { font: 500 11px/1.4 var(--wb-font-sans); color: var(--wb-muted-soft); text-transform: uppercase; letter-spacing: 1.2px; }
+.status-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.status-label { color: var(--wb-muted); }
+.error-detail { color: var(--wb-red-fg); font-size: 13px; }
 </style>

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import type { IconName } from "@/theme/icons";
 import { computed, ref } from "vue";
 
 // The MCP endpoint is served by the backend origin. In production the backend
@@ -46,33 +49,40 @@ const steps = [
   },
 ];
 
-type Capability = { icon: string; label: string; detail: string };
+type Capability = { icon: IconName; label: string; detail: string };
 
 const reads: Capability[] = [
-  { icon: "pi-search", label: "Ask anything", detail: "“What does Acme still owe?”, “revenue this quarter in SGD”, “what's overdue?”" },
+  { icon: "search", label: "Ask anything", detail: "“What does Acme still owe?”, “revenue this quarter in SGD”, “what's overdue?”" },
 ];
 const writes: Capability[] = [
-  { icon: "pi-file-edit", label: "Draft & issue", detail: "Create invoices, quotations, bills, customers, projects, items — and finalize invoices." },
-  { icon: "pi-sync", label: "Recurring & reconciliation", detail: "Spin up recurring templates and resolve clear payment matches (mismatches always stop for you)." },
+  { icon: "file-pen", label: "Draft & issue", detail: "Create invoices, quotations, bills, customers, projects, items — and finalize invoices." },
+  { icon: "refresh-cw", label: "Recurring & reconciliation", detail: "Spin up recurring templates and resolve clear payment matches (mismatches always stop for you)." },
 ];
 const gated: Capability[] = [
-  { icon: "pi-send", label: "Emails to customers", detail: "Sending an invoice or reminder shows you a preview first — nothing goes out until you confirm." },
-  { icon: "pi-trash", label: "Deletions", detail: "Any delete is previewed and requires your explicit confirmation." },
+  { icon: "send", label: "Emails to customers", detail: "Sending an invoice or reminder shows you a preview first — nothing goes out until you confirm." },
+  { icon: "trash-2", label: "Deletions", detail: "Any delete is previewed and requires your explicit confirmation." },
 ];
 
-const securityPoints = computed(() => [
+// The three capability cards (mockup): a tone chip, the mode, then the items.
+const capabilityGroups: { tag: string; tone: "blue" | "green" | "amber"; mode: string; items: Capability[] }[] = [
+  { tag: "Reads", tone: "blue", mode: "No confirmation", items: reads },
+  { tag: "Writes", tone: "green", mode: "Automatic", items: writes },
+  { tag: "Confirm first", tone: "amber", mode: "You approve", items: gated },
+];
+
+const securityPoints = computed<{ icon: IconName; title: string; body: string }[]>(() => [
   {
-    icon: "pi-lock",
+    icon: "lock",
     title: "Your login, nothing new",
     body: "Access is granted through the same admin sign-in you already use — no separate password or API key to manage.",
   },
   {
-    icon: "pi-user-edit",
+    icon: "user-pen",
     title: "Admin-only",
     body: "Only an admin account can connect and drive the assistant. Non-admin sessions are refused.",
   },
   {
-    icon: "pi-verified",
+    icon: "badge-check",
     title: "Consent + revocable",
     body: "Every connection passes an explicit consent screen, and access tokens can be revoked at any time.",
   },
@@ -81,21 +91,18 @@ const securityPoints = computed(() => [
 
 <template>
   <div class="mcp-page">
-    <div class="page-header">
-      <div>
-        <h1><i class="pi pi-sparkles title-spark" /> AI Assistant</h1>
-        <p class="subtitle">
-          Connect Claude to your billing so you can create invoices, answer
-          questions, and run your books by just asking.
-        </p>
-      </div>
-    </div>
+    <PageHeader eyebrow="06 / Admin" title="AI Assistant">
+      <template #lede>
+        Connect Claude to your billing so you can create invoices, answer
+        questions, and run your books by just asking.
+      </template>
+    </PageHeader>
 
-    <!-- Intro / hero -->
-    <section class="card hero">
+    <!-- Hero (mockup): deep red block, gold eyebrow, Manrope headline. -->
+    <section class="hero">
       <div class="hero-copy">
-        <span class="eyebrow">Model Context Protocol</span>
-        <h2>Talk to your books.</h2>
+        <span class="hero-eyebrow">Model Context Protocol</span>
+        <h2>Talk to <em>your books.</em></h2>
         <p>
           Once connected, tell Claude what you want in plain English &mdash;
           <em>&ldquo;invoice Acme for 40 hours of design at $100/hr&rdquo;</em>
@@ -104,50 +111,46 @@ const securityPoints = computed(() => [
         </p>
       </div>
       <div class="hero-glyph" aria-hidden="true">
-        <i class="pi pi-sparkles" />
+        <AppIcon name="sparkles" :size="40" />
       </div>
     </section>
 
-    <!-- Connect -->
-    <section class="card card-pad connect">
-      <div class="section-head">
-        <span class="step-badge"><i class="pi pi-link" /></span>
-        <div>
-          <h3>Connect Claude Desktop</h3>
-          <p class="section-sub">Add this as a custom connector, then sign in once.</p>
-        </div>
-      </div>
+    <!-- Connect: URL on the left, numbered steps on the right. -->
+    <section class="connect">
+      <div class="connect-url">
+        <h3 class="connect-title">Connect Claude Desktop</h3>
+        <p class="section-sub">Add this as a custom connector, then sign in once.</p>
 
-      <label class="url-label" for="mcp-url-input">Connector URL</label>
-      <div class="url-row">
-        <input
-          id="mcp-url-input"
-          class="url-input"
-          type="text"
-          :value="connectorUrl"
-          readonly
-          spellcheck="false"
-          @focus="($event.target as HTMLInputElement).select()"
-        />
-        <button
-          type="button"
-          class="copy-btn"
-          :class="{ copied }"
-          :aria-label="copied ? 'Copied' : 'Copy connector URL'"
-          @click="copyUrl"
-        >
-          <i :class="copied ? 'pi pi-check' : 'pi pi-copy'" />
-          <span>{{ copied ? "Copied" : "Copy" }}</span>
-        </button>
+        <label class="url-label" for="mcp-url-input">Connector URL</label>
+        <div class="url-row">
+          <input
+            id="mcp-url-input"
+            class="url-input"
+            type="text"
+            :value="connectorUrl"
+            readonly
+            spellcheck="false"
+            @focus="($event.target as HTMLInputElement).select()"
+          />
+          <button
+            type="button"
+            class="copy-btn"
+            :class="{ copied }"
+            :aria-label="copied ? 'Copied' : 'Copy connector URL'"
+            @click="copyUrl"
+          >
+            <AppIcon :name="copied ? 'check' : 'copy'" />
+            <span>{{ copied ? "Copied" : "Copy" }}</span>
+          </button>
+        </div>
+        <p class="url-hint">
+          Running locally? Use <code>{{ DEV_CONNECTOR_URL }}</code> instead.
+        </p>
       </div>
-      <p class="url-hint">
-        <i class="pi pi-info-circle" />
-        Running locally? Use <code>{{ DEV_CONNECTOR_URL }}</code> instead.
-      </p>
 
       <ol class="steps">
         <li v-for="(step, i) in steps" :key="i" class="step">
-          <span class="step-num">{{ i + 1 }}</span>
+          <span class="step-num">{{ String(i + 1).padStart(2, "0") }}</span>
           <div class="step-body">
             <div class="step-title">{{ step.title }}</div>
             <div class="step-detail">{{ step.body }}</div>
@@ -158,61 +161,25 @@ const securityPoints = computed(() => [
 
     <!-- What it can do -->
     <section class="capabilities">
-      <div class="cap-col card card-pad">
+      <div v-for="g in capabilityGroups" :key="g.tag" class="cap-col card">
         <div class="cap-head">
-          <span class="cap-tag tag-read">Reads</span>
-          <span class="cap-note">no confirmation</span>
+          <span class="cap-tag" :class="`tone-${g.tone}`">{{ g.tag }}</span>
+          <span class="cap-note">{{ g.mode }}</span>
         </div>
-        <div v-for="c in reads" :key="c.label" class="cap-item">
-          <i :class="['pi', c.icon]" />
-          <div>
-            <div class="cap-label">{{ c.label }}</div>
-            <div class="cap-detail">{{ c.detail }}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="cap-col card card-pad">
-        <div class="cap-head">
-          <span class="cap-tag tag-write">Writes</span>
-          <span class="cap-note">automatic</span>
-        </div>
-        <div v-for="c in writes" :key="c.label" class="cap-item">
-          <i :class="['pi', c.icon]" />
-          <div>
-            <div class="cap-label">{{ c.label }}</div>
-            <div class="cap-detail">{{ c.detail }}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="cap-col card card-pad">
-        <div class="cap-head">
-          <span class="cap-tag tag-gated">Confirm first</span>
-          <span class="cap-note">you approve</span>
-        </div>
-        <div v-for="c in gated" :key="c.label" class="cap-item">
-          <i :class="['pi', c.icon]" />
-          <div>
-            <div class="cap-label">{{ c.label }}</div>
-            <div class="cap-detail">{{ c.detail }}</div>
-          </div>
+        <div v-for="c in g.items" :key="c.label" class="cap-item">
+          <div class="cap-label">{{ c.label }}</div>
+          <div class="cap-detail">{{ c.detail }}</div>
         </div>
       </div>
     </section>
 
     <!-- Security -->
-    <section class="card card-pad security">
-      <div class="section-head">
-        <span class="step-badge badge-shield"><i class="pi pi-shield" /></span>
-        <div>
-          <h3>How access works</h3>
-          <p class="section-sub">Secured through your existing login &mdash; nothing new to manage.</p>
-        </div>
-      </div>
+    <section class="card security">
+      <h3 class="card-title">How access works</h3>
+      <p class="section-sub">Secured through your existing login &mdash; nothing new to manage.</p>
       <div class="sec-grid">
         <div v-for="s in securityPoints" :key="s.title" class="sec-item">
-          <i :class="['pi', s.icon]" />
+          <AppIcon :name="s.icon" />
           <div class="sec-title">{{ s.title }}</div>
           <div class="sec-body">{{ s.body }}</div>
         </div>
@@ -222,220 +189,177 @@ const securityPoints = computed(() => [
 </template>
 
 <style scoped>
-.mcp-page {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  animation: page-rise 0.4s ease both;
-}
-@keyframes page-rise {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-}
-
-.page-header h1 {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-}
-.title-spark {
-  color: var(--color-primary);
-  font-size: 1.2rem;
-}
+.mcp-page { display: flex; flex-direction: column; }
+.mcp-page :deep(.page-head) { margin-bottom: 32px; }
 
 /* ---- hero ---- */
 .hero {
-  position: relative;
-  overflow: hidden;
-  padding: 1.75rem 1.5rem;
-  display: flex;
+  background: var(--wb-red-deep);
+  color: #fff;
+  padding: 48px 48px 44px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 32px;
   align-items: center;
-  gap: 1.5rem;
-  background:
-    radial-gradient(120% 140% at 100% 0%, var(--color-primary-soft) 0%, transparent 55%),
-    var(--color-surface);
 }
-.hero-copy { position: relative; z-index: 1; max-width: 60ch; }
-.eyebrow {
-  display: inline-block;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.11em;
+.hero-copy { max-width: 620px; }
+.hero-eyebrow {
+  font: 500 12px/1.6 var(--wb-font-sans);
+  letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: var(--color-primary);
-  margin-bottom: 0.5rem;
+  color: var(--wb-gold);
 }
 .hero h2 {
-  font-size: 1.5rem;
-  margin: 0 0 0.5rem;
-  letter-spacing: -0.02em;
+  font: 500 52px/1.05 var(--wb-font-display);
+  letter-spacing: -2.2px;
+  color: #fff;
+  margin: 12px 0 0;
 }
-.hero p { margin: 0; color: var(--color-text-muted); line-height: 1.55; }
-.hero em { color: var(--color-text); font-style: italic; }
+.hero h2 em {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  color: var(--wb-gold);
+  letter-spacing: -1.5px;
+}
+.hero p { margin: 20px 0 0; font-size: 17px; line-height: 1.6; color: rgba(255, 255, 255, 0.88); }
+.hero p em { color: #fff; }
 .hero-glyph {
-  margin-left: auto;
-  flex-shrink: 0;
-  width: 96px;
-  height: 96px;
+  width: 120px;
+  height: 120px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   display: grid;
   place-items: center;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--color-primary), #60a5fa);
-  box-shadow: var(--shadow-md);
+  color: var(--wb-gold);
 }
-.hero-glyph .pi { font-size: 2.4rem; color: #fff; }
 
-/* ---- section heads ---- */
-.section-head { display: flex; align-items: flex-start; gap: 0.85rem; margin-bottom: 1.25rem; }
-.section-head h3 { margin: 0 0 0.15rem; font-size: 1.05rem; }
-.section-sub { margin: 0; color: var(--color-text-muted); font-size: 0.85rem; }
-.step-badge {
-  flex-shrink: 0;
-  width: 38px; height: 38px;
-  display: grid; place-items: center;
-  border-radius: var(--radius-md);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  font-size: 1.05rem;
+/* ---- connect ---- */
+.connect {
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-top: 0;
+  padding: 36px 48px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 48px;
 }
-.badge-shield { background: var(--color-success-soft); color: var(--color-success); }
-
-/* ---- connector URL ---- */
+.connect-title {
+  margin: 0;
+  font: 500 22px/1.2 var(--wb-font-display);
+  letter-spacing: -0.6px;
+  color: var(--wb-ink);
+}
+.section-sub { margin: 4px 0 0; color: var(--wb-muted); font-size: 14px; }
 .url-label {
   display: block;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font: 500 11px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.3px;
   text-transform: uppercase;
-  color: var(--color-text-subtle);
-  margin-bottom: 0.4rem;
+  color: var(--wb-muted-soft);
+  margin: 28px 0 8px;
 }
-.url-row { display: flex; gap: 0.5rem; }
+.url-row { display: flex; }
 .url-input {
   flex: 1;
   min-width: 0;
-  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
-  font-size: 0.9rem;
-  color: var(--color-text);
-  background: var(--color-surface-alt);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 0.6rem 0.75rem;
-  letter-spacing: 0.01em;
+  height: 44px;
+  font: 500 14px var(--wb-font-mono);
+  color: var(--wb-ink);
+  background: var(--wb-surface-2);
+  border: 1px solid var(--wb-line);
+  border-right: 0;
+  border-radius: 0;
+  padding: 0 14px;
 }
-.url-input:focus { outline: none; box-shadow: var(--focus-ring); border-color: var(--color-primary); }
+.url-input:focus { outline: none; box-shadow: var(--focus-ring); }
 .copy-btn {
   flex-shrink: 0;
+  height: 44px;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0 0.9rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-primary);
-  background: var(--color-primary);
-  color: #fff;
-  font: inherit;
-  font-weight: 600;
-  font-size: 0.85rem;
+  gap: 8px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 0;
+  background: var(--wb-ink);
+  color: var(--wb-bg);
+  font: 500 14px var(--wb-font-sans);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.08s;
 }
-.copy-btn:hover { background: #1d4ed8; border-color: #1d4ed8; }
-.copy-btn:active { transform: scale(0.97); }
-.copy-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.copy-btn.copied {
-  background: var(--color-success);
-  border-color: var(--color-success);
-}
-.url-hint {
-  margin: 0.6rem 0 0;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
+.copy-btn:hover { background: var(--wb-red-deep); color: #fff; }
+.copy-btn:focus-visible { outline: 1px solid var(--wb-red); outline-offset: 2px; }
+.copy-btn.copied { background: var(--wb-green-fg); color: var(--wb-on-tone); }
+.url-hint { margin: 10px 0 0; font-size: 13px; color: var(--wb-muted); }
 .url-hint code {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  background: var(--color-surface-alt);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: 0.05rem 0.35rem;
-  font-size: 0.78rem;
-  color: var(--color-text);
+  font: 500 12px var(--wb-font-mono);
+  background: var(--wb-tint);
+  padding: 2px 6px;
+  color: var(--wb-ink);
 }
 
 /* ---- steps ---- */
-.steps {
-  list-style: none;
-  margin: 1.5rem 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.step {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--wb-line);
 }
-.step { display: flex; gap: 0.85rem; padding: 0.85rem 0; position: relative; }
-.step:not(:last-child) { border-bottom: 1px dashed var(--color-border); }
-.step-num {
-  flex-shrink: 0;
-  width: 26px; height: 26px;
-  display: grid; place-items: center;
-  border-radius: 50%;
-  background: var(--color-surface-alt);
-  border: 1px solid var(--color-border-strong);
-  color: var(--color-text);
-  font-size: 0.8rem;
-  font-weight: 700;
-}
-.step-title { font-weight: 600; font-size: 0.92rem; margin-bottom: 0.1rem; }
-.step-detail { color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5; }
+.step:first-child { padding-top: 0; }
+.step-num { font: 500 15px var(--wb-font-display); color: var(--wb-red); font-variant-numeric: tabular-nums; }
+.step-title { font-weight: 500; color: var(--wb-ink); }
+.step-detail { color: var(--wb-muted); font-size: 14px; line-height: 1.5; margin-top: 3px; }
 
 /* ---- capabilities ---- */
 .capabilities {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  margin-top: 24px;
 }
-.cap-col { display: flex; flex-direction: column; }
-.cap-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.9rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--color-border);
-}
+.cap-col { padding: 28px; }
+.cap-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .cap-tag {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  display: inline-block;
+  padding: 5px 9px;
+  font: 500 11px/1 var(--wb-font-sans);
+  letter-spacing: 1px;
   text-transform: uppercase;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
+  border-radius: 2px;
 }
-.tag-read { background: var(--color-primary-soft); color: var(--color-primary); }
-.tag-write { background: var(--color-success-soft); color: var(--color-success); }
-.tag-gated { background: var(--color-warning-soft); color: var(--color-warning); }
-.cap-note { font-size: 0.72rem; color: var(--color-text-subtle); text-transform: uppercase; letter-spacing: 0.05em; }
-.cap-item { display: flex; gap: 0.7rem; padding: 0.6rem 0; align-items: flex-start; }
-.cap-item > .pi { color: var(--color-text-muted); font-size: 1rem; margin-top: 0.15rem; width: 18px; text-align: center; }
-.cap-label { font-weight: 600; font-size: 0.88rem; margin-bottom: 0.15rem; }
-.cap-detail { color: var(--color-text-muted); font-size: 0.82rem; line-height: 1.5; }
+.tone-blue { background: var(--wb-blue-bg); color: var(--wb-blue-fg); }
+.tone-green { background: var(--wb-green-bg); color: var(--wb-green-fg); }
+.tone-amber { background: var(--wb-amber-bg); color: var(--wb-amber-fg); }
+.cap-note {
+  font: 500 11px var(--wb-font-sans);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--wb-muted-soft);
+}
+.cap-item { margin-top: 22px; }
+.cap-label { font-weight: 500; font-size: 16px; color: var(--wb-ink); }
+.cap-detail { color: var(--wb-muted); font-size: 14px; line-height: 1.55; margin-top: 4px; }
 
-/* ---- security ---- */
-.sec-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
-.sec-item {
-  padding: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-alt);
-}
-.sec-item > .pi { color: var(--color-success); font-size: 1.15rem; margin-bottom: 0.5rem; display: block; }
-.sec-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem; }
-.sec-body { color: var(--color-text-muted); font-size: 0.82rem; line-height: 1.5; }
+/* ---- security (today's content; not in the mockup) ---- */
+.security { padding: 28px; margin-top: 24px; }
+.sec-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 20px; }
+.sec-item { padding: 20px; border: 1px solid var(--wb-line); background: var(--wb-surface-2); }
+.sec-item > .app-icon { color: var(--wb-red); width: 18px; height: 18px; margin-bottom: 10px; display: block; }
+.sec-title { font-weight: 500; font-size: 15px; color: var(--wb-ink); margin-bottom: 4px; }
+.sec-body { color: var(--wb-muted); font-size: 14px; line-height: 1.5; }
 
 @media (max-width: 900px) {
-  .capabilities, .sec-grid { grid-template-columns: 1fr; }
-  .hero-glyph { width: 72px; height: 72px; }
-  .hero-glyph .pi { font-size: 1.8rem; }
+  .connect { grid-template-columns: 1fr; gap: 32px; padding: 28px; }
+  .sec-grid { grid-template-columns: 1fr; }
+  .hero { padding: 36px 28px; }
+  .hero h2 { font-size: 40px; letter-spacing: -1.6px; }
+}
+@media (max-width: 720px) {
+  .hero { grid-template-columns: 1fr; }
+  .hero-glyph { display: none; }
+  .hero h2 { font-size: 34px; letter-spacing: -1.2px; }
+  .hero p { font-size: 15px; }
+  .connect { padding: 20px; }
+  .cap-col, .security { padding: 20px; }
 }
 </style>

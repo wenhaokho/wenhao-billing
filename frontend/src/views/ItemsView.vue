@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -7,6 +8,9 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import { api } from "@/api/client";
 import { formatMoney } from "@/utils/money";
 
@@ -80,7 +84,7 @@ function confirmDeactivate(row: Item) {
   confirm.require({
     message: `Deactivate "${row.name}"? It will be hidden from active lists but kept for ledger history.`,
     header: "Deactivate item",
-    icon: "pi pi-exclamation-triangle",
+    icon: "triangle-alert",
     acceptLabel: "Deactivate",
     rejectLabel: "Cancel",
     acceptClass: "p-button-danger",
@@ -100,39 +104,39 @@ function typeSeverity(t: string) {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Products &amp; Services</h1>
-        <p class="subtitle">
-          Catalog of billable services — fixed fees, recurring support, and metered usage.
-          Each item maps to a revenue account for posting.
-        </p>
-      </div>
-      <div class="page-actions">
-        <Button label="New item" icon="pi pi-plus" @click="openCreate" />
-      </div>
-    </header>
+    <PageHeader eyebrow="04 / Accounting" title="Products & Services">
+      <template #lede>
+        Catalog of billable services — fixed fees, recurring support, and metered usage.
+        Each item maps to a revenue account for posting.
+      </template>
+      <Button label="New item" @click="openCreate">
+        <template #icon><AppIcon name="plus" /></template>
+      </Button>
+    </PageHeader>
 
     <DataTable :value="items ?? []" :loading="isLoading" data-key="item_id" striped-rows>
       <template #empty>
-        <div class="empty-state">
-          <i class="pi pi-tags" />
-          <div>No items yet. Add the services you bill for.</div>
-        </div>
+        <EmptyState icon="tag" title="No items yet" message="Add the services you bill for.">
+          <Button label="New item" severity="secondary" outlined @click="openCreate" />
+        </EmptyState>
       </template>
-      <Column field="sku" header="SKU">
+      <Column field="sku" header="SKU" body-class="cell-nowrap">
         <template #body="{ data: row }">
-          <code v-if="row.sku">{{ row.sku }}</code>
+          <span v-if="row.sku" class="doc-no">{{ row.sku }}</span>
           <span v-else class="muted">—</span>
         </template>
       </Column>
-      <Column field="name" header="Name" />
+      <Column header="Name">
+        <template #body="{ data: row }">
+          <span class="name">{{ row.name }}</span>
+        </template>
+      </Column>
       <Column header="Type">
         <template #body="{ data: row }">
           <Tag :value="row.item_type" :severity="typeSeverity(row.item_type)" />
         </template>
       </Column>
-      <Column header="Unit price">
+      <Column header="Unit price" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <span v-if="row.default_unit_price" class="num">
             {{ formatMoney(row.default_unit_price, row.default_currency) }}
@@ -159,37 +163,38 @@ function typeSeverity(t: string) {
       </Column>
       <Column header="Status">
         <template #body="{ data: row }">
-          <Tag
-            :value="row.active ? 'Active' : 'Inactive'"
-            :severity="row.active ? 'success' : 'secondary'"
-          />
+          <StatusTag :status="row.active ? 'ACTIVE' : 'INACTIVE'" />
         </template>
       </Column>
-      <Column header="" :style="{ width: '180px' }">
+      <Column header="" :style="{ width: '160px' }" :body-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <div class="row-actions">
-            <Button icon="pi pi-eye" text rounded title="View" @click="openDetail(row)" />
-            <Button icon="pi pi-pencil" text rounded title="Edit" @click="openEdit(row)" />
+            <Button text rounded title="View" @click="openDetail(row)">
+              <template #icon><AppIcon name="eye" /></template>
+            </Button>
+            <Button text rounded title="Edit" @click="openEdit(row)">
+              <template #icon><AppIcon name="pencil" /></template>
+            </Button>
             <Button
               v-if="row.active"
-              icon="pi pi-ban"
               text
               rounded
               severity="danger"
               title="Deactivate"
               :loading="deactivateItem.isPending.value"
-              @click="confirmDeactivate(row)"
-            />
+              @click="confirmDeactivate(row)">
+              <template #icon><AppIcon name="ban" /></template>
+            </Button>
             <Button
               v-else
-              icon="pi pi-undo"
               text
               rounded
               severity="success"
               title="Reactivate"
               :loading="reactivateItem.isPending.value"
-              @click="reactivateItem.mutate(row.item_id)"
-            />
+              @click="reactivateItem.mutate(row.item_id)">
+              <template #icon><AppIcon name="undo-2" /></template>
+            </Button>
           </div>
         </template>
       </Column>
@@ -198,10 +203,10 @@ function typeSeverity(t: string) {
 </template>
 
 <style scoped>
-.muted { color: var(--color-text-muted); }
-.small { font-size: 0.82rem; }
-code { background: var(--color-surface-alt); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.85em; }
-.row-actions { display: flex; gap: 0.15rem; }
+.muted { color: var(--wb-muted-soft); }
+.small { font-size: 13px; color: var(--wb-muted); }
+.name { font-weight: 500; }
+.row-actions { display: flex; gap: 2px; justify-content: flex-end; }
 .num { font-variant-numeric: tabular-nums; }
-.flags { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.flags { display: flex; gap: 6px; flex-wrap: wrap; }
 </style>

@@ -1,68 +1,119 @@
-/* ---------- design tokens ---------- */
+/* ---------- design tokens (spec "Visual system") ---------- */
 :root {
-  --color-bg: #f1f5f9;
-  --color-surface: #ffffff;
-  --color-surface-alt: #f8fafc;
-  --color-border: #e2e8f0;
-  --color-border-strong: #cbd5e1;
+  --wb-bg: #fcfbf6;
+  --wb-surface: #ffffff;
+  --wb-surface-2: #f6f2ea;
+  --wb-ink: #501921;
+  --wb-muted: #75665f;
+  --wb-muted-soft: #9d8a6e;
+  --wb-line: #e1d7c8;
+  --wb-tint: #ede7de;
+  --wb-red: #a51c30;
+  --wb-red-deep: #981c2e;
+  --wb-red-soft: #b7545e;
+  --wb-gold: #d8bf84;
+  --wb-gold-bg: #f4ecd8;
 
-  --color-text: #0f172a;
-  --color-text-muted: #64748b;
-  --color-text-subtle: #94a3b8;
+  /* Status chips: text on background. */
+  --wb-green-fg: #2f6b4f;
+  --wb-green-bg: #e4efe7;
+  --wb-amber-fg: #8a5a12;
+  --wb-amber-bg: #f6ecd6;
+  --wb-red-fg: #a51c30;
+  --wb-red-bg: #f3dfe1;
+  --wb-blue-fg: #3b5a7a;
+  --wb-blue-bg: #e3e9ef;
 
-  --color-primary: #2563eb;
-  --color-primary-soft: #dbeafe;
-  --color-success: #059669;
-  --color-success-soft: #d1fae5;
-  --color-warning: #d97706;
-  --color-warning-soft: #fef3c7;
-  --color-danger: #dc2626;
-  --color-danger-soft: #fee2e2;
-  --color-neutral: #475569;
-  --color-neutral-soft: #e2e8f0;
+  --wb-sidebar-bg: #501921;
+  --wb-sidebar-fg: #f2dde0;
+  --wb-sidebar-active: #a51c30;
+  --wb-sidebar-active-fg: #ffffff;
+  --wb-sidebar-eyebrow: #d8bf84;
+  --wb-sidebar-hover: rgba(255, 255, 255, 0.07);
+  --wb-sidebar-line: rgba(255, 255, 255, 0.14);
 
-  --sidebar-width: 240px;
-  --topbar-height: 60px;
+  /* Text on a filled success/warn button. */
+  --wb-on-tone: #ffffff;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  /* Overlays only (dialogs, menus, panels, toasts). */
+  --wb-overlay-shadow: 0 8px 24px rgba(80, 25, 33, 0.10), 0 2px 6px rgba(80, 25, 33, 0.06);
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+  --wb-font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --wb-font-display: Manrope, "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --wb-font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Older names, kept as aliases until each screen is restyled. */
+  --color-bg: var(--wb-bg);
+  --color-surface: var(--wb-surface);
+  --color-surface-alt: var(--wb-surface-2);
+  --color-border: var(--wb-line);
+  --color-border-strong: var(--wb-line);
+  --color-text: var(--wb-ink);
+  --color-text-muted: var(--wb-muted);
+  --color-text-subtle: var(--wb-muted-soft);
+  --color-primary: var(--wb-red);
+  --color-primary-soft: var(--wb-red-bg);
+  --color-success: var(--wb-green-fg);
+  --color-success-soft: var(--wb-green-bg);
+  --color-warning: var(--wb-amber-fg);
+  --color-warning-soft: var(--wb-amber-bg);
+  --color-danger: var(--wb-red-fg);
+  --color-danger-soft: var(--wb-red-bg);
+  --color-neutral: var(--wb-muted);
+  --color-neutral-soft: var(--wb-tint);
 
-  --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.35);
+  --sidebar-width: 252px;
+  --sidebar-rail-width: 76px;
+  --topbar-height: 64px;
+  --content-max-width: 1480px;
+
+  /* Square cards and tables; 2px for chips and fields. */
+  --radius-sm: 2px;
+  --radius-md: 0;
+  --radius-lg: 0;
+
+  /* No drop shadows. */
+  --shadow-sm: none;
+  --shadow-md: none;
+
+  --font-sans: var(--wb-font-sans);
+
+  --focus-ring: inset 0 0 0 1px var(--wb-red);
 }
 
+.app-dark,
 [data-theme="dark"] {
-  --color-bg: #0b1220;
-  --color-surface: #111a2e;
-  --color-surface-alt: #172238;
-  --color-border: #24334f;
-  --color-border-strong: #334a73;
+  /* From the mockup: bg, surface, ink, line, red, sidebar. The rest derived
+     to keep the light theme's contrast steps. */
+  --wb-bg: #17110f;
+  --wb-surface: #1f1716;
+  --wb-surface-2: #2a201e;
+  --wb-ink: #fcfbf6;
+  --wb-muted: #b3a59a;
+  --wb-muted-soft: #8c7b6e;
+  --wb-line: #3b2d2b;
+  --wb-tint: #33272a;
+  --wb-red: #c9414f;
+  --wb-red-deep: #b5384a;
+  --wb-red-soft: #d97a84;
+  --wb-gold: #d8bf84;
+  --wb-gold-bg: #2e2618;
 
-  --color-text: #e2e8f0;
-  --color-text-muted: #94a3b8;
-  --color-text-subtle: #64748b;
+  --wb-green-fg: #8cc7a6;
+  --wb-green-bg: #1d2e25;
+  --wb-amber-fg: #e0b360;
+  --wb-amber-bg: #33281a;
+  --wb-red-fg: #ec8f99;
+  --wb-red-bg: #3a1d21;
+  --wb-blue-fg: #9db9d6;
+  --wb-blue-bg: #1d2733;
 
-  --color-primary: #60a5fa;
-  --color-primary-soft: #1e3a8a;
-  --color-success: #34d399;
-  --color-success-soft: #064e3b;
-  --color-warning: #fbbf24;
-  --color-warning-soft: #78350f;
-  --color-danger: #f87171;
-  --color-danger-soft: #7f1d1d;
-  --color-neutral: #94a3b8;
-  --color-neutral-soft: #1e293b;
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.45);
-
-  --focus-ring: 0 0 0 3px rgba(96, 165, 250, 0.4);
+  --wb-sidebar-bg: #120c0b;
+  --wb-sidebar-fg: #f2dde0;
+  --wb-sidebar-active: #c9414f;
+  --wb-sidebar-line: rgba(255, 255, 255, 0.1);
+  --wb-overlay-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --wb-on-tone: #17110f;
 
   color-scheme: dark;
 }
@@ -72,16 +123,16 @@
 html, body, #app { height: 100%; }
 body {
   margin: 0;
-  font-family: var(--font-sans);
+  font-family: var(--wb-font-sans);
   font-size: 14px;
-  color: var(--color-text);
-  background: var(--color-bg);
+  color: var(--wb-ink);
+  background: var(--wb-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a { color: var(--color-primary); }
-h1, h2, h3, h4 { color: var(--color-text); font-weight: 600; }
+a { color: var(--wb-red); }
+h1, h2, h3, h4 { color: var(--wb-ink); font-family: var(--wb-font-display); font-weight: 500; }
 
 /* ---------- page layout helpers ---------- */
 .page-header {
@@ -99,87 +150,85 @@ h1, h2, h3, h4 { color: var(--color-text); font-weight: 600; }
 }
 .page-header p.subtitle {
   margin: 0;
-  color: var(--color-text-muted);
+  color: var(--wb-muted);
   font-size: 0.9rem;
 }
 .page-actions { display: flex; gap: 0.5rem; align-items: center; }
 
 .card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: 0;
 }
 .card-pad { padding: 1.25rem; }
+/* Wrapper for a wide plain table: it scrolls sideways, the page does not. */
+.table-wrap { overflow-x: auto; max-width: 100%; }
 
 .empty-state {
   padding: 3rem 1rem;
   text-align: center;
-  color: var(--color-text-muted);
+  color: var(--wb-muted);
 }
-.empty-state .pi {
-  font-size: 2rem;
-  color: var(--color-text-subtle);
-  margin-bottom: 0.75rem;
+.empty-state .app-icon {
+  width: 2rem;
+  height: 2rem;
+  color: var(--wb-muted-soft);
+  margin: 0 auto 0.75rem;
   display: block;
 }
 
 .empty-mini {
   padding: 0.75rem 1rem;
   text-align: center;
-  color: var(--color-text-muted);
+  color: var(--wb-muted);
   font-size: 0.88rem;
 }
 
-/* ---------- primevue overrides (subtle) ---------- */
-.p-datatable .p-datatable-thead > tr > th {
-  background: var(--color-surface-alt) !important;
-  color: var(--color-text-muted) !important;
-  font-weight: 600 !important;
-  font-size: 0.78rem !important;
+/* ---------- forms and detail pages (screens the mockup does not design) ----------
+   Zero-specificity defaults (:where) so a view's scoped rules still win. */
+:where(.field) { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 14px; color: var(--wb-ink); }
+:where(.field) > :where(span:first-child) { font: 500 13px/1.4 var(--wb-font-sans); color: var(--wb-muted); }
+:where(.two-col) { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-width: 0; }
+@media (max-width: 720px) { :where(.two-col) { grid-template-columns: 1fr; } }
+/* Card section title (Manrope 18) and red uppercase card eyebrow (mockup). */
+.card-title {
+  font: 500 18px/1.2 var(--wb-font-display);
+  letter-spacing: -0.4px;
+  color: var(--wb-ink);
+  margin: 0;
+}
+.card-eyebrow {
+  font: 500 11px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.3px;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  border-bottom: 1px solid var(--color-border) !important;
+  color: var(--wb-red);
 }
-.p-datatable .p-datatable-tbody > tr > td {
-  border-bottom: 1px solid var(--color-border) !important;
+/* Small uppercase label, as the table header (definition lists, meta rows). */
+.label-caps {
+  font: 500 11px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--wb-muted-soft);
 }
-.p-datatable .p-datatable-tbody > tr:hover {
-  background: var(--color-surface-alt) !important;
-}
-.p-datatable .p-datatable-tbody > tr:last-child > td {
-  border-bottom: none !important;
-}
-.p-datatable-table-container {
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-}
-.p-button.p-button-sm { padding: 0.35rem 0.7rem; font-size: 0.82rem; }
+/* Inline code / IDs: monospace on the tint, square like chips. */
+code { font-family: var(--wb-font-mono); }
 
 /* ---------- form validation helpers ---------- */
 .required::after {
   content: " *";
-  color: var(--color-danger);
+  color: var(--wb-red);
   font-weight: 600;
 }
 .field-error {
-  color: var(--color-danger);
+  color: var(--wb-red-fg);
   font-size: 0.75rem;
   margin-top: 0.2rem;
   display: flex;
   align-items: center;
   gap: 0.3rem;
 }
-.p-inputtext[aria-invalid="true"],
-.p-select[aria-invalid="true"],
-.p-password[aria-invalid="true"] > .p-inputtext {
-  border-color: var(--color-danger) !important;
-  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.12) !important;
-}
 
 /* ---------- scrollbar ---------- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 5px; }
+::-webkit-scrollbar-thumb { background: var(--wb-line); border-radius: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

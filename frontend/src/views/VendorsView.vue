@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -6,7 +7,9 @@ import { useConfirm } from "primevue/useconfirm";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import ToggleSwitch from "primevue/toggleswitch";
 import { api } from "@/api/client";
 
@@ -64,7 +67,7 @@ function confirmDeactivate(row: Vendor) {
   confirm.require({
     message: `Deactivate "${row.name}"? It will be hidden from active lists but kept for ledger history.`,
     header: "Deactivate vendor",
-    icon: "pi pi-exclamation-triangle",
+    icon: "triangle-alert",
     acceptLabel: "Deactivate",
     rejectLabel: "Cancel",
     acceptClass: "p-button-danger",
@@ -75,31 +78,31 @@ function confirmDeactivate(row: Vendor) {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Vendors</h1>
-        <p class="subtitle">
-          Third-party suppliers — cloud, AI providers, subcontractors.
-          These are the "other side" of your P&amp;L (5xxx COGS accounts).
-        </p>
-      </div>
-      <div class="page-actions">
-        <label class="toggle">
-          <ToggleSwitch v-model="showInactive" />
-          <span>Show inactive</span>
-        </label>
-        <Button label="New vendor" icon="pi pi-plus" @click="openCreate" />
-      </div>
-    </header>
+    <PageHeader eyebrow="03 / Purchases" title="Vendors">
+      <template #lede>
+        Third-party suppliers — cloud, AI providers, subcontractors.
+        These are the "other side" of your P&amp;L (5xxx COGS accounts).
+      </template>
+      <label class="toggle">
+        <ToggleSwitch v-model="showInactive" />
+        <span>Show inactive</span>
+      </label>
+      <Button label="New vendor" @click="openCreate">
+        <template #icon><AppIcon name="plus" /></template>
+      </Button>
+    </PageHeader>
 
     <DataTable :value="data ?? []" :loading="isLoading" data-key="vendor_id" striped-rows>
       <template #empty>
-        <div class="empty-state">
-          <i class="pi pi-briefcase" />
-          <div>No vendors yet. Add your cloud, AI, and contractor suppliers.</div>
-        </div>
+        <EmptyState icon="briefcase" title="No vendors yet" message="Add your cloud, AI, and contractor suppliers.">
+          <Button label="New vendor" severity="secondary" outlined @click="openCreate" />
+        </EmptyState>
       </template>
-      <Column field="name" header="Name" />
+      <Column header="Name">
+        <template #body="{ data: row }">
+          <span class="name">{{ row.name }}</span>
+        </template>
+      </Column>
       <Column header="Contact">
         <template #body="{ data: row }">
           <div v-if="row.contact_name || row.contact_email">
@@ -109,45 +112,46 @@ function confirmDeactivate(row: Vendor) {
           <span v-else class="muted">—</span>
         </template>
       </Column>
-      <Column field="default_currency" header="Ccy" />
-      <Column header="Terms">
+      <Column field="default_currency" header="Ccy" body-class="cell-nowrap cell-muted" />
+      <Column header="Terms" body-class="cell-nowrap">
         <template #body="{ data: row }">
           Net {{ row.payment_terms_days }}
         </template>
       </Column>
       <Column header="Status">
         <template #body="{ data: row }">
-          <Tag
-            :value="row.active ? 'Active' : 'Inactive'"
-            :severity="row.active ? 'success' : 'secondary'"
-          />
+          <StatusTag :status="row.active ? 'ACTIVE' : 'INACTIVE'" />
         </template>
       </Column>
-      <Column header="" :style="{ width: '180px' }">
+      <Column header="" :style="{ width: '160px' }" :body-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <div class="row-actions">
-            <Button icon="pi pi-eye" text rounded title="View" @click="openDetail(row)" />
-            <Button icon="pi pi-pencil" text rounded title="Edit" @click="openEdit(row)" />
+            <Button text rounded title="View" @click="openDetail(row)">
+              <template #icon><AppIcon name="eye" /></template>
+            </Button>
+            <Button text rounded title="Edit" @click="openEdit(row)">
+              <template #icon><AppIcon name="pencil" /></template>
+            </Button>
             <Button
               v-if="row.active"
-              icon="pi pi-ban"
               text
               rounded
               severity="danger"
               title="Deactivate"
               :loading="deactivateVendor.isPending.value"
-              @click="confirmDeactivate(row)"
-            />
+              @click="confirmDeactivate(row)">
+              <template #icon><AppIcon name="ban" /></template>
+            </Button>
             <Button
               v-else
-              icon="pi pi-undo"
               text
               rounded
               severity="success"
               title="Reactivate"
               :loading="reactivateVendor.isPending.value"
-              @click="reactivateVendor.mutate(row.vendor_id)"
-            />
+              @click="reactivateVendor.mutate(row.vendor_id)">
+              <template #icon><AppIcon name="undo-2" /></template>
+            </Button>
           </div>
         </template>
       </Column>
@@ -156,8 +160,9 @@ function confirmDeactivate(row: Vendor) {
 </template>
 
 <style scoped>
-.toggle { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted); }
-.muted { color: var(--color-text-muted); }
-.small { font-size: 0.8rem; }
-.row-actions { display: flex; gap: 0.15rem; }
+.toggle { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--wb-muted); cursor: pointer; }
+.muted { color: var(--wb-muted-soft); }
+.small { font-size: 13px; color: var(--wb-muted); }
+.name { font-weight: 500; }
+.row-actions { display: flex; gap: 2px; justify-content: flex-end; }
 </style>

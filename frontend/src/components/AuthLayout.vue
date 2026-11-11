@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 defineProps<{
   title: string;
   subtitle?: string;
@@ -9,13 +10,15 @@ defineProps<{
 
 <template>
   <div class="auth-shell">
+    <!-- Brand panel: the sidebar's burgundy, the "W" tile, gold eyebrow. -->
     <aside class="hero">
       <div class="hero-inner">
         <div class="brand">
-          <div class="brand-mark">
-            <img src="/favicon.svg" alt="Wenhao Billing logo" />
+          <div class="brand-mark" aria-hidden="true">W</div>
+          <div>
+            <div class="brand-name">Wenhao Billing</div>
+            <div class="brand-sub">Software house</div>
           </div>
-          <div class="brand-name">Wenhao Billing</div>
         </div>
 
         <div class="hero-copy">
@@ -29,20 +32,17 @@ defineProps<{
         </div>
 
         <ul class="hero-points">
-          <li><i class="pi pi-check-circle" /> Automated monthly retainers</li>
-          <li><i class="pi pi-check-circle" /> Reconciled against bank feeds</li>
-          <li><i class="pi pi-check-circle" /> Client-ready statements in one click</li>
+          <li><AppIcon name="circle-check" /> Automated monthly retainers</li>
+          <li><AppIcon name="circle-check" /> Reconciled against bank feeds</li>
+          <li><AppIcon name="circle-check" /> Client-ready statements in one click</li>
         </ul>
 
         <div class="hero-footer">&copy; {{ new Date().getFullYear() }} Wenhao Billing</div>
       </div>
-      <div class="hero-glow glow-1" />
-      <div class="hero-glow glow-2" />
-      <div class="hero-grid" />
     </aside>
 
     <main class="form-panel">
-      <div class="form-wrap">
+      <div class="auth-card">
         <div class="form-head">
           <h1>{{ title }}</h1>
           <p v-if="subtitle">{{ subtitle }}</p>
@@ -61,105 +61,126 @@ defineProps<{
 <style scoped>
 .auth-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   width: 100%;
   display: grid;
-  grid-template-columns: 1.05fr 1fr;
-  background: var(--color-bg);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  background: var(--wb-bg);
 }
 
 .hero {
-  position: relative;
-  overflow: hidden;
-  color: #e5edff;
-  background: linear-gradient(135deg, #0b1d3a 0%, #122a55 45%, #1e3a8a 100%);
+  color: var(--wb-sidebar-fg);
+  background: var(--wb-sidebar-bg);
   display: flex;
   align-items: stretch;
 }
 .hero-inner {
-  position: relative;
-  z-index: 2;
-  padding: 3rem 3.5rem;
+  padding: 48px 56px;
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 560px;
+  max-width: 600px;
 }
-.brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: auto; }
+.brand { display: flex; align-items: center; gap: 12px; margin-bottom: auto; }
 .brand-mark {
-  width: 44px; height: 44px; border-radius: 12px;
-  overflow: hidden; display: grid; place-items: center; flex-shrink: 0;
-  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+  width: 40px;
+  height: 40px;
+  flex: none;
+  background: var(--wb-red);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font: 800 20px var(--wb-font-display);
 }
-.brand-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.brand-name { font-weight: 600; font-size: 1.05rem; color: #fff; }
+.brand-name { font: 600 16px/1.2 var(--wb-font-display); letter-spacing: -0.3px; color: #fff; }
+.brand-sub {
+  font: 500 10px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--wb-sidebar-eyebrow);
+}
 
-.hero-copy { margin: 5rem 0 2rem; }
+.hero-copy { margin: 80px 0 36px; }
 .hero-copy h2 {
   color: #fff;
-  font-size: 2rem;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-  font-weight: 600;
-  margin: 0 0 1rem;
+  font: 500 44px/1.08 var(--wb-font-display);
+  letter-spacing: -1.6px;
+  margin: 0 0 18px;
 }
 .hero-copy p {
-  color: #cbd5e1;
-  font-size: 0.95rem;
+  color: var(--wb-sidebar-fg);
+  opacity: 0.85;
+  font-size: 16px;
   line-height: 1.6;
   margin: 0;
-  max-width: 36ch;
+  max-width: 38ch;
 }
-.hero-points { list-style: none; padding: 0; margin: 0 0 auto; display: flex; flex-direction: column; gap: 0.65rem; }
-.hero-points li { display: flex; align-items: center; gap: 0.6rem; color: #dbeafe; font-size: 0.88rem; }
-.hero-points .pi { color: #60a5fa; font-size: 0.95rem; }
-.hero-footer { margin-top: 2.5rem; color: #94a3b8; font-size: 0.75rem; letter-spacing: 0.02em; }
-
-.hero-glow { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.55; pointer-events: none; }
-.glow-1 { width: 480px; height: 480px; background: #3b82f6; top: -140px; right: -160px; }
-.glow-2 { width: 420px; height: 420px; background: #6366f1; bottom: -160px; left: -120px; opacity: 0.45; }
-.hero-grid {
-  position: absolute; inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse at 30% 40%, black 40%, transparent 75%);
-  -webkit-mask-image: radial-gradient(ellipse at 30% 40%, black 40%, transparent 75%);
-  z-index: 1;
+.hero-points {
+  list-style: none;
+  padding: 24px 0 0;
+  margin: 0 0 auto;
+  border-top: 1px solid var(--wb-sidebar-line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hero-points li { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.hero-points .app-icon { color: var(--wb-gold); width: 16px; height: 16px; }
+.hero-footer {
+  margin-top: 40px;
+  color: var(--wb-sidebar-eyebrow);
+  font: 500 11px var(--wb-font-sans);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
 }
 
 .form-panel {
   display: grid;
   place-items: center;
-  padding: 3rem 2rem;
-  background: var(--color-surface);
+  padding: 48px 32px;
 }
-.form-wrap { width: 100%; max-width: 380px; }
-.form-head h1 { font-size: 1.75rem; letter-spacing: -0.02em; margin: 0 0 0.4rem; font-weight: 600; }
-.form-head p { margin: 0 0 2rem; color: var(--color-text-muted); font-size: 0.92rem; }
+/* The sign-in card: square, 1px line border, no shadow. */
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: 0;
+  padding: 40px;
+}
+.form-head h1 {
+  font: 500 32px/1.1 var(--wb-font-display);
+  letter-spacing: -1px;
+  color: var(--wb-ink);
+  margin: 0 0 8px;
+}
+.form-head p { margin: 0 0 28px; color: var(--wb-muted); font-size: 15px; line-height: 1.5; }
 
 .form-foot {
-  margin-top: 2rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--color-border);
-  color: var(--color-text-subtle);
-  font-size: 0.8rem;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--wb-line);
+  color: var(--wb-muted-soft);
+  font-size: 13px;
   text-align: center;
 }
 .form-foot :deep(a) {
-  color: var(--color-text-muted);
+  color: var(--wb-muted);
   text-decoration: none;
 }
-.form-foot :deep(a:hover) { color: var(--color-primary); }
+.form-foot :deep(a:hover) { color: var(--wb-red); }
 
 @media (max-width: 900px) {
   .auth-shell { grid-template-columns: 1fr; }
   .hero { display: none; }
-  .form-panel { padding: 2rem 1.25rem; align-items: start; padding-top: 3.5rem; }
+  .form-panel { padding: 56px 16px 32px; align-items: start; }
 }
-
+@media (max-width: 480px) {
+  .auth-card { padding: 28px 20px; }
+  .form-head h1 { font-size: 28px; }
+}
 @media (max-width: 1100px) and (min-width: 901px) {
-  .hero-inner { padding: 2.5rem 2rem; }
-  .hero-copy h2 { font-size: 1.65rem; }
+  .hero-inner { padding: 40px 32px; }
+  .hero-copy h2 { font-size: 36px; }
 }
 </style>

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { selectIn } from "./helpers";
+import { ROUTES, openRecordPayment, selectIn } from "./helpers";
 
 test.use({ colorScheme: "light" });
 
@@ -45,15 +45,85 @@ test("select panel follows dark mode", async ({ page }) => {
   expect(luminance, `overlay background "${bg}" is dark`).toBeLessThan(0.2);
 });
 
-test("primary colour is blue, as before the upgrade", async ({ page }) => {
+test("primary colour is the brand red, light and dark", async ({ page }) => {
   await page.goto("/invoices");
   const button = page.getByRole("button", { name: "New invoice" });
   await expect(button).toBeVisible();
   const bg = () => button.evaluate((el) => getComputedStyle(el).backgroundColor);
-  // Aura blue.500 in light mode.
-  await expect.poll(bg).toBe("rgb(59, 130, 246)");
+  // Brand red #a51c30 in light mode.
+  await expect.poll(bg).toBe("rgb(165, 28, 48)");
   await page.getByRole("button", { name: "Switch to dark theme" }).click();
   await expect(page.getByRole("button", { name: "Switch to light theme" })).toBeVisible();
-  // Aura's dark-mode primary is primary.400 = blue.400.
-  await expect.poll(bg).toBe("rgb(96, 165, 250)");
+  // The dark-mode red #c9414f (spec "Dark tokens").
+  await expect.poll(bg).toBe("rgb(201, 65, 79)");
+});
+
+/**
+ * Every visible element larger than 200×100px whose computed background is a
+ * light-theme surface: white (--wb-surface) or cream (#fcfbf6, --wb-bg).
+ */
+async function lightSurfaces(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const light = new Set(["rgb(255, 255, 255)", "rgb(252, 251, 246)"]);
+    const out: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>("body, body *"))) {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 200 || r.height <= 100) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === "hidden" || cs.display === "none" || Number(cs.opacity) === 0) continue;
+      if (!light.has(cs.backgroundColor)) continue;
+      const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/).slice(0, 3).join(".") : "";
+      out.push(`${el.tagName.toLowerCase()}${cls ? "." + cls : ""} ${Math.round(r.width)}x${Math.round(r.height)} bg=${cs.backgroundColor}`);
+    }
+    return [...new Set(out)];
+  });
+}
+
+test.describe("dark mode has no light surfaces", () => {
+  test.use({ colorScheme: "dark", viewport: { width: 1440, height: 900 } });
+  const check = async (page: Page, path: string) => {
+    await page.addInitScript(() => localStorage.setItem("wb:theme", "dark"));
+    await page.goto(path);
+    await expect(page.locator("html")).toHaveClass(/(^|\s)app-dark(\s|$)/);
+    await expect(page.locator("h1").first()).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    expect.soft(await lightSurfaces(page), `${path} light surfaces`).toEqual([]);
+    expect(await page.evaluate(() => getComputedStyle(document.body).color), `${path} body text`).toBe("rgb(252, 251, 246)");
+  };
+  for (const path of ROUTES) test(path, ({ page }) => check(page, path));
+  test.describe("signed out", () => {
+    test.use({ storageState: { cookies: [], origins: [] } });
+    for (const path of ["/login", "/forgot-password", "/reset-password"]) test(path, ({ page }) => check(page, path));
+  });
+});
+
+test.describe("dark overlays have no light surfaces", () => {
+  test.use({ colorScheme: "dark", viewport: { width: 1440, height: 900 } });
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("wb:theme", "dark"));
+  });
+
+  test("Record payment dialog and its date picker", async ({ page }) => {
+    const dialog = await openRecordPayment(page);
+    expect.soft(await lightSurfaces(page), "dialog").toEqual([]);
+    await dialog.locator('[data-pc-name="datepicker"] input').click();
+    await expect(page.getByRole("dialog", { name: "Choose Date" })).toBeVisible();
+    expect(await lightSurfaces(page), "date picker").toEqual([]);
+  });
+
+  test("user menu", async ({ page }) => {
+    await page.goto("/dashboard");
+    await page.getByRole("button", { name: "Open account menu" }).click();
+    await expect(page.getByRole("menu")).toBeVisible();
+    expect(await lightSurfaces(page)).toEqual([]);
+  });
+
+  test("navigation drawer at 375", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/invoices");
+    await page.getByRole("button", { name: "Open navigation" }).click();
+    await expect(page.locator("#app-sidebar")).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    expect(await lightSurfaces(page)).toEqual([]);
+  });
 });

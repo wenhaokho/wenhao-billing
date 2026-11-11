@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed } from "vue";
 import Button from "primevue/button";
 import Select from "primevue/select";
@@ -128,57 +129,54 @@ function rowAmount(row: LineItemRow): number {
       <div class="col-action">
         <Button
           v-if="!readOnly"
-          icon="pi pi-trash"
           text
           rounded
           severity="danger"
           title="Remove"
           :disabled="rows.length <= 1"
-          @click="emit('remove', idx)"
-        />
+          @click="emit('remove', idx)">
+          <template #icon><AppIcon name="trash-2" /></template>
+        </Button>
       </div>
     </div>
 
     <Button
       v-if="!readOnly"
       label="Add an item"
-      icon="pi pi-plus"
       text
       class="add-btn"
-      @click="emit('add')"
-    />
+      @click="emit('add')">
+      <template #icon><AppIcon name="plus" /></template>
+    </Button>
   </div>
 </template>
 
 <style scoped>
-.card {
-  background: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 12px;
-  padding: 0.25rem 0;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+/* Square bordered card with the table-header strip (mockup's invoice page). */
+.lines.card {
+  /* The rows carry their own padding (a parent's .card padding must not add to it). */
+  padding: 0;
   overflow: hidden;
 }
 .lines-header,
 .line-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px 140px 140px 40px;
-  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) 110px 160px 160px 40px;
+  gap: 16px;
   align-items: center;
-  padding: 0.75rem 1.25rem;
+  padding: 16px 28px;
 }
 .line-row {
   align-items: start;
+  padding-top: 20px;
+  padding-bottom: 20px;
 }
 .lines-header {
-  background: var(--color-bg);
-  color: var(--color-text-muted);
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  color: var(--wb-muted-soft);
+  font: 500 11px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.2px;
   text-transform: uppercase;
-  padding-top: 0.6rem;
-  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--wb-line);
 }
 .lines-header .col-qty,
 .lines-header .col-price,
@@ -186,14 +184,11 @@ function rowAmount(row: LineItemRow): number {
   text-align: right;
   padding-right: 0.6rem;
 }
-.line-row + .line-row,
-.line-row {
-  border-top: 1px solid #f1f5f9;
+.lines-header .col-amount { padding-top: 0; }
+.line-row + .line-row {
+  border-top: 1px solid var(--wb-line);
 }
-.line-row:first-of-type {
-  border-top: none;
-}
-.col-item { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+.col-item { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .item-pill { align-self: flex-start; }
 .desc { width: 100%; resize: none; line-height: 1.5; }
 .col-qty, .col-price { padding-top: 0; }
@@ -212,8 +207,9 @@ function rowAmount(row: LineItemRow): number {
   text-align: right;
   padding: 0.6rem 0.6rem 0 0;
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: var(--color-text);
+  font-weight: 500;
+  color: var(--wb-ink);
+  white-space: nowrap;
 }
 .col-action {
   display: flex;
@@ -223,7 +219,34 @@ function rowAmount(row: LineItemRow): number {
 }
 .num { font-variant-numeric: tabular-nums; }
 .add-btn {
-  margin: 0.25rem 0.5rem 0.5rem;
+  margin: 4px 16px 16px;
   justify-content: flex-start;
+}
+/* Phone: each line stacks into a small grid; the header strip would not line
+   up, so each cell carries its own caption instead. */
+@media (max-width: 720px) {
+  .lines-header { display: none; }
+  .line-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 16px 20px;
+  }
+  .col-item { grid-column: 1 / -1; }
+  .line-row .col-qty::before,
+  .line-row .col-price::before,
+  .line-row .col-amount::before {
+    display: block;
+    margin-bottom: 6px;
+    font: 500 11px/1.4 var(--wb-font-sans);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--wb-muted-soft);
+    text-align: left;
+  }
+  .line-row .col-qty::before { content: "Quantity"; }
+  .line-row .col-price::before { content: "Price"; }
+  .line-row .col-amount::before { content: "Amount"; }
+  .col-amount { padding: 0; text-align: left; }
+  .col-action { justify-content: flex-end; align-items: flex-end; }
 }
 </style>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -7,6 +8,8 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import Message from "primevue/message";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import { api } from "@/api/client";
 
 interface FxRate {
@@ -77,7 +80,7 @@ function confirmDelete(row: FxRate) {
   confirm.require({
     message: `Delete rate ${row.from_currency}→${row.to_currency} @ ${row.as_of_date}?`,
     header: "Delete FX rate",
-    icon: "pi pi-exclamation-triangle",
+    icon: "triangle-alert",
     acceptLabel: "Delete",
     rejectLabel: "Cancel",
     acceptClass: "p-button-danger",
@@ -101,30 +104,28 @@ function openCreate() {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>FX Rates</h1>
-        <p class="subtitle">
-          Manual exchange rates used to translate foreign-currency postings into the base currency
-          (<strong>{{ baseCurrency }}</strong>). The most recent rate on or before a posting's date wins.
-        </p>
-      </div>
-      <div class="page-actions">
+    <PageHeader eyebrow="04 / Accounting" title="FX Rates">
+      <template #lede>
+        Manual exchange rates used to translate foreign-currency postings into the base currency
+        (<strong>{{ baseCurrency }}</strong>). The most recent rate on or before a posting's date wins.
+      </template>
         <Button
           label="Sync now"
-          icon="pi pi-sync"
           severity="secondary"
           outlined
           :loading="syncRates.isPending.value"
           title="Fetch the latest reference rates from the provider"
-          @click="syncRates.mutate()"
-        />
-        <Button label="New rate" icon="pi pi-plus" @click="openCreate" />
-      </div>
-    </header>
+          @click="syncRates.mutate()">
+          <template #icon><AppIcon name="refresh-cw" /></template>
+        </Button>
+        <Button label="New rate" @click="openCreate">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
+    </PageHeader>
 
     <Message
       v-if="syncMessage"
+      class="sync-message"
       :severity="syncMessage.severity"
       role="status"
       aria-live="polite"
@@ -139,42 +140,42 @@ function openCreate() {
       :loading="isLoading"
       data-key="rate_id"
       striped-rows
-      size="small"
     >
       <template #empty>
-        <div class="empty-state">
-          <i class="pi pi-inbox" />
-          <div>No FX rates recorded yet.</div>
-        </div>
+        <EmptyState title="No FX rates recorded yet" message="Sync from the provider or add a rate by hand." />
       </template>
-      <Column field="as_of_date" header="As of" :style="{ width: '130px' }" />
-      <Column header="Pair" :style="{ width: '130px' }">
+      <Column field="as_of_date" header="As of" :style="{ width: '130px' }" body-class="cell-nowrap" />
+      <Column header="Pair" :style="{ width: '150px' }" body-class="cell-nowrap">
         <template #body="{ data: r }">
-          <code>{{ r.from_currency }} → {{ r.to_currency }}</code>
+          <span class="doc-no">{{ r.from_currency }} <span class="arrow">→</span> {{ r.to_currency }}</span>
         </template>
       </Column>
-      <Column header="Rate" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+      <Column header="Rate" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: r }">
-          <span class="num">{{ formatRate(r.rate) }}</span>
+          <span class="num rate">{{ formatRate(r.rate) }}</span>
         </template>
       </Column>
-      <Column field="source" header="Source" :style="{ width: '140px' }" />
-      <Column field="created_at" header="Created" :style="{ width: '180px' }">
+      <Column header="Source" :style="{ width: '140px' }">
+        <template #body="{ data: r }">
+          <span class="source">{{ r.source }}</span>
+        </template>
+      </Column>
+      <Column field="created_at" header="Created" :style="{ width: '200px' }" body-class="cell-nowrap">
         <template #body="{ data: r }">
           <span class="muted">{{ new Date(r.created_at).toLocaleString() }}</span>
         </template>
       </Column>
-      <Column header="" :style="{ width: '70px' }">
+      <Column header="" :style="{ width: '70px' }" :body-style="{ textAlign: 'right' }">
         <template #body="{ data: r }">
           <Button
-            icon="pi pi-trash"
             text
             rounded
             severity="danger"
             title="Delete"
             :loading="deleteRate.isPending.value"
-            @click="confirmDelete(r)"
-          />
+            @click="confirmDelete(r)">
+            <template #icon><AppIcon name="trash-2" /></template>
+          </Button>
         </template>
       </Column>
     </DataTable>
@@ -182,7 +183,20 @@ function openCreate() {
 </template>
 
 <style scoped>
+.sync-message { margin: 0 0 16px; }
 .num { font-variant-numeric: tabular-nums; }
-.muted { color: var(--color-text-muted); font-size: 0.85rem; }
-code { background: var(--color-surface-alt); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.85em; font-weight: 600; }
+.rate { font-weight: 500; }
+.muted { color: var(--wb-muted); font-size: 13px; }
+.arrow { color: var(--wb-muted-soft); }
+.source {
+  display: inline-block;
+  padding: 4px 8px;
+  font: 500 10px/1 var(--wb-font-sans);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-radius: 2px;
+  background: var(--wb-tint);
+  color: var(--wb-muted);
+  white-space: nowrap;
+}
 </style>

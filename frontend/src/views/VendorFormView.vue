@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -131,21 +133,20 @@ function cancel() {
 <template>
   <section class="page">
     <div class="back">
-      <Button label="Vendors" icon="pi pi-arrow-left" text size="small" @click="cancel" />
+      <Button label="Vendors" text size="small" @click="cancel">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
-    <div class="header">
-      <h1>{{ isEdit ? "Edit vendor" : "New vendor" }}</h1>
-      <div class="actions">
-        <Button label="Cancel" text @click="cancel" />
-        <Button
-          :label="isEdit ? 'Save changes' : 'Create vendor'"
-          :disabled="!canSave"
-          :loading="save.isPending.value"
-          @click="submit"
-        />
-      </div>
-    </div>
+    <PageHeader eyebrow="03 / Purchases" :title="isEdit ? 'Edit vendor' : 'New vendor'">
+      <Button label="Cancel" severity="secondary" outlined @click="cancel" />
+      <Button
+        :label="isEdit ? 'Save changes' : 'Create vendor'"
+        :disabled="!canSave"
+        :loading="save.isPending.value"
+        @click="submit"
+      />
+    </PageHeader>
 
     <Message v-if="saveError" severity="error" role="alert" aria-live="assertive" :closable="true" @close="saveError = null">
       {{ saveError }}
@@ -162,7 +163,7 @@ function cancel() {
           aria-describedby="vendor-name-error"
         />
         <span v-if="showNameError" id="vendor-name-error" class="field-error">
-          <i class="pi pi-exclamation-circle" /> Name is required.
+          <AppIcon name="circle-alert" /> Name is required.
         </span>
       </label>
       <div class="two-col">
@@ -179,7 +180,7 @@ function cancel() {
             aria-describedby="vendor-email-error"
           />
           <span v-if="emailInvalid" id="vendor-email-error" class="field-error">
-            <i class="pi pi-exclamation-circle" /> Enter a valid email.
+            <AppIcon name="circle-alert" /> Enter a valid email.
           </span>
         </label>
       </div>
@@ -206,24 +207,15 @@ function cancel() {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 2rem; }
-.back { margin-bottom: -0.5rem; }
-.header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-.header h1 { margin: 0; font-size: 1.5rem; text-transform: uppercase; letter-spacing: 0.02em; }
-.actions { display: flex; gap: 0.5rem; }
+.page { display: flex; flex-direction: column; gap: 16px; padding-bottom: 2rem; }
+.back { margin-bottom: -8px; }
 .card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 12px;
-  padding: 1.25rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  padding: 28px;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 18px;
   max-width: 760px;
 }
-.field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: var(--color-text); }
-.field > span { font-weight: 600; font-size: 0.85rem; }
 .field :deep(.p-inputtext),
 .field :deep(.p-textarea),
 .field :deep(.p-inputnumber),

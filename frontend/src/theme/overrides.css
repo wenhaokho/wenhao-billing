@@ -1,0 +1,115 @@
+/*
+ * PrimeVue styling the preset's tokens cannot express (spec "Visual system").
+ * Colours come from the --wb-* variables in assets/app.css, so dark mode
+ * follows without repeating rules here.
+ */
+
+/* Buttons: 42px labelled pills (Aura has no height token). Icon-only and text
+   buttons (row actions, dialog close, DatePicker prev/next) keep their size. */
+.p-button:not(.p-button-sm):not(.p-button-lg):not(.p-button-icon-only):not(.p-button-text) { min-height: 42px; }
+.p-button.p-button-sm { padding: 0.35rem 0.85rem; font-size: 0.82rem; }
+/* Status chips (StatusTag) only: 10px uppercase, 1px tracking. Other Tags keep
+   Aura's readable size and case. */
+.p-tag.status-tag {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 0.2rem 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  line-height: 1.4;
+}
+
+/* Tables: square, 1px line border, no shadow; header 11px uppercase muted-soft. */
+.p-datatable-table-container {
+  border: 1px solid var(--wb-line);
+  border-radius: 0;
+  /* Wide tables scroll inside their bordered wrapper, never the page. */
+  overflow: auto;
+  background: var(--wb-surface);
+}
+.p-datatable .p-datatable-thead > tr > th {
+  background: var(--wb-surface) !important;
+  color: var(--wb-muted-soft) !important;
+  font-weight: 500 !important;
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  border-bottom: 1px solid var(--wb-line) !important;
+}
+.p-datatable .p-datatable-tbody > tr > td { border-bottom: 1px solid var(--wb-line) !important; }
+.p-datatable .p-datatable-tbody > tr:hover { background: var(--wb-surface-2) !important; }
+.p-datatable .p-datatable-tbody > tr:last-child > td { border-bottom: none !important; }
+
+/* Cards: Aura's Card has no border token. */
+.p-card { border: 1px solid var(--wb-line); }
+
+/* Invalid fields. */
+.p-inputtext[aria-invalid="true"],
+.p-select[aria-invalid="true"],
+.p-password[aria-invalid="true"] > .p-inputtext {
+  border-color: var(--wb-red) !important;
+  box-shadow: none !important;
+}
+
+/* Lucide icons (AppIcon) never shrink inside flex rows. */
+.app-icon { flex-shrink: 0; }
+
+/* Table cells that must never wrap: dates, amounts, document numbers and IDs
+   (Column body-class / header-class). */
+.cell-nowrap { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cell-muted { color: var(--wb-muted); }
+.doc-no {
+  font: 500 13px var(--wb-font-mono);
+  color: var(--wb-ink);
+  white-space: nowrap;
+}
+
+/* Status tabs as the head of a list card (mockup): the tab strip sits on the
+   table's bordered surface; the table's own top border is the divider. */
+.list-tabs.p-tabs { border: 1px solid var(--wb-line); border-bottom: 0; background: var(--wb-surface); }
+.list-tabs .p-tablist-tab-list { background: transparent; border-width: 0; padding: 0 20px; }
+.list-tabs .p-tab,
+.card-tabs .p-tab { font: 500 14px var(--wb-font-sans); padding: 16px 14px; white-space: nowrap; }
+.list-tabs .p-tab:not(.p-tab-active),
+.card-tabs .p-tab:not(.p-tab-active) { color: var(--wb-muted); }
+.list-tabs .p-tab-active,
+.card-tabs .p-tab-active { color: var(--wb-ink); }
+.list-tabs .p-tablist-active-bar,
+.card-tabs .p-tablist-active-bar { background: var(--wb-red); height: 2px; }
+
+/* A whole Tabs block as one card (Reports): strip, panels and tables inside. */
+.card-tabs.p-tabs { border: 1px solid var(--wb-line); background: var(--wb-surface); }
+.card-tabs .p-tablist-tab-list { background: transparent; border-color: var(--wb-line); padding: 0 20px; }
+.card-tabs .p-tabpanels { padding: 0; background: transparent; }
+.card-tabs .p-datatable-table-container { border: 0; }
+
+/* Confirm dialogs: the reject button (Cancel / Dismiss) is the secondary pill,
+   not PrimeVue's default filled primary, so the accept button carries the
+   emphasis (filled primary, or the outlined red danger of ruling R10). */
+.p-confirmdialog .p-confirmdialog-reject-button:not(.p-button-text) {
+  background: transparent;
+  border-color: var(--wb-line);
+  color: var(--wb-ink);
+}
+.p-confirmdialog .p-confirmdialog-reject-button:not(.p-button-text):not(:disabled):hover {
+  background: var(--wb-tint);
+  border-color: var(--wb-line);
+  color: var(--wb-ink);
+}
+
+/* Dialogs and confirm dialogs: square (preset), 1px line border, Manrope title,
+   a rule above the footer. The soft overlay shadow comes from the preset. */
+.p-dialog { border: 1px solid var(--wb-line); }
+.p-dialog .p-dialog-title {
+  font: 500 22px/1.2 var(--wb-font-display);
+  letter-spacing: -0.6px;
+  color: var(--wb-ink);
+}
+.p-dialog .p-dialog-footer { border-top: 1px solid var(--wb-line); padding-top: 16px; }
+
+/* Messages (inline alerts): square, tinted with the status pairs. */
+.p-message { border-radius: 0; }
+
+/* Right-aligned columns (header-style text-align: right): PrimeVue 4 wraps the
+   header text in a flex box, so align that too. */
+.p-datatable-thead > tr > th[style*="text-align: right"] .p-datatable-column-header-content { justify-content: flex-end; }

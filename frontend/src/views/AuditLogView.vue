@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import { useRouter } from "vue-router";
@@ -7,8 +8,10 @@ import Column from "primevue/column";
 import Select from "primevue/select";
 import InputText from "primevue/inputtext";
 import DatePicker from "primevue/datepicker";
-import Tag from "primevue/tag";
 import Button from "primevue/button";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
@@ -58,20 +61,12 @@ const { data, isLoading, refetch } = useQuery<AuditRow[]>({
     (await api.get<AuditRow[]>("/payments/audit-log", { params: params.value })).data,
 });
 
-function actionSeverity(a: string) {
-  switch (a) {
-    case "CLEARED": return "success";
-    case "HELD": return "warn";
-    case "MATCHED": return "info";
-    case "REVERSED": return "danger";
-    case "OVERRIDDEN": return "secondary";
-    default: return undefined;
-  }
+function formatDay(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { dateStyle: "short" });
 }
 
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString(undefined, { timeStyle: "short" });
 }
 
 function clearFilters() {
@@ -92,19 +87,14 @@ function openPayment(row: AuditRow) {
 
 <template>
   <section class="audit">
-    <header class="page-header">
-      <div>
-        <h1>Audit Log</h1>
-        <p class="subtitle">
-          Reconciliation engine decisions and manual actions on payments.
-        </p>
-      </div>
-      <div class="page-actions">
-        <Button icon="pi pi-refresh" text @click="refetch()" />
-      </div>
-    </header>
+    <PageHeader eyebrow="06 / Admin" title="Audit Log">
+      <template #lede>Reconciliation engine decisions and manual actions on payments.</template>
+      <Button label="Refresh" severity="secondary" outlined @click="refetch()">
+        <template #icon><AppIcon name="refresh-cw" /></template>
+      </Button>
+    </PageHeader>
 
-    <div class="filters card card-pad">
+    <div class="filters card">
       <label class="f">
         <span>Action</span>
         <Select
@@ -112,6 +102,7 @@ function openPayment(row: AuditRow) {
           :options="actionOptions"
           option-label="label"
           option-value="value"
+          placeholder="All actions"
           show-clear
         />
       </label>
@@ -127,7 +118,7 @@ function openPayment(row: AuditRow) {
         <span>To</span>
         <DatePicker v-model="toDate" date-format="yy-mm-dd" show-icon show-button-bar />
       </label>
-      <Button label="Clear" text size="small" @click="clearFilters" />
+      <Button label="Clear" text class="clear" @click="clearFilters" />
     </div>
 
     <DataTable
@@ -135,40 +126,37 @@ function openPayment(row: AuditRow) {
       :loading="isLoading"
       data-key="log_id"
       striped-rows
-      size="small"
       :row-hover="true"
       @row-click="(ev) => openPayment(ev.data as AuditRow)"
     >
       <template #empty>
-        <div class="empty-state">
-          <i class="pi pi-inbox" />
-          <div>No audit entries match these filters.</div>
-        </div>
+        <EmptyState title="No audit entries" message="No audit entries match these filters." />
       </template>
-      <Column header="When" style="width: 150px">
+      <Column header="When" style="width: 150px" body-class="cell-nowrap">
         <template #body="{ data: r }">
-          <span class="muted">{{ formatDate(r.created_at) }}</span>
+          <div>{{ formatDay(r.created_at) }}</div>
+          <div class="muted small">{{ formatTime(r.created_at) }}</div>
         </template>
       </Column>
-      <Column header="Action" style="width: 120px">
+      <Column header="Action" style="width: 140px">
         <template #body="{ data: r }">
-          <Tag :value="r.action" :severity="actionSeverity(r.action)" />
+          <StatusTag :status="r.action" />
         </template>
       </Column>
       <Column header="Payer">
         <template #body="{ data: r }">
-          <div>{{ r.payer_name ?? '—' }}</div>
+          <div class="payer">{{ r.payer_name ?? '—' }}</div>
           <div v-if="r.intake_source" class="muted small">via {{ r.intake_source }}</div>
         </template>
       </Column>
-      <Column header="Amount" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+      <Column header="Amount" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: r }">
           <span class="num">{{ formatAmount(r.amount, r.currency) }} {{ r.currency ?? '' }}</span>
         </template>
       </Column>
       <Column header="Actor">
         <template #body="{ data: r }">
-          <span v-if="r.actor_email">{{ r.actor_email }}</span>
+          <span v-if="r.actor_email" class="actor">{{ r.actor_email }}</span>
           <span v-else class="muted">system</span>
         </template>
       </Column>
@@ -184,28 +172,39 @@ function openPayment(row: AuditRow) {
 </template>
 
 <style scoped>
-.audit { display: flex; flex-direction: column; gap: 1rem; }
+.audit { display: flex; flex-direction: column; gap: 24px; }
+.audit > :deep(.page-head) { margin-bottom: 8px; }
 .filters {
   display: grid;
-  grid-template-columns: 200px 1fr 180px 180px auto;
-  gap: 0.75rem;
+  grid-template-columns: 200px minmax(0, 1fr) 170px 170px auto;
+  gap: 16px;
   align-items: end;
+  padding: 20px 24px;
 }
 @media (max-width: 1000px) { .filters { grid-template-columns: 1fr 1fr; } }
-.f { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; }
-.f > span { font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; }
+@media (max-width: 560px) { .filters { grid-template-columns: minmax(0, 1fr); padding: 16px; } }
+.f { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.f > span {
+  font: 500 11px/1 var(--wb-font-sans);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--wb-muted-soft);
+}
 .f :deep(.p-inputtext), .f :deep(.p-select), .f :deep(.p-datepicker) { width: 100%; }
+.clear { justify-self: start; }
 
-.muted { color: var(--color-text-muted); }
-.small { font-size: 0.75rem; }
+.muted { color: var(--wb-muted); }
+.small { font-size: 13px; }
 .num { font-variant-numeric: tabular-nums; }
+.payer { font-weight: 500; }
+.actor { color: var(--wb-muted); }
 
-.reasons { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.reasons { display: flex; flex-wrap: wrap; gap: 6px; }
 .reason-chip {
-  font-size: 0.72rem; padding: 0.15rem 0.45rem;
-  background: var(--color-surface-alt);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  border-radius: 4px;
+  font: 500 12px var(--wb-font-mono);
+  padding: 4px 8px;
+  border: 1px solid var(--wb-line);
+  color: var(--wb-muted);
+  white-space: nowrap;
 }
 </style>

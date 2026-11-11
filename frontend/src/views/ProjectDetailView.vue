@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useReturnTo } from "@/composables/useReturnTo";
@@ -6,7 +7,8 @@ import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
-import Tag from "primevue/tag";
+import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import { api } from "@/api/client";
 import { formatMoney } from "@/utils/money";
 
@@ -95,18 +97,6 @@ const { data: quotations } = useQuery<Quotation[]>({
     ).data,
 });
 
-function quoteStatusSeverity(s: string) {
-  switch (s) {
-    case "ACCEPTED": case "INVOICED": return "success";
-    case "SENT": return "info";
-    case "EXPIRED": return "warn";
-    case "DECLINED": return "danger";
-    case "VOID": return "secondary";
-    case "DRAFT": return "contrast";
-    default: return undefined;
-  }
-}
-
 function openQuotation(row: Quotation) {
   router.push({ name: "quotation-detail", params: { quotationId: row.quotation_id } });
 }
@@ -126,17 +116,6 @@ const contractPct = computed(() => {
   return Math.min(100, (inv / cv) * 100);
 });
 
-function statusSeverity(s: string) {
-  switch (s) {
-    case "ACTIVE": case "PAID": return "success";
-    case "ON_HOLD": case "PARTIAL": return "warn";
-    case "COMPLETED": case "OPEN": case "SENT": return "info";
-    case "CANCELLED": case "VOID": return "danger";
-    case "DRAFT": return "secondary";
-    default: return undefined;
-  }
-}
-
 function backToList() {
   router.push(backTo.value);
 }
@@ -151,27 +130,26 @@ function openInvoice(row: Invoice) {
 <template>
   <section class="page">
     <div class="back">
-      <Button label="Projects" icon="pi pi-arrow-left" text size="small" @click="backToList" />
+      <Button label="Projects" text size="small" @click="backToList">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <div v-if="isLoading">Loading…</div>
     <div v-else-if="project" class="stack">
-      <div class="header">
-        <div>
-          <div class="eyebrow">
-            <code>{{ project.code }}</code>
-            <Tag :value="project.status" :severity="statusSeverity(project.status)" />
-          </div>
-          <h1>{{ project.name }}</h1>
-          <p v-if="customer" class="subtitle">
-            Customer: <strong>{{ customer.name }}</strong>
-            · Currency: <span class="mono">{{ project.currency }}</span>
-          </p>
-        </div>
-        <div class="actions">
-          <Button label="Edit" icon="pi pi-pencil" outlined @click="openEdit" />
-        </div>
-      </div>
+      <PageHeader eyebrow="02 / Sales" :title="project.name">
+        <template #status>
+          <code class="project-code">{{ project.code }}</code>
+          <StatusTag :status="project.status" />
+        </template>
+        <template v-if="customer" #lede>
+          Customer: <strong>{{ customer.name }}</strong>
+          · Currency: <code>{{ project.currency }}</code>
+        </template>
+        <Button label="Edit" severity="secondary" outlined @click="openEdit">
+          <template #icon><AppIcon name="pencil" /></template>
+        </Button>
+      </PageHeader>
 
       <div class="stats">
         <div class="stat">
@@ -211,43 +189,45 @@ function openInvoice(row: Invoice) {
 
       <div class="card">
         <div class="card-head">
-          <h3>Invoices on this project</h3>
+          <h3 class="card-title">Invoices on this project</h3>
         </div>
         <DataTable :value="invoices ?? []" data-key="invoice_id" striped-rows>
           <template #empty>
             <div class="empty-mini">No invoices tagged to this project yet.</div>
           </template>
-          <Column field="invoice_number" header="Number">
+          <Column field="invoice_number" header="Number" body-class="cell-nowrap">
             <template #body="{ data: row }">
-              <code v-if="row.invoice_number">{{ row.invoice_number }}</code>
+              <span v-if="row.invoice_number" class="doc-no">{{ row.invoice_number }}</span>
               <span v-else class="muted">(draft)</span>
             </template>
           </Column>
           <Column field="invoice_type" header="Type" />
-          <Column header="Issue date">
+          <Column header="Issue date" body-class="cell-nowrap">
             <template #body="{ data: row }">
               <span v-if="row.issue_date">{{ row.issue_date }}</span>
               <span v-else class="muted">—</span>
             </template>
           </Column>
-          <Column header="Amount">
+          <Column header="Amount" body-class="cell-nowrap">
             <template #body="{ data: row }">
               <span class="num">{{ formatMoney(row.amount, row.currency) }}</span>
             </template>
           </Column>
-          <Column header="Balance">
+          <Column header="Balance" body-class="cell-nowrap">
             <template #body="{ data: row }">
               <span class="num">{{ formatMoney(row.balance_due, row.currency) }}</span>
             </template>
           </Column>
           <Column header="Status">
             <template #body="{ data: row }">
-              <Tag :value="row.status" :severity="statusSeverity(row.status)" />
+              <StatusTag :status="row.status" />
             </template>
           </Column>
           <Column header="" :style="{ width: '70px' }">
             <template #body="{ data: row }">
-              <Button icon="pi pi-pencil" text rounded @click="openInvoice(row)" />
+              <Button text rounded aria-label="Edit invoice" @click="openInvoice(row)">
+                <template #icon><AppIcon name="pencil" /></template>
+              </Button>
             </template>
           </Column>
         </DataTable>
@@ -255,21 +235,21 @@ function openInvoice(row: Invoice) {
 
       <div class="card">
         <div class="card-head">
-          <h3>Quotations on this project</h3>
+          <h3 class="card-title">Quotations on this project</h3>
         </div>
         <DataTable :value="quotations ?? []" data-key="quotation_id" striped-rows>
           <template #empty>
             <div class="empty-mini">No quotations tagged to this project yet.</div>
           </template>
-          <Column header="Quote #">
+          <Column header="Quote #" body-class="cell-nowrap">
             <template #body="{ data: row }">
-              <code v-if="row.quotation_number">{{ row.quotation_number }}</code>
+              <span v-if="row.quotation_number" class="doc-no">{{ row.quotation_number }}</span>
               <span v-else class="muted">(draft)</span>
             </template>
           </Column>
           <Column header="Status">
             <template #body="{ data: row }">
-              <Tag :value="row.status" :severity="quoteStatusSeverity(row.status)" />
+              <StatusTag :status="row.status" />
             </template>
           </Column>
           <Column header="Issued">
@@ -291,14 +271,16 @@ function openInvoice(row: Invoice) {
           </Column>
           <Column header="" :style="{ width: '70px' }">
             <template #body="{ data: row }">
-              <Button icon="pi pi-arrow-right" text rounded @click="openQuotation(row)" />
+              <Button text rounded aria-label="Open quotation" @click="openQuotation(row)">
+                <template #icon><AppIcon name="arrow-right" /></template>
+              </Button>
             </template>
           </Column>
         </DataTable>
       </div>
 
-      <div v-if="project.notes" class="card">
-        <h3>Notes</h3>
+      <div v-if="project.notes" class="card card-body">
+        <h3 class="card-title">Notes</h3>
         <p class="notes">{{ project.notes }}</p>
       </div>
     </div>
@@ -306,37 +288,50 @@ function openInvoice(row: Invoice) {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 2rem; }
-.back { margin-bottom: -0.5rem; }
-.stack { display: flex; flex-direction: column; gap: 1.25rem; }
-.header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
-.header h1 { margin: 0.2rem 0 0; font-size: 1.5rem; }
-.eyebrow { display: flex; gap: 0.6rem; align-items: center; }
-.eyebrow code { background: var(--color-surface-alt); padding: 0.15rem 0.5rem; border-radius: 4px; }
-.subtitle { margin: 0.25rem 0 0; color: var(--color-text-muted); font-size: 0.9rem; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.actions { display: flex; gap: 0.5rem; }
-
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.85rem; }
-.stat {
-  background: var(--color-surface); border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 10px; padding: 0.85rem 1rem;
+.page { display: flex; flex-direction: column; gap: 16px; padding-bottom: 2rem; }
+.back { margin-bottom: -8px; }
+.stack { display: flex; flex-direction: column; gap: 24px; }
+.stack :deep(.page-head) { margin-bottom: 0; }
+.project-code {
+  font: 500 13px var(--wb-font-mono);
+  background: var(--wb-tint);
+  color: var(--wb-ink);
+  padding: 3px 8px;
 }
-.stat-label { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); }
-.stat-value { font-size: 1.2rem; font-weight: 600; margin-top: 0.2rem; font-variant-numeric: tabular-nums; }
-.stat-sub { font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.2rem; }
 
-.card {
-  background: var(--color-surface); border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 12px; padding: 1rem 1.25rem;
+/* KPI strip (as on Invoices): one bordered strip, hairlines between cells. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--wb-line);
+  border: 1px solid var(--wb-line);
 }
-.card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
-.card h3 { margin: 0; font-size: 1rem; }
-.notes { white-space: pre-wrap; color: var(--color-text); }
+.stat { background: var(--wb-surface); padding: 22px 26px; min-width: 0; }
+.stat-label { font: 500 11px/1.4 var(--wb-font-sans); text-transform: uppercase; letter-spacing: 1.3px; color: var(--wb-muted-soft); }
+.stat-value {
+  font: 500 26px/1.15 var(--wb-font-display);
+  letter-spacing: -0.8px;
+  color: var(--wb-ink);
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.stat-sub { font-size: 13px; color: var(--wb-muted); margin-top: 6px; }
+
+/* Table cards: title strip, then the table edge to edge. */
+.card-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 24px; border-bottom: 1px solid var(--wb-line); }
+.card :deep(.p-datatable-table-container) { border: 0; }
+.card-body { padding: 24px 28px; }
+.notes { white-space: pre-wrap; color: var(--wb-ink); margin: 12px 0 0; line-height: 1.6; }
 .num { font-variant-numeric: tabular-nums; }
-.muted { color: var(--color-text-muted); }
+.muted { color: var(--wb-muted-soft); }
 
 @media (max-width: 900px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 720px) {
+  .stat { padding: 16px 18px; }
+  .stat-value { font-size: 22px; }
 }
 </style>

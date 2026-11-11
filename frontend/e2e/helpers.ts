@@ -177,10 +177,39 @@ export function numbersNear(anchor: Locator): Locator {
   return anchor.locator("xpath=ancestor::*[.//*[@role='spinbutton']][1]").getByRole("spinbutton");
 }
 
-/** Status chips (PrimeVue Tag) of the rendered table body rows. */
+/**
+ * API status codes of the status chips (StatusTag, a PrimeVue Tag carrying
+ * data-status) in the rendered table body rows. The chip shows a label
+ * ("Partially paid"); data-status keeps the code ("PARTIAL").
+ */
 export async function rowStatuses(page: Page): Promise<string[]> {
   return page
-    .locator('tbody tr [data-pc-name="tag"]')
-    .allInnerTexts()
-    .then((t) => t.map((s) => s.trim()));
+    .locator('tbody tr [data-pc-name="tag"][data-status]')
+    .evaluateAll((els) => els.map((el) => (el.getAttribute("data-status") ?? "").trim()));
+}
+
+/** A status chip (StatusTag) by its API status code. */
+export function statusChip(scope: Page | Locator, status: string): Locator {
+  return scope.locator(`[data-pc-name="tag"][data-status="${status}"]`);
+}
+
+/**
+ * Seeds a finalized (open) IDR invoice and opens its Record payment dialog
+ * from the invoice page; returns the dialog.
+ */
+export async function openRecordPayment(page: Page): Promise<Locator> {
+  const api = page.request;
+  const c = await apiPost<{ customer_id: string }>(api, "/customers", { name: `E2E Pay Customer ${uniq()}`, default_currency: "IDR" });
+  const inv = await apiPost<{ invoice_id: string }>(api, "/invoices", {
+    customer_id: c.customer_id,
+    currency: "IDR",
+    line_items: [{ description: "E2E pay line", quantity: "1", unit_price: "100000" }],
+  });
+  const fin = await api.post(`/api/v1/invoices/${inv.invoice_id}/finalize`);
+  expect(fin.ok(), `finalize: ${fin.status()}`).toBe(true);
+  await page.goto(`/invoices/${inv.invoice_id}/edit`);
+  await page.locator("main").getByRole("button", { name: "Record payment" }).click();
+  const dialog = page.getByRole("dialog", { name: "Record customer payment" });
+  await expect(dialog).toBeVisible();
+  return dialog;
 }
