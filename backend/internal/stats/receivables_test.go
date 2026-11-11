@@ -126,7 +126,7 @@ func TestReceivablesNeedsAttention(t *testing.T) {
 		if want := 8 - i; row.DaysLate != want {
 			t.Errorf("row %d days late = %d, want %d", i, row.DaysLate, want)
 		}
-		if row.LastReminderAt != nil || row.CustomerName != "Acme" || row.CustomerID != c || row.Currency != "IDR" {
+		if row.LastReminderAt != nil || row.CustomerName == nil || *row.CustomerName != "Acme" || row.CustomerID == nil || *row.CustomerID != c || row.Currency != "IDR" {
 			t.Errorf("row %d = %+v", i, row)
 		}
 	}
@@ -155,5 +155,42 @@ func TestReceivablesUnconverted(t *testing.T) {
 	}
 	if len(r.NeedsAttention) != 1 || r.NeedsAttention[0].Currency != "AUD" || r.NeedsAttention[0].BalanceDue.Decimal().StringFixed(4) != "500.0000" {
 		t.Errorf("needs attention = %+v", r.NeedsAttention)
+	}
+}
+
+func TestReceivablesAgingBoundaries(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "Acme")
+	in := func(amount string, due *time.Time) { inv{cur: "IDR", amount: amount, due: due}.insert(t, a, c) }
+	in("1", days(-60))
+	in("2", days(-61))
+	in("4", days(-90))
+	r := receivables(t, a)
+	eq(t, "aging", agingOf(r), []string{"not_due 0.0000 0", "d1_30 0.0000 0", "d31_60 1.0000 1", "d61_90 6.0000 2", "d90_plus 0.0000 0"})
+}
+
+func TestReceivablesAgingExcludesTemplatesAndDrafts(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "Acme")
+	inv{cur: "IDR", amount: "10", due: days(-5), template: true}.insert(t, a, c)
+	inv{cur: "IDR", amount: "20", due: days(-5), status: "DRAFT"}.insert(t, a, c)
+	inv{cur: "IDR", amount: "40", due: days(-5)}.insert(t, a, c)
+	r := receivables(t, a)
+	eq(t, "aging", agingOf(r), []string{"not_due 0.0000 0", "d1_30 40.0000 1", "d31_60 0.0000 0", "d61_90 0.0000 0", "d90_plus 0.0000 0"})
+	if len(r.NeedsAttention) != 1 {
+		t.Errorf("needs attention = %d rows, want 1", len(r.NeedsAttention))
+	}
+}
+
+func TestReceivablesNoCustomer(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	exec(t, a, `INSERT INTO invoices (invoice_id, customer_id, invoice_type, currency, amount, balance_due, status, due_date)
+VALUES ($1, NULL, 'MILESTONE', 'IDR', 100, 100, 'SENT', $2)`, uuid.New(), days(-3))
+	r := receivables(t, a)
+	if len(r.NeedsAttention) != 1 || r.NeedsAttention[0].CustomerID != nil || r.NeedsAttention[0].CustomerName != nil {
+		t.Errorf("needs attention = %+v, want one row with null customer", r.NeedsAttention)
 	}
 }

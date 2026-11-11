@@ -39,6 +39,7 @@ type AgingByCurrencyRow struct {
 
 // The open-AR rule by how late it is: today - due_date in days (no due date
 // counts as not due), per bucket and currency.
+// The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
 func (q *Queries) AgingByCurrency(ctx context.Context, today pgtype.Date) ([]AgingByCurrencyRow, error) {
 	rows, err := q.db.Query(ctx, agingByCurrency, today)
 	if err != nil {
@@ -651,6 +652,7 @@ type OpenNotDueByCurrencyBetweenRow struct {
 }
 
 // The open-AR rule with a due date from from_date to to_date, both inclusive.
+// The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
 func (q *Queries) OpenNotDueByCurrencyBetween(ctx context.Context, arg OpenNotDueByCurrencyBetweenParams) ([]OpenNotDueByCurrencyBetweenRow, error) {
 	rows, err := q.db.Query(ctx, openNotDueByCurrencyBetween, arg.FromDate, arg.ToDate)
 	if err != nil {
@@ -777,7 +779,7 @@ func (q *Queries) OverdueByCustomerCurrency(ctx context.Context, today pgtype.Da
 }
 
 const overdueOldest = `-- name: OverdueOldest :many
-SELECT i.invoice_id, i.invoice_number, i.customer_id, COALESCE(c.name, '')::text AS customer_name,
+SELECT i.invoice_id, i.invoice_number, i.customer_id, c.name AS customer_name,
        i.balance_due, i.wht_amount, i.wht_booked, i.currency, i.due_date
   FROM invoices i
   LEFT JOIN customers c ON c.customer_id = i.customer_id
@@ -796,7 +798,7 @@ type OverdueOldestRow struct {
 	InvoiceID     uuid.UUID
 	InvoiceNumber *string
 	CustomerID    pgtype.UUID
-	CustomerName  string
+	CustomerName  *string
 	BalanceDue    decimal.Decimal
 	WhtAmount     decimal.Decimal
 	WhtBooked     decimal.Decimal
@@ -805,6 +807,7 @@ type OverdueOldestRow struct {
 }
 
 // The overdue open invoices, oldest due date first (ties by invoice id).
+// The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
 func (q *Queries) OverdueOldest(ctx context.Context, arg OverdueOldestParams) ([]OverdueOldestRow, error) {
 	rows, err := q.db.Query(ctx, overdueOldest, arg.Today, arg.Lim)
 	if err != nil {

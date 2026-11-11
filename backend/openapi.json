@@ -277,7 +277,7 @@
             "type": "string"
           },
           "count": {
-            "description": "Invoices in the bucket, every currency.",
+            "description": "Invoices in the bucket, every currency, including those whose currency is in unconverted.",
             "format": "int64",
             "type": "integer"
           },
@@ -432,10 +432,18 @@
             "type": "string"
           },
           "customer_id": {
-            "type": "string"
+            "description": "Null when the invoice has no customer.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "customer_name": {
-            "type": "string"
+            "description": "Null when the invoice has no customer.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "days_late": {
             "format": "int64",
@@ -5836,6 +5844,7 @@
             "type": "integer"
           },
           "invoice_count": {
+            "description": "Open invoices, including those whose currency is in unconverted.",
             "format": "int64",
             "type": "integer"
           },

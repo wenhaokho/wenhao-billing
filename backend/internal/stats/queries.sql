@@ -206,6 +206,7 @@ SELECT customer_id, currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
 -- name: AgingByCurrency :many
 -- The open-AR rule by how late it is: today - due_date in days (no due date
 -- counts as not due), per bucket and currency.
+-- The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
 SELECT CASE
          WHEN due_date IS NULL OR due_date >= sqlc.arg(today)::date THEN 'not_due'
          WHEN due_date >= (sqlc.arg(today)::date - 30) THEN 'd1_30'
@@ -221,6 +222,7 @@ SELECT CASE
 
 -- name: OpenNotDueByCurrencyBetween :many
 -- The open-AR rule with a due date from from_date to to_date, both inclusive.
+-- The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
 SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
   FROM invoices
  WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
@@ -230,7 +232,8 @@ SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
 
 -- name: OverdueOldest :many
 -- The overdue open invoices, oldest due date first (ties by invoice id).
-SELECT i.invoice_id, i.invoice_number, i.customer_id, COALESCE(c.name, '')::text AS customer_name,
+-- The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
+SELECT i.invoice_id, i.invoice_number, i.customer_id, c.name AS customer_name,
        i.balance_due, i.wht_amount, i.wht_booked, i.currency, i.due_date
   FROM invoices i
   LEFT JOIN customers c ON c.customer_id = i.customer_id

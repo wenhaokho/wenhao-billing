@@ -22,7 +22,7 @@ const needsAttentionLimit = 6
 type AgingBucket struct {
 	Key    string        `json:"key" enum:"not_due,d1_30,d31_60,d61_90,d90_plus" doc:"By today minus due date: not_due is due today or later or without a due date; d1_30 is 1-30 days late; d90_plus is over 90."`
 	Amount platform.Dec4 `json:"amount" doc:"Base-currency equivalent."`
-	Count  int           `json:"count" doc:"Invoices in the bucket, every currency."`
+	Count  int           `json:"count" doc:"Invoices in the bucket, every currency, including those whose currency is in unconverted."`
 }
 
 // CashInBucket is the cash expected over a span of days ahead.
@@ -37,8 +37,8 @@ type CashInBucket struct {
 type AttentionRow struct {
 	InvoiceID      uuid.UUID      `json:"invoice_id"`
 	InvoiceNumber  *string        `json:"invoice_number"`
-	CustomerID     uuid.UUID      `json:"customer_id"`
-	CustomerName   string         `json:"customer_name"`
+	CustomerID     *uuid.UUID     `json:"customer_id" doc:"Null when the invoice has no customer."`
+	CustomerName   *string        `json:"customer_name" doc:"Null when the invoice has no customer."`
 	BalanceDue     platform.Dec4  `json:"balance_due" doc:"In the invoice's own currency."`
 	ExpectedCash   platform.Dec4  `json:"expected_cash" doc:"The balance less withholding tax not yet booked, in the invoice's own currency."`
 	Currency       string         `json:"currency"`
@@ -54,7 +54,7 @@ type ReceivablesResponse struct {
 	OpenAR       platform.Dec4 `json:"open_ar" doc:"Base-currency equivalent."`
 	//nolint:forbidigo // a percentage is a JSON number, not money
 	PastDueShare    *float64       `json:"past_due_share" doc:"Percent of open AR that is past due; null when nothing is open."`
-	InvoiceCount    int            `json:"invoice_count"`
+	InvoiceCount    int            `json:"invoice_count" doc:"Open invoices, including those whose currency is in unconverted."`
 	CustomerCount   int            `json:"customer_count"`
 	Aging           []AgingBucket  `json:"aging" nullable:"false" doc:"Always the five buckets, in order."`
 	CashIn          []CashInBucket `json:"cash_in" nullable:"false" doc:"Always the three buckets, in order."`
@@ -202,12 +202,8 @@ func needsAttention(ctx context.Context, q *statsdb.Queries, today time.Time) ([
 	out := make([]AttentionRow, 0, len(rows))
 	for _, r := range rows {
 		due := r.DueDate.Time
-		var cust uuid.UUID
-		if r.CustomerID.Valid {
-			cust = uuid.UUID(r.CustomerID.Bytes)
-		}
 		out = append(out, AttentionRow{
-			InvoiceID: r.InvoiceID, InvoiceNumber: r.InvoiceNumber, CustomerID: cust, CustomerName: r.CustomerName,
+			InvoiceID: r.InvoiceID, InvoiceNumber: r.InvoiceNumber, CustomerID: platform.UUIDPtr(r.CustomerID), CustomerName: r.CustomerName,
 			BalanceDue:   platform.NewDec4(r.BalanceDue),
 			ExpectedCash: platform.NewDec4(withholding.ExpectedCash(r.BalanceDue, r.WhtAmount, r.WhtBooked)),
 			Currency:     r.Currency, DueDate: platform.Date{Time: due}, DaysLate: int(today.Sub(due).Hours() / 24),
