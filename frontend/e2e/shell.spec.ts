@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { initials } from "../src/utils/initials";
 
 // The app shell: burgundy sidebar (252px) on desktop, a 76px icon rail on
 // tablet (721–1100px) and an off-canvas drawer on phones (≤720px).
@@ -65,7 +66,11 @@ test("phone drawer", async ({ page }) => {
   }).toBeLessThanOrEqual(0);
   await expect(aside).toBeHidden();
 
-  await page.getByRole("button", { name: "Open navigation" }).click();
+  const menuButton = page.getByRole("button", { name: "Open navigation" });
+  await expect(menuButton).toHaveAttribute("aria-controls", "app-sidebar");
+  await expect(menuButton).toHaveAttribute("aria-expanded", "false");
+  await menuButton.click();
+  await expect(menuButton).toHaveAttribute("aria-expanded", "true");
   await expect.poll(async () => (await aside.boundingBox())?.x).toBe(0);
 
   await aside.getByRole("link", { name: "Customers" }).click();
@@ -95,8 +100,12 @@ test("topbar", async ({ page }) => {
   await expect(bar.getByRole("button", { name: /Switch to (dark|light) theme/ })).toBeVisible();
   const chip = bar.getByRole("button", { name: "Open account menu" });
   await expect(chip).toBeVisible();
-  await expect(chip.locator(".avatar")).toHaveText(/^[A-Z0-9]{2}$/);
+  // The same initials logic the app uses, applied to the name the chip shows.
+  const name = (await chip.locator(".user-name").innerText()).trim();
+  await expect(chip.locator(".avatar")).toHaveText(initials(name));
+  await expect(chip).toHaveAttribute("aria-expanded", "false");
   await chip.click();
+  await expect(chip).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("menuitem", { name: "My account" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
 });

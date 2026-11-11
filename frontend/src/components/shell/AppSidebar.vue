@@ -57,7 +57,7 @@ const eyebrow = (i: number, label: string) => `${String(i + 1).padStart(2, "0")}
 </script>
 
 <template>
-  <aside class="sidebar" :class="{ open }" aria-label="Sidebar">
+  <aside id="app-sidebar" class="sidebar" :class="{ open }" aria-label="Sidebar">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">W</div>
       <div class="brand-text">
@@ -95,6 +95,7 @@ const eyebrow = (i: number, label: string) => `${String(i + 1).padStart(2, "0")}
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh; /* phones: the visible viewport, not the one behind the URL bar */
   border-right: 1px solid var(--wb-sidebar-line);
 }
 

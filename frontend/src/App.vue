@@ -60,7 +60,7 @@ function closeMobileNav() { mobileNavOpen.value = false; }
     <AppSidebar :open="mobileNavOpen" @navigate="closeMobileNav" />
 
     <div class="main-col">
-      <AppTopbar :title="pageTitle" @toggle-nav="toggleMobileNav" />
+      <AppTopbar :title="pageTitle" :nav-open="mobileNavOpen" @toggle-nav="toggleMobileNav" />
       <main id="main-content" class="page" tabindex="-1">
         <RouterView />
       </main>

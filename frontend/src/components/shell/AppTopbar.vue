@@ -7,8 +7,9 @@ import { useAuthStore } from "@/stores/auth";
 import { useTheme } from "@/composables/useTheme";
 import AppIcon from "@/components/AppIcon.vue";
 import type { IconName } from "@/theme/icons";
+import { initials } from "@/utils/initials";
 
-defineProps<{ title: string }>();
+defineProps<{ title: string; navOpen: boolean }>();
 const emit = defineEmits<{ "toggle-nav": [] }>();
 
 const { theme, toggle: toggleTheme } = useTheme();
@@ -40,6 +41,9 @@ const userMenuItems = computed<MenuItem[]>(() => [
   },
 ]);
 
+// Follows the popup's own show/hide, so an outside click that closes it is seen too.
+const userMenuOpen = ref(false);
+
 function toggleUserMenu(event: Event) {
   userMenu.value?.toggle(event);
 }
@@ -49,14 +53,7 @@ async function logout() {
   router.push("/login");
 }
 
-const userInitials = computed(() => {
-  const label = auth.displayLabel;
-  if (label.includes("@")) return label.slice(0, 2).toUpperCase();
-  // display_name: use initials of the first two words
-  const parts = label.trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return label.slice(0, 2).toUpperCase();
-});
+const userInitials = computed(() => initials(auth.displayLabel));
 
 const themeLabel = computed(() =>
   theme.value === "dark" ? "Switch to light theme" : "Switch to dark theme",
@@ -70,6 +67,8 @@ const themeLabel = computed(() =>
         type="button"
         class="nav-toggle"
         aria-label="Open navigation"
+        aria-controls="app-sidebar"
+        :aria-expanded="navOpen"
         @click="emit('toggle-nav')"
       >
         <AppIcon name="menu" />
@@ -91,6 +90,7 @@ const themeLabel = computed(() =>
         class="user-chip"
         aria-haspopup="true"
         aria-label="Open account menu"
+        :aria-expanded="userMenuOpen"
         @click="toggleUserMenu"
       >
         <span class="avatar">{{ userInitials }}</span>
@@ -100,7 +100,13 @@ const themeLabel = computed(() =>
         </span>
         <AppIcon name="chevron-down" :size="16" class="chevron" />
       </button>
-      <Menu ref="userMenu" :model="userMenuItems" :popup="true">
+      <Menu
+        ref="userMenu"
+        :model="userMenuItems"
+        :popup="true"
+        @show="userMenuOpen = true"
+        @hide="userMenuOpen = false"
+      >
         <template #itemicon="{ item, class: iconClass }">
           <AppIcon :name="item.icon as IconName" :class="iconClass" />
         </template>
