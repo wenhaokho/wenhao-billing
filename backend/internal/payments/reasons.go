@@ -41,9 +41,12 @@ var reasonPrefixes = []struct{ prefix, code string }{
 	{"alias match:", ReasonAliasMatch},
 }
 
-// ReasonCode is the code of one reason sentence; a sentence no rule knows
-// (a reversal's reason, a manual entry's notes, a ledger or FX refusal held
-// at clearing) is OTHER.
+// ReasonCode is the code of one reason sentence on its own; a sentence no
+// rule knows (a reversal's reason, a manual entry's notes) is OTHER. The code
+// comes from the text alone, so user-supplied text (a reverse reason, a
+// manual entry's notes) that starts with a known prefix gets that prefix's
+// code: the spec derives codes from the text only, and accepts this.
+// ReasonCodes adds the positional rule for clearing failures.
 func ReasonCode(text string) string {
 	for _, r := range reasonPrefixes {
 		if strings.HasPrefix(text, r.prefix) {
@@ -59,11 +62,20 @@ func ReasonCode(text string) string {
 	return ReasonOther
 }
 
-// ReasonCodes is ReasonCode of each reason, in order; never nil.
+// ReasonCodes is the code of each reason, in order; never nil. Any reason
+// after an EXACT_MATCH one is CLEAR_FAILED: clearIncoming holds a payment the
+// engine cleared by appending why the clearing failed, and a ledger or FX
+// refusal is free text (err.Error()) no prefix rule can know.
 func ReasonCodes(reasons []string) []string {
 	out := make([]string, 0, len(reasons))
+	afterExact := false
 	for _, r := range reasons {
-		out = append(out, ReasonCode(r))
+		code := ReasonCode(r)
+		if afterExact {
+			code = ReasonClearFailed
+		}
+		afterExact = afterExact || code == ReasonExactMatch
+		out = append(out, code)
 	}
 	return out
 }

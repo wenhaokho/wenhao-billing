@@ -8,9 +8,16 @@
 -- step.
 ALTER TABLE reconciliation_log ADD COLUMN reason_codes text[] NOT NULL DEFAULT '{}';
 
+-- Any reason after an 'exact amount+currency' one is CLEAR_FAILED (the
+-- clearing failed after the engine cleared, often with a free-text ledger or
+-- FX refusal), as payments.ReasonCodes does. TestReasonCodesBackfill extracts
+-- this statement up to its first semicolon, so keep semicolons out of the
+-- statement, its comments and its literals.
 UPDATE reconciliation_log l
    SET reason_codes = ARRAY(
        SELECT CASE
+                WHEN EXISTS (SELECT 1 FROM unnest(l.reasons) WITH ORDINALITY AS e(r, n)
+                              WHERE e.n < u.n AND e.r LIKE 'exact amount+currency%') THEN 'CLEAR_FAILED'
                 WHEN u.r LIKE 'no open invoice matches%' THEN 'NO_CANDIDATE'
                 WHEN u.r LIKE 'currency mismatch:%' THEN 'CURRENCY_MISMATCH'
                 WHEN u.r LIKE 'amount mismatch:%' THEN 'AMOUNT_MISMATCH'

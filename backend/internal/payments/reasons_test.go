@@ -171,8 +171,22 @@ func TestReasonCodesBackfill(t *testing.T) {
 	empty := uuid.New()
 	e.exec(t, `INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, reason_codes) VALUES ($1, $2, 'HELD', '{}', '{}')`,
 		empty, pay)
+	multi := map[uuid.UUID]int{}
+	for i, r := range multiReasonRows {
+		id := uuid.New()
+		e.exec(t, `INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, reason_codes) VALUES ($1, $2, 'HELD', $3, '{}')`,
+			id, pay, r.reasons)
+		multi[id] = i
+	}
 
 	e.exec(t, backfillSQL(t))
+
+	for id, i := range multi {
+		r := multiReasonRows[i]
+		if got := e.reasonCodes(t, id); !slices.Equal(got, r.want) || !slices.Equal(got, ReasonCodes(r.reasons)) {
+			t.Errorf("backfill of %q = %v, want %v", r.reasons, got, r.want)
+		}
+	}
 
 	for id, text := range single {
 		if got := e.reasonCodes(t, id); !slices.Equal(got, []string{ReasonCode(text)}) {
@@ -244,5 +258,59 @@ WHERE payment_id = $1 ORDER BY created_at, log_id`, paymentID)
 	got = codesOf(pay)
 	if len(got) != 2 || !slices.Equal(got[0], []string{ReasonLowConfidence, ReasonManualEntry, ReasonOther}) || got[1] == nil || len(got[1]) != 0 {
 		t.Errorf("codes = %#v", got)
+	}
+
+	// The engine clears, the posting finds no rate: held with the FX
+	// refusal after the exact-match reason, which is CLEAR_FAILED.
+	fxe := newEnv(t)
+	fxe.rateless(t, "1000.00", "0")
+	held := fxe.incoming(t, payload(amount("1000.00"), paid(day(2025, 12, 1))))
+	if held.Status != "PENDING_MANUAL_REVIEW" {
+		t.Fatalf("status %s, want held", held.Status)
+	}
+	var fxReasons, fxCodes []string
+	if err := fxe.pool.QueryRow(context.Background(), `SELECT reasons, reason_codes FROM reconciliation_log WHERE payment_id = $1`,
+		held.PaymentID).Scan(&fxReasons, &fxCodes); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(fxCodes, []string{ReasonExactMatch, ReasonClearFailed}) || len(fxReasons) != 2 ||
+		!strings.HasPrefix(fxReasons[1], "no fx rate for USD->IDR") {
+		t.Errorf("reasons %q codes %v, want [EXACT_MATCH CLEAR_FAILED]", fxReasons, fxCodes)
+	}
+}
+
+// multiReasonRows are rows of several reasons whose codes depend on their
+// position: anything after an exact-match reason is CLEAR_FAILED.
+var multiReasonRows = []struct {
+	reasons, want []string
+}{
+	{
+		[]string{"exact amount+currency, high payer+date confidence", "no fx rate for USD->IDR on or before 2025-12-01"},
+		[]string{ReasonExactMatch, ReasonClearFailed},
+	},
+	{
+		[]string{"exact amount+currency, high payer+date confidence", "payment 5 already has an active entry"},
+		[]string{ReasonExactMatch, ReasonClearFailed},
+	},
+	{
+		[]string{"exact amount+currency, high payer+date confidence", "invoice 7 changed before clearing"},
+		[]string{ReasonExactMatch, ReasonClearFailed},
+	},
+	{
+		[]string{"no fx rate for USD->IDR on or before 2025-12-01", "exact amount+currency, high payer+date confidence"},
+		[]string{ReasonOther, ReasonExactMatch},
+	},
+	{
+		[]string{"amount mismatch: delta=-1", "confidence 50 below threshold 95.0"},
+		[]string{ReasonAmountMismatch, ReasonLowConfidence},
+	},
+}
+
+func TestReasonCodesPositional(t *testing.T) {
+	t.Parallel()
+	for _, r := range multiReasonRows {
+		if got := ReasonCodes(r.reasons); !slices.Equal(got, r.want) {
+			t.Errorf("ReasonCodes(%q) = %v, want %v", r.reasons, got, r.want)
+		}
 	}
 }
