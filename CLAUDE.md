@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Single-tenant agency accounting system.
 
-- **Backend:** FastAPI + SQLAlchemy 2.0 + Alembic, APScheduler (in-process), Postgres 16. Package layout under `backend-python/app/` (`api/v1/routers`, `models`, `schemas`, `services`, `workers`, `db`).
+- **Backend:** FastAPI + SQLAlchemy 2.0 + Alembic, APScheduler (in-process), PostgreSQL 18 (production runs 18; the dev `db` and the Go tests' `db-test` use `postgres:18-alpine`). Package layout under `backend-python/app/` (`api/v1/routers`, `models`, `schemas`, `services`, `workers`, `db`).
 - **Frozen:** the Python backend in `backend-python/` is being replaced by a Go backend in `backend/` (see `docs/superpowers/specs/2026-11-08-go-backend-design.md`). Do not change `backend-python/` except its path. The Compose service is still named `backend`.
 - **Frontend:** Vue 3 + TypeScript + Vite, Pinia, vue-router, PrimeVue, @tanstack/vue-query, axios. Source under `frontend/src/` (`views`, `components`, `stores`, `composables`, `api`, `router`).
 - **Infra:** `docker-compose.yml` at repo root runs db, backend (`alembic upgrade head` then uvicorn reload; also runs the periodic jobs), and frontend (vite dev server). There is no separate worker or Redis.

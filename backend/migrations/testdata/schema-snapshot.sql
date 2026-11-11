@@ -5,7 +5,8 @@
 -- in. Run by TestSchemaMatchesAlembic against the goose-migrated database and
 -- by port/make-baseline.sh against the Alembic one (psql -At -f), so both
 -- sides use the same query. Left out: alembic_version and goose_db_version,
--- the two bookkeeping tables, which differ by design.
+-- the two bookkeeping tables, which differ by design. It gives the same
+-- lines on PostgreSQL 16 and 18 (production runs 18).
 -- Not compared (Adopt's schema check is blind to these): domain constraints
 -- (domains are listed, their CHECKs are not), index validity (indisvalid),
 -- row-level security policies, grants and ownership, column collations, and
@@ -31,6 +32,12 @@ SELECT line FROM (
     SELECT format('constraint %s %s %s deferrable=%s deferred=%s',
                   t.relname, k.conname, pg_get_constraintdef(k.oid), k.condeferrable, k.condeferred)
     FROM pg_constraint k JOIN t ON t.oid = k.conrelid
+    -- PostgreSQL 18 records each column NOT NULL as a constraint (contype
+    -- 'n', named <table>_<column>_not_null); 16 has no such rows. Nullability
+    -- is compared by the column lines (notnull=attnotnull) on both versions,
+    -- so the plain ones are left out here. A NOT VALID or NO INHERIT one still
+    -- shows: the baseline has none, so it is drift.
+    WHERE k.contype <> 'n' OR NOT k.convalidated OR k.connoinherit
   UNION ALL
     SELECT pg_get_indexdef(i.indexrelid)
     FROM pg_index i JOIN t ON t.oid = i.indrelid
