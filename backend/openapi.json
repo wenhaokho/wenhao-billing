@@ -3078,7 +3078,7 @@
             ]
           },
           "cleared_at": {
-            "description": "When the newest CLEARED or OVERRIDDEN reconciliation of one of the invoice's payments was logged; null unless the invoice is PAID or when none was logged.",
+            "description": "When the newest CLEARED or OVERRIDDEN reconciliation of one of the invoice's still-CLEARED payments was logged; null unless the invoice is PAID or when none was logged.",
             "examples": [
               "2026-01-01T03:00:00.123456Z"
             ],
@@ -12351,7 +12351,7 @@
     },
     "/api/v1/payments/audit-log.csv": {
       "get": {
-        "description": "The same filters as the list, without limit; at most 50000 rows. A cell that starts with =, +, -, @, tab or CR in a text column is prefixed with a single quote so a spreadsheet does not run it as a formula.",
+        "description": "The same filters as the list, without limit; at most 50000 rows. A cell that starts with =, +, -, @, tab, CR or LF in a text column is prefixed with a single quote so a spreadsheet does not run it as a formula. The file starts with a UTF-8 BOM so Excel reads it as UTF-8.",
         "operationId": "payments-audit-log-csv",
         "parameters": [
           {

@@ -36,8 +36,9 @@ func (r routes) registerRecon(api huma.API) {
 	huma.Register(api, platform.Admin(huma.Operation{
 		OperationID: "payments-audit-log-csv", Method: http.MethodGet, Path: prefix + "/audit-log.csv", Tags: tags,
 		Summary: "The audit log as a CSV download, newest first",
-		Description: "The same filters as the list, without limit; at most 50000 rows. A cell that starts with =, +, -, @, tab or CR " +
-			"in a text column is prefixed with a single quote so a spreadsheet does not run it as a formula.",
+		Description: "The same filters as the list, without limit; at most 50000 rows. A cell that starts with =, +, -, @, tab, CR or LF " +
+			"in a text column is prefixed with a single quote so a spreadsheet does not run it as a formula. " +
+			"The file starts with a UTF-8 BOM so Excel reads it as UTF-8.",
 		Responses: map[string]*huma.Response{"200": {Description: "The CSV", Content: map[string]*huma.MediaType{
 			"text/csv": {Schema: &huma.Schema{Type: "string", Format: "binary"}},
 		}}},

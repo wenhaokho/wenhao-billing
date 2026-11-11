@@ -115,7 +115,7 @@ type InvoiceOut struct {
 // field order is unchanged.
 type InvoiceDetail struct {
 	InvoiceOut
-	ClearedAt *platform.Time `json:"cleared_at" doc:"When the newest CLEARED or OVERRIDDEN reconciliation of one of the invoice's payments was logged; null unless the invoice is PAID or when none was logged."`
+	ClearedAt *platform.Time `json:"cleared_at" doc:"When the newest CLEARED or OVERRIDDEN reconciliation of one of the invoice's still-CLEARED payments was logged; null unless the invoice is PAID or when none was logged."`
 	ClearedBy *string        `json:"cleared_by" doc:"Display name, else email, of the user behind that log row; null when the matching engine cleared it (or cleared_at is null)."`
 }
 

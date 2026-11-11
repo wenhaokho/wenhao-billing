@@ -7,14 +7,15 @@ SELECT * FROM invoices WHERE invoice_id = $1;
 -- payments' ListInvoiceClearTimes reads them: its time and its actor's
 -- display name and email (the detail shows the name, else the email). A null
 -- actor (the matching engine) gives null for both. Rows without created_at
--- are skipped; log_id breaks a tie.
+-- are skipped; log_id breaks a tie. Only payments still CLEARED count: a
+-- reversed one no longer clears the invoice.
 SELECT l.created_at::timestamp AS cleared_at,
        u.display_name AS actor_display_name, u.email AS actor_email
   FROM reconciliation_log l
   JOIN payments p ON p.payment_id = l.payment_id
   LEFT JOIN users u ON u.user_id = l.actor_user_id
  WHERE p.invoice_id = $1 AND l.action IN ('CLEARED', 'OVERRIDDEN')
-   AND l.created_at IS NOT NULL
+   AND p.status = 'CLEARED' AND l.created_at IS NOT NULL
  ORDER BY l.created_at DESC, l.log_id DESC
  LIMIT 1;
 

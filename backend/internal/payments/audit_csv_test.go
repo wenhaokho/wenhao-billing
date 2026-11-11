@@ -21,7 +21,12 @@ func (a *api) auditCSV(t *testing.T, query string) (http.Header, [][]string) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
-	rows, err := csv.NewReader(strings.NewReader(rec.Body.String())).ReadAll()
+	// A UTF-8 BOM leads the file so Excel reads it as UTF-8.
+	body, ok := strings.CutPrefix(rec.Body.String(), "\xEF\xBB\xBF")
+	if !ok {
+		t.Fatalf("no UTF-8 BOM: %q", rec.Body.String()[:min(rec.Body.Len(), 16)])
+	}
+	rows, err := csv.NewReader(strings.NewReader(body)).ReadAll()
 	if err != nil {
 		t.Fatalf("csv: %v\n%s", err, rec.Body)
 	}
@@ -82,7 +87,7 @@ func TestAuditLogCSV(t *testing.T) {
 func TestCSVTextGuardsFormulas(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"=1+1": "'=1+1", "+1": "'+1", "-1": "'-1", "@x": "'@x", "\tx": "'\tx", "\rx": "'\rx",
+		"=1+1": "'=1+1", "+1": "'+1", "-1": "'-1", "@x": "'@x", "\tx": "'\tx", "\rx": "'\rx", "\nx": "'\nx",
 		"plain": "plain", "": "", "a=b": "a=b",
 	}
 	for in, want := range cases {

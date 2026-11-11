@@ -97,3 +97,32 @@ func TestDetailClearedFieldsNullUnlessPaid(t *testing.T) {
 		}
 	}
 }
+
+// A payment that was cleared and then reversed (status FLAGGED) no longer
+// clears the invoice: when the invoice is later PAID by mark-paid, the detail
+// names no clearing, or only one from a payment that is still CLEARED.
+func TestDetailClearedIgnoresReversedPayments(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	inv, pay := clearedInvoice(t, a, "PAID")
+	logRow(t, a, pay, "CLEARED", &a.AdminID, time.Date(2026, 1, 13, 0, 0, 0, 0, time.UTC))
+	logRow(t, a, pay, "REVERSED", &a.AdminID, time.Date(2026, 1, 14, 0, 0, 0, 0, time.UTC))
+	if _, err := a.Pool.Exec(t.Context(), `UPDATE payments SET status = 'FLAGGED' WHERE payment_id = $1`, pay); err != nil {
+		t.Fatal(err)
+	}
+	if got := getDetail(t, a, inv); got.ClearedAt != nil || got.ClearedBy != nil {
+		t.Fatalf("cleared = %v by %v, want null after the reversal", got.ClearedAt, got.ClearedBy)
+	}
+
+	// A second, still-cleared payment with an older clearing is the one named.
+	kept := uuid.New()
+	if _, err := a.Pool.Exec(t.Context(), `INSERT INTO payments (payment_id, invoice_id, amount, currency, payer_name, payment_date, intake_source, external_ref, status)
+VALUES ($1, $2, 10, 'IDR', 'Acme Corp', '2026-01-09', 'TEST', $3, 'CLEARED')`, kept, inv, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	logRow(t, a, kept, "CLEARED", nil, at)
+	if got := getDetail(t, a, inv); got.ClearedAt == nil || !got.ClearedAt.Equal(at) || got.ClearedBy != nil {
+		t.Fatalf("cleared = %v by %v, want %s by the engine", got.ClearedAt, got.ClearedBy, at)
+	}
+}

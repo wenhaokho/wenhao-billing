@@ -524,6 +524,7 @@ func TestReconRoutesRequireAdmin(t *testing.T) {
 		body         any
 	}{
 		{http.MethodGet, reconPath + "/audit-log", nil},
+		{http.MethodGet, reconPath + "/audit-log.csv", nil},
 		{http.MethodGet, reconPath + "/awaiting-review", nil},
 		{http.MethodGet, reconPath + "/" + id, nil},
 		{http.MethodGet, reconPath + "/" + id + "/log", nil},

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -126,8 +127,13 @@ type syncOut struct{ Body SyncResult }
 
 // sync runs Sync as a MANUAL run by the caller; a provider failure is a 502 whose detail is its sentence.
 func (r routes) sync(ctx context.Context, _ *struct{}) (*syncOut, error) {
-	actor := platform.PrincipalFrom(ctx).UserID
-	res, err := Sync(ctx, r.pool, r.cfg, r.client, TriggerManual, &actor)
+	// A caller without a user id records a null actor, not uuid.Nil (which
+	// no user has).
+	var actor *uuid.UUID
+	if uid := platform.PrincipalFrom(ctx).UserID; uid != uuid.Nil {
+		actor = &uid
+	}
+	res, err := Sync(ctx, r.pool, r.cfg, r.client, TriggerManual, actor)
 	if errors.Is(err, ErrProvider) {
 		return nil, platform.Err(http.StatusBadGateway, "fx_provider_error", err.Error())
 	}

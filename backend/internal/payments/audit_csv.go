@@ -41,6 +41,9 @@ func (r routes) auditLogCSV(ctx context.Context, in *auditCSVIn) (*csvOut, error
 		return nil, err
 	}
 	var buf bytes.Buffer
+	// A UTF-8 BOM first, so Excel (how the owner opens it) reads the file
+	// as UTF-8 instead of the system code page.
+	buf.WriteString("\xEF\xBB\xBF")
 	w := csv.NewWriter(&buf)
 	if err := w.Write(auditCSVHeader); err != nil {
 		return nil, err
@@ -109,9 +112,9 @@ func deref(s *string) string {
 }
 
 // csvText guards a free-text cell against spreadsheet formula injection (OWASP):
-// a cell starting with =, +, -, @, tab or CR gets a single quote in front.
+// a cell starting with =, +, -, @, tab, CR or LF gets a single quote in front.
 func csvText(s string) string {
-	if s != "" && strings.ContainsRune("=+-@\t\r", rune(s[0])) {
+	if s != "" && strings.ContainsRune("=+-@\t\r\n", rune(s[0])) {
 		return "'" + s
 	}
 	return s
