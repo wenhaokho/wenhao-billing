@@ -1,0 +1,136 @@
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { ROUTES, apiPost as post, collectConsoleErrors, mainHeading, uniq } from "./helpers";
+
+for (const path of ROUTES) {
+  test(`route ${path} renders without errors`, async ({ page }) => {
+    const errors = collectConsoleErrors(page);
+    const res = await page.goto(path);
+    expect(res?.ok()).toBe(true);
+    await expect(page).toHaveURL(new RegExp(`${path.replace(/[/]/g, "\\/")}(\\?|$)`));
+    await expect(mainHeading(page)).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    expect(errors()).toEqual([]);
+  });
+}
+
+test.describe("public auth pages", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+  for (const path of ["/login", "/forgot-password", "/reset-password"]) {
+    test(`unauthenticated route ${path} renders without errors`, async ({ page }) => {
+      const errors = collectConsoleErrors(page);
+      const res = await page.goto(path);
+      expect(res?.ok()).toBe(true);
+      await expect(page).toHaveURL(new RegExp(`${path.replace(/[/]/g, "\\/")}(\\?|$)`));
+      await expect(page.locator("h1, h2").first()).toBeVisible();
+      await page.waitForLoadState("networkidle");
+      // Signed out, the router's session probe (GET /auth/me) answers 401 by
+      // design, and Chromium logs every failed request as a console error.
+      const sessionProbe = /status of 401 .*\/api\/v1\/auth\/me\)$/;
+      expect(errors().filter((e) => !sessionProbe.test(e))).toEqual([]);
+    });
+  }
+});
+
+// ---- detail routes: reached by clicking the first row of the entity's list ----
+
+async function newCustomer(api: APIRequestContext) {
+  return post<{ customer_id: string }>(api, "/customers", { name: `E2E Route Customer ${uniq()}`, default_currency: "IDR" });
+}
+async function newVendor(api: APIRequestContext) {
+  return post<{ vendor_id: string }>(api, "/vendors", { name: `E2E Route Vendor ${uniq()}`, default_currency: "IDR" });
+}
+const LINE = [{ description: "E2E line", quantity: "1", unit_price: "100000" }];
+
+/** Each entity makes sure its list has at least one row, then opens the list. */
+const DETAILS: {
+  name: string;
+  seed: (api: APIRequestContext) => Promise<unknown>;
+  list: string;
+  open: (page: Page) => Promise<void>;
+  url: RegExp;
+}[] = [
+  {
+    name: "customer",
+    seed: newCustomer,
+    list: "/customers",
+    open: (page) => page.locator("tbody tr").first().getByTitle("View").click(),
+    url: /\/customers\/[0-9a-f-]{36}$/,
+  },
+  {
+    name: "invoice edit",
+    seed: async (api) => {
+      const c = await newCustomer(api);
+      return post(api, "/invoices", { customer_id: c.customer_id, currency: "IDR", line_items: LINE });
+    },
+    list: "/invoices?tab=all",
+    open: (page) => page.locator("tbody tr").first().locator("td").nth(1).click(),
+    url: /\/invoices\/[0-9a-f-]{36}\/edit/,
+  },
+  {
+    name: "quotation",
+    seed: async (api) => {
+      const c = await newCustomer(api);
+      return post(api, "/quotations", { customer_id: c.customer_id, currency: "IDR", line_items: LINE });
+    },
+    list: "/quotations?tab=all",
+    open: (page) => page.locator("tbody tr").first().locator("td").nth(1).click(),
+    url: /\/quotations\/[0-9a-f-]{36}(\?|$)/,
+  },
+  {
+    name: "bill",
+    seed: async (api) => {
+      const v = await newVendor(api);
+      return post(api, "/bills", { vendor_id: v.vendor_id, currency: "IDR", line_items: LINE });
+    },
+    list: "/bills?tab=all",
+    open: (page) => page.locator("tbody tr").first().locator("td").nth(1).click(),
+    url: /\/bills\/[0-9a-f-]{36}\/edit/,
+  },
+  {
+    name: "vendor",
+    seed: newVendor,
+    list: "/vendors",
+    open: (page) => page.locator("tbody tr").first().getByTitle("View").click(),
+    url: /\/vendors\/[0-9a-f-]{36}$/,
+  },
+  {
+    name: "item",
+    seed: (api) => post(api, "/items", { name: `E2E Route Item ${uniq()}`, item_type: "SERVICE", default_currency: "IDR" }),
+    list: "/items",
+    open: (page) => page.locator("tbody tr").first().getByTitle("View").click(),
+    url: /\/items\/[0-9a-f-]{36}$/,
+  },
+  {
+    name: "project",
+    seed: async (api) => {
+      const c = await newCustomer(api);
+      return post(api, "/projects", { customer_id: c.customer_id, code: `E2E-R${uniq()}`, name: "E2E Route Project", currency: "IDR" });
+    },
+    list: "/projects?tab=all",
+    open: (page) => page.locator("tbody tr").first().getByTitle("View").click(),
+    url: /\/projects\/[0-9a-f-]{36}(\?|$)/,
+  },
+  {
+    name: "account",
+    // The chart of accounts is seeded by the baseline migration.
+    seed: async () => undefined,
+    list: "/chart-of-accounts",
+    open: (page) => page.locator("tbody tr").first().getByTitle("Edit").click(),
+    url: /\/chart-of-accounts\/[^/?]+$/,
+  },
+];
+
+for (const d of DETAILS) {
+  test(`detail route for ${d.name} renders without errors`, async ({ page }) => {
+    await d.seed(page.request);
+    const errors = collectConsoleErrors(page);
+    const res = await page.goto(d.list);
+    expect(res?.ok()).toBe(true);
+    await expect(page.locator("tbody tr").first()).toBeVisible();
+    await d.open(page);
+    await expect(page).toHaveURL(d.url);
+    await expect(mainHeading(page)).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    expect(errors()).toEqual([]);
+  });
+}
