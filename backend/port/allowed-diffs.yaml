@@ -9,7 +9,12 @@
 #   instant-equal  two timestamps are equal as instants (PN 76, 108)
 #   number-equal   two JSON numbers are equal by value (PN 104)
 #   ignore         the field is not compared
-#   unordered      the array compares as a multiset (PN 40/41/44/47/53/78/100)
+#   unordered      the array compares as a multiset (PN 40/41/44/47/53/78/100).
+#                  With tie_key: (a field, or several comma separated, in
+#                  Python's sort order) the key values must come in the same
+#                  order on both sides and only each run of equal keys is a
+#                  multiset: a list Python sorts by a key it does not make
+#                  unique is forgiven only its ties.
 #   status         the HTTP status differs on purpose; the entry names the
 #                  exact pair (python:, go:) at the path @status
 #   detail-shape   the error detail differs on purpose; the entry names the Go
@@ -19,7 +24,8 @@
 # decimal-equal and instant-equal are GLOBAL value rules: decimals already
 # compare by value and timestamps as instants whether or not an entry names
 # them. Their per-entry uses below are documentation of the note, not a change
-# to the comparison.
+# to the comparison. A run still lists one whose path no answer had under
+# unused_allowed, so a wrong field name shows.
 #
 # Paths are JSONPaths whose array index is [*], or @status for the HTTP status.
 # A bare-array route's unordered entries use $[*] for its elements. The loader
@@ -58,7 +64,7 @@
   rule: decimal-equal
   note: PN 99
 - route: GET /api/v1/accounting/reports/fx-revaluation
-  path: $.rows[*].difference
+  path: $.lines[*].unrealised_gain_loss
   rule: decimal-equal
   note: PN 99
 
@@ -114,10 +120,32 @@
 - route: GET /api/v1/customers/{customer_id}/invoices
   path: $[*]
   rule: unordered
+  tie_key: issue_date,created_at
+  note: PN 40
+# The billing summary's four invoice lists (BillingSummary: milestone,
+# recurring, usage, unpaid_invoices). Python orders each by due_date only, so
+# templates with a NULL due_date tie; Go breaks the tie by created_at, then
+# invoice_id. This replaces an entry for `$.open_invoices`, a field the answer
+# never had (found by the production-copy run, 2026-11-11).
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.milestone
+  rule: unordered
+  tie_key: due_date
   note: PN 40
 - route: GET /api/v1/customers/{customer_id}/billing-summary
-  path: $.open_invoices
+  path: $.recurring
   rule: unordered
+  tie_key: due_date
+  note: PN 40
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.usage
+  rule: unordered
+  tie_key: due_date
+  note: PN 40
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.unpaid_invoices
+  rule: unordered
+  tie_key: due_date
   note: PN 40
 
 # PN 41: the balances list has no ORDER BY in Python.
@@ -130,14 +158,56 @@
 - route: GET /api/v1/invoices/{invoice_id}
   path: $.line_items
   rule: unordered
+  tie_key: position
   note: PN 44
 - route: GET /api/v1/quotations/{quotation_id}
   path: $.line_items
   rule: unordered
+  tie_key: position
   note: PN 44
 - route: GET /api/v1/bills/{bill_id}
   path: $.line_items
   rule: unordered
+  tie_key: position
+  note: PN 44
+
+# PN 44: lines of equal position, in the lists that embed them. Python orders
+# lines by position only; Go by position, then line_item_id. The query string
+# is not part of the route, so the invoice list's status variants are covered.
+- route: GET /api/v1/invoices
+  path: $[*].line_items
+  rule: unordered
+  tie_key: position
+  note: PN 44
+- route: GET /api/v1/customers/{customer_id}/invoices
+  path: $[*].line_items
+  rule: unordered
+  tie_key: position
+  note: PN 44
+- route: GET /api/v1/invoices/recurring-templates
+  path: $[*].line_items
+  rule: unordered
+  tie_key: position
+  note: PN 44
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.milestone[*].line_items
+  rule: unordered
+  tie_key: position
+  note: PN 44
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.recurring[*].line_items
+  rule: unordered
+  tie_key: position
+  note: PN 44
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.usage[*].line_items
+  rule: unordered
+  tie_key: position
+  note: PN 44
+- route: GET /api/v1/customers/{customer_id}/billing-summary
+  path: $.unpaid_invoices[*].line_items
+  rule: unordered
+  tie_key: position
   note: PN 44
 
 # PN 47: recurring-template rows and their children.
@@ -154,6 +224,7 @@
 - route: GET /api/v1/invoices/awaiting-finalization
   path: $[*]
   rule: unordered
+  tie_key: created_at
   note: PN 53
 
 # PN 78: the project, bill and project-invoice lists have no ORDER BY.
@@ -171,6 +242,13 @@
   note: PN 78
 
 # PN 100: deterministic order where Python followed the database.
+# The invoice list orders by created_at DESC only in Python; invoices one
+# scheduler run created share created_at, and Go breaks the tie by invoice_id.
+- route: GET /api/v1/invoices
+  path: $[*]
+  rule: unordered
+  tie_key: created_at
+  note: PN 100
 - route: GET /api/v1/stats/dashboard
   path: $.recent_activity
   rule: unordered
@@ -590,6 +668,19 @@
   go_code: 401
   detail_pattern: "^invalid email webhook token$"
   note: PN 87
+
+# PN 91: the intake answers print confidence_score at the engine's 4 places in
+# Python (no refresh after commit) and at the stored 2 in Go. Only the answer's
+# field is ignored: the stored value is still compared by the write run's
+# payments row comparison.
+- route: POST /api/v1/payments/intake/webhook
+  path: $.confidence_score
+  rule: ignore
+  note: PN 91
+- route: POST /api/v1/payments/intake/email
+  path: $.confidence_score
+  rule: ignore
+  note: PN 91
 
 # PN 112: a DRAFT invoice send is refused in Go. The detail-shape is deleted:
 # Python succeeds (200), so the bodies are compared field by field.

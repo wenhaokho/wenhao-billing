@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -149,6 +150,75 @@ func TestWritesKeepsSecretsOutOfOutput(t *testing.T) {
 				t.Fatalf("%s contains a secret or DSN: %s", name, blob)
 			}
 		}
+	}
+}
+
+// TestReadsMergesAllowedAndWarnsUnused pins the repeatable --allowed (both
+// files' entries apply) and the unused-entry warning: it reaches stderr and
+// the report's unused_allowed, and the run still exits 0.
+func TestReadsMergesAllowedAndWarnsUnused(t *testing.T) {
+	t.Parallel()
+	answer := func(stamp string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/login" {
+				http.SetCookie(w, &http.Cookie{Name: "billing_session", Value: "py-session", Path: "/"})
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, `{"a":"`+stamp+`","b":"`+stamp+`"}`)
+		}
+	}
+	py := httptest.NewServer(answer("python"))
+	t.Cleanup(py.Close)
+	gov := httptest.NewServer(answer("go"))
+	t.Cleanup(gov.Close)
+
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", name, err)
+		}
+		return p
+	}
+	corpusPath := write("corpus.yaml", "cases:\n  - id: me\n    route: GET /api/v1/auth/me\n")
+	first := write("allowed.yaml", "- route: GET /api/v1/auth/me\n  path: $.a\n  rule: ignore\n  note: PN 1\n")
+	second := write("overlay.yaml", "- route: GET /api/v1/auth/me\n  path: $.b\n  rule: ignore\n  note: PN 2\n"+
+		"- route: GET /api/v1/auth/me\n  path: $.open_invoices\n  rule: unordered\n  note: PN 40\n"+
+		"- route: GET /api/v1/auth/me\n  path: $.a\n  rule: decimal-equal\n  note: PN 3\n")
+	outPath := filepath.Join(dir, "report.json")
+
+	args := []string{
+		"--python", py.URL, "--go", gov.URL,
+		"--python-email", "owner@example.test",
+		"--python-password-stdin", "--go-token-stdin",
+		"--corpus", corpusPath, "--allowed", first, "--allowed", second, "--out", outPath,
+	}
+	var stdout, stderr bytes.Buffer
+	code := readsCommand(args, commandIO{stdin: strings.NewReader("pw\ntok\n"), stdout: &stdout, stderr: &stderr})
+	if code != 0 {
+		t.Fatalf("readsCommand exit %d, want 0 ($.a and $.b allowed by the two files); stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "allowed entry never matched") || !strings.Contains(stderr.String(), "$.open_invoices") {
+		t.Fatalf("stderr does not warn about the unused entry: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "allowed files overlap") || !strings.Contains(stderr.String(), "conflicts with") {
+		t.Fatalf("stderr does not warn that the overlay's $.a overlaps the first file: %s", stderr.String())
+	}
+	report, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("reading the report: %v", err)
+	}
+	var parsed struct {
+		Unused []struct {
+			Path string `json:"path"`
+		} `json:"unused_allowed"`
+	}
+	if err := json.Unmarshal(report, &parsed); err != nil {
+		t.Fatalf("parsing the report: %v", err)
+	}
+	if len(parsed.Unused) != 1 || parsed.Unused[0].Path != "$.open_invoices" {
+		t.Fatalf("unused_allowed %+v, want only $.open_invoices", parsed.Unused)
 	}
 }
 

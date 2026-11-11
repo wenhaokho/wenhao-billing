@@ -126,6 +126,9 @@ type WritesReport struct {
 	// answer difference and every row difference without a Classify. It is
 	// part of Differences, never subtracted from it.
 	Unclassified int `json:"unclassified"`
+	// UnusedAllowed is the allowed entries whose route a step answer reached
+	// but that never applied to it (Allowed.Unused): a warning only.
+	UnusedAllowed []UnusedAllowed `json:"unused_allowed"`
 }
 
 // WritesSummary is the report's one-line count: "N differences, M
@@ -257,7 +260,7 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 		env = os.Getenv
 	}
 	o.Env = env
-	report := WritesReport{Python: redactURL(o.PythonURL), Go: redactURL(o.GoURL), StartedAt: now().UTC()}
+	report := WritesReport{Python: redactURL(o.PythonURL), Go: redactURL(o.GoURL), StartedAt: now().UTC(), UnusedAllowed: []UnusedAllowed{}}
 
 	if env("RESEND_API_KEY") != "" {
 		return report, errors.New("compare writes: RESEND_API_KEY is set in this runner's own environment; refusing to run. " +
@@ -347,7 +350,7 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 	}
 
 	c := newRowComparer(schema, r.maps)
-	allowed := o.Allowed
+	allowed := o.Allowed.TrackUsage()
 	allowed.PythonHost = hostOf(o.PythonURL)
 	allowed.GoHost = hostOf(o.GoURL)
 	for _, a := range r.answers {
@@ -368,6 +371,7 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 		report.Scenarios[a.scenario].Steps[a.step].Differences = d
 		report.Differences += len(d)
 	}
+	report.UnusedAllowed = allowed.Unused()
 	return report, nil
 }
 

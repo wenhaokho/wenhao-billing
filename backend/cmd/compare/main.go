@@ -4,12 +4,26 @@
 //
 //	compare reads --python URL --go URL --python-email E \
 //	  [--python-password-stdin | --python-cookie-stdin] --go-token-stdin \
-//	  --corpus FILE --allowed FILE [--python-tz ZONE] [--allow-skips] \
-//	  --out report.json
+//	  --corpus FILE --allowed FILE [--allowed FILE ...] [--python-tz ZONE] \
+//	  [--allow-skips] [--ledger-matches-aging] --out report.json
 //
 //	compare writes --python URL --python-db DSN --go URL --go-db DSN \
 //	  --python-email E [--python-password-stdin | --python-cookie-stdin] \
-//	  --go-token-stdin --scenarios FILE [--allowed FILE] --out report.json
+//	  --go-token-stdin --scenarios FILE [--allowed FILE ...] --out report.json
+//
+// --allowed may be repeated; the files' entries are merged (the shipped
+// allowed-diffs.yaml, plus an overlay such as allowed-diffs-prodcopy.yaml for
+// the production-copy run only). Every entry whose route the run requested but
+// that never applied to an answer is printed to stderr and listed under
+// unused_allowed in the report: a warning, never a failure. A later file's
+// entry that repeats, conflicts with or shadows an earlier file's is warned of
+// on stderr when the files are loaded.
+//
+// A read case classified PN 166 (the ledger reports) also has its Go answer
+// checked against itself; a failed check is a difference. With
+// --ledger-matches-aging, Go's trial balance 1100/2000 must also equal Go's
+// AR/AP aging totals: pass it only where Go's ledger holds every document (the
+// production copy after `api backpost-ledger --apply`).
 //
 // stdin carries the credentials in a fixed order, one line each: the FIRST line
 // is the Python credential (the password with --python-password-stdin, or the
@@ -55,7 +69,7 @@ type commandIO struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		slog.Error("usage: compare reads --python URL --go URL --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --corpus FILE --allowed FILE [--python-tz ZONE] [--allow-skips] --out report.json")
+		slog.Error("usage: compare reads --python URL --go URL --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --corpus FILE --allowed FILE [--allowed FILE ...] [--python-tz ZONE] [--allow-skips] [--ledger-matches-aging] --out report.json")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -78,7 +92,7 @@ func readsCommand(args []string, cio commandIO) int {
 	fs := flag.NewFlagSet("reads", flag.ContinueOnError)
 	fs.SetOutput(cio.stderr)
 	fs.Usage = func() {
-		_, _ = fmt.Fprintf(fs.Output(), "usage: compare reads --python URL --go URL --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --corpus FILE --allowed FILE [--python-tz ZONE] [--allow-skips] --out report.json\n\n")
+		_, _ = fmt.Fprintf(fs.Output(), "usage: compare reads --python URL --go URL --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --corpus FILE --allowed FILE [--allowed FILE ...] [--python-tz ZONE] [--allow-skips] [--ledger-matches-aging] --out report.json\n\n")
 		_, _ = fmt.Fprintln(fs.Output(), "stdin carries the credentials in order, one line each: first the Python credential (the password or the cookie), then the Go token. Pipe them in; never type them at a terminal.")
 		fs.PrintDefaults()
 	}
@@ -90,15 +104,17 @@ func readsCommand(args []string, cio commandIO) int {
 		pythonCookie   = fs.Bool("python-cookie-stdin", false, "read the Python billing_session cookie from the FIRST stdin line; sends no POST")
 		goToken        = fs.Bool("go-token-stdin", false, "read the Go session token from the SECOND stdin line")
 		corpusFile     = fs.String("corpus", "", "the compare-corpus.yaml path")
-		allowedFile    = fs.String("allowed", "", "the allowed-diffs.yaml path")
+		allowedFiles   fileList
 		pythonTZ       = fs.String("python-tz", "", "zone a naive Python timestamp is read in (default UTC)")
 		allowSkips     = fs.Bool("allow-skips", false, "exit 0 when the only issue is skipped cases (an empty or failed list)")
+		ledgerAging    = fs.Bool("ledger-matches-aging", false, "also check Go's trial balance 1100/2000 against Go's AR/AP aging (production copy after the back-post only)")
 		outFile        = fs.String("out", "", "the report JSON path")
 	)
+	fs.Var(&allowedFiles, "allowed", "an allowed-diffs.yaml path; repeat it to merge several files")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if err := checkReadFlags(*pythonURL, *goURL, *pythonEmail, *pythonPassword, *pythonCookie, *goToken, *corpusFile, *allowedFile, *outFile); err != nil {
+	if err := checkReadFlags(*pythonURL, *goURL, *pythonEmail, *pythonPassword, *pythonCookie, *goToken, *corpusFile, len(allowedFiles), *outFile); err != nil {
 		logger.Error("compare reads: " + err.Error())
 		return 2
 	}
@@ -132,11 +148,12 @@ func readsCommand(args []string, cio commandIO) int {
 		logger.Error("compare reads: loading the corpus", "err", err)
 		return 2
 	}
-	allowed, err := compare.LoadAllowedFile(*allowedFile)
+	allowed, overlaps, err := compare.LoadAllowedFiles(allowedFiles...)
 	if err != nil {
 		logger.Error("compare reads: loading the allowed differences", "err", err)
 		return 2
 	}
+	warnOverlaps(logger, "compare reads", overlaps)
 	tz, err := loadZone(*pythonTZ)
 	if err != nil {
 		logger.Error("compare reads: --python-tz", "err", err)
@@ -148,7 +165,7 @@ func readsCommand(args []string, cio commandIO) int {
 	report, runErr := compare.RunReads(ctx, compare.ReadOptions{
 		PythonURL: *pythonURL, GoURL: *goURL, PythonEmail: *pythonEmail,
 		PythonPassword: password, PythonCookie: cookie, GoToken: token,
-		Corpus: corpus, Allowed: allowed, PythonTZ: tz,
+		Corpus: corpus, Allowed: allowed, PythonTZ: tz, LedgerMatchesAging: *ledgerAging,
 	})
 	code := compare.ExitCode(report, runErr, *allowSkips)
 	if err := writeReport(*outFile, report); err != nil {
@@ -159,6 +176,7 @@ func readsCommand(args []string, cio commandIO) int {
 		logger.Error("compare reads: the run failed", "err", runErr, "report", *outFile)
 		return code
 	}
+	warnUnused(logger, "compare reads", report.UnusedAllowed)
 	_, _ = fmt.Fprintf(cio.stdout, "compare reads: cases=%d differences=%d skipped=%d report=%s\n",
 		len(report.Cases), report.Differences, report.Summary.Skipped, *outFile)
 	return code
@@ -174,7 +192,7 @@ func writesCommand(args []string, cio commandIO) int {
 	fs := flag.NewFlagSet("writes", flag.ContinueOnError)
 	fs.SetOutput(cio.stderr)
 	fs.Usage = func() {
-		_, _ = fmt.Fprintf(fs.Output(), "usage: compare writes --python URL --python-db DSN --go URL --go-db DSN --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --scenarios FILE [--allowed FILE] --out report.json\n\n")
+		_, _ = fmt.Fprintf(fs.Output(), "usage: compare writes --python URL --python-db DSN --go URL --go-db DSN --python-email E [--python-password-stdin | --python-cookie-stdin] --go-token-stdin --scenarios FILE [--allowed FILE ...] --out report.json\n\n")
 		_, _ = fmt.Fprintln(fs.Output(), "Both databases and both backend URLs must be local: localhost, 127.0.0.1, ::1, or a compose service name (a letter, then letters, digits, - or _, no dot). A DSN may be a URL or the keyword form (host=... dbname=...); either is accepted only when it parses to a local host, with every fallback host and any hostaddr local too. Restore both databases from one dump before the run. Both backends must run with RESEND_API_KEY and CLOUDFLARE_API_TOKEN unset; the runner can check only its own environment. The webhook body is signed with WEBHOOK_HMAC_SECRET. stdin carries the credentials in order, one line each: first the Python credential, then the Go token. Pipe them in; never type them at a terminal.")
 		fs.PrintDefaults()
 	}
@@ -188,9 +206,10 @@ func writesCommand(args []string, cio commandIO) int {
 		pythonCookie   = fs.Bool("python-cookie-stdin", false, "read the Python billing_session cookie from the FIRST stdin line; sends no POST")
 		goToken        = fs.Bool("go-token-stdin", false, "read the Go session token from the SECOND stdin line")
 		scenariosFile  = fs.String("scenarios", "", "the compare-writes.yaml path")
-		allowedFile    = fs.String("allowed", "", "optional allowed-diffs.yaml the step answers are compared under")
+		allowedFiles   fileList
 		outFile        = fs.String("out", "", "the report JSON path")
 	)
+	fs.Var(&allowedFiles, "allowed", "optional allowed-diffs.yaml the step answers are compared under; repeat it to merge several files")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -229,11 +248,13 @@ func writesCommand(args []string, cio commandIO) int {
 		return 2
 	}
 	var allowed compare.Allowed
-	if *allowedFile != "" {
-		if allowed, err = compare.LoadAllowedFile(*allowedFile); err != nil {
+	if len(allowedFiles) > 0 {
+		var overlaps []string
+		if allowed, overlaps, err = compare.LoadAllowedFiles(allowedFiles...); err != nil {
 			logger.Error("compare writes: loading the allowed differences", "err", err)
 			return 2
 		}
+		warnOverlaps(logger, "compare writes", overlaps)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -252,6 +273,7 @@ func writesCommand(args []string, cio commandIO) int {
 		logger.Error("compare writes: the run failed", "err", runErr, "report", *outFile)
 		return code
 	}
+	warnUnused(logger, "compare writes", report.UnusedAllowed)
 	_, _ = fmt.Fprintf(cio.stdout, "compare writes: scenarios=%d, %s, report=%s\n",
 		len(report.Scenarios), compare.WritesSummary(report), *outFile)
 	return code
@@ -300,7 +322,7 @@ func isTerminal(r io.Reader) bool {
 }
 
 // checkReadFlags refuses a run with a missing or contradictory flag.
-func checkReadFlags(pythonURL, goURL, email string, password, cookie, token bool, corpus, allowed, out string) error {
+func checkReadFlags(pythonURL, goURL, email string, password, cookie, token bool, corpus string, allowed int, out string) error {
 	switch {
 	case pythonURL == "":
 		return errors.New("--python is required")
@@ -310,7 +332,7 @@ func checkReadFlags(pythonURL, goURL, email string, password, cookie, token bool
 		return errors.New("--python-email is required")
 	case corpus == "":
 		return errors.New("--corpus is required")
-	case allowed == "":
+	case allowed == 0:
 		return errors.New("--allowed is required")
 	case out == "":
 		return errors.New("--out is required")
@@ -322,6 +344,37 @@ func checkReadFlags(pythonURL, goURL, email string, password, cookie, token bool
 		return errors.New("--go-token-stdin is required")
 	}
 	return nil
+}
+
+// fileList is a repeatable path flag (--allowed a.yaml --allowed b.yaml).
+type fileList []string
+
+func (f *fileList) String() string { return strings.Join(*f, ",") }
+
+// Set adds one path; an empty one is refused.
+func (f *fileList) Set(v string) error {
+	if strings.TrimSpace(v) == "" {
+		return errors.New("empty path")
+	}
+	*f = append(*f, v)
+	return nil
+}
+
+// warnUnused prints one stderr warning per allowed entry the run never needed.
+// An entry holds a route pattern, a JSONPath, a rule and a note, never data
+// from an answer.
+func warnUnused(logger *slog.Logger, cmd string, unused []compare.UnusedAllowed) {
+	for _, u := range unused {
+		logger.Warn(cmd+": allowed entry never matched in this run", "route", u.Route, "path", u.Path, "rule", u.Rule, "note", u.Note)
+	}
+}
+
+// warnOverlaps prints one stderr warning per later-file allowed entry that
+// repeats, conflicts with or shadows an earlier file's (LoadAllowedFiles).
+func warnOverlaps(logger *slog.Logger, cmd string, overlaps []string) {
+	for _, o := range overlaps {
+		logger.Warn(cmd+": allowed files overlap", "entry", o)
+	}
 }
 
 // readLine reads one line (the newline and a CR are not part of it).

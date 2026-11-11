@@ -864,9 +864,18 @@ var timestampColumns = map[string]bool{
 // generate_quotation_number). A value of another shape was supplied by the
 // request and is compared. bill_number, po_number, po_so_number and
 // account_number are always user-supplied and always compared.
+//
+// payments.external_ref of a manual payment is `manual-` and 12 random hex
+// digits on both backends (backend-python app/api/v1/routers/invoices.py
+// record_payment, `uuid4().hex[:12]`), so the two can never be equal; a webhook
+// or email external_ref comes from the request, has another shape and is
+// compared. A value is masked only when it has the shape, so a manual ref on
+// one side against a request's ref on the other is still a difference. The
+// answer walk (normalizeBody) masks an `external_ref` key by the same pattern.
 var generatedColumns = map[string]*regexp.Regexp{
 	"invoices.invoice_number":     regexp.MustCompile(`^WH[0-9]{4}[0-9]{4,}$`),
 	"quotations.quotation_number": regexp.MustCompile(`^Q[0-9]{4}[0-9]{4,}$`),
+	"payments.external_ref":       regexp.MustCompile(`^manual-[0-9a-f]{12}$`),
 }
 
 // queryRows reads every row of a table. The table name is validated by the
