@@ -184,7 +184,8 @@ func TestReadsMergesAllowedAndWarnsUnused(t *testing.T) {
 	corpusPath := write("corpus.yaml", "cases:\n  - id: me\n    route: GET /api/v1/auth/me\n")
 	first := write("allowed.yaml", "- route: GET /api/v1/auth/me\n  path: $.a\n  rule: ignore\n  note: PN 1\n")
 	second := write("overlay.yaml", "- route: GET /api/v1/auth/me\n  path: $.b\n  rule: ignore\n  note: PN 2\n"+
-		"- route: GET /api/v1/auth/me\n  path: $.open_invoices\n  rule: unordered\n  note: PN 40\n")
+		"- route: GET /api/v1/auth/me\n  path: $.open_invoices\n  rule: unordered\n  note: PN 40\n"+
+		"- route: GET /api/v1/auth/me\n  path: $.a\n  rule: decimal-equal\n  note: PN 3\n")
 	outPath := filepath.Join(dir, "report.json")
 
 	args := []string{
@@ -200,6 +201,9 @@ func TestReadsMergesAllowedAndWarnsUnused(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "allowed entry never matched") || !strings.Contains(stderr.String(), "$.open_invoices") {
 		t.Fatalf("stderr does not warn about the unused entry: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "allowed files overlap") || !strings.Contains(stderr.String(), "conflicts with") {
+		t.Fatalf("stderr does not warn that the overlay's $.a overlaps the first file: %s", stderr.String())
 	}
 	report, err := os.ReadFile(outPath)
 	if err != nil {

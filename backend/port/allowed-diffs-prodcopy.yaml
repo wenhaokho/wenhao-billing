@@ -15,24 +15,35 @@
 # issue entry (PN 162), so billing_cmp_py had 0 journal entries at read time.
 # Go's copy holds what `api backpost-ledger --apply` posted (on the first run,
 # 2026-11-11: 42 INVOICE and 39 PAYMENT entries). The two cannot agree, and a
-# Python comparison cannot test these figures. The corpus marks the three
-# cases `classify: PN 166`, and each entry here names one exact report path.
+# Python comparison cannot test these figures. The corpus labels the three
+# cases `classify: PN 166 (production-copy run only)`, and each entry here
+# names one exact report path.
 #
-# The figures were checked by hand against the documents in billing_cmp_py
-# (triage of the first production-copy run, 2026-11-11, R4); every one agreed:
-#   - the trial balance is balanced (total debit = total credit);
-#   - 1100 IDR net = the sum of balance_due of the SENT IDR invoices, and 1100
-#     SGD net is 0 (both SGD invoices PAID);
-#   - 1100 IDR debit = the sum of the amounts of the PAID and SENT IDR invoices
-#     = 4000 + 4100 IDR; VOID invoices are excluded;
+# What the runner checks instead, on Go's answers (a failure is a difference
+# and fails the run): the trial balance balances and its totals are its rows'
+# sums; each balance-sheet group total is its lines' sum and assets =
+# liabilities + equity + income - expense; the FX totals are the lines' gains
+# and losses; and, with --ledger-matches-aging, 1100 per currency = the AR
+# aging total and 2000 = the AP aging total (the agings read the documents and
+# are compared with Python in full).
+#
+# What it cannot check, so check by hand against billing_cmp_py on each run
+# (the triage of the first run, 2026-11-11, R4, found every one agreed):
+#   - 1100 IDR debit = the sum of the amounts of the PAID and SENT IDR
+#     invoices = 4000 + 4100 IDR; VOID invoices are excluded;
 #   - 1000 IDR and 1000 SGD = the sums of the CLEARED payments in each currency;
 #   - 1300 = the sum of wht_amount of the PAID IDR invoices;
 #   - 4900 = the SGD payments cleared at their payment-date base minus their
 #     issue base (PN 163);
 #   - FX revaluation: the SGD bank balance x the latest SGD rate minus its
 #     base = the unrealised gain.
-# Repeat those checks on each production-copy run; this file only stops the
-# runner from reporting what the comparison cannot test.
+# This file only stops the runner from reporting what the comparison cannot
+# test.
+#
+# These ignores knowingly override the shipped entries under the same fields
+# (trial balance $.rows: unordered and decimal-equal; balance sheet $.groups
+# and FX $.lines: decimal-equal); the loader prints those 5 overlaps as
+# warnings on every production-copy run. Any other overlap warning is new.
 #
 # ar-aging, ap-aging, customers/balances and the stats routes read the
 # documents, not the ledger, and are compared in full (no entry here).

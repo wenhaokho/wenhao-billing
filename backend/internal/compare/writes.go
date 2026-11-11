@@ -260,7 +260,7 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 		env = os.Getenv
 	}
 	o.Env = env
-	report := WritesReport{Python: redactURL(o.PythonURL), Go: redactURL(o.GoURL), StartedAt: now().UTC()}
+	report := WritesReport{Python: redactURL(o.PythonURL), Go: redactURL(o.GoURL), StartedAt: now().UTC(), UnusedAllowed: []UnusedAllowed{}}
 
 	if env("RESEND_API_KEY") != "" {
 		return report, errors.New("compare writes: RESEND_API_KEY is set in this runner's own environment; refusing to run. " +

@@ -36,10 +36,72 @@ func TestShippedListAllowances(t *testing.T) {
 		wantDiffer int
 	}{
 		{
-			name:  "PN 44 + 100: the invoice list, invoices and their lines permuted",
+			name:  "PN 44 + 100: the invoice list, created_at ties and position ties swapped",
 			route: "GET /api/v1/invoices?status=OPEN&status=SENT",
-			py:    `[{"invoice_id":"1","line_items":` + twoLines + `},{"invoice_id":"2","line_items":[]}]`,
-			gov:   `[{"invoice_id":"2","line_items":[]},{"invoice_id":"1","line_items":` + swapped + `}]`,
+			py: `[{"invoice_id":"1","created_at":"2026-11-01T02:00:00.009901","line_items":` + twoLines + `},` +
+				`{"invoice_id":"2","created_at":"2026-11-01T02:00:00.009901","line_items":[]},` +
+				`{"invoice_id":"3","created_at":"2026-10-01T00:00:00","line_items":[]}]`,
+			gov: `[{"invoice_id":"2","created_at":"2026-11-01T02:00:00.009901Z","line_items":[]},` +
+				`{"invoice_id":"1","created_at":"2026-11-01T02:00:00.009901Z","line_items":` + swapped + `},` +
+				`{"invoice_id":"3","created_at":"2026-10-01T00:00:00Z","line_items":[]}]`,
+		},
+		{
+			name:  "PN 100: the invoice list in another created_at order is reported",
+			route: "GET /api/v1/invoices",
+			py:    `[{"invoice_id":"2","created_at":"2026-01-02T00:00:00"},{"invoice_id":"1","created_at":"2026-01-01T00:00:00"}]`,
+			gov:   `[{"invoice_id":"1","created_at":"2026-01-01T00:00:00Z"},{"invoice_id":"2","created_at":"2026-01-02T00:00:00Z"}]`,
+			// Python DESC, Go ASC: both elements differ in both fields.
+			wantDiffer: 4,
+		},
+		{
+			name:  "PN 44: lines in another position order are reported",
+			route: "GET /api/v1/invoices",
+			py:    `[{"invoice_id":"1","line_items":[{"line_item_id":"a","position":0},{"line_item_id":"b","position":1}]}]`,
+			gov:   `[{"invoice_id":"1","line_items":[{"line_item_id":"b","position":1},{"line_item_id":"a","position":0}]}]`,
+			// Positions 0,1 against 1,0: both lines differ in both fields.
+			wantDiffer: 4,
+		},
+		{
+			name:       "PN 44: lines in another position order are reported on the detail too",
+			route:      "GET /api/v1/invoices/i1",
+			py:         `{"line_items":[{"line_item_id":"a","position":0},{"line_item_id":"b","position":1}]}`,
+			gov:        `{"line_items":[{"line_item_id":"b","position":1},{"line_item_id":"a","position":0}]}`,
+			wantDiffer: 4,
+		},
+		{
+			name:       "PN 40: the billing summary in another due_date order is reported",
+			route:      "GET /api/v1/customers/c1/billing-summary",
+			py:         `{"unpaid_invoices":[{"invoice_id":"1","due_date":"2026-01-01"},{"invoice_id":"2","due_date":null}]}`,
+			gov:        `{"unpaid_invoices":[{"invoice_id":"2","due_date":null},{"invoice_id":"1","due_date":"2026-01-01"}]}`,
+			wantDiffer: 4,
+		},
+		{
+			name:  "PN 40: a customer's invoices, issue_date and created_at ties swapped",
+			route: "GET /api/v1/customers/c1/invoices",
+			py: `[{"invoice_id":"t1","issue_date":null,"created_at":"2026-01-01T00:00:00"},{"invoice_id":"t2","issue_date":null,"created_at":"2026-01-01T00:00:00"},` +
+				`{"invoice_id":"i1","issue_date":"2026-02-01","created_at":"2026-01-01T00:00:00"}]`,
+			gov: `[{"invoice_id":"t2","issue_date":null,"created_at":"2026-01-01T00:00:00Z"},{"invoice_id":"t1","issue_date":null,"created_at":"2026-01-01T00:00:00Z"},` +
+				`{"invoice_id":"i1","issue_date":"2026-02-01","created_at":"2026-01-01T00:00:00Z"}]`,
+		},
+		{
+			name:       "PN 40: a customer's invoices with equal issue_date in another created_at order are reported",
+			route:      "GET /api/v1/customers/c1/invoices",
+			py:         `[{"invoice_id":"a","issue_date":"2026-02-01","created_at":"2026-01-02T00:00:00"},{"invoice_id":"b","issue_date":"2026-02-01","created_at":"2026-01-01T00:00:00"}]`,
+			gov:        `[{"invoice_id":"b","issue_date":"2026-02-01","created_at":"2026-01-01T00:00:00Z"},{"invoice_id":"a","issue_date":"2026-02-01","created_at":"2026-01-02T00:00:00Z"}]`,
+			wantDiffer: 4,
+		},
+		{
+			name:  "PN 53: awaiting finalization, created_at ties swapped",
+			route: "GET /api/v1/invoices/awaiting-finalization",
+			py:    `[{"invoice_id":"a","created_at":"2026-01-01T00:00:00"},{"invoice_id":"b","created_at":"2026-01-01T00:00:00"}]`,
+			gov:   `[{"invoice_id":"b","created_at":"2026-01-01T00:00:00Z"},{"invoice_id":"a","created_at":"2026-01-01T00:00:00Z"}]`,
+		},
+		{
+			name:       "PN 53: awaiting finalization in another created_at order is reported",
+			route:      "GET /api/v1/invoices/awaiting-finalization",
+			py:         `[{"invoice_id":"a","created_at":"2026-01-02T00:00:00"},{"invoice_id":"b","created_at":"2026-01-01T00:00:00"}]`,
+			gov:        `[{"invoice_id":"b","created_at":"2026-01-01T00:00:00Z"},{"invoice_id":"a","created_at":"2026-01-02T00:00:00Z"}]`,
+			wantDiffer: 4,
 		},
 		{
 			name:       "the invoice list still compares a line's value",
@@ -145,9 +207,21 @@ func TestProdcopyOverlay(t *testing.T) {
 		}
 	}
 
-	merged, err := LoadAllowedFiles(shippedAllowed, prodcopyAllowed)
+	merged, overlaps, err := LoadAllowedFiles(shippedAllowed, prodcopyAllowed)
 	if err != nil {
 		t.Fatalf("LoadAllowedFiles: %v", err)
+	}
+	// The overlay's ignores knowingly override the shipped entries under the
+	// same report fields (trial balance $.rows: unordered and two
+	// decimal-equal; balance sheet $.groups and FX $.lines: one decimal-equal
+	// each). The loader names each one; nothing else overlaps.
+	if len(overlaps) != 5 {
+		t.Fatalf("overlaps %q, want the 5 known report-field conflicts", overlaps)
+	}
+	for _, o := range overlaps {
+		if !strings.Contains(o, "conflicts with") || !strings.Contains(o, "PN 166") {
+			t.Errorf("overlap %q: want a PN 166 conflict with a shipped entry", o)
+		}
 	}
 	shipped, err := LoadAllowedFile(shippedAllowed)
 	if err != nil {
@@ -223,8 +297,9 @@ func TestProdcopyOverlay(t *testing.T) {
 	}
 }
 
-// TestCorpusClassifiesLedgerReports pins `classify: PN 166` on the three
-// ledger reports, and on no other case.
+// TestCorpusClassifiesLedgerReports pins `classify: PN 166 (production-copy
+// run only)` on the three ledger reports, and on no other case: it is also
+// what turns their Go self-checks on.
 func TestCorpusClassifiesLedgerReports(t *testing.T) {
 	t.Parallel()
 	corpus, err := LoadCorpusFile("../../port/compare-corpus.yaml")
@@ -234,7 +309,10 @@ func TestCorpusClassifiesLedgerReports(t *testing.T) {
 	want := map[string]bool{"report-trial-balance": true, "report-balance-sheet": true, "report-fx-revaluation": true}
 	got := map[string]bool{}
 	for _, cs := range corpus.Cases {
-		if cs.Classify == "PN 166" {
+		if strings.HasPrefix(cs.Classify, ledgerClassify) {
+			if cs.Classify != "PN 166 (production-copy run only)" {
+				t.Errorf("case %s classify %q: the label says the run it is for", cs.ID, cs.Classify)
+			}
 			got[cs.ID] = true
 		}
 	}

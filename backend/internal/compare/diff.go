@@ -32,8 +32,9 @@ type Difference struct {
 	Python string `json:"python"`
 	Go     string `json:"go"`
 	// Rule names the rule the difference was seen under: "decimal-equal",
-	// "instant-equal", "number-equal", "status", "detail-shape", or "" for a
-	// plain value difference.
+	// "instant-equal", "number-equal", "status", "detail-shape", "self-check"
+	// (Go's ledger report disagrees with itself; Python holds what the check
+	// expected), or "" for a plain value difference.
 	Rule string `json:"rule"`
 	// Classify is the PORT-NOTES note a write step names for this JSON path
 	// (classify_answers); the difference is still counted and listed.
@@ -127,8 +128,9 @@ func (d *differ) ignored(path string) bool {
 	return false
 }
 
-// unorderedAt reports whether the array at path compares as a multiset.
-func (d *differ) unorderedAt(path string) bool {
+// unorderedAt is the unordered entry for the array at path, if any: the array
+// compares as a multiset, or by its entry's tie keys.
+func (d *differ) unorderedAt(path string) (AllowedEntry, bool) {
 	np := normalizePath(path)
 	for _, e := range d.entries {
 		if e.Rule != RuleUnordered {
@@ -137,10 +139,24 @@ func (d *differ) unorderedAt(path string) bool {
 		ep := normalizePath(e.Path)
 		if ep == np || ep == np+"[*]" {
 			d.usage.match(e)
-			return true
+			return e, true
 		}
 	}
-	return false
+	return AllowedEntry{}, false
+}
+
+// visit records the documentary entries (decimal-equal, instant-equal) whose
+// path an answer has, so an entry naming a wrong field shows as unused.
+func (d *differ) visit(path string) {
+	if d.usage == nil {
+		return
+	}
+	np := normalizePath(path)
+	for _, e := range d.entries {
+		if documentaryRules[e.Rule] && pathCovers(e.Path, np) {
+			d.usage.match(e)
+		}
+	}
 }
 
 // numberEqual reports whether the path compares its JSON numbers by value.
@@ -209,6 +225,7 @@ func (d *differ) add(path, py, gov, rule string) {
 
 // compare walks two decoded values at path.
 func (d *differ) compare(path string, py, gov any) {
+	d.visit(path)
 	if d.ignored(path) || d.emptyMismatch(path, py, gov) {
 		return
 	}
@@ -318,10 +335,27 @@ func (d *differ) compareObject(path string, py, gov map[string]any) {
 
 // compareArray walks two arrays in order, or as a multiset where allowed.
 func (d *differ) compareArray(path string, py, gov []any) {
-	if d.unorderedAt(path) {
-		d.compareUnordered(path, py, gov)
-		return
+	if e, ok := d.unorderedAt(path); ok {
+		keys := e.tieKeys()
+		if len(keys) == 0 {
+			d.compareUnordered(path, py, gov, span(0, len(py)), span(0, len(gov)))
+			return
+		}
+		runs, ok := d.tieRuns(path, py, gov, keys)
+		if ok {
+			for _, r := range runs {
+				d.compareUnordered(path, py, gov, r, r)
+			}
+			return
+		}
+		// The keys come in another order: the arrays are not sorted alike, so
+		// they are compared in order and every difference is reported.
 	}
+	d.compareOrdered(path, py, gov)
+}
+
+// compareOrdered walks two arrays index by index.
+func (d *differ) compareOrdered(path string, py, gov []any) {
 	n := min(len(py), len(gov))
 	for i := range n {
 		d.compare(indexPath(path, i), py[i], gov[i])
@@ -334,19 +368,19 @@ func (d *differ) compareArray(path string, py, gov []any) {
 	}
 }
 
-// compareUnordered pairs each Python element with an equal Go element, then
-// reports the leftovers in order.
-func (d *differ) compareUnordered(path string, py, gov []any) {
-	used := make([]bool, len(gov))
-	matched := make([]bool, len(py))
-	for i := range py {
-		for j := range gov {
-			if used[j] {
+// compareUnordered pairs each Python element of pi (indexes into py) with an
+// equal Go element of gi, then reports the leftovers in order.
+func (d *differ) compareUnordered(path string, py, gov []any, pi, gi []int) {
+	used := make([]bool, len(gi))
+	matched := make([]bool, len(pi))
+	for a, i := range pi {
+		for b, j := range gi {
+			if used[b] {
 				continue
 			}
 			if d.softEqual(indexPath(path, i), py[i], gov[j]) {
-				used[j] = true
-				matched[i] = true
+				used[b] = true
+				matched[a] = true
 				break
 			}
 		}
@@ -354,14 +388,69 @@ func (d *differ) compareUnordered(path string, py, gov []any) {
 	leftPy, leftGov := unmatched(matched), unmatched(used)
 	n := min(len(leftPy), len(leftGov))
 	for k := range n {
-		d.compare(indexPath(path, leftPy[k]), py[leftPy[k]], gov[leftGov[k]])
+		i, j := pi[leftPy[k]], gi[leftGov[k]]
+		d.compare(indexPath(path, i), py[i], gov[j])
 	}
 	for k := n; k < len(leftPy); k++ {
-		d.add(indexPath(path, leftPy[k]), text(py[leftPy[k]]), missing, "")
+		i := pi[leftPy[k]]
+		d.add(indexPath(path, i), text(py[i]), missing, "")
 	}
 	for k := n; k < len(leftGov); k++ {
-		d.add(indexPath(path, leftGov[k]), missing, text(gov[leftGov[k]]), "")
+		j := gi[leftGov[k]]
+		d.add(indexPath(path, j), missing, text(gov[j]), "")
 	}
+}
+
+// span is the indexes lo..hi-1.
+func span(lo, hi int) []int {
+	out := make([]int, 0, hi-lo)
+	for i := lo; i < hi; i++ {
+		out = append(out, i)
+	}
+	return out
+}
+
+// tieRuns checks that both arrays have the same length and the same tie-key
+// values index by index (under the value rules: decimals by value, instants
+// as instants), and returns the runs of consecutive indexes whose keys are
+// equal. false means the arrays are not sorted alike.
+func (d *differ) tieRuns(path string, py, gov []any, keys []string) ([][]int, bool) {
+	if len(py) != len(gov) {
+		return nil, false
+	}
+	for i := range py {
+		if !d.keysEqual(indexPath(path, i), py[i], gov[i], keys) {
+			return nil, false
+		}
+	}
+	var runs [][]int
+	start := 0
+	for i := 1; i <= len(py); i++ {
+		if i == len(py) || !d.keysEqual(indexPath(path, i), py[i-1], py[i], keys) {
+			runs = append(runs, span(start, i))
+			start = i
+		}
+	}
+	return runs, true
+}
+
+// keysEqual reports whether two elements have equal values at every tie key.
+// A missing key, or an element that is not an object, is a null value.
+func (d *differ) keysEqual(path string, a, b any, keys []string) bool {
+	for _, k := range keys {
+		if !d.softEqual(path+"."+k, keyValue(a, k), keyValue(b, k)) {
+			return false
+		}
+	}
+	return true
+}
+
+// keyValue is an element's value at key, nil when absent.
+func keyValue(el any, key string) any {
+	if obj, ok := el.(map[string]any); ok {
+		return obj[key]
+	}
+	return nil
 }
 
 // unmatched lists the false entries of a matched slice.
@@ -378,6 +467,7 @@ func unmatched(matched []bool) []int {
 // softEqual reports whether two values are equal under the same rules, without
 // recording a difference. It pairs the elements of an unordered array.
 func (d *differ) softEqual(path string, py, gov any) bool {
+	d.visit(path)
 	if d.ignored(path) {
 		return true
 	}
@@ -417,8 +507,20 @@ func (d *differ) softEqual(path string, py, gov any) bool {
 		if !ok {
 			return false
 		}
-		if d.unorderedAt(path) {
-			return d.multisetEqual(path, p, g)
+		if e, ok := d.unorderedAt(path); ok {
+			if keys := e.tieKeys(); len(keys) > 0 {
+				runs, ok := d.tieRuns(path, p, g, keys)
+				if !ok {
+					return false
+				}
+				for _, r := range runs {
+					if !d.multisetEqual(path, p, g, r, r) {
+						return false
+					}
+				}
+				return true
+			}
+			return len(p) == len(g) && d.multisetEqual(path, p, g, span(0, len(p)), span(0, len(g)))
 		}
 		if len(p) != len(g) {
 			return false
@@ -461,20 +563,21 @@ func (d *differ) objectSoftEqual(path string, py, gov map[string]any) bool {
 	return true
 }
 
-// multisetEqual reports whether two arrays hold the same elements.
-func (d *differ) multisetEqual(path string, py, gov []any) bool {
-	if len(py) != len(gov) {
+// multisetEqual reports whether the elements pi of py and gi of gov are the
+// same multiset.
+func (d *differ) multisetEqual(path string, py, gov []any, pi, gi []int) bool {
+	if len(pi) != len(gi) {
 		return false
 	}
-	used := make([]bool, len(gov))
-	for i := range py {
+	used := make([]bool, len(gi))
+	for _, i := range pi {
 		found := false
-		for j := range gov {
-			if used[j] {
+		for b, j := range gi {
+			if used[b] {
 				continue
 			}
 			if d.softEqual(indexPath(path, i), py[i], gov[j]) {
-				used[j] = true
+				used[b] = true
 				found = true
 				break
 			}
