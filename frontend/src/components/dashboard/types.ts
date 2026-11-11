@@ -36,7 +36,7 @@ export interface KPIOverdue {
 }
 export interface KPIRecurring {
   amount: string;
-  /** Percent billed in a currency other than the base; null when there is none. */
+  /** Percent billed in a currency other than the base; null when there is no MRR or an MRR currency has no FX rate. */
   foreign_share: number | null;
   top_foreign_currency: string | null;
 }

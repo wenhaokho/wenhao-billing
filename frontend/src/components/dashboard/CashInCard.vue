@@ -43,7 +43,9 @@ const hovered = ref("");
 <template>
   <div class="card dc" data-testid="cash-in-card">
     <h2 class="dc-title">Expected cash in</h2>
-    <p class="dc-sub">Open invoices by due date plus scheduled recurring runs, next 90 days.</p>
+    <p class="dc-sub">
+      Open invoices by due date plus every scheduled recurring run, counted on its generation date, next 90 days.
+    </p>
 
     <EmptyState
       v-if="empty"

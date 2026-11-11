@@ -230,6 +230,13 @@ const chartLabel = computed(() =>
 
 const foreignCurrencies = computed(() => props.data.currencies.filter((c) => c !== base.value));
 const footer = computed(() => props.data.footer);
+// The footer total covers the twelve calendar months shown, not the KPI row's
+// rolling year, so name its span: "Dec 2025 – Nov 2026".
+const footerSpan = computed(() => {
+  const ms = months.value;
+  if (!ms.length) return "last 12 months";
+  return `${monthLong(ms[0].month)} – ${monthLong(ms[ms.length - 1].month)}`;
+});
 </script>
 
 <template>
@@ -296,7 +303,7 @@ const footer = computed(() => props.data.footer);
 
     <div class="rev-foot">
       <div>
-        <div class="foot-label">Invoiced · {{ base }} eq.</div>
+        <div class="foot-label" :title="`Invoiced in ${footerSpan}, ${base} equivalent`">Invoiced · {{ footerSpan }}</div>
         <div class="foot-value num">{{ formatCompact(footer.invoiced_base) }}</div>
       </div>
       <div>

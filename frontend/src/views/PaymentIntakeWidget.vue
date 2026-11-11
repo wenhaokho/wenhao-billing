@@ -178,11 +178,15 @@ const kpiTiles = computed<Tile[]>(() => {
   const mrr = k.monthly_recurring;
   let mrrDelta: KpiDelta | undefined;
   let mrrSub: string;
+  // A null share with MRR means a recurring currency has no FX rate: the total
+  // leaves it out, so never claim everything is billed in the base currency.
   if (mrr.foreign_share && mrr.top_foreign_currency) {
     mrrDelta = { text: formatShare(mrr.foreign_share), tone: "neutral" };
     mrrSub = `billed in foreign ccy, mostly ${mrr.top_foreign_currency}`;
+  } else if (mrr.foreign_share === null && !decIsZero(mrr.amount)) {
+    mrrSub = "excl. currencies with no FX rate";
   } else {
-    mrrSub = !decIsZero(mrr.amount) ? `all billed in ${base}` : "no active recurring invoices";
+    mrrSub = mrr.foreign_share === 0 ? `all billed in ${base}` : "no active recurring invoices";
   }
 
   return [
