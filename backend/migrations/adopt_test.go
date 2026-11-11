@@ -179,6 +179,66 @@ func TestAdoptRefusesSchemaDrift(t *testing.T) {
 	}
 }
 
+// TestAdoptAcceptsNotNullConstraintRows: PostgreSQL 18 (production, and the
+// db-test service) records every column NOT NULL as a pg_constraint row
+// (contype 'n') that 16, where the reference was made, does not have. Adopt
+// must not count them as drift. On 16 there are none and the test only checks
+// that Adopt accepts.
+func TestAdoptAcceptsNotNullConstraintRows(t *testing.T) {
+	t.Parallel()
+	pool := openPool(t, legacyDB(t))
+	if scalar[int](t, pool, `SELECT current_setting('server_version_num')::int`) >= 180000 {
+		n := scalar[int64](t, pool, `SELECT count(*) FROM pg_constraint
+			WHERE contype = 'n' AND conrelid = 'public.bills'::regclass`)
+		if n == 0 {
+			t.Fatal("no NOT NULL constraint rows on bills: the test no longer reproduces PostgreSQL 18")
+		}
+	}
+	if err := migrations.Adopt(context.Background(), pool); err != nil {
+		t.Fatalf("Adopt refused the baseline schema: %v", err)
+	}
+}
+
+// TestAdoptRefusesDroppedNotNull: leaving the NOT NULL constraint rows out of
+// the comparison must not hide a column that lost its NOT NULL; the column
+// line reports it.
+func TestAdoptRefusesDroppedNotNull(t *testing.T) {
+	t.Parallel()
+	url := legacyDB(t)
+	exec(t, url, `ALTER TABLE bills ALTER COLUMN amount DROP NOT NULL`)
+	pool := openPool(t, url)
+	err := migrations.Adopt(context.Background(), pool)
+	if err == nil {
+		t.Fatal("Adopt accepted bills.amount without NOT NULL")
+	}
+	if !strings.Contains(err.Error(), "only in this database: column bills.amount numeric(19,4) notnull=f") {
+		t.Errorf("error %q does not report the column that lost its NOT NULL", err)
+	}
+	if gooseTableExists(t, pool) {
+		t.Error("goose_db_version was written although Adopt refused")
+	}
+}
+
+// TestAdoptRefusesNotValidNotNull: a NOT NULL constraint that is NOT VALID
+// (PostgreSQL 18) is not the baseline's NOT NULL and is reported.
+func TestAdoptRefusesNotValidNotNull(t *testing.T) {
+	t.Parallel()
+	url := legacyDB(t)
+	pool := openPool(t, url)
+	if scalar[int](t, pool, `SELECT current_setting('server_version_num')::int`) < 180000 {
+		t.Skip("NOT VALID NOT NULL constraints need PostgreSQL 18")
+	}
+	exec(t, url, `ALTER TABLE bills ALTER COLUMN amount DROP NOT NULL;
+		ALTER TABLE bills ADD CONSTRAINT bills_amount_not_null NOT NULL amount NOT VALID`)
+	err := migrations.Adopt(context.Background(), pool)
+	if err == nil {
+		t.Fatal("Adopt accepted a NOT VALID NOT NULL on bills.amount")
+	}
+	if !strings.Contains(err.Error(), "bills_amount_not_null") {
+		t.Errorf("error %q does not name the NOT VALID constraint", err)
+	}
+}
+
 func TestAdoptRefusesAlreadyAdopted(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -312,7 +372,7 @@ func TestMigrationsAdditive(t *testing.T) {
 }
 
 // pgRestoredItemsType is ck_items_type as a database that went through
-// pg_dump -Fc | pg_restore holds it (Postgres 16): the restore parses the
+// pg_dump -Fc | pg_restore holds it (Postgres 16 and 18): the restore parses the
 // dumped pg_get_constraintdef text again and deparses it differently from the
 // form Alembic's original DDL gave. Captured from a real dump and restore of
 // the baseline schema.

@@ -1,6 +1,10 @@
 services:
   db:
-    image: postgres:16-alpine
+    # PostgreSQL 18 like production. The 18 image keeps PGDATA in
+    # /var/lib/postgresql/18/docker and declares its volume at
+    # /var/lib/postgresql, so db_data is mounted there (the old .../data mount
+    # was for 16). A db_data volume made by 16 must be recreated.
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: billing
       POSTGRES_PASSWORD: billing
@@ -8,7 +12,7 @@ services:
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "billing"]
       interval: 5s
@@ -119,15 +123,17 @@ services:
   # and those pile up until the container stops (2 GB seen). Past the cap
   # Postgres reports "No space left on device"; `docker compose --profile
   # tools restart db-test` clears it.
+  # PostgreSQL 18 like production; as for `db`, its data lives under
+  # /var/lib/postgresql (PGDATA /var/lib/postgresql/18/docker), all of it tmpfs.
   db-test:
     profiles: ["tools"]
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off", "-c", "max_connections=300"]
     environment:
       POSTGRES_USER: billing
       POSTGRES_PASSWORD: billing
     tmpfs:
-      - /var/lib/postgresql/data:size=1536m
+      - /var/lib/postgresql:size=1536m
     healthcheck:
       # Over TCP: the image's first-start setup server listens on the socket only.
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "billing"]
