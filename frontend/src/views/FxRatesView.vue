@@ -11,6 +11,7 @@ import Message from "primevue/message";
 import PageHeader from "@/components/PageHeader.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { api } from "@/api/client";
+import { timeAgo } from "@/components/dashboard/format";
 
 interface FxRate {
   rate_id: number;
@@ -30,6 +31,28 @@ interface FxSyncResult {
   source: string;
 }
 
+/** One currency's newest rate to the base currency (GET fx-rates/summary). */
+interface FxCurrencySummary {
+  currency: string;
+  latest_rate: string;
+  latest_as_of: string;
+  previous_rate: string | null;
+  previous_as_of: string | null;
+  change_pct: number | null;
+}
+
+interface FxLastSync {
+  ran_at: string;
+  trigger: "SCHEDULED" | "MANUAL";
+  source: string;
+}
+
+interface FxSummary {
+  base_currency: string;
+  currencies: FxCurrencySummary[];
+  last_sync: FxLastSync | null;
+}
+
 const router = useRouter();
 const queryClient = useQueryClient();
 const confirm = useConfirm();
@@ -47,6 +70,13 @@ onMounted(async () => {
 const { data, isLoading } = useQuery<FxRate[]>({
   queryKey: ["fx-rates"],
   queryFn: async () => (await api.get<FxRate[]>("/accounting/fx-rates")).data,
+});
+
+// Keyed under ["fx-rates"], so every invalidation of it (create, delete,
+// sync) refreshes the cards too.
+const summary = useQuery<FxSummary>({
+  queryKey: ["fx-rates", "summary"],
+  queryFn: async () => (await api.get<FxSummary>("/accounting/fx-rates/summary")).data,
 });
 
 const deleteRate = useMutation({
@@ -97,6 +127,28 @@ function formatRate(v: string) {
   });
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-01-08" -> "8 Jan 2026", read as a calendar day (no time-zone shift). */
+function formatDay(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return `${d} ${MONTHS[m - 1]} ${y}`;
+}
+
+/** "▲ 5.00%" / "▼ 0.51%" / "0.00%", and its tone: a dearer foreign currency reads green. */
+function changeOf(pct: number | null): { text: string; tone: "up" | "down" | "flat" } | null {
+  if (pct === null) return null;
+  const rounded = Math.round(pct * 100) / 100;
+  if (rounded === 0) return { text: "0.00%", tone: "flat" };
+  const up = rounded > 0;
+  return { text: `${up ? "▲" : "▼"} ${Math.abs(rounded).toFixed(2)}%`, tone: up ? "up" : "down" };
+}
+
+function syncTrigger(s: FxLastSync): string {
+  return s.trigger === "SCHEDULED" ? "weekly" : "manual";
+}
+
 function openCreate() {
   router.push({ name: "fx-rate-new" });
 }
@@ -106,7 +158,7 @@ function openCreate() {
   <section>
     <PageHeader eyebrow="04 / Accounting" title="FX Rates">
       <template #lede>
-        Manual exchange rates used to translate foreign-currency postings into the base currency
+        Exchange rates used to translate foreign-currency postings into the base currency
         (<strong>{{ baseCurrency }}</strong>). The most recent rate on or before a posting's date wins.
       </template>
         <Button
@@ -134,6 +186,36 @@ function openCreate() {
     >
       {{ syncMessage.text }}
     </Message>
+
+    <div v-if="summary.data.value" class="fx-summary" data-testid="fx-summary">
+      <div v-for="c in summary.data.value.currencies" :key="c.currency" class="fx-cell" data-testid="fx-card">
+        <div class="fx-label">{{ c.currency }} <span class="arrow">→</span> {{ summary.data.value.base_currency }} · latest</div>
+        <div class="fx-value num">{{ formatRate(c.latest_rate) }}</div>
+        <div class="fx-sub">as of {{ formatDay(c.latest_as_of) }}</div>
+        <div v-if="c.previous_rate && c.previous_as_of" class="fx-sub">
+          <span v-if="changeOf(c.change_pct)" :class="['fx-change', `fx-${changeOf(c.change_pct)!.tone}`]">
+            {{ changeOf(c.change_pct)!.text }}
+          </span>
+          vs {{ formatRate(c.previous_rate) }} on {{ formatDay(c.previous_as_of) }}
+        </div>
+        <div v-else class="fx-sub muted-soft">No earlier rate</div>
+      </div>
+      <div class="fx-cell" data-testid="fx-last-sync">
+        <div class="fx-label">Last sync</div>
+        <template v-if="summary.data.value.last_sync">
+          <div class="fx-value" :title="new Date(summary.data.value.last_sync.ran_at).toLocaleString()">
+            {{ timeAgo(summary.data.value.last_sync.ran_at) }}
+          </div>
+          <div class="fx-sub">
+            {{ syncTrigger(summary.data.value.last_sync) }} · source {{ summary.data.value.last_sync.source }}
+          </div>
+        </template>
+        <template v-else>
+          <div class="fx-value">Never synced</div>
+          <div class="fx-sub">Weekly on Mondays, or Sync now</div>
+        </template>
+      </div>
+    </div>
 
     <DataTable
       :value="data ?? []"
@@ -184,6 +266,38 @@ function openCreate() {
 
 <style scoped>
 .sync-message { margin: 0 0 16px; }
+.fx-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  margin: 0 0 24px;
+}
+.fx-cell {
+  padding: 22px 26px;
+  border-right: 1px solid var(--wb-line);
+  border-bottom: 1px solid var(--wb-line);
+  margin: 0 -1px -1px 0;
+}
+.fx-label {
+  font: 500 11px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  color: var(--wb-muted-soft);
+}
+.fx-value {
+  font: 500 28px/1.1 var(--wb-font-display);
+  letter-spacing: -1px;
+  margin-top: 8px;
+  color: var(--wb-ink);
+  font-variant-numeric: tabular-nums;
+}
+.fx-sub { font-size: 13px; color: var(--wb-muted); margin-top: 4px; }
+.muted-soft { color: var(--wb-muted-soft); }
+.fx-change { font-weight: 500; }
+.fx-up { color: var(--wb-green-fg); }
+.fx-down { color: var(--wb-red); }
+.fx-flat { color: var(--wb-muted); }
 .num { font-variant-numeric: tabular-nums; }
 .rate { font-weight: 500; }
 .muted { color: var(--wb-muted); font-size: 13px; }
