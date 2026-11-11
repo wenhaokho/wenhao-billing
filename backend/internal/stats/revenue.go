@@ -29,7 +29,7 @@ type MonthlyRevenueBucket struct {
 type MonthlyRevenueResponse struct {
 	BaseCurrency string                 `json:"base_currency"`
 	Currencies   []string               `json:"currencies" nullable:"false" doc:"Sorted currencies that have a base total in some month."`
-	Unconverted  []string               `json:"unconverted" nullable:"false" doc:"Sorted currencies with no FX rate to the base currency."`
+	Unconverted  []string               `json:"unconverted" nullable:"false" doc:"Sorted currencies with no FX rate to the base currency, from the months' invoices or from the footer's FX exposure (open receivables)."`
 	Months       []MonthlyRevenueBucket `json:"months" nullable:"false" doc:"Twelve months, oldest first, ending with the current month."`
 	Footer       RevenueFooter          `json:"footer"`
 }

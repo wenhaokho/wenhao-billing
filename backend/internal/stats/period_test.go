@@ -48,7 +48,7 @@ func TestNewWindow(t *testing.T) {
 			prevFrom: utcDay(2024, time.November, 13), prevTo: utcDay(2025, time.November, 12),
 			buckets:   13,
 			firstFrom: utcDay(2025, time.November, 13), firstTo: utcDay(2025, time.November, 30),
-			firstLabel: "Nov", lastTo: today,
+			firstLabel: "Nov 2025", lastTo: today,
 		},
 	}
 	for _, tc := range tests {
@@ -92,7 +92,8 @@ func TestNewWindow(t *testing.T) {
 	t.Run("12m labels", func(t *testing.T) {
 		t.Parallel()
 		w := stats.NewWindow("12m", today)
-		want := []string{"Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"}
+		// The clipped first and last months share a name, so both carry the year.
+		want := []string{"Nov 2025", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov 2026"}
 		for i, b := range w.Buckets {
 			if b.Label != want[i] {
 				t.Errorf("bucket %d label = %q, want %q", i, b.Label, want[i])
@@ -100,6 +101,21 @@ func TestNewWindow(t *testing.T) {
 		}
 		if last := w.Buckets[12]; !last.From.Equal(utcDay(2026, time.November, 1)) {
 			t.Errorf("last month From = %v", last.From)
+		}
+	})
+
+	t.Run("12m labels on a month's last day", func(t *testing.T) {
+		t.Parallel()
+		// Twelve whole months: no month repeats, so no label carries the year.
+		w := stats.NewWindow("12m", utcDay(2026, time.November, 30))
+		want := []string{"Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"}
+		if len(w.Buckets) != len(want) {
+			t.Fatalf("buckets = %d, want %d", len(w.Buckets), len(want))
+		}
+		for i, b := range w.Buckets {
+			if b.Label != want[i] {
+				t.Errorf("bucket %d label = %q, want %q", i, b.Label, want[i])
+			}
 		}
 	})
 

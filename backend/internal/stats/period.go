@@ -58,6 +58,11 @@ func NewWindow(p Period, today time.Time) Window {
 		w.From = today.AddDate(-1, 0, 1)
 		w.PrevFrom = w.From.AddDate(-1, 0, 0)
 		w.Buckets = monthBuckets(w.From, w.To)
+		if n := len(w.Buckets); n > 12 {
+			// The clipped first and last months share a name; the year tells them apart.
+			w.Buckets[0].Label = w.Buckets[0].From.Format("Jan 2006")
+			w.Buckets[n-1].Label = w.Buckets[n-1].From.Format("Jan 2006")
+		}
 	default:
 		return NewWindow(Period12m, today)
 	}

@@ -1499,7 +1499,7 @@
             "type": "string"
           },
           "recurring": {
-            "description": "Next runs of recurring templates and usage drafts in the span, base-currency equivalent.",
+            "description": "Every run of each recurring template generated in the span (on its generation date) plus each usage draft's next cut-off, base-currency equivalent.",
             "examples": [
               "1500000.0000"
             ],
@@ -4021,7 +4021,7 @@
             "type": "string"
           },
           "foreign_share": {
-            "description": "Percent not in the base currency; null when there is none.",
+            "description": "Percent not in the base currency; null when there is no MRR or when an MRR currency has no FX rate (it is then in unconverted).",
             "format": "double",
             "type": [
               "number",
@@ -4377,7 +4377,7 @@
             "type": "array"
           },
           "unconverted": {
-            "description": "Sorted currencies with no FX rate to the base currency.",
+            "description": "Sorted currencies with no FX rate to the base currency, from the months' invoices or from the footer's FX exposure (open receivables).",
             "items": {
               "type": "string"
             },
@@ -13336,12 +13336,18 @@
         "operationId": "stats-overview",
         "parameters": [
           {
-            "description": "30d, 90d or 12m; default 12m.",
+            "description": "The analytics window.",
             "explode": false,
             "in": "query",
             "name": "period",
             "schema": {
-              "description": "30d, 90d or 12m; default 12m.",
+              "default": "12m",
+              "description": "The analytics window.",
+              "enum": [
+                "30d",
+                "90d",
+                "12m"
+              ],
               "type": "string"
             }
           }

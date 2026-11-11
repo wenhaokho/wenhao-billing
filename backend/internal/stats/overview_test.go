@@ -164,6 +164,23 @@ func TestOverviewRecurringForeignShare(t *testing.T) {
 	}
 }
 
+func TestOverviewRecurringForeignShareUnconverted(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "Acme")
+	template(t, a, c, "IDR", "12000", monthly())
+	template(t, a, c, "AUD", "5", monthly()) // no AUD rate
+	r := overview(t, a)
+	k := r.KPIs
+	if got := k.MonthlyRecurring.Amount.Decimal().StringFixed(4); got != "12000.0000" {
+		t.Errorf("mrr = %s, want 12000.0000", got)
+	}
+	if k.MonthlyRecurring.ForeignShare != nil {
+		t.Errorf("share = %v, want nil: AUD MRR has no rate", *k.MonthlyRecurring.ForeignShare)
+	}
+	eq(t, "unconverted", r.Unconverted, []string{"AUD"})
+}
+
 func TestOverviewDueTodayIsNotOverdue(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
@@ -210,6 +227,22 @@ func TestOverviewDaysToPay(t *testing.T) {
 		}
 		if r.DaysToPay.PreviousAvg == nil || *r.DaysToPay.PreviousAvg != 40 {
 			t.Errorf("previous_avg = %v, want 40", r.DaysToPay.PreviousAvg)
+		}
+	})
+	t.Run("a payment dated before issue counts as zero days", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		c := newCustomer(t, a, "Acme")
+		in := ovWindow().From.AddDate(0, 0, 30)
+		pay := func(issue time.Time) {
+			id := inv{cur: "IDR", amount: "100", balance: "0", status: "PAID", issue: d(issue)}.insert(t, a, c)
+			paymentFull(t, a, id, "IDR", "100", "0", "CLEARED", in)
+		}
+		pay(in.AddDate(0, 0, 10)) // paid 10 days before issue: 0
+		pay(in.AddDate(0, 0, -20))
+		r := overview(t, a)
+		if r.DaysToPay.Avg == nil || *r.DaysToPay.Avg != 10 {
+			t.Errorf("avg = %v, want 10 (unclamped: 5)", r.DaysToPay.Avg)
 		}
 	})
 	t.Run("nil with nothing paid", func(t *testing.T) {

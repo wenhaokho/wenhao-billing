@@ -29,7 +29,7 @@ type AgingBucket struct {
 type CashInBucket struct {
 	Key          string        `json:"key" enum:"d0_30,d31_60,d61_90" doc:"Days ahead of today: 0-30, 31-60, 61-90."`
 	OpenInvoices platform.Dec4 `json:"open_invoices" doc:"Open balance not yet overdue and due in the span, base-currency equivalent."`
-	Recurring    platform.Dec4 `json:"recurring" doc:"Next runs of recurring templates and usage drafts in the span, base-currency equivalent."`
+	Recurring    platform.Dec4 `json:"recurring" doc:"Every run of each recurring template generated in the span (on its generation date) plus each usage draft's next cut-off, base-currency equivalent."`
 	Estimate     bool          `json:"estimate" doc:"True when a usage estimate is among the recurring runs."`
 }
 
@@ -154,7 +154,7 @@ func aging(ctx context.Context, q *statsdb.Queries, today time.Time, conv convFn
 }
 
 func cashIn(ctx context.Context, db statsdb.DBTX, q *statsdb.Queries, today time.Time, conv convFn) ([]CashInBucket, error) {
-	runs, err := Upcoming(ctx, db, today)
+	runs, err := upcomingRuns(ctx, db, today)
 	if err != nil {
 		return nil, err
 	}

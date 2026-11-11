@@ -112,8 +112,8 @@ SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
 -- name: DaysToPay :one
 -- Whole days from issue to payment, summed and counted per CLEARED payment of
 -- a PAID invoice paid on or after since (an invoice paid twice counts twice;
--- no upper bound; a negative delta counts).
-SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+-- no upper bound; a payment dated before issue counts as 0 days).
+SELECT COALESCE(SUM(GREATEST(p.payment_date - i.issue_date, 0)), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
   FROM payments p
   JOIN invoices i ON i.invoice_id = p.invoice_id
  WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
@@ -146,8 +146,8 @@ SELECT count(*)::bigint AS invoice_count, count(DISTINCT customer_id)::bigint AS
 
 -- name: DaysToPayBetween :one
 -- DaysToPay with an upper bound: payments dated from since to until, both
--- inclusive.
-SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+-- inclusive. A payment dated before issue counts as 0 days.
+SELECT COALESCE(SUM(GREATEST(p.payment_date - i.issue_date, 0)), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
   FROM payments p
   JOIN invoices i ON i.invoice_id = p.invoice_id
  WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL

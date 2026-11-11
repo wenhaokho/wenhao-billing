@@ -306,6 +306,9 @@ func TestRevenueMonthlyRoute(t *testing.T) {
 	eq(t, "unpaid", dict(jan.UnpaidTotals), []string{"SGD=120000.0000", "USD=640000.0000"})
 
 	// The footer's own nullable fields and "month" are checked in TestRevenueFooter.
+	if !strings.Contains(rec.Body.String(), `,"footer"`) {
+		t.Fatalf("no footer in body: %s", rec.Body.String())
+	}
 	body, _, _ := strings.Cut(rec.Body.String(), `,"footer"`)
 	if !strings.Contains(body, `"totals":{"SGD":"120000.0000","USD":"1600000.0000"}`) {
 		t.Fatalf("totals keys not in currency order: %s", body)

@@ -53,7 +53,7 @@ func (r routes) receivables(ctx context.Context, _ *struct{}) (*receivablesOut, 
 }
 
 type overviewIn struct {
-	Period string `query:"period" doc:"30d, 90d or 12m; default 12m."`
+	Period string `query:"period" enum:"30d,90d,12m" default:"12m" doc:"The analytics window."`
 }
 
 type overviewOut struct{ Body OverviewResponse }

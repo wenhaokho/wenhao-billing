@@ -222,7 +222,7 @@ func (q *Queries) CountSent(ctx context.Context) (int64, error) {
 }
 
 const daysToPay = `-- name: DaysToPay :one
-SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+SELECT COALESCE(SUM(GREATEST(p.payment_date - i.issue_date, 0)), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
   FROM payments p
   JOIN invoices i ON i.invoice_id = p.invoice_id
  WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
@@ -236,7 +236,7 @@ type DaysToPayRow struct {
 
 // Whole days from issue to payment, summed and counted per CLEARED payment of
 // a PAID invoice paid on or after since (an invoice paid twice counts twice;
-// no upper bound; a negative delta counts).
+// no upper bound; a payment dated before issue counts as 0 days).
 func (q *Queries) DaysToPay(ctx context.Context, since pgtype.Date) (DaysToPayRow, error) {
 	row := q.db.QueryRow(ctx, daysToPay, since)
 	var i DaysToPayRow
@@ -245,7 +245,7 @@ func (q *Queries) DaysToPay(ctx context.Context, since pgtype.Date) (DaysToPayRo
 }
 
 const daysToPayBetween = `-- name: DaysToPayBetween :one
-SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+SELECT COALESCE(SUM(GREATEST(p.payment_date - i.issue_date, 0)), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
   FROM payments p
   JOIN invoices i ON i.invoice_id = p.invoice_id
  WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
@@ -264,7 +264,7 @@ type DaysToPayBetweenRow struct {
 }
 
 // DaysToPay with an upper bound: payments dated from since to until, both
-// inclusive.
+// inclusive. A payment dated before issue counts as 0 days.
 func (q *Queries) DaysToPayBetween(ctx context.Context, arg DaysToPayBetweenParams) (DaysToPayBetweenRow, error) {
 	row := q.db.QueryRow(ctx, daysToPayBetween, arg.FromDate, arg.ToDate)
 	var i DaysToPayBetweenRow

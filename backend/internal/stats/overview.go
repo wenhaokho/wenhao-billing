@@ -51,7 +51,7 @@ type KPIOverdue struct {
 type KPIRecurring struct {
 	Amount platform.Dec4 `json:"amount"`
 	//nolint:forbidigo // a percentage is a JSON number, not money
-	ForeignShare       *float64 `json:"foreign_share" doc:"Percent not in the base currency; null when there is none."`
+	ForeignShare       *float64 `json:"foreign_share" doc:"Percent not in the base currency; null when there is no MRR or when an MRR currency has no FX rate (it is then in unconverted)."`
 	TopForeignCurrency *string  `json:"top_foreign_currency"`
 }
 
@@ -205,10 +205,14 @@ func Overview(ctx context.Context, db statsdb.DBTX, base string, today time.Time
 	}
 	total, foreign, topAmount := decimal.Zero, decimal.Zero, decimal.Zero
 	var top string
+	mrrUnconverted := false
 	for _, m := range mrr {
-		v, err := conv([]invoices.CurrencyAmount{m})
+		v, cs, err := toBase(ctx, db, base, today, []invoices.CurrencyAmount{m})
 		if err != nil {
 			return OverviewResponse{}, err
+		}
+		for _, c := range cs {
+			skipped[c], mrrUnconverted = true, true
 		}
 		total = total.Add(v)
 		if m.Currency != base {
@@ -219,7 +223,10 @@ func Overview(ctx context.Context, db statsdb.DBTX, base string, today time.Time
 		}
 	}
 	out.KPIs.MonthlyRecurring.Amount = platform.NewDec4(total)
-	out.KPIs.MonthlyRecurring.ForeignShare = percent(foreign, total)
+	if !mrrUnconverted {
+		// With a currency left out the share would be of a partial total.
+		out.KPIs.MonthlyRecurring.ForeignShare = percent(foreign, total)
+	}
 	if top != "" {
 		out.KPIs.MonthlyRecurring.TopForeignCurrency = &top
 	}

@@ -25,6 +25,17 @@ const upcomingHorizonDays = 90
 // A recurring template's date is its first cycle strictly after today; a usage
 // invoice's is the first cut-off day on or after today. Never nil.
 func Upcoming(ctx context.Context, db statsdb.DBTX, today time.Time) ([]UpcomingInvoiceItem, error) {
+	return upcoming(ctx, db, today, false)
+}
+
+// upcomingRuns is Upcoming with every run of a recurring template within the
+// horizon, not only the next one (the cash-in forecast). A usage draft is
+// still its single next cut-off, an estimate.
+func upcomingRuns(ctx context.Context, db statsdb.DBTX, today time.Time) ([]UpcomingInvoiceItem, error) {
+	return upcoming(ctx, db, today, true)
+}
+
+func upcoming(ctx context.Context, db statsdb.DBTX, today time.Time, everyRun bool) ([]UpcomingInvoiceItem, error) {
 	q := statsdb.New(db)
 	horizon := today.AddDate(0, 0, upcomingHorizonDays)
 	out := []UpcomingInvoiceItem{}
@@ -38,11 +49,17 @@ func Upcoming(ctx context.Context, db statsdb.DBTX, today time.Time) ([]Upcoming
 		if !ok {
 			continue
 		}
-		next, ok := s.NextAfter(today)
-		if !ok || next.Start.After(horizon) {
-			continue
+		for after := today; ; {
+			next, ok := s.NextAfter(after)
+			if !ok || next.Start.After(horizon) {
+				break
+			}
+			out = append(out, upcomingItem(t.InvoiceID, t.CustomerID, t.CustomerName, "RECURRING", next.Start, t.Amount, t.Currency, false))
+			if !everyRun {
+				break
+			}
+			after = next.Start
 		}
-		out = append(out, upcomingItem(t.InvoiceID, t.CustomerID, t.CustomerName, "RECURRING", next.Start, t.Amount, t.Currency, false))
 	}
 
 	drafts, err := q.ListUpcomingUsage(ctx)

@@ -106,6 +106,22 @@ VALUES ($1, $2, 'USAGE', 'USD', 5, 0, 'DRAFT', false, '{"cut_off_day": 30}'::jso
 	}
 }
 
+// TestReceivablesCashInWalksEveryRun counts every run of a recurring template
+// in the 90 days, not only the next one.
+func TestReceivablesCashInWalksEveryRun(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "Acme")
+	recurring(t, a, c, "100", "MONTHLY", "2026-01-10")                 // Aug 10 (+17), Sep 10 (+48), Oct 10 (+78)
+	recurring(t, a, c, "1000", "MONTHLY", "2026-03-01", "interval", 3) // Sep 1 (+39); Dec 1 is past the horizon
+	r := receivables(t, a)
+	eq(t, "cash in", cashInOf(r), []string{
+		"d0_30 0.0000 1600000.0000 n",
+		"d31_60 0.0000 17600000.0000 n",
+		"d61_90 0.0000 1600000.0000 n",
+	})
+}
+
 func TestReceivablesNeedsAttention(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)

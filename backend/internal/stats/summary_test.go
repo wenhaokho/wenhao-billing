@@ -263,6 +263,18 @@ func TestSummaryAvgDaysToPayOnlyCountsPaidInvoices(t *testing.T) {
 	}
 }
 
+func TestSummaryAvgDaysToPayClampsPaymentBeforeIssue(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "Acme Corp")
+	paidInvoice(t, a, c, 10, 20, "CLEARED") // paid 10 days before issue: counts as 0
+	paidInvoice(t, a, c, 30, 10, "CLEARED") // 20 days
+	// (0 + 20) / 2; unclamped it would be (-10 + 20) / 2 = 5.
+	if got := avg(t, summary(t, a)); got != "10" {
+		t.Fatalf("avg = %s, want 10", got)
+	}
+}
+
 func TestSummaryAvgDaysToPayCountsEachPayment(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
