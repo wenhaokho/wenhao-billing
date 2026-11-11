@@ -1,7 +1,7 @@
 # Connecting an MCP client to the billing backend
 
 The backend exposes a remote MCP server in-process — it rides on the same
-uvicorn process as the REST API, no separate container or port. In
+Go API process as the REST API, no separate container or port. In
 production it is reachable at:
 
 ```

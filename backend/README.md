@@ -1,13 +1,11 @@
 # backend (Go)
 
-The Go replacement for the frozen FastAPI backend in `backend-python/`. Design and rationale:
+The billing API. It replaced the FastAPI backend, which was removed on 2026-11-11 (the
+last commit with `backend-python/` is e7499a1). Design and rationale:
 [`docs/superpowers/specs/2026-11-08-go-backend-design.md`](../docs/superpowers/specs/2026-11-08-go-backend-design.md).
-Route and test inventories: [`ROUTES.md`](ROUTES.md), [`TESTS.md`](TESTS.md); behaviours
-the port must keep: [`PORT-NOTES.md`](PORT-NOTES.md).
-
-**The Python backend is frozen.** No feature, fix or migration lands in `backend-python/`
-while the port is in progress; its Alembic head (`0028_business_npwp`) is the baseline
-the Go migrations start from. A change that needs one waits for the port.
+From the port, kept as history: the route and test inventories [`ROUTES.md`](ROUTES.md)
+and [`TESTS.md`](TESTS.md), and [`PORT-NOTES.md`](PORT-NOTES.md), the Python behaviours
+the port kept or changed and why (Go comments cite its entries).
 
 ## Commands
 
@@ -46,8 +44,8 @@ bash scripts/check.sh
 ```
 
 From the repo root; GitHub Actions is off, so this is the gate. It runs the compose path
-guard, the frozen Python tests, the frontend build, then the Go checks: lint, generated
-code current, and `go test` (`GO_TEST_RACE=1` adds `-race`). It **fails if any test is skipped**, Go or Python.
+guard, the frontend build and its return_to check, then the Go checks: lint, generated
+code current, and `go test` (`GO_TEST_RACE=1` adds `-race`). It **fails if any test is skipped**.
 
 ## The API binary
 
@@ -68,27 +66,26 @@ The FX settings are optional: `BASE_CURRENCY` (default `IDR`; set but blank is r
   and refuses otherwise. Serve does this itself; the command remains for checking a copy.
 - `api set-password <email>` sets a user's password (read from stdin) and bumps their
   session epoch, signing out existing sessions.
-- `api issue-session <email>` prints a session cookie value for an admin, for scripted
-  comparison against the Python API.
+- `api issue-session <email>` prints a session cookie value for an admin, for scripts
+  against a running API.
 - `api healthcheck` and `api openapi` are for the container healthcheck and `./dev openapi`.
 
-For local comparison with the Python backend, the `api-go` service serves the Go API on
-:8001. It migrates whatever database it points at, so give it a scratch database, never
-the dev `billing` one. Every command below sets `GO_DATABASE_URL`; unset, it points at a
-nonexistent database and fails to connect.
+The dev stack's `backend` service (root `docker-compose.yml`) is this binary, serving the
+dev `billing` database on :8000. Run a subcommand with it, from the repo root:
 
 ```
-export GO_DATABASE_URL=postgresql://billing:billing@db:5432/billing_go_check
-docker compose exec -T db createdb -U billing billing_go_check
-docker compose exec -T -e DATABASE_URL=postgresql+psycopg://billing:billing@db:5432/billing_go_check backend alembic upgrade head
-GO_DATABASE_URL=$GO_DATABASE_URL docker compose --profile tools run --rm api-go adopt-baseline
-GO_DATABASE_URL=$GO_DATABASE_URL docker compose --profile tools up -d api-go
-# ... try http://localhost:8001/api/v1/auth/me, then:
-docker compose --profile tools rm -sf api-go
-docker compose exec -T db dropdb -U billing billing_go_check
+docker compose run --rm -T backend issue-session admin@example.com
+printf '%s
+' 'new password' | docker compose run --rm -T backend set-password admin@example.com
 ```
+
+Both need the user to exist: there is no command or seed that creates the first user.
 
 ## The baseline
 
-`migrations/` holds the goose baseline, generated from the frozen Alembic head. It is
-regenerated only if that head changes, which it does not while Python is frozen.
+`migrations/00001_baseline.sql` is the schema the Python backend left at Alembic head
+`0028_business_npwp`, and `migrations/testdata/alembic-0028.*` describe it. They were
+generated from the Alembic migrations by `port/make-baseline.sh`, removed with the Python
+backend, and are now fixed: never edit them. `adopt` still checks any Alembic-built
+database against them before handing it to goose. Schema changes are new goose
+migrations after the baseline.

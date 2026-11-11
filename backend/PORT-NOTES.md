@@ -1,5 +1,7 @@
 # Port notes
 
+> Python was removed on 2026-11-11. Paths into `backend-python/` below refer to git history (last commit with it: e7499a1).
+
 Behaviours of the frozen Python backend (`backend-python/`) that look like gaps or bugs. Each was re-read against the
 code on 2026-11-09; the file:line is where to see it. The Go port should decide each one on purpose instead of copying
 it by accident. "After the switch" is the fix to schedule once Go is live (not before: the port keeps Python's contract).

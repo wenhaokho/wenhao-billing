@@ -1,5 +1,7 @@
 # Go cut-over runbook
 
+> Python was removed on 2026-11-11. Paths into `backend-python/` refer to git history (last commit with it: e7499a1).
+
 The day production stops running the Python API and starts running the Go API,
 in **one Coolify deploy** (owner decision 2026-11-11: replace directly; no
 side-by-side, no Python way back). The rollback is the pre-deploy `pg_dump`
