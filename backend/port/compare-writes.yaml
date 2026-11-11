@@ -42,21 +42,37 @@
 # rule names a PORT-NOTES note; it never hides the difference:
 #   - a journal entry Go posts and Python never does, by source_type: INVOICE
 #     PN 162, BILL PN 164, BILL_PAYMENT PN 165, and PAYMENT PN 161 for a
-#     manual payment (both payments MANUAL, the bank line its amount). Each
-#     entry must pass self-consistency checks first: two or more lines that
-#     balance in base and in amount; one active entry per document (one
-#     entry per payment); one control line on the right side (AR debit, AP
-#     credit, AP debit, bank debit); an active issue entry matches its
-#     document's amount and currency at the issue date's rate and the
-#     document is not a DRAFT or a template; a reversal mirrors the entry it
-#     reverses. An entry's lines take its verdict;
-#   - a paired PAYMENT entry's lines are PN 163 when only the receivable's
-#     base and rate differ, both sides balance in base, and the 4900/5900
-#     lines' net base changed by exactly the receivable's base change;
+#     manual payment (both payments MANUAL). Each entry must pass
+#     self-consistency checks first, mirroring internal/ledger: two or more
+#     lines that balance in base and in amount; one active entry per
+#     document (one entry per payment); every line on an account and side
+#     its type posts (INVOICE: Dr 1100, Cr INCOME; BILL: Cr 2000, Dr
+#     EXPENSE/COGS/ASSET; BILL_PAYMENT: Dr 2000, Cr 1000; PAYMENT: Dr 1000,
+#     Dr 1300, Cr 1100; FX only as a 4900 credit or 5900 debit in the base
+#     currency); an issue entry matches its document's amount and currency
+#     at the issue date's rate unless an active replacement re-posted it, and
+#     an active one's document is not DRAFT, VOID or a template; a bill
+#     payment matches its bill_payments row; a manual payment's bank and
+#     1300 lines are its amount and withholding at the payment date's rate
+#     and the 1100 credit their sum, relieved at the invoice's issue basis;
+#     a reversal mirrors the entry it reverses. An entry's lines take its
+#     verdict;
+#   - a paired PAYMENT entry's lines are PN 163 when Go's lines pass the
+#     PAYMENT line rules with the 1100 credit at the invoice's issue basis
+#     (or the remaining basis, for the last relief), only the receivable's
+#     base and rate differ from Python's, both sides balance in base, and
+#     the 4900/5900 lines' net base changed by exactly the receivable's;
 #   - a bill voided by PATCH (Python only sets the status) is PN 164;
 #   - a manual payment Go reversed (Python refuses, PN 161): the payment row
-#     (FLAGGED on Go), the invoice row (balance restored) and Go's REVERSED
-#     log row are PN 161.
+#     (FLAGGED on Go), the invoice row (as payments.Service.Reverse sets it:
+#     a VOID invoice stays VOID with its balance, any other is OPEN with the
+#     amount and withholding added back; wht_booked less the withholding)
+#     and Go's one REVERSED log row carrying the reversal's reason are
+#     PN 161.
+# classify_answers names expected answer paths only; it does not check their
+# values. The values come from the rows, which the row rules check (for
+# patch-void-bill, the bills rule requires balance_due 0 and the exact
+# "[voided]" line).
 # A difference that fails a check stays unclassified and names the check
 # ("check" in the report). A step's `classify_answers: {note: "PN n", paths:
 # ["$.key", ...]}` names the note for its answer differences at those paths
