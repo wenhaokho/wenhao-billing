@@ -1270,7 +1270,7 @@ func receiptNotes(d Document) core.Component {
 	var s seq
 	if r := d.Receipt; r.WithholdingNote != "" {
 		s = append(s, newStack(0, 5,
-			block{lines: []string{upper("Withholding tax (" + r.WithholdingLabel + ")")}, prop: label},
+			block{lines: []string{upper("Withholding tax") + " (" + r.WithholdingLabel + ")"}, prop: label},
 			block{lines: []string{r.WithholdingNote}, prop: text},
 		))
 	}

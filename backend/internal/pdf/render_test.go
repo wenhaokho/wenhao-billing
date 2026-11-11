@@ -695,6 +695,16 @@ func TestWriteSamples(t *testing.T) {
 			return RenderReceipt(t.Context(), ReceiptDocument(crossReceipt()))
 		},
 		"long.pdf": func() ([]byte, error) { return RenderInvoice(t.Context(), InvoiceDocument(longInvoice(40))) },
+		"invoice-no-pph.pdf": func() ([]byte, error) {
+			// IDR, no withholding.
+			d := fullInvoice(func(i *invoicesdb.Invoice) {
+				i.Currency = "IDR"
+				i.Subtotal, i.Amount, i.BalanceDue = nd("9900000"), dec("9900000"), dec("9900000")
+			})
+			d.Lines[0].UnitPrice, d.Lines[0].Amount = dec("2500000"), dec("2500000")
+			d.Lines[1].UnitPrice, d.Lines[1].Amount = dec("185000"), dec("7400000")
+			return RenderInvoice(t.Context(), InvoiceDocument(d))
+		},
 		"invoice-sgd.pdf": func() ([]byte, error) {
 			return RenderInvoice(t.Context(), InvoiceDocument(fullInvoice(func(i *invoicesdb.Invoice) { i.Footer = sp("Registered in Singapore") })))
 		},
@@ -879,7 +889,7 @@ func TestReceiptShowsWithholdingOnlyWhenPaymentHasIt(t *testing.T) {
 		"IDR 4,523,077", "Four million five hundred twenty-three thousand seventy-seven rupiah",
 		// This payment is the cash and the withholding it settles.
 		"4,615,385")
-	r.hasFold(t, "Withholding tax (PPh 23)")
+	r.has(t, "WITHHOLDING TAX (PPh 23)")
 
 	none := idrReceipt("5588697")
 	none.Payment.WhtAmount = dec("0")
