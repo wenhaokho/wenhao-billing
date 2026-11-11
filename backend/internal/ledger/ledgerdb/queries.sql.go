@@ -187,6 +187,18 @@ func (q *Queries) EntryLines(ctx context.Context, entryID uuid.UUID) ([]EntryLin
 	return items, nil
 }
 
+const entryPostedAt = `-- name: EntryPostedAt :one
+SELECT posted_at FROM journal_entries WHERE entry_id = $1
+`
+
+// An entry's posted_at: a payment reversal is dated at its original's.
+func (q *Queries) EntryPostedAt(ctx context.Context, entryID uuid.UUID) (time.Time, error) {
+	row := q.db.QueryRow(ctx, entryPostedAt, entryID)
+	var posted_at time.Time
+	err := row.Scan(&posted_at)
+	return posted_at, err
+}
+
 const insertEntry = `-- name: InsertEntry :exec
 INSERT INTO journal_entries (entry_id, source_type, source_id, memo, posted_at)
 VALUES ($1, $2, $3, $4,

@@ -197,12 +197,17 @@ func reverseBillPayment(ctx context.Context, tx pgx.Tx, id, pid uuid.UUID, reaso
 	if p.Status != "CLEARED" {
 		return BillPaymentOut{}, refuse("bill_payment_not_reversible", "bill payment is %s and cannot be reversed", p.Status)
 	}
-	reversed, err := ledger.ReverseIssued(ctx, tx, ledger.SourceBillPayment, pid, "Reversal of payment on bill "+billLabel(cur)+": "+reason)
+	entryID, posted, err := ledger.ActiveEntryFor(ctx, tx, ledger.SourceBillPayment, pid)
 	if err != nil {
 		return BillPaymentOut{}, err
 	}
-	if !reversed {
+	if !posted {
 		return BillPaymentOut{}, ledger.Refuse("bill payment %s has no ledger entry — run api backpost-ledger", pid)
+	}
+	// Dated at the payment entry's posted_at: a correction (PORT-NOTES 167).
+	memo := "Reversal of payment on bill " + billLabel(cur) + ": " + reason
+	if _, err := ledger.ReversePayment(ctx, tx, entryID, &memo); err != nil {
+		return BillPaymentOut{}, err
 	}
 	row, err := q.ReverseBillPayment(ctx, billsdb.ReverseBillPaymentParams{BillPaymentID: pid, Reason: &reason})
 	if err != nil {

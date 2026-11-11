@@ -248,6 +248,23 @@ func PostReversalAt(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *
 	return postReversal(ctx, tx, originalID, memo, &postedAt)
 }
 
+// ReversePayment reverses a payment's entry (an invoice payment's or a bill
+// payment's) with memo, posted at the original entry's posted_at, not now: a
+// payment reversal is a correction (the payment never applied), so the
+// reports as of any date never show a reversed payment, and a payment
+// cleared, reversed and cleared again counts once (PORT-NOTES 167). Voids
+// and edits are business events and reverse at now (ReverseIssued).
+func ReversePayment(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *string) (Entry, error) {
+	at, err := ledgerdb.New(tx).EntryPostedAt(ctx, originalID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Entry{}, refuse("entry %s not found", originalID)
+	}
+	if err != nil {
+		return Entry{}, fmt.Errorf("ledger: entry posted_at: %w", err)
+	}
+	return PostReversalAt(ctx, tx, originalID, memo, at)
+}
+
 func postReversal(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *string, postedAt *time.Time) (Entry, error) {
 	q := ledgerdb.New(tx)
 	orig, err := q.LockEntry(ctx, originalID)

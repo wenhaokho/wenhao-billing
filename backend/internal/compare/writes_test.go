@@ -262,6 +262,42 @@ func TestJournalLinesAsMultiset(t *testing.T) {
 	}
 }
 
+// TestJournalReversedEntriesPairThroughReversal: a payment cleared, reversed
+// and cleared again has two clearings with one memo. Python posts each at
+// now; Go dates a payment reversal at its clearing's posted_at (PORT-NOTES
+// 167), so Go's four entries tie on posted_at and its entry ids order the
+// clearings the other way. Each clearing pairs through its reversal
+// (reversed_by_entry_id), so there is no difference.
+func TestJournalReversedEntriesPairThroughReversal(t *testing.T) {
+	t.Parallel()
+	f := newRowsFixture(t, "journal_entries")
+	f.snapshot(t)
+	const (
+		pySrc, goSrc = "c0000000-0000-4000-8000-000000000001", "d0000000-0000-4000-8000-000000000001"
+		pyC1, pyR1   = "c1000000-0000-4000-8000-000000000001", "c1000000-0000-4000-8000-000000000002"
+		pyC2, pyR2   = "c1000000-0000-4000-8000-000000000003", "c1000000-0000-4000-8000-000000000004"
+		// Go's first clearing has the larger id.
+		goC1, goR1 = "d1000000-0000-4000-8000-000000000009", "d1000000-0000-4000-8000-000000000002"
+		goC2, goR2 = "d1000000-0000-4000-8000-000000000001", "d1000000-0000-4000-8000-000000000004"
+	)
+	mustExec(t, f.py, `INSERT INTO journal_entries (entry_id, source_type, source_id, memo, posted_at) VALUES
+		($1, 'PAYMENT', $5, 'Reversal: first', '2026-11-11 10:00'), ($2, 'PAYMENT', $5, 'Reversal: second', '2026-11-11 12:00'),
+		($3, 'PAYMENT', $5, 'Payment cleared', '2026-11-11 09:00'), ($4, 'PAYMENT', $5, 'Payment cleared', '2026-11-11 11:00')`,
+		pyR1, pyR2, pyC1, pyC2, pySrc)
+	mustExec(t, f.py, `UPDATE journal_entries SET reversed_by_entry_id = CASE entry_id WHEN $1::uuid THEN $2::uuid ELSE $4::uuid END
+		WHERE entry_id IN ($1, $3)`, pyC1, pyR1, pyC2, pyR2)
+	mustExec(t, f.gov, `INSERT INTO journal_entries (entry_id, source_type, source_id, memo, posted_at) VALUES
+		($1, 'PAYMENT', $5, 'Reversal: first', '2025-02-01'), ($2, 'PAYMENT', $5, 'Reversal: second', '2025-02-01'),
+		($3, 'PAYMENT', $5, 'Payment cleared', '2025-02-01'), ($4, 'PAYMENT', $5, 'Payment cleared', '2025-02-01')`,
+		goR1, goR2, goC1, goC2, goSrc)
+	mustExec(t, f.gov, `UPDATE journal_entries SET reversed_by_entry_id = CASE entry_id WHEN $1::uuid THEN $2::uuid ELSE $4::uuid END
+		WHERE entry_id IN ($1, $3)`, goC1, goR1, goC2, goR2)
+
+	if diffs := f.compare(t, mapsOf(t, "payments", pySrc, goSrc)); len(diffs) != 0 {
+		t.Fatalf("diffs %+v, want none: each clearing pairs through its reversal", diffs)
+	}
+}
+
 // TestRowsGeneratedNumbers is I2: only the numbers the server generates are
 // normalised (invoices.invoice_number in the WH<year><n> shape); a bill_number
 // difference is reported.

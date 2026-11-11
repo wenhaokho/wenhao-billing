@@ -41,13 +41,16 @@ WHERE source_type = 'PAYMENT' AND source_id = $1`, id).Scan(&at); err != nil {
 	return at
 }
 
-// billPaymentPostedAt is posted_at of the one BILL_PAYMENT entry of bill id.
+// billPaymentPostedAt is posted_at of the active BILL_PAYMENT entry of bill
+// id's one CLEARED payment.
 func billPaymentPostedAt(t *testing.T, a *apitest.App, id uuid.UUID) string {
 	t.Helper()
 	var at string
 	if err := a.Pool.QueryRow(t.Context(), `SELECT e.posted_at::text FROM journal_entries e
 JOIN bill_payments p ON p.bill_payment_id = e.source_id
-WHERE e.source_type = 'BILL_PAYMENT' AND p.bill_id = $1`, id).Scan(&at); err != nil {
+WHERE e.source_type = 'BILL_PAYMENT' AND p.bill_id = $1 AND p.status = 'CLEARED'
+  AND e.reversed_by_entry_id IS NULL
+  AND NOT EXISTS (SELECT 1 FROM journal_entries o WHERE o.reversed_by_entry_id = e.entry_id)`, id).Scan(&at); err != nil {
 		t.Fatal(err)
 	}
 	return at
@@ -123,6 +126,92 @@ func TestInvoicePaymentPostedOnPaymentDate(t *testing.T) {
 		inv := issueInvoice(t, a, c, "IDR", "MILESTONE", "1000000").InvoiceID
 		pid := recordInvoicePayment(t, a, inv, "1000000", "2099-01-01")
 		postedNow(t, a, paymentPostedAt(t, a, pid))
+	})
+}
+
+// postedAts is posted_at of every entry of source id, as text, sorted.
+func postedAts(t *testing.T, a *apitest.App, id uuid.UUID) []string {
+	t.Helper()
+	rows, err := a.Pool.Query(t.Context(), `SELECT posted_at::text FROM journal_entries WHERE source_id = $1 ORDER BY 1`, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func wantAllAt(t *testing.T, what string, got []string, n int, at string) {
+	t.Helper()
+	if len(got) != n {
+		t.Fatalf("%s: %d entries %v, want %d", what, len(got), got, n)
+	}
+	for _, g := range got {
+		if g != at {
+			t.Errorf("%s: posted_at %v, want every one at %s", what, got, at)
+			return
+		}
+	}
+}
+
+// A payment reversal is a correction: it is dated at the payment entry's
+// posted_at (PORT-NOTES 167), so a payment cleared, reversed and cleared
+// again shows once in the reports as of any date after its payment date and
+// not at all before it.
+func TestPaymentReversalDatedAtOriginal(t *testing.T) {
+	t.Parallel()
+	const midFeb = "2025-02-15"
+	t.Run("invoice payment", func(t *testing.T) {
+		t.Parallel()
+		a := accrualApp(t)
+		c := newCustomer(t, a, "Acme")
+		inv := issueInvoice(t, a, c, "IDR", "MILESTONE", "1000000").InvoiceID
+		pid := recordInvoicePayment(t, a, inv, "500000", accrualPaid)
+		apitest.Decode[payments.PaymentOut](t, a.Do(t, http.MethodPost, "/api/v1/payments/"+pid.String()+"/reverse",
+			map[string]any{"reason": "wrong invoice"}), http.StatusOK)
+		apitest.Decode[payments.PaymentOut](t, a.Do(t, http.MethodPost, "/api/v1/payments/"+pid.String()+"/manual-review",
+			map[string]any{"invoice_id": inv}), http.StatusOK)
+		wantAllAt(t, "payment entries", postedAts(t, a, pid), 3, accrualPaid+" 00:00:00")
+
+		before := tb(t, a, "?as_of="+dayBeforePaid)
+		wantEq(t, "1100 IDR before", tbBaseNet(before, "1100", "IDR"), "1000000.0000")
+		wantEq(t, "1000 IDR before", tbBaseNet(before, "1000", "IDR"), "0.0000")
+		mid := tb(t, a, "?as_of="+midFeb)
+		wantEq(t, "1100 IDR mid-February", tbBaseNet(mid, "1100", "IDR"), "500000.0000")
+		wantEq(t, "1000 IDR mid-February", tbBaseNet(mid, "1000", "IDR"), "500000.0000")
+	})
+	t.Run("bill payment", func(t *testing.T) {
+		t.Parallel()
+		a := accrualApp(t)
+		v := newVendor(t, a, "Supplier")
+		bill := openBill(t, a, v, "IDR", "2000000").BillID
+		recordBillPayment(t, a, bill, 2000000, accrualPaid)
+		ps := apitest.Decode[[]bills.BillPaymentOut](t, a.Do(t, http.MethodGet, "/api/v1/bills/"+bill.String()+"/payments", nil), http.StatusOK)
+		if len(ps) != 1 {
+			t.Fatalf("%d bill payments, want 1", len(ps))
+		}
+		first := ps[0].BillPaymentID
+		apitest.Decode[bills.BillPaymentOut](t, a.Do(t, http.MethodPost, "/api/v1/bills/"+bill.String()+"/payments/"+first.String()+"/reverse",
+			map[string]any{"reason": "wrong bill"}), http.StatusOK)
+		recordBillPayment(t, a, bill, 2000000, accrualPaid)
+		wantAllAt(t, "reversed bill payment entries", postedAts(t, a, first), 2, accrualPaid+" 00:00:00")
+		wantEq(t, "re-recorded bill payment posted_at", billPaymentPostedAt(t, a, bill), accrualPaid+" 00:00:00")
+
+		before := tb(t, a, "?as_of="+dayBeforePaid)
+		wantEq(t, "2000 IDR before", tbBaseNet(before, "2000", "IDR"), "-2000000.0000")
+		wantEq(t, "1000 IDR before", tbBaseNet(before, "1000", "IDR"), "0.0000")
+		mid := tb(t, a, "?as_of="+midFeb)
+		wantEq(t, "2000 IDR mid-February", tbBaseNet(mid, "2000", "IDR"), "0.0000")
+		wantEq(t, "1000 IDR mid-February", tbBaseNet(mid, "1000", "IDR"), "-2000000.0000")
 	})
 }
 
