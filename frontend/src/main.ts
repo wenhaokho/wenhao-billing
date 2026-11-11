@@ -3,6 +3,7 @@ import { createPinia } from "pinia";
 import { VueQueryPlugin } from "@tanstack/vue-query";
 import * as Sentry from "@sentry/vue";
 import PrimeVue from "primevue/config";
+import { AppPreset } from "@/theme/preset";
 import ToastService from "primevue/toastservice";
 import ConfirmationService from "primevue/confirmationservice";
 
@@ -33,7 +34,10 @@ if (sentryDsn) {
 app.use(createPinia());
 app.use(router);
 app.use(VueQueryPlugin);
-app.use(PrimeVue, { ripple: true });
+app.use(PrimeVue, {
+  ripple: true,
+  theme: { preset: AppPreset, options: { darkModeSelector: ".app-dark", cssLayer: false } },
+});
 app.use(ToastService);
 app.use(ConfirmationService);
 app.mount("#app");

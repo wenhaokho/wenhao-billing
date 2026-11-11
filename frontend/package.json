@@ -9,13 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@primeuix/themes": "^3.1.0",
     "@sentry/vue": "^11.9.0",
     "@tanstack/vue-query": "^5.51.0",
     "axios": "^1.7.2",
     "chart.js": "^4.5.1",
     "pinia": "^2.2.0",
     "primeicons": "^7.0.0",
-    "primevue": "^3.53.0",
+    "primevue": "^4.5.5",
     "vue": "^3.4.31",
     "vue-router": "^4.4.0"
   },
