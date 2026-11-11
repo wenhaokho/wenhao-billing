@@ -4366,6 +4366,9 @@
             },
             "type": "array"
           },
+          "footer": {
+            "$ref": "#/components/schemas/RevenueFooter"
+          },
           "months": {
             "description": "Twelve months, oldest first, ending with the current month.",
             "items": {
@@ -4385,7 +4388,8 @@
           "base_currency",
           "currencies",
           "unconverted",
-          "months"
+          "months",
+          "footer"
         ],
         "type": "object"
       },
@@ -6370,6 +6374,75 @@
         "required": [
           "token",
           "new_password"
+        ],
+        "type": "object"
+      },
+      "RevenueBestMonth": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "description": "The month's invoiced total in the base currency.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "month": {
+            "description": "YYYY-MM.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "amount"
+        ],
+        "type": "object"
+      },
+      "RevenueFooter": {
+        "additionalProperties": true,
+        "properties": {
+          "best_month": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevenueBestMonth",
+                "description": "The month with the largest base total (the most recent on a tie); null when every month is zero."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "foreign_share": {
+            "description": "Percent of invoiced_base from non-base currencies; null when invoiced_base is zero.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fx_exposure": {
+            "description": "Today's open receivables in non-base currencies, converted to the base currency at today's rate; currencies with no rate are left out.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "invoiced_base": {
+            "description": "Sum of every month's base totals.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoiced_base",
+          "foreign_share",
+          "best_month",
+          "fx_exposure"
         ],
         "type": "object"
       },

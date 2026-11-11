@@ -31,6 +31,21 @@ type MonthlyRevenueResponse struct {
 	Currencies   []string               `json:"currencies" nullable:"false" doc:"Sorted currencies that have a base total in some month."`
 	Unconverted  []string               `json:"unconverted" nullable:"false" doc:"Sorted currencies with no FX rate to the base currency."`
 	Months       []MonthlyRevenueBucket `json:"months" nullable:"false" doc:"Twelve months, oldest first, ending with the current month."`
+	Footer       RevenueFooter          `json:"footer"`
+}
+
+// RevenueBestMonth is the month with the largest base total.
+type RevenueBestMonth struct {
+	Month  string        `json:"month" doc:"YYYY-MM."`
+	Amount platform.Dec4 `json:"amount" doc:"The month's invoiced total in the base currency."`
+}
+
+// RevenueFooter summarises the twelve months for the revenue chart's footer.
+type RevenueFooter struct {
+	InvoicedBase platform.Dec4     `json:"invoiced_base" doc:"Sum of every month's base totals."`
+	ForeignShare *float64          `json:"foreign_share" doc:"Percent of invoiced_base from non-base currencies; null when invoiced_base is zero."` //nolint:forbidigo // a percentage is a JSON number, not money
+	BestMonth    *RevenueBestMonth `json:"best_month" doc:"The month with the largest base total (the most recent on a tie); null when every month is zero."`
+	FXExposure   platform.Dec4     `json:"fx_exposure" doc:"Today's open receivables in non-base currencies, converted to the base currency at today's rate; currencies with no rate are left out."`
 }
 
 // monthLabels is the 12 YYYY-MM labels ending with today's month, oldest first.
@@ -133,5 +148,69 @@ func MonthlyRevenue(ctx context.Context, db statsdb.DBTX, base string, today tim
 		out.Unconverted = append(out.Unconverted, c)
 	}
 	slices.Sort(out.Unconverted)
+
+	foot, err := revenueFooter(ctx, db, base, today, out)
+	if err != nil {
+		return MonthlyRevenueResponse{}, err
+	}
+	out.Footer = foot.RevenueFooter
+	for _, c := range foot.skipped {
+		if !slices.Contains(out.Unconverted, c) {
+			out.Unconverted = append(out.Unconverted, c)
+		}
+	}
+	slices.Sort(out.Unconverted)
 	return out, nil
+}
+
+type footerResult struct {
+	RevenueFooter
+	skipped []string
+}
+
+// revenueFooter derives the footer from the converted months plus today's open
+// receivables in foreign currencies.
+func revenueFooter(ctx context.Context, db statsdb.DBTX, base string, today time.Time, r MonthlyRevenueResponse) (footerResult, error) {
+	total, foreign := decimal.Zero, decimal.Zero
+	var best *RevenueBestMonth
+	bestAmt := decimal.Zero
+	for _, m := range r.Months {
+		monthTotal := decimal.Zero
+		for cur, v := range m.Totals {
+			monthTotal = monthTotal.Add(v.Decimal())
+			if cur != base {
+				foreign = foreign.Add(v.Decimal())
+			}
+		}
+		total = total.Add(monthTotal)
+		if monthTotal.IsPositive() && monthTotal.GreaterThanOrEqual(bestAmt) { // >= : a tie goes to the later month
+			bestAmt = monthTotal
+			best = &RevenueBestMonth{Month: m.Month, Amount: platform.NewDec4(monthTotal)}
+		}
+	}
+
+	openRows, err := statsdb.New(db).OpenARByCurrency(ctx)
+	if err != nil {
+		return footerResult{}, err
+	}
+	open := currencyAmounts(openRows, func(row statsdb.OpenARByCurrencyRow) (string, platform.Dec4) {
+		return row.Currency, platform.NewDec4(row.Amount)
+	})
+	foreignOpen := open[:0]
+	for _, o := range open {
+		if o.Currency != base {
+			foreignOpen = append(foreignOpen, o)
+		}
+	}
+	exposure, skipped, err := toBase(ctx, db, base, today, foreignOpen)
+	if err != nil {
+		return footerResult{}, err
+	}
+	return footerResult{
+		RevenueFooter: RevenueFooter{
+			InvoicedBase: platform.NewDec4(total), ForeignShare: percent(foreign, total),
+			BestMonth: best, FXExposure: platform.NewDec4(exposure),
+		},
+		skipped: skipped,
+	}, nil
 }

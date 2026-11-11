@@ -305,7 +305,8 @@ func TestRevenueMonthlyRoute(t *testing.T) {
 	eq(t, "totals", dict(jan.Totals), []string{"SGD=120000.0000", "USD=1600000.0000"})
 	eq(t, "unpaid", dict(jan.UnpaidTotals), []string{"SGD=120000.0000", "USD=640000.0000"})
 
-	body := rec.Body.String()
+	// The footer's own nullable fields and "month" are checked in TestRevenueFooter.
+	body, _, _ := strings.Cut(rec.Body.String(), `,"footer"`)
 	if !strings.Contains(body, `"totals":{"SGD":"120000.0000","USD":"1600000.0000"}`) {
 		t.Fatalf("totals keys not in currency order: %s", body)
 	}
@@ -339,4 +340,41 @@ func TestRevenueFutureMonthDropped(t *testing.T) {
 		}
 	}
 	eq(t, "currencies", got.Currencies, []string{})
+}
+
+func TestRevenueFooter(t *testing.T) {
+	t.Parallel()
+	t.Run("invoiced, foreign share, best month tie and FX exposure", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		c := newCustomer(t, a, "Acme Corp")
+		inv{cur: "IDR", amount: "1000000", issue: d(date(2026, 5, 10))}.insert(t, a, c)
+		inv{cur: "SGD", amount: "100", balance: "40", status: "PARTIAL", issue: d(date(2026, 6, 20))}.insert(t, a, c) // 1,200,000 base
+		inv{cur: "IDR", amount: "1200000", balance: "0", status: "PAID", issue: d(date(2026, 7, 1))}.insert(t, a, c)  // ties June, later
+		// Open AUD has no rate and was issued before the window.
+		inv{cur: "AUD", amount: "50", issue: d(date(2024, 1, 1))}.insert(t, a, c)
+		f := revenue(t, a).Footer
+		eq(t, "invoiced_base", []string{f.InvoicedBase.Decimal().StringFixed(4)}, []string{"3400000.0000"})
+		if f.ForeignShare == nil || *f.ForeignShare != 35.3 {
+			t.Fatalf("foreign_share = %v, want 35.3", f.ForeignShare)
+		}
+		if f.BestMonth == nil || f.BestMonth.Month != "2026-07" || f.BestMonth.Amount.Decimal().StringFixed(4) != "1200000.0000" {
+			t.Fatalf("best_month = %+v, want 2026-07 1200000", f.BestMonth)
+		}
+		eq(t, "fx_exposure", []string{f.FXExposure.Decimal().StringFixed(4)}, []string{"480000.0000"})
+		eq(t, "unconverted", revenue(t, a).Unconverted, []string{"AUD"})
+	})
+	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
+		f := revenue(t, newApp(t)).Footer
+		eq(t, "invoiced_base", []string{f.InvoicedBase.Decimal().StringFixed(4)}, []string{"0.0000"})
+		if f.ForeignShare != nil || f.BestMonth != nil {
+			t.Fatalf("foreign_share = %v best_month = %v, want nil", f.ForeignShare, f.BestMonth)
+		}
+		eq(t, "fx_exposure", []string{f.FXExposure.Decimal().StringFixed(4)}, []string{"0.0000"})
+		b, _ := json.Marshal(f)
+		if !strings.Contains(string(b), `"foreign_share":null`) || !strings.Contains(string(b), `"best_month":null`) {
+			t.Fatalf("json = %s", b)
+		}
+	})
 }
