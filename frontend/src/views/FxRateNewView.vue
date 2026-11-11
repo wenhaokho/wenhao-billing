@@ -3,10 +3,10 @@ import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
-import DatePicker from "primevue/calendar";
+import DatePicker from "primevue/datepicker";
 import Message from "primevue/message";
 import { api } from "@/api/client";
 
@@ -103,11 +103,11 @@ function cancel() {
       <div class="two-col">
         <label class="field">
           <span>From</span>
-          <Dropdown v-model="form.from_currency" :options="currencyOptions" />
+          <Select v-model="form.from_currency" :options="currencyOptions" />
         </label>
         <label class="field">
           <span>To</span>
-          <Dropdown v-model="form.to_currency" :options="currencyOptions" />
+          <Select v-model="form.to_currency" :options="currencyOptions" />
         </label>
       </div>
       <label class="field">
@@ -164,8 +164,8 @@ function cancel() {
 .field :deep(.p-inputtext),
 .field :deep(.p-inputnumber),
 .field :deep(.p-inputnumber-input),
-.field :deep(.p-dropdown),
-.field :deep(.p-calendar) { width: 100%; }
+.field :deep(.p-select),
+.field :deep(.p-datepicker) { width: 100%; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; min-width: 0; }
 .two-col > .field { min-width: 0; }
 </style>

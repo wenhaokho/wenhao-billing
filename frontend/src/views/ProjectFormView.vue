@@ -7,8 +7,8 @@ import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
 import Textarea from "primevue/textarea";
-import Dropdown from "primevue/dropdown";
-import Calendar from "primevue/calendar";
+import Select from "primevue/select";
+import DatePicker from "primevue/datepicker";
 import Message from "primevue/message";
 import { api } from "@/api/client";
 
@@ -207,7 +207,7 @@ const canSave = computed(
       <div class="two-col">
         <label class="field">
           <span>Customer</span>
-          <Dropdown
+          <Select
             v-model="form.customer_id"
             :options="customers ?? []"
             option-label="name"
@@ -219,7 +219,7 @@ const canSave = computed(
         </label>
         <label class="field">
           <span>Status</span>
-          <Dropdown
+          <Select
             v-model="form.status"
             :options="statusOptions"
             option-label="label"
@@ -242,7 +242,7 @@ const canSave = computed(
       <div class="two-col">
         <label class="field">
           <span>Currency</span>
-          <Dropdown v-model="form.currency" :options="currencyOptions" />
+          <Select v-model="form.currency" :options="currencyOptions" />
         </label>
         <label class="field">
           <span>Contract value <span class="hint">(optional)</span></span>
@@ -260,11 +260,11 @@ const canSave = computed(
       <div class="two-col">
         <label class="field">
           <span>Start date</span>
-          <Calendar v-model="form.start_date" date-format="yy-mm-dd" show-icon />
+          <DatePicker v-model="form.start_date" date-format="yy-mm-dd" show-icon />
         </label>
         <label class="field">
           <span>End date</span>
-          <Calendar v-model="form.end_date" date-format="yy-mm-dd" show-icon />
+          <DatePicker v-model="form.end_date" date-format="yy-mm-dd" show-icon />
         </label>
       </div>
 
@@ -297,11 +297,11 @@ const canSave = computed(
 .field > span { font-weight: 600; font-size: 0.85rem; }
 .hint { font-weight: 400; color: var(--color-text-muted); font-size: 0.78rem; }
 .field :deep(.p-inputtext),
-.field :deep(.p-inputtextarea),
+.field :deep(.p-textarea),
 .field :deep(.p-inputnumber),
 .field :deep(.p-inputnumber-input),
-.field :deep(.p-calendar),
-.field :deep(.p-dropdown) { width: 100%; }
+.field :deep(.p-datepicker),
+.field :deep(.p-select) { width: 100%; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; min-width: 0; }
 .two-col > .field { min-width: 0; }
 </style>

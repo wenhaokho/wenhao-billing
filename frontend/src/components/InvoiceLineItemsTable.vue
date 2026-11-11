@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import Button from "primevue/button";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import Textarea from "primevue/textarea";
 import InputNumber from "primevue/inputnumber";
 import Tag from "primevue/tag";
@@ -81,7 +81,7 @@ function rowAmount(row: LineItemRow): number {
           severity="secondary"
           class="item-pill"
         />
-        <Dropdown
+        <Select
           v-else
           v-model="row.item_id"
           :options="catalog"

@@ -7,7 +7,10 @@ import Column from "primevue/column";
 import Button from "primevue/button";
 import Chip from "primevue/chip";
 import Tag from "primevue/tag";
-import TabView from "primevue/tabview";
+import Tabs from "primevue/tabs";
+import TabList from "primevue/tablist";
+import Tab from "primevue/tab";
+import TabPanels from "primevue/tabpanels";
 import TabPanel from "primevue/tabpanel";
 import Message from "primevue/message";
 import { api } from "@/api/client";
@@ -212,7 +215,7 @@ function goBack() {
 }
 
 const queryClient = useQueryClient();
-const activeTab = ref(0);
+const activeTab = ref<string | number>("overview");
 const form = ref<CustomerFormData>(emptyCustomerForm());
 const saveError = ref<string | null>(null);
 const saveOk = ref(false);
@@ -288,7 +291,7 @@ watch(
   [() => router.currentRoute.value.query.edit, () => customerQuery.data.value],
   ([flag, cust]) => {
     if (flag && cust) {
-      activeTab.value = 3;
+      activeTab.value = "edit";
       router.replace({ query: {} });
     }
   },
@@ -316,13 +319,13 @@ watch(
       <h1 class="cd-title">{{ customerQuery.data.value.name }}</h1>
       <div class="cd-actions">
         <Button
-          v-if="activeTab === 3"
+          v-if="activeTab === 'edit'"
           label="Save changes"
           :disabled="!form.name"
           :loading="saveCustomer.isPending.value"
           @click="saveCustomer.mutate()"
         />
-        <Button v-else label="Edit customer" outlined @click="activeTab = 3" />
+        <Button v-else label="Edit customer" outlined @click="activeTab = 'edit'" />
       </div>
     </div>
 
@@ -414,8 +417,15 @@ watch(
       </aside>
 
       <div class="cd-main">
-        <TabView v-model:activeIndex="activeTab">
-          <TabPanel header="Overview">
+        <Tabs v-model:value="activeTab">
+          <TabList>
+            <Tab value="overview">Overview</Tab>
+            <Tab value="invoices">Invoices</Tab>
+            <Tab value="quotations">Quotations</Tab>
+            <Tab value="edit">Edit</Tab>
+          </TabList>
+          <TabPanels>
+          <TabPanel value="overview">
             <div class="kpi-row">
               <div class="kpi">
                 <div class="kpi-label">Paid last 12 months</div>
@@ -500,7 +510,7 @@ watch(
             </div>
           </TabPanel>
 
-          <TabPanel header="Invoices">
+          <TabPanel value="invoices">
             <DataTable
               :value="invoicesQuery.data.value ?? []"
               :loading="invoicesQuery.isLoading.value"
@@ -549,7 +559,7 @@ watch(
             </DataTable>
           </TabPanel>
 
-          <TabPanel header="Quotations">
+          <TabPanel value="quotations">
             <DataTable
               :value="quotationsQuery.data.value ?? []"
               :loading="quotationsQuery.isLoading.value"
@@ -586,7 +596,7 @@ watch(
             </DataTable>
           </TabPanel>
 
-          <TabPanel header="Edit">
+          <TabPanel value="edit">
             <div class="edit-wrap">
               <Message v-if="saveOk" severity="success" :closable="true" @close="saveOk = false">
                 Customer updated.
@@ -598,7 +608,8 @@ watch(
               <CustomerForm v-model="form" />
             </div>
           </TabPanel>
-        </TabView>
+          </TabPanels>
+        </Tabs>
       </div>
     </div>
   </section>

@@ -4,10 +4,10 @@ import { useRouter, useRoute } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import Button from "primevue/button";
 import Checkbox from "primevue/checkbox";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
-import DatePicker from "primevue/calendar";
+import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import Tag from "primevue/tag";
@@ -572,7 +572,7 @@ const selectedProject = computed(() => {
   return (customerProjects.value ?? []).find((p) => p.project_id === projectId.value) ?? null;
 });
 
-const projectPickerRef = ref<InstanceType<typeof Dropdown> | null>(null);
+const projectPickerRef = ref<InstanceType<typeof Select> | null>(null);
 const projectPickerOpen = ref(false);
 function openProjectPicker() {
   projectPickerOpen.value = true;
@@ -600,7 +600,7 @@ watch(projectId, (pid) => {
   if (p?.currency) currency.value = p.currency;
 });
 
-const customerPickerRef = ref<InstanceType<typeof Dropdown> | null>(null);
+const customerPickerRef = ref<InstanceType<typeof Select> | null>(null);
 const pickerOpen = ref(false);
 function focusCustomerPicker() {
   pickerOpen.value = true;
@@ -958,7 +958,7 @@ const canSave = computed(() => {
                   class="customer-project-link"
                   @click="openProjectPicker"
                 />
-                <Dropdown
+                <Select
                   v-if="projectPickerOpen"
                   ref="projectPickerRef"
                   v-model="projectId"
@@ -973,7 +973,7 @@ const canSave = computed(() => {
                 />
               </div>
             </template>
-            <Dropdown
+            <Select
               v-else
               ref="customerPickerRef"
               v-model="customerId"
@@ -992,7 +992,7 @@ const canSave = computed(() => {
           <div class="customer-empty">
             <i class="pi pi-user-plus" />
             <div class="customer-empty-title">Add a customer</div>
-            <Dropdown
+            <Select
               v-model="customerId"
               :options="customers ?? []"
               option-label="name"
@@ -1035,7 +1035,7 @@ const canSave = computed(() => {
           </template>
           <template v-else>
             <label class="meta-label">Payment due</label>
-            <Dropdown v-model="paymentTerms" :options="paymentTermsOptions" :disabled="readOnly" />
+            <Select v-model="paymentTerms" :options="paymentTermsOptions" :disabled="readOnly" />
           </template>
         </div>
       </div>
@@ -1070,7 +1070,7 @@ const canSave = computed(() => {
         <div v-else class="recurring-heading">Recurring schedule</div>
         <div v-if="isRecurring" class="schedule-grid">
           <label class="meta-label">Frequency</label>
-          <Dropdown
+          <Select
             :disabled="readOnly"
             v-model="frequency"
             :options="frequencyOptions"
@@ -1097,7 +1097,7 @@ const canSave = computed(() => {
           <span class="auto">{{ nextInvoiceDate }}</span>
 
           <label class="meta-label">Ends</label>
-          <Dropdown
+          <Select
             :disabled="readOnly"
             v-model="endMode"
             :options="endModeOptions"
@@ -1136,7 +1136,7 @@ const canSave = computed(() => {
         </div>
         <div v-else class="totals-row discount">
           <div class="discount-input">
-            <Dropdown
+            <Select
               v-model="discountType"
               :options="[{ label: '%', value: 'PERCENT' }, { label: 'Amount', value: 'AMOUNT' }]"
               option-label="label"
@@ -1165,7 +1165,7 @@ const canSave = computed(() => {
 
         <div class="wht-controls">
           <div class="wht-input">
-            <Dropdown
+            <Select
               v-model="whtType"
               :options="WHT_OPTIONS"
               option-label="label"
@@ -1204,7 +1204,7 @@ const canSave = computed(() => {
 
         <div class="totals-row total">
           <div class="totals-label">
-            <Dropdown
+            <Select
               v-model="currency"
               :options="currencyOptions"
               class="ccy-select"
@@ -1350,8 +1350,8 @@ const canSave = computed(() => {
 .schedule-freq { width: 100%; }
 .schedule-interval { width: 80px; }
 .schedule-interval :deep(.p-inputnumber-input) { width: 100%; text-align: center; }
-.schedule-grid :deep(.p-dropdown),
-.schedule-grid :deep(.p-calendar),
+.schedule-grid :deep(.p-select),
+.schedule-grid :deep(.p-datepicker),
 .schedule-grid :deep(.p-datepicker-input) { width: 100%; }
 .inline-row { display: flex; align-items: center; gap: 0.5rem; }
 .muted { color: var(--color-text-muted); }
@@ -1448,7 +1448,7 @@ const canSave = computed(() => {
   width: 100%;
   margin-top: 0.25rem;
 }
-.customer-dropdown-inline :deep(.p-dropdown) {
+.customer-dropdown-inline :deep(.p-select) {
   width: 100%;
 }
 .customer-filled {
@@ -1533,7 +1533,7 @@ const canSave = computed(() => {
 }
 .customer-project-link :deep(.p-button-icon) { font-size: 0.8rem; }
 .customer-project-picker { flex: 1; min-width: 0; }
-.customer-project-picker :deep(.p-dropdown) { width: 100%; }
+.customer-project-picker :deep(.p-select) { width: 100%; }
 
 /* Meta card */
 .meta-card {
@@ -1564,7 +1564,7 @@ const canSave = computed(() => {
 }
 .meta-grid :deep(.p-inputtext),
 .meta-grid :deep(.p-datepicker-input),
-.meta-grid :deep(.p-calendar) {
+.meta-grid :deep(.p-datepicker) {
   width: 100%;
 }
 
@@ -1601,14 +1601,14 @@ const canSave = computed(() => {
   width: 110px;
   flex: 0 0 auto;
 }
-.ccy-select :deep(.p-dropdown-label) {
+.ccy-select :deep(.p-select-label) {
   padding: 0.35rem 0.5rem;
   font-size: 0.82rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   padding-right: 0.25rem;
 }
-.ccy-select :deep(.p-dropdown-trigger) {
+.ccy-select :deep(.p-select-dropdown) {
   width: 1.75rem;
 }
 .totals-value {

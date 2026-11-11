@@ -7,7 +7,7 @@ import InputText from "primevue/inputtext";
 import InputNumber from "primevue/inputnumber";
 import Checkbox from "primevue/checkbox";
 import Textarea from "primevue/textarea";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import Message from "primevue/message";
 import Tag from "primevue/tag";
 import { api } from "@/api/client";
@@ -302,7 +302,7 @@ function cancel() {
         </label>
         <label class="field">
           <span>Type</span>
-          <Dropdown
+          <Select
             v-model="form.item_type"
             :options="itemTypes"
             option-label="label"
@@ -320,7 +320,7 @@ function cancel() {
       </label>
       <label class="field">
         <span>Default currency</span>
-        <Dropdown v-model="form.default_currency" :options="currencyOptions" />
+        <Select v-model="form.default_currency" :options="currencyOptions" />
       </label>
 
       <div class="sub">
@@ -343,7 +343,7 @@ function cancel() {
             </label>
             <label class="field">
               <span>Revenue account</span>
-              <Dropdown
+              <Select
                 v-model="form.revenue_account_id"
                 :options="incomeAccounts"
                 :option-label="(a: Account) => `${a.code} · ${a.name}`"
@@ -376,7 +376,7 @@ function cancel() {
             </label>
             <label class="field">
               <span>Expense account</span>
-              <Dropdown
+              <Select
                 v-model="form.expense_account_id"
                 :options="expenseAccounts"
                 :option-label="(a: Account) => `${a.code} · ${a.name}`"
@@ -441,7 +441,7 @@ function cancel() {
               </label>
               <label class="field">
                 <span>Record type</span>
-                <Dropdown v-model="form.record_type" :options="recordTypes" />
+                <Select v-model="form.record_type" :options="recordTypes" />
               </label>
             </div>
             <div class="two-col">
@@ -485,10 +485,10 @@ function cancel() {
 .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.875rem; color: var(--color-text); }
 .field > span { font-weight: 600; font-size: 0.85rem; }
 .field :deep(.p-inputtext),
-.field :deep(.p-inputtextarea),
+.field :deep(.p-textarea),
 .field :deep(.p-inputnumber),
 .field :deep(.p-inputnumber-input),
-.field :deep(.p-dropdown) { width: 100%; }
+.field :deep(.p-select) { width: 100%; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; min-width: 0; }
 .two-col > .field { min-width: 0; }
 .sub { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.75rem 0; border-top: 1px dashed var(--color-border, #e2e8f0); }

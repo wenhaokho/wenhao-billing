@@ -4,9 +4,9 @@ import { useQuery } from "@tanstack/vue-query";
 import { useRouter } from "vue-router";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
-import Dropdown from "primevue/dropdown";
+import Select from "primevue/select";
 import InputText from "primevue/inputtext";
-import DatePicker from "primevue/calendar";
+import DatePicker from "primevue/datepicker";
 import Tag from "primevue/tag";
 import Button from "primevue/button";
 import { api } from "@/api/client";
@@ -107,7 +107,7 @@ function openPayment(row: AuditRow) {
     <div class="filters card card-pad">
       <label class="f">
         <span>Action</span>
-        <Dropdown
+        <Select
           v-model="action"
           :options="actionOptions"
           option-label="label"
@@ -194,7 +194,7 @@ function openPayment(row: AuditRow) {
 @media (max-width: 1000px) { .filters { grid-template-columns: 1fr 1fr; } }
 .f { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; }
 .f > span { font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; }
-.f :deep(.p-inputtext), .f :deep(.p-dropdown), .f :deep(.p-datepicker) { width: 100%; }
+.f :deep(.p-inputtext), .f :deep(.p-select), .f :deep(.p-datepicker) { width: 100%; }
 
 .muted { color: var(--color-text-muted); }
 .small { font-size: 0.75rem; }
