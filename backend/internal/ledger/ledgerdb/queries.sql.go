@@ -308,22 +308,6 @@ func (q *Queries) LockEntry(ctx context.Context, entryID uuid.UUID) (LockEntryRo
 	return i, err
 }
 
-const setEntryMemo = `-- name: SetEntryMemo :exec
-UPDATE journal_entries SET memo = $1::text WHERE entry_id = $2
-`
-
-type SetEntryMemoParams struct {
-	Memo    string
-	EntryID uuid.UUID
-}
-
-// The back-post's restated payment entries carry the original's memo with a
-// suffix (plan 12 Task 7); nothing else changes an entry's memo.
-func (q *Queries) SetEntryMemo(ctx context.Context, arg SetEntryMemoParams) error {
-	_, err := q.db.Exec(ctx, setEntryMemo, arg.Memo, arg.EntryID)
-	return err
-}
-
 const setReversedBy = `-- name: SetReversedBy :exec
 UPDATE journal_entries SET reversed_by_entry_id = $1::uuid WHERE entry_id = $2
 `

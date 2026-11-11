@@ -437,8 +437,8 @@ func TestBackpostPostsPythonManualPayments(t *testing.T) {
 		if !ok {
 			t.Fatalf("payment %s has no entry", p)
 		}
-		if at, want := e.postedAt(t, entry), paid2026.Add(12*time.Hour); !at.Equal(want) {
-			t.Errorf("payment %s posted_at = %s, want its created_at %s", p, at, want)
+		if at, want := e.postedAt(t, entry), paid2026; !at.Equal(want) {
+			t.Errorf("payment %s posted_at = %s, want its payment date %s (PORT-NOTES 167)", p, at, want)
 		}
 	}
 	b := e.invoiceBasis(t, usd)
@@ -530,6 +530,11 @@ func TestBackpostRefusesOnMissingRates(t *testing.T) {
 		if len(rep.MissingRates) != len(want) {
 			t.Errorf("apply=%v: missing rates = %q, want %q", apply, rep.MissingRates, want)
 		}
+		// The preflight stops the run: nothing is posted, not even under a
+		// savepoint, so no posting refusals are listed.
+		if rep.Invoices != 0 || rep.Bills != 0 || len(rep.Inconsistent) != 0 {
+			t.Errorf("apply=%v: the run went past the preflight: %+v", apply, rep)
+		}
 		for _, w := range want {
 			if !strings.Contains(out, w) {
 				t.Errorf("apply=%v: output lacks %q:\n%s", apply, w, out)
@@ -558,6 +563,9 @@ func TestBackpostRefusesOnBadAccounts(t *testing.T) {
 	if len(rep.BadAccounts) != 1 || !strings.Contains(rep.BadAccounts[0], "INVOICE INV-BAD: account 1000 (ASSET) cannot take revenue") {
 		t.Errorf("bad accounts = %q", rep.BadAccounts)
 	}
+	if rep.Invoices != 0 || len(rep.Inconsistent) != 0 {
+		t.Errorf("the run went past the preflight: %+v", rep)
+	}
 	if after := e.rows(t); after != before {
 		t.Errorf("rows = %v, want %v (nothing written)", after, before)
 	}
@@ -584,11 +592,15 @@ func TestBackpostIdempotent(t *testing.T) {
 func TestBackpostSkipsDraftsTemplatesVoid(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	e.invoice(t, doc{number: "INV-DRAFT", currency: "IDR", status: "DRAFT", amount: "100", issue: paid2026})
-	e.invoice(t, doc{number: "INV-TPL", currency: "IDR", status: "OPEN", amount: "100", issue: paid2026, template: true})
-	e.invoice(t, doc{number: "INV-ZERO", currency: "IDR", status: "PAID", amount: "0", balance: "0", issue: paid2026})
+	draft := e.invoice(t, doc{number: "INV-DRAFT", currency: "IDR", status: "DRAFT", amount: "100", issue: paid2026})
+	draftPay := e.pythonPayment(t, draft, "IDR", "60", paid2026, "1")
+	tpl := e.invoice(t, doc{number: "INV-TPL", currency: "IDR", status: "OPEN", amount: "100", issue: paid2026, template: true})
+	tplPay := e.pythonPayment(t, tpl, "IDR", "70", paid2026, "")
+	zero := e.invoice(t, doc{number: "INV-ZERO", currency: "USD", status: "PAID", amount: "0", balance: "0", issue: paid2026})
+	zeroPay := e.pythonPayment(t, zero, "USD", "5", paid2026, "")
 	void := e.invoice(t, doc{number: "INV-VOID", currency: "IDR", status: "VOID", amount: "100", issue: paid2026})
-	e.pythonPayment(t, void, "IDR", "100", paid2026, "1")
+	voidPay := e.pythonPayment(t, void, "IDR", "100", paid2026, "1")
+	voidManual := e.pythonPayment(t, void, "IDR", "40", paid2026, "")
 	e.bill(t, doc{number: "B-DRAFT", currency: "IDR", status: "DRAFT", amount: "100", issue: paid2026})
 	e.bill(t, doc{number: "B-VOID", currency: "IDR", status: "VOID", amount: "100", balance: "40", issue: paid2026})
 	e.bill(t, doc{number: "B-VOID-UNPAID", currency: "IDR", status: "VOID", amount: "100", issue: paid2026})
@@ -601,10 +613,24 @@ func TestBackpostSkipsDraftsTemplatesVoid(t *testing.T) {
 	if after := e.rows(t); after != before {
 		t.Errorf("rows = %v, want %v", after, before)
 	}
-	for _, w := range []string{
-		"INVOICE INV-VOID IDR is VOID with 1 CLEARED payment(s); their receivable credit stays",
+	// I1: every CLEARED payment on an invoice that is never posted is the
+	// owner's decision, split by whether it has an entry.
+	wantDecisions := []string{
+		"INVOICE INV-DRAFT (DRAFT) PAYMENT " + draftPay.String() + " IDR 60.0000 dated 2026-02-01: has an entry: its receivable credit stays on the ledger",
+		"INVOICE INV-TPL (OPEN, template) PAYMENT " + tplPay.String() + " IDR 70.0000 dated 2026-02-01: no entry: nothing on the ledger",
+		"INVOICE INV-VOID (VOID) PAYMENT " + voidPay.String() + " IDR 100.0000 dated 2026-02-01: has an entry: its receivable credit stays on the ledger",
+		"INVOICE INV-VOID (VOID) PAYMENT " + voidManual.String() + " IDR 40.0000 dated 2026-02-01: no entry: nothing on the ledger",
+		"INVOICE INV-ZERO (PAID, amount 0.0000) PAYMENT " + zeroPay.String() + " USD 5.0000 dated 2026-02-01: no entry: nothing on the ledger",
+	}
+	if len(rep.OwnerDecisions) != len(wantDecisions) {
+		t.Errorf("owner decisions = %q, want %d", rep.OwnerDecisions, len(wantDecisions))
+	}
+	if !strings.Contains(out, "owner decisions (CLEARED payments on invoices never posted):") {
+		t.Errorf("output lacks the owner decision list:\n%s", out)
+	}
+	for _, w := range append(wantDecisions,
 		"BILL B-VOID IDR is VOID with amount 100.0000 ≠ balance 40.0000; not posted",
-	} {
+	) {
 		if !strings.Contains(out, w) {
 			t.Errorf("output lacks %q:\n%s", w, out)
 		}

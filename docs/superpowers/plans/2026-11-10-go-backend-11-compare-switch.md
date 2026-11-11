@@ -314,8 +314,8 @@ Each response's created ids map Python → Go, and later requests use each backe
 - [ ] **Step 3: Reads.** Run `scripts/compare-local.sh reads`. Fix each Go defect in a fix PR, or add an allowed entry with its PORT-NOTES note. Repeat until the run is clean.
 - [ ] **Step 4: Writes.** Run `scripts/compare-local.sh writes` until it is clean in the same way.
 - [ ] **Step 4b: Back-post dry run (plan 12, PN 166).** On `billing_cmp_go`, run `api backpost-ledger` (no `--apply`: it writes nothing).
-  - Report to the owner: its counts (invoices issued, bills opened, payments restated, payments posted, legacy bill payments), the per-account base totals, every missing rate and bad account, and every warning (VOID documents with payments, null issue dates, face ≠ `balance_due`).
-  - Exit 1 means refused: the owner enters each missing rate (or fixes each account) in production before the switch, then the dry run is repeated on a fresh copy until it exits 0.
+  - Report to the owner: its counts (invoices issued, bills opened, payments restated, payments posted, legacy bill payments), the per-account base totals, every missing rate, bad account and `inconsistent` line, the owner-decision list (CLEARED payments on VOID, DRAFT, template or zero invoices, never posted), and every warning (VOID bills partly paid, null issue dates, payments on the ledger before their invoice's issue date, face ≠ `balance_due` on invoices with no payment).
+  - Exit 1 means refused: the owner enters each missing rate (or fixes each account, or decides each inconsistent payment) in production before the switch, then the dry run is repeated on a fresh copy until it exits 0.
 - [ ] **Step 5: Data checks** on `billing_cmp_py` (local copy, read-only).
   - Run the dry-run (plan) mode of `python -m scripts.fix_recurring_cycle_keys`, and a query for two non-VOID children with one template and one cycle date (PN 35).
   - Run a query for usage drafts whose `cut_off_day` falls in the coming week (PN 1/48: the Go job errors on them as Python's does).

@@ -123,8 +123,12 @@ const listClearedPayments = `-- name: ListClearedPayments :many
 SELECT p.payment_id, p.amount, p.currency, p.payment_date, p.wht_amount,
        (a.entry_id IS NOT NULL)::bool AS has_entry,
        COALESCE(a.entry_id, '00000000-0000-0000-0000-000000000000'::uuid)::uuid AS entry_id,
-       COALESCE(a.posted_at, p.created_at, p.payment_date::timestamp)::timestamp AS post_at,
-       a.memo AS entry_memo
+       COALESCE(a.posted_at, p.payment_date::timestamp)::timestamp AS entry_posted_at,
+       a.memo AS entry_memo,
+       COALESCE((SELECT SUM(l.credit - l.debit)
+                   FROM journal_lines l
+                   JOIN chart_of_accounts c ON c.account_id = l.account_id AND c.code = '1100'
+                  WHERE l.entry_id = a.entry_id), 0)::numeric AS entry_face
   FROM payments p
   LEFT JOIN LATERAL (
        SELECT e.entry_id, e.posted_at, e.memo
@@ -136,26 +140,27 @@ SELECT p.payment_id, p.amount, p.currency, p.payment_date, p.wht_amount,
         LIMIT 1) a ON true
  WHERE p.invoice_id = $1::uuid
    AND p.status = 'CLEARED'
- ORDER BY p.payment_date, p.created_at, p.payment_id
+ ORDER BY COALESCE(a.posted_at, p.created_at, p.payment_date::timestamp), p.payment_date, p.payment_id
 `
 
 type ListClearedPaymentsRow struct {
-	PaymentID   uuid.UUID
-	Amount      decimal.Decimal
-	Currency    string
-	PaymentDate pgtype.Date
-	WhtAmount   decimal.Decimal
-	HasEntry    bool
-	EntryID     uuid.UUID
-	PostAt      time.Time
-	EntryMemo   *string
+	PaymentID     uuid.UUID
+	Amount        decimal.Decimal
+	Currency      string
+	PaymentDate   pgtype.Date
+	WhtAmount     decimal.Decimal
+	HasEntry      bool
+	EntryID       uuid.UUID
+	EntryPostedAt time.Time
+	EntryMemo     *string
+	EntryFace     decimal.Decimal
 }
 
-// The invoice's CLEARED payments, oldest first (payment date, created_at,
-// id), each with its active PAYMENT entry when it has one (Python's manual
-// payments have none, PORT-NOTES 161). post_at is when its entry is (re)posted:
-// the active entry's posted_at, else the payment's created_at (else its
-// payment date).
+// The invoice's CLEARED payments in the order Python cleared them (the
+// active entry's posted_at, else the payment's created_at; then payment
+// date, id), each with its active PAYMENT entry when it has one (Python's
+// manual payments have none, PORT-NOTES 161). entry_face is what that entry
+// relieved: Σ(credit − debit) over its 1100 lines, in the invoice's currency.
 func (q *Queries) ListClearedPayments(ctx context.Context, invoiceID uuid.UUID) ([]ListClearedPaymentsRow, error) {
 	rows, err := q.db.Query(ctx, listClearedPayments, invoiceID)
 	if err != nil {
@@ -173,8 +178,9 @@ func (q *Queries) ListClearedPayments(ctx context.Context, invoiceID uuid.UUID) 
 			&i.WhtAmount,
 			&i.HasEntry,
 			&i.EntryID,
-			&i.PostAt,
+			&i.EntryPostedAt,
 			&i.EntryMemo,
+			&i.EntryFace,
 		); err != nil {
 			return nil, err
 		}
@@ -224,6 +230,125 @@ func (q *Queries) ListInvoiceCandidates(ctx context.Context) ([]uuid.UUID, error
 	return items, nil
 }
 
+const listPaymentNets = `-- name: ListPaymentNets :many
+SELECT p.payment_id, p.status, p.currency,
+       COALESCE(SUM(l.credit - l.debit), 0)::numeric AS total_face,
+       COALESCE(SUM(l.credit - l.debit) FILTER (
+           WHERE e.reversed_by_entry_id IS NULL
+             AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id)), 0)::numeric AS active_face
+  FROM payments p
+  JOIN journal_entries e ON e.source_type = 'PAYMENT' AND e.source_id = p.payment_id
+  JOIN journal_lines l ON l.entry_id = e.entry_id
+  JOIN chart_of_accounts c ON c.account_id = l.account_id AND c.code = '1100'
+ WHERE p.invoice_id = $1::uuid
+ GROUP BY p.payment_id, p.status, p.currency
+HAVING COALESCE(SUM(l.credit - l.debit), 0) <> CASE WHEN p.status = 'CLEARED' THEN COALESCE(SUM(l.credit - l.debit) FILTER (
+           WHERE e.reversed_by_entry_id IS NULL
+             AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id)), 0) ELSE 0 END
+ ORDER BY p.payment_id
+`
+
+type ListPaymentNetsRow struct {
+	PaymentID  uuid.UUID
+	Status     string
+	Currency   string
+	TotalFace  decimal.Decimal
+	ActiveFace decimal.Decimal
+}
+
+// Every payment of the invoice (any status) whose PAYMENT entries' 1100
+// lines do not net to what they should: a CLEARED payment's to its active
+// entry's, any other payment's to 0 (a reversal reversed again under Python
+// leaves them apart).
+func (q *Queries) ListPaymentNets(ctx context.Context, invoiceID uuid.UUID) ([]ListPaymentNetsRow, error) {
+	rows, err := q.db.Query(ctx, listPaymentNets, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPaymentNetsRow
+	for rows.Next() {
+		var i ListPaymentNetsRow
+		if err := rows.Scan(
+			&i.PaymentID,
+			&i.Status,
+			&i.Currency,
+			&i.TotalFace,
+			&i.ActiveFace,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnpostedInvoicePayments = `-- name: ListUnpostedInvoicePayments :many
+SELECT i.invoice_id, i.invoice_number, i.status AS invoice_status, i.is_template, i.amount AS invoice_amount,
+       p.payment_id, p.amount, p.currency, p.payment_date,
+       EXISTS (SELECT 1 FROM journal_entries e
+                WHERE e.source_type = 'PAYMENT' AND e.source_id = p.payment_id
+                  AND e.reversed_by_entry_id IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id))::bool AS has_entry
+  FROM invoices i
+  JOIN payments p ON p.invoice_id = i.invoice_id AND p.status = 'CLEARED'
+ WHERE i.is_template
+    OR i.status NOT IN ('OPEN', 'SENT', 'PARTIAL', 'PAID')
+    OR i.amount <= 0
+ ORDER BY i.invoice_number, i.invoice_id, p.payment_date, p.payment_id
+`
+
+type ListUnpostedInvoicePaymentsRow struct {
+	InvoiceID     uuid.UUID
+	InvoiceNumber *string
+	InvoiceStatus string
+	IsTemplate    bool
+	InvoiceAmount decimal.Decimal
+	PaymentID     uuid.UUID
+	Amount        decimal.Decimal
+	Currency      string
+	PaymentDate   pgtype.Date
+	HasEntry      bool
+}
+
+// The owner's decisions: CLEARED payments on invoices the back-post never
+// posts (VOID, DRAFT or any other status, templates, amount 0 or less;
+// Python's approve_manual_match does not check the status), each with
+// whether it has an active PAYMENT entry.
+func (q *Queries) ListUnpostedInvoicePayments(ctx context.Context) ([]ListUnpostedInvoicePaymentsRow, error) {
+	rows, err := q.db.Query(ctx, listUnpostedInvoicePayments)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnpostedInvoicePaymentsRow
+	for rows.Next() {
+		var i ListUnpostedInvoicePaymentsRow
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.InvoiceNumber,
+			&i.InvoiceStatus,
+			&i.IsTemplate,
+			&i.InvoiceAmount,
+			&i.PaymentID,
+			&i.Amount,
+			&i.Currency,
+			&i.PaymentDate,
+			&i.HasEntry,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVoidBillsPartlyPaid = `-- name: ListVoidBillsPartlyPaid :many
 SELECT b.bill_id, b.bill_number, b.currency, b.amount, b.balance_due
   FROM bills b
@@ -257,48 +382,6 @@ func (q *Queries) ListVoidBillsPartlyPaid(ctx context.Context) ([]ListVoidBillsP
 			&i.Currency,
 			&i.Amount,
 			&i.BalanceDue,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVoidInvoicesWithClearedPayments = `-- name: ListVoidInvoicesWithClearedPayments :many
-SELECT i.invoice_id, i.invoice_number, i.currency, COUNT(p.payment_id)::int AS payments
-  FROM invoices i
-  JOIN payments p ON p.invoice_id = i.invoice_id AND p.status = 'CLEARED'
- WHERE i.status = 'VOID'
- GROUP BY i.invoice_id, i.invoice_number, i.currency
- ORDER BY i.invoice_number, i.invoice_id
-`
-
-type ListVoidInvoicesWithClearedPaymentsRow struct {
-	InvoiceID     uuid.UUID
-	InvoiceNumber *string
-	Currency      string
-	Payments      int32
-}
-
-// Warnings: a VOID invoice's CLEARED payments keep their receivable credit.
-func (q *Queries) ListVoidInvoicesWithClearedPayments(ctx context.Context) ([]ListVoidInvoicesWithClearedPaymentsRow, error) {
-	rows, err := q.db.Query(ctx, listVoidInvoicesWithClearedPayments)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListVoidInvoicesWithClearedPaymentsRow
-	for rows.Next() {
-		var i ListVoidInvoicesWithClearedPaymentsRow
-		if err := rows.Scan(
-			&i.InvoiceID,
-			&i.InvoiceNumber,
-			&i.Currency,
-			&i.Payments,
 		); err != nil {
 			return nil, err
 		}

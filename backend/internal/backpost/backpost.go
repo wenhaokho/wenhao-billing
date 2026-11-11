@@ -6,9 +6,12 @@
 // nothing of its own.
 //
 // It runs in one transaction: a dry run (the default) rolls back, --apply
-// commits. A missing FX rate or a share account of the wrong type anywhere
-// refuses the whole run before anything is written. A second run finds no
-// candidates (every document it posted has an active issue entry).
+// commits. A missing FX rate, a share account of the wrong type, a payment
+// whose entries do not net, a posting the ledger refuses, or a restated
+// invoice whose ledger receivable would not be its balance due anywhere
+// refuses the whole run: everything is listed and nothing is written. A
+// second run finds no candidates (every document it posted has an active
+// issue entry).
 package backpost
 
 import (
@@ -35,8 +38,9 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger"
 )
 
-// ErrRefused is the run's refusal: missing rates or bad share accounts.
-// Nothing is written, in a dry run or with --apply.
+// ErrRefused is the run's refusal: missing rates, bad share accounts or
+// inconsistencies (Report.Inconsistent). Nothing is written, in a dry run
+// or with --apply.
 var ErrRefused = errors.New("backpost refused")
 
 // AccountTotal is one account's base debit and credit over the entries the
@@ -54,7 +58,7 @@ type Report struct {
 	// invoices, reversed and re-posted at the issue basis.
 	PaymentsRestated int
 	// PaymentsPosted are CLEARED payments that had no entry (Python's manual
-	// payments, PORT-NOTES 161), posted now.
+	// payments, PORT-NOTES 161), posted on their payment date.
 	PaymentsPosted int
 	// LegacyBillPayments are the bill payments stored for what bills had paid
 	// under Python.
@@ -62,7 +66,18 @@ type Report struct {
 	Totals             []AccountTotal
 	MissingRates       []string
 	BadAccounts        []string
-	Warnings           []string
+	// Inconsistent are the refusals found in the data or while posting: a
+	// payment whose entries do not net, a posting the ledger refuses, a
+	// restated invoice whose ledger receivable is not its balance due.
+	Inconsistent []string
+	// OwnerDecisions are CLEARED payments on invoices the back-post never
+	// posts (VOID, DRAFT, templates, amount 0): listed, never posted.
+	OwnerDecisions []string
+	Warnings       []string
+}
+
+func (rep Report) refused() bool {
+	return len(rep.MissingRates) > 0 || len(rep.BadAccounts) > 0 || len(rep.Inconsistent) > 0
 }
 
 const (
@@ -77,8 +92,8 @@ type invoiceDoc struct {
 	label  string
 	day    time.Time
 	shares []ledger.Share
-	// pays are the CLEARED payments to (re)post, oldest first: every one of
-	// a foreign-currency invoice, only those with no entry otherwise.
+	// pays are the CLEARED payments to (re)post, in clearing order: every
+	// one of a foreign-currency invoice, only those with no entry otherwise.
 	pays []backpostdb.ListClearedPaymentsRow
 }
 
@@ -92,21 +107,25 @@ type billDoc struct {
 }
 
 type runner struct {
-	ctx     context.Context
-	tx      pgx.Tx
-	q       *backpostdb.Queries
-	fq      *fxdb.Queries
-	base    string
-	w       io.Writer
-	rep     Report
+	ctx  context.Context
+	tx   pgx.Tx
+	q    *backpostdb.Queries
+	fq   *fxdb.Queries
+	base string
+	w    io.Writer
+	rep  Report
+	// entries are the entries written, for the totals.
 	entries []uuid.UUID
+	// lines are the documents posted, printed with the report (not on a
+	// refusal, which writes nothing).
+	lines []string
 }
 
 // Run back-posts in one transaction on pool, in base currency base, and
 // prints what it does to w. It commits only when apply is true; a dry run
-// rolls back and prints "dry run: nothing written". A refusal (missing
-// rates, bad share accounts) is ErrRefused with nothing written; any other
-// error rolls back too.
+// rolls back and prints "dry run: nothing written". A refusal is ErrRefused
+// with nothing written and every reason listed; any other error rolls back
+// too.
 func Run(ctx context.Context, pool *pgxpool.Pool, base string, apply bool, w io.Writer) (Report, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -132,6 +151,11 @@ func Run(ctx context.Context, pool *pgxpool.Pool, base string, apply bool, w io.
 	return r.rep, nil
 }
 
+func (r *runner) refusal() error {
+	return fmt.Errorf("%w: %d missing rates, %d bad accounts, %d inconsistent", ErrRefused,
+		len(r.rep.MissingRates), len(r.rep.BadAccounts), len(r.rep.Inconsistent))
+}
+
 func (r *runner) run() error {
 	invs, err := r.lockInvoices()
 	if err != nil {
@@ -141,11 +165,15 @@ func (r *runner) run() error {
 	if err != nil {
 		return err
 	}
-	if err := r.warnVoid(); err != nil {
+	if err := r.ownerDecisions(); err != nil {
+		return err
+	}
+	if err := r.warnVoidBills(); err != nil {
 		return err
 	}
 
-	// Preflight: every rate and share account, before anything is written.
+	// Preflight: every rate, share account and payment, before anything is
+	// written.
 	for i := range invs {
 		if err := r.checkInvoice(&invs[i]); err != nil {
 			return err
@@ -156,29 +184,24 @@ func (r *runner) run() error {
 			return err
 		}
 	}
-	if len(r.rep.MissingRates) > 0 || len(r.rep.BadAccounts) > 0 {
-		return fmt.Errorf("%w: %d missing rates, %d bad accounts", ErrRefused, len(r.rep.MissingRates), len(r.rep.BadAccounts))
+	if r.rep.refused() {
+		return r.refusal()
 	}
 
+	// Each document posts under its own savepoint, so a refusal is listed and
+	// the run goes on to list every other one; any refusal refuses the run.
 	for _, d := range invs {
-		if err := r.postInvoice(d); err != nil {
-			return fmt.Errorf("backpost: INVOICE %s: %w", d.label, err)
+		if err := r.document("INVOICE "+d.label, func(tx pgx.Tx, out *docOut) error { return r.postInvoice(tx, d, out) }); err != nil {
+			return err
 		}
 	}
 	for _, d := range bls {
-		if err := r.postBill(d); err != nil {
-			return fmt.Errorf("backpost: BILL %s: %w", d.label, err)
-		}
-	}
-	for _, d := range invs {
-		b, err := ledger.InvoiceBasis(r.ctx, r.tx, d.inv.InvoiceID)
-		if err != nil {
+		if err := r.document("BILL "+d.label, func(tx pgx.Tx, out *docOut) error { return r.postBill(tx, d, out) }); err != nil {
 			return err
 		}
-		if !b.Face.Equal(d.inv.BalanceDue) {
-			r.warn("invoice %s %s %s: ledger face %s ≠ balance_due %s",
-				d.inv.InvoiceID, d.label, d.inv.Currency, b.Face.StringFixed(4), d.inv.BalanceDue.StringFixed(4))
-		}
+	}
+	if r.rep.refused() {
+		return r.refusal()
 	}
 
 	tb, err := r.q.TrialBalance(r.ctx)
@@ -197,6 +220,57 @@ func (r *runner) run() error {
 			r.rep.Totals = append(r.rep.Totals, AccountTotal{Code: t.Code, Name: t.Name, Debit: t.Debit, Credit: t.Credit})
 		}
 	}
+	return nil
+}
+
+// docOut is what one document's posting adds to the report; it is kept
+// only when the document's savepoint is.
+type docOut struct {
+	invoices, bills, restated, posted, legacy int
+	entries                                   []uuid.UUID
+	lines                                     []string
+	// inconsistent: posted, but the result is refused (the face check).
+	inconsistent []string
+	warnings     []string
+}
+
+func (o *docOut) printf(format string, args ...any) {
+	o.lines = append(o.lines, fmt.Sprintf(format, args...))
+}
+
+// document runs post under a savepoint. A ledger refusal or a missing rate
+// rolls the savepoint back and is listed as inconsistent; any other error
+// stops the run.
+func (r *runner) document(who string, post func(pgx.Tx, *docOut) error) error {
+	sp, err := r.tx.Begin(r.ctx)
+	if err != nil {
+		return err
+	}
+	var out docOut
+	err = post(sp, &out)
+	if errors.Is(err, ledger.ErrLedger) || errors.Is(err, fx.ErrRateMissing) {
+		if rbErr := sp.Rollback(r.ctx); rbErr != nil {
+			return rbErr
+		}
+		r.rep.Inconsistent = append(r.rep.Inconsistent, who+": "+err.Error())
+		return nil
+	}
+	if err != nil {
+		_ = sp.Rollback(r.ctx)
+		return fmt.Errorf("backpost: %s: %w", who, err)
+	}
+	if err := sp.Commit(r.ctx); err != nil {
+		return err
+	}
+	r.rep.Invoices += out.invoices
+	r.rep.Bills += out.bills
+	r.rep.PaymentsRestated += out.restated
+	r.rep.PaymentsPosted += out.posted
+	r.rep.LegacyBillPayments += out.legacy
+	r.rep.Inconsistent = append(r.rep.Inconsistent, out.inconsistent...)
+	r.rep.Warnings = append(r.rep.Warnings, out.warnings...)
+	r.entries = append(r.entries, out.entries...)
+	r.lines = append(r.lines, out.lines...)
 	return nil
 }
 
@@ -231,12 +305,12 @@ func (r *runner) lockInvoices() ([]invoiceDoc, error) {
 		d := invoiceDoc{inv: inv, label: label(inv.InvoiceNumber, id)}
 		switch {
 		case inv.IssueDate.Valid:
-			d.day = dateOf(inv.IssueDate.Time)
+			d.day = ledger.Midnight(inv.IssueDate.Time)
 		case inv.CreatedAt != nil:
-			d.day = dateOf(*inv.CreatedAt)
+			d.day = ledger.Midnight(inv.CreatedAt.UTC())
 			r.warn("INVOICE %s: no issue date; created_at date %s used", d.label, d.day.Format(time.DateOnly))
 		default:
-			d.day = dateOf(time.Now())
+			d.day = ledger.Midnight(time.Now().UTC())
 			r.warn("INVOICE %s: no issue date and no created_at; today %s used", d.label, d.day.Format(time.DateOnly))
 		}
 		out = append(out, d)
@@ -272,9 +346,9 @@ func (r *runner) lockBills() ([]billDoc, error) {
 		}
 		d := billDoc{bill: b, label: label(b.BillNumber, id)}
 		if b.IssueDate.Valid {
-			d.day = dateOf(b.IssueDate.Time)
+			d.day = ledger.Midnight(b.IssueDate.Time)
 		} else {
-			d.day = dateOf(b.CreatedAt)
+			d.day = ledger.Midnight(b.CreatedAt.UTC())
 			r.warn("BILL %s: no issue date; created_at date %s used", d.label, d.day.Format(time.DateOnly))
 		}
 		stored, err := r.q.SumClearedBillPayments(r.ctx, id)
@@ -291,14 +365,33 @@ func (r *runner) lockBills() ([]billDoc, error) {
 	return out, nil
 }
 
-func (r *runner) warnVoid() error {
-	invs, err := r.q.ListVoidInvoicesWithClearedPayments(r.ctx)
+// ownerDecisions lists the CLEARED payments on invoices the back-post never
+// posts: whether to void, re-issue or move them is the owner's call.
+func (r *runner) ownerDecisions() error {
+	rows, err := r.q.ListUnpostedInvoicePayments(r.ctx)
 	if err != nil {
 		return err
 	}
-	for _, v := range invs {
-		r.warn("INVOICE %s %s is VOID with %d CLEARED payment(s); their receivable credit stays", label(v.InvoiceNumber, v.InvoiceID), v.Currency, v.Payments)
+	for _, v := range rows {
+		what := v.InvoiceStatus
+		if v.IsTemplate {
+			what += ", template"
+		}
+		if !v.InvoiceAmount.IsPositive() {
+			what += ", amount " + v.InvoiceAmount.StringFixed(4)
+		}
+		state := "no entry: nothing on the ledger"
+		if v.HasEntry {
+			state = "has an entry: its receivable credit stays on the ledger"
+		}
+		r.rep.OwnerDecisions = append(r.rep.OwnerDecisions, fmt.Sprintf("INVOICE %s (%s) PAYMENT %s %s %s dated %s: %s",
+			label(v.InvoiceNumber, v.InvoiceID), what, v.PaymentID, v.Currency, v.Amount.StringFixed(4),
+			v.PaymentDate.Time.Format(time.DateOnly), state))
 	}
+	return nil
+}
+
+func (r *runner) warnVoidBills() error {
 	bls, err := r.q.ListVoidBillsPartlyPaid(r.ctx)
 	if err != nil {
 		return err
@@ -309,20 +402,32 @@ func (r *runner) warnVoid() error {
 	return nil
 }
 
-// checkInvoice collects d's missing rates and bad share accounts, and
+// checkInvoice collects d's missing rates, bad share accounts and payments
+// whose entries do not net, warns of payments dated before the issue, and
 // loads its shares and the payments it posts.
 func (r *runner) checkInvoice(d *invoiceDoc) error {
 	inv := d.inv
-	if err := r.needRate("INVOICE "+d.label, inv.Currency, d.day); err != nil {
+	who := "INVOICE " + d.label
+	if err := r.needRate(who, inv.Currency, d.day); err != nil {
 		return err
 	}
 	shares, err := invoices.RevenueShares(r.ctx, r.tx, inv)
 	if errors.Is(err, ledger.ErrLedger) {
-		r.rep.BadAccounts = append(r.rep.BadAccounts, "INVOICE "+d.label+": "+err.Error())
+		r.rep.BadAccounts = append(r.rep.BadAccounts, who+": "+err.Error())
 	} else if err != nil {
 		return err
 	}
 	d.shares = shares
+
+	nets, err := r.q.ListPaymentNets(r.ctx, inv.InvoiceID)
+	if err != nil {
+		return err
+	}
+	for _, n := range nets {
+		r.rep.Inconsistent = append(r.rep.Inconsistent, fmt.Sprintf(
+			"PAYMENT %s of %s (%s): its entries relieve %s %s net but should relieve %s (its reversals do not pair)",
+			n.PaymentID, who, n.Status, n.TotalFace.StringFixed(4), inv.Currency, expectedNet(n).StringFixed(4)))
+	}
 
 	pays, err := r.q.ListClearedPayments(r.ctx, inv.InvoiceID)
 	if err != nil {
@@ -330,21 +435,43 @@ func (r *runner) checkInvoice(d *invoiceDoc) error {
 	}
 	foreign := inv.Currency != r.base
 	for _, p := range pays {
+		pwho := "PAYMENT " + p.PaymentID.String() + " of " + who
+		at := ledger.Midnight(p.PaymentDate.Time)
+		if p.HasEntry {
+			at = p.EntryPostedAt
+		}
+		if ledger.Midnight(at).Before(d.day) {
+			r.warn("%s is on the ledger on %s, before the invoice's issue date %s: the receivable is below 0 in between",
+				pwho, at.Format(time.DateOnly), d.day.Format(time.DateOnly))
+		}
 		if p.HasEntry && !foreign {
 			continue // a base-currency invoice's payment entries are already right
 		}
+		if p.HasEntry && p.Currency == inv.Currency && !p.Amount.Add(p.WhtAmount).Equal(p.EntryFace) {
+			r.rep.Inconsistent = append(r.rep.Inconsistent, fmt.Sprintf(
+				"%s: its entry relieved %s %s, not its amount + withheld %s", pwho,
+				p.EntryFace.StringFixed(4), inv.Currency, p.Amount.Add(p.WhtAmount).StringFixed(4)))
+		}
 		d.pays = append(d.pays, p)
-		who := "PAYMENT " + p.PaymentID.String() + " of INVOICE " + d.label
-		if err := r.needRate(who, p.Currency, p.PaymentDate.Time); err != nil {
+		if err := r.needRate(pwho, p.Currency, p.PaymentDate.Time); err != nil {
 			return err
 		}
 		if p.WhtAmount.IsPositive() && p.Currency != inv.Currency {
-			if err := r.needRate(who, inv.Currency, p.PaymentDate.Time); err != nil {
+			if err := r.needRate(pwho, inv.Currency, p.PaymentDate.Time); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// expectedNet is what a payment's entries should net to: its active
+// entry's relief when CLEARED, else 0.
+func expectedNet(n backpostdb.ListPaymentNetsRow) decimal.Decimal {
+	if n.Status == "CLEARED" {
+		return n.ActiveFace
+	}
+	return decimal.Zero
 }
 
 func (r *runner) checkBill(d *billDoc) error {
@@ -371,77 +498,99 @@ func (r *runner) needRate(who, currency string, on time.Time) error {
 	return err
 }
 
-func (r *runner) postInvoice(d invoiceDoc) error {
+func (r *runner) postInvoice(tx pgx.Tx, d invoiceDoc, out *docOut) error {
 	inv := d.inv
-	e, err := ledger.PostIssued(r.ctx, r.tx, r.base, ledger.Document{
+	e, err := ledger.PostIssued(r.ctx, tx, r.base, ledger.Document{
 		SourceType: ledger.SourceInvoice, ID: inv.InvoiceID, Currency: inv.Currency, Amount: inv.Amount,
 		RateDate: d.day, IssueDate: d.day, Memo: "Invoice " + d.label + " issued (back-posted)", Shares: d.shares,
 	})
 	if err != nil {
 		return err
 	}
-	r.entries = append(r.entries, e.ID)
-	r.rep.Invoices++
-	r.printf("INVOICE %s %s %s issued %s\n", d.label, inv.Currency, inv.Amount.StringFixed(4), d.day.Format(time.DateOnly))
+	out.entries = append(out.entries, e.ID)
+	out.invoices++
+	out.printf("INVOICE %s %s %s issued %s", d.label, inv.Currency, inv.Amount.StringFixed(4), d.day.Format(time.DateOnly))
 
 	// Python relieved a foreign invoice's receivable at the payment date's
-	// rate; reverse those entries (at their own posted_at) so each payment
-	// can relieve it at the issue basis.
+	// rate; reverse those entries (at their own posted_at, as every payment
+	// reversal) so each payment can relieve it at the issue basis.
 	for _, p := range d.pays {
 		if !p.HasEntry {
 			continue
 		}
 		memo := "Reversal of " + p.EntryID.String() + ": restated at issue basis"
-		rev, err := ledger.PostReversalAt(r.ctx, r.tx, p.EntryID, &memo, p.PostAt)
+		rev, err := ledger.ReversePayment(r.ctx, tx, p.EntryID, &memo)
 		if err != nil {
 			return err
 		}
-		r.entries = append(r.entries, rev.ID)
+		out.entries = append(out.entries, rev.ID)
 	}
 	for _, p := range d.pays {
-		basis, err := ledger.InvoiceBasis(r.ctx, r.tx, inv.InvoiceID)
-		if err != nil {
-			return err
-		}
-		e, err := ledger.PostPaymentClearedAt(r.ctx, r.tx, r.base,
-			ledger.Payment{ID: p.PaymentID, Status: "CLEARED", Amount: p.Amount, Currency: p.Currency, Date: p.PaymentDate.Time},
-			ledger.Invoice{ID: inv.InvoiceID, Currency: inv.Currency, BalanceDue: basis.Face},
-			p.WhtAmount, p.PostAt)
-		if err != nil {
-			return fmt.Errorf("payment %s: %w", p.PaymentID, err)
-		}
-		r.entries = append(r.entries, e.ID)
+		pay := ledger.Payment{ID: p.PaymentID, Status: "CLEARED", Amount: p.Amount, Currency: p.Currency, Date: p.PaymentDate.Time}
+		var balance decimal.Decimal
+		var at time.Time
 		if p.HasEntry {
-			memo := *e.Memo
+			// What Python relieved, at Python's posted_at (owner decision).
+			balance, at = p.EntryFace, p.EntryPostedAt
+			memo := fmt.Sprintf("Payment %s cleared against invoice %s", p.PaymentID, inv.InvoiceID)
 			if p.EntryMemo != nil && *p.EntryMemo != "" {
 				memo = *p.EntryMemo
 			}
-			memo = truncate(memo, memoMax-len([]rune(restatedSuffix))) + restatedSuffix
-			if err := ledger.SetEntryMemo(r.ctx, r.tx, e.ID, memo); err != nil {
+			pay.Memo = truncate(memo, memoMax-len([]rune(restatedSuffix))) + restatedSuffix
+		} else {
+			// Python's manual payment: the live rule, on its payment date
+			// (PORT-NOTES 167), relieving the receivable that is left.
+			basis, err := ledger.InvoiceBasis(r.ctx, tx, inv.InvoiceID)
+			if err != nil {
 				return err
 			}
-			r.rep.PaymentsRestated++
-			r.printf("  PAYMENT %s %s %s restated at issue basis\n", p.PaymentID, p.Currency, p.Amount.StringFixed(4))
+			balance, at = basis.Face, ledger.Midnight(p.PaymentDate.Time)
+		}
+		e, err := ledger.PostPaymentClearedAt(r.ctx, tx, r.base, pay,
+			ledger.Invoice{ID: inv.InvoiceID, Currency: inv.Currency, BalanceDue: balance}, p.WhtAmount, at)
+		if err != nil {
+			return fmt.Errorf("payment %s: %w", p.PaymentID, err)
+		}
+		out.entries = append(out.entries, e.ID)
+		if p.HasEntry {
+			out.restated++
+			out.printf("  PAYMENT %s %s %s restated at issue basis", p.PaymentID, p.Currency, p.Amount.StringFixed(4))
 		} else {
-			r.rep.PaymentsPosted++
-			r.printf("  PAYMENT %s %s %s posted (had no entry)\n", p.PaymentID, p.Currency, p.Amount.StringFixed(4))
+			out.posted++
+			out.printf("  PAYMENT %s %s %s posted (had no entry)", p.PaymentID, p.Currency, p.Amount.StringFixed(4))
+		}
+	}
+
+	b, err := ledger.InvoiceBasis(r.ctx, tx, inv.InvoiceID)
+	if err != nil {
+		return err
+	}
+	if !b.Face.Equal(inv.BalanceDue) {
+		msg := fmt.Sprintf("invoice %s %s %s: ledger face %s ≠ balance_due %s",
+			inv.InvoiceID, d.label, inv.Currency, b.Face.StringFixed(4), inv.BalanceDue.StringFixed(4))
+		if len(d.pays) > 0 {
+			// The run (re)posted its payments: a receivable left apart from
+			// the balance is the run's own result, so it is refused.
+			out.inconsistent = append(out.inconsistent, msg)
+		} else {
+			out.warnings = append(out.warnings, msg)
 		}
 	}
 	return nil
 }
 
-func (r *runner) postBill(d billDoc) error {
+func (r *runner) postBill(tx pgx.Tx, d billDoc, out *docOut) error {
 	b := d.bill
-	e, err := ledger.PostIssued(r.ctx, r.tx, r.base, ledger.Document{
+	e, err := ledger.PostIssued(r.ctx, tx, r.base, ledger.Document{
 		SourceType: ledger.SourceBill, ID: b.BillID, Currency: b.Currency, Amount: b.Amount,
 		RateDate: d.day, IssueDate: d.day, Memo: "Bill " + d.label + " opened (back-posted)", Shares: d.shares,
 	})
 	if err != nil {
 		return err
 	}
-	r.entries = append(r.entries, e.ID)
-	r.rep.Bills++
-	r.printf("BILL %s %s %s opened %s\n", d.label, b.Currency, b.Amount.StringFixed(4), d.day.Format(time.DateOnly))
+	out.entries = append(out.entries, e.ID)
+	out.bills++
+	out.printf("BILL %s %s %s opened %s", d.label, b.Currency, b.Amount.StringFixed(4), d.day.Format(time.DateOnly))
 	if !d.paid.IsPositive() {
 		return nil
 	}
@@ -450,22 +599,22 @@ func (r *runner) postBill(d billDoc) error {
 	// so no rate is guessed (it relieves the payable at its own basis).
 	notes := legacyNotes
 	id := uuid.New()
-	if err := r.q.InsertLegacyBillPayment(r.ctx, backpostdb.InsertLegacyBillPaymentParams{
+	if err := backpostdb.New(tx).InsertLegacyBillPayment(r.ctx, backpostdb.InsertLegacyBillPaymentParams{
 		BillPaymentID: id, BillID: b.BillID, Amount: d.paid, Currency: b.Currency,
 		PaymentDate: pgDate(d.day), Notes: &notes,
 	}); err != nil {
 		return err
 	}
-	pe, err := ledger.PostBillPaymentAt(r.ctx, r.tx, r.base, ledger.BillPayment{
+	pe, err := ledger.PostBillPaymentAt(r.ctx, tx, r.base, ledger.BillPayment{
 		ID: id, Amount: d.paid, Currency: b.Currency, Date: d.day,
 		Memo: "Legacy payment " + id.String() + " of bill " + d.label + " (back-posted)",
 	}, b.BillID, d.day)
 	if err != nil {
 		return err
 	}
-	r.entries = append(r.entries, pe.ID)
-	r.rep.LegacyBillPayments++
-	r.printf("  legacy bill payment: BILL %s %s %s dated %s\n", d.label, b.Currency, d.paid.StringFixed(4), d.day.Format(time.DateOnly))
+	out.entries = append(out.entries, pe.ID)
+	out.legacy++
+	out.printf("  legacy bill payment: BILL %s %s %s dated %s", d.label, b.Currency, d.paid.StringFixed(4), d.day.Format(time.DateOnly))
 	return nil
 }
 
@@ -475,6 +624,9 @@ func (r *runner) warn(format string, args ...any) {
 
 func (r *runner) printReport() {
 	rep := r.rep
+	for _, l := range r.lines {
+		r.printf("%s\n", l)
+	}
 	r.printf("invoices issued: %d\nbills opened: %d\npayments restated at issue basis: %d\npayments posted (had no entry): %d\nlegacy bill payments: %d\n",
 		rep.Invoices, rep.Bills, rep.PaymentsRestated, rep.PaymentsPosted, rep.LegacyBillPayments)
 	if len(rep.Totals) > 0 {
@@ -483,6 +635,7 @@ func (r *runner) printReport() {
 			r.printf("  %s %-28s Dr %20s  Cr %20s\n", t.Code, t.Name, t.Debit.StringFixed(4), t.Credit.StringFixed(4))
 		}
 	}
+	r.printList("owner decisions (CLEARED payments on invoices never posted)", rep.OwnerDecisions)
 	r.printList("warnings", rep.Warnings)
 }
 
@@ -490,6 +643,8 @@ func (r *runner) printRefusal() {
 	r.printf("backpost-ledger refused: nothing written\n")
 	r.printList("missing rates", r.rep.MissingRates)
 	r.printList("bad accounts", r.rep.BadAccounts)
+	r.printList("inconsistent", r.rep.Inconsistent)
+	r.printList("owner decisions (CLEARED payments on invoices never posted)", r.rep.OwnerDecisions)
 	r.printList("warnings", r.rep.Warnings)
 }
 
@@ -503,18 +658,15 @@ func (r *runner) printList(title string, items []string) {
 	}
 }
 
+// printf writes to the run's output; a failed write does not stop the run.
+func (r *runner) printf(format string, args ...any) { _, _ = fmt.Fprintf(r.w, format, args...) }
+
 // label is a document's number, else its id.
 func label(number *string, id uuid.UUID) string {
 	if number != nil && *number != "" {
 		return *number
 	}
 	return id.String()
-}
-
-// dateOf is t's UTC calendar date at 00:00 UTC.
-func dateOf(t time.Time) time.Time {
-	u := t.UTC()
-	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func truncate(s string, n int) string {
@@ -525,6 +677,3 @@ func truncate(s string, n int) string {
 }
 
 func pgDate(t time.Time) pgtype.Date { return pgtype.Date{Time: t, Valid: true} }
-
-// printf writes to the run's output; a failed write does not stop the run.
-func (r *runner) printf(format string, args ...any) { _, _ = fmt.Fprintf(r.w, format, args...) }

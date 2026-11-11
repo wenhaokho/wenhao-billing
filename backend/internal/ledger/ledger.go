@@ -55,13 +55,16 @@ func refuse(format string, args ...any) error { return ledgerError{fmt.Sprintf(f
 func Refuse(format string, args ...any) error { return refuse(format, args...) }
 
 // Payment is the payment being posted. Date is its payment date: its
-// calendar date is the FX as-of date (see fx.GetRate).
+// calendar date is the FX as-of date (see fx.GetRate). Memo is the entry's
+// memo; empty is "Payment <id> cleared against invoice <invoice id>" (the
+// back-post's restatements set their own, PORT-NOTES 166).
 type Payment struct {
 	ID       uuid.UUID
 	Status   string
 	Amount   decimal.Decimal
 	Currency string
 	Date     time.Time
+	Memo     string
 }
 
 // Invoice is the invoice the payment settles.
@@ -219,7 +222,10 @@ func postPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 		lines = append(lines, plug)
 	}
 
-	memo := fmt.Sprintf("Payment %s cleared against invoice %s", p.ID, inv.ID)
+	memo := p.Memo
+	if memo == "" {
+		memo = fmt.Sprintf("Payment %s cleared against invoice %s", p.ID, inv.ID)
+	}
 	e := Entry{ID: uuid.New(), SourceType: "PAYMENT", SourceID: p.ID, Memo: &memo, Lines: lines}
 	if err := checkBalanced(e.Lines); err != nil {
 		return Entry{}, err
