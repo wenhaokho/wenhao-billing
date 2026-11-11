@@ -17,8 +17,9 @@ import (
 
 const path = "/api/v1/accounting/chart-of-accounts"
 
-// seedCount is how many accounts the baseline migration inserts.
-const seedCount = 14
+// seedCount is how many accounts the migrations insert: the baseline's 14
+// and 00008's 6000.
+const seedCount = 15
 
 type problem struct {
 	Status int    `json:"status"`

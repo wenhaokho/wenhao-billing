@@ -96,7 +96,7 @@ func CreateBill(ctx context.Context, tx pgx.Tx, b BillCreate) (BillOut, error) {
 
 // UpdateBill is the update route's bill: the field checks, then updateBill
 // in tx. Exported for the MCP update_bill tool (inventory §4).
-func UpdateBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, b BillUpdate) (BillOut, error) {
+func UpdateBill(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID, b BillUpdate) (BillOut, error) {
 	var lines []BillLineItemIn
 	if b.LineItems != nil {
 		lines = *b.LineItems
@@ -104,7 +104,7 @@ func UpdateBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, b BillUpdate) (Bil
 	if err := checkFields(b.BillFields, lines); err != nil {
 		return BillOut{}, err
 	}
-	return updateBill(ctx, tx, id, b)
+	return updateBill(ctx, tx, base, id, b)
 }
 
 // DeleteBill is MCP delete_bill's delete (inventory §4): a DRAFT bill
@@ -169,12 +169,21 @@ func createBill(ctx context.Context, tx pgx.Tx, b BillCreate) (BillOut, error) {
 
 // updateBill is Python's update_bill (billing_ap.py:84-115) in tx, the bill
 // read FOR UPDATE. Only a DRAFT or OPEN bill is editable. The fields sent
-// overlay the row, status included (any of the five). Only a list of lines
-// replaces the lines and reprices the bill, with the discount as it is after
-// the overlay; a discount-only PATCH does not reprice. The balance is
-// re-baselined to the new amount only while the status after the overlay is
-// DRAFT: _apply_totals runs after the fields are set.
-func updateBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, b BillUpdate) (BillOut, error) {
+// overlay the row. Only a list of lines replaces the lines and reprices the
+// bill, with the discount as it is after the overlay; a discount-only PATCH
+// does not reprice. The balance is re-baselined to the new amount while the
+// status after the overlay is DRAFT (_apply_totals runs after the fields are
+// set).
+//
+// Go's own (PORT-NOTES 164), under the row lock: the status sent is a
+// transition, not a field. PARTIAL and PAID are refused (they come from a
+// payment). DRAFT→OPEN posts the issue entry (openBill) and re-baselines
+// the balance; an OPEN bill whose lines, discount, currency or issue date
+// are sent reverses its entry, re-baselines the balance (an OPEN bill has no
+// payment) and posts again; OPEN→DRAFT reverses it; VOID writes the other
+// fields, then voids as POST /void does. A ledger refusal or a missing rate
+// rolls the whole PATCH back.
+func updateBill(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID, b BillUpdate) (BillOut, error) {
 	q := billsdb.New(tx)
 	cur, err := lock(ctx, q, id)
 	if err != nil {
@@ -183,15 +192,25 @@ func updateBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, b BillUpdate) (Bil
 	if cur.Status != "DRAFT" && cur.Status != "OPEN" {
 		return BillOut{}, refuse("bill_not_editable", "bill is %s and cannot be edited", cur.Status)
 	}
-
+	target := b.Status.Or(cur.Status)
+	switch target {
+	case "PARTIAL", "PAID":
+		return BillOut{}, refuse("bill_status_not_settable", "%s comes from recording a payment", target)
+	}
+	// VOID goes through voidBill once the other fields are written.
+	status := target
+	if target == "VOID" {
+		status = cur.Status
+	}
 	f := b.BillFields
+	reposts := b.LineItems != nil || f.DiscountType.Set || f.DiscountValue.Set || b.Currency.Set || f.IssueDate.Set
+
 	currency := cur.Currency
 	if b.Currency.Set {
 		if currency, err = platform.PyUpperAtMost("currency", b.Currency.Value, 3); err != nil {
 			return BillOut{}, err
 		}
 	}
-	status := b.Status.Or(cur.Status)
 	discountType := f.DiscountType.Merge(cur.DiscountType)
 	discountValue := cur.DiscountValue
 	if f.DiscountValue.Set {
@@ -212,6 +231,11 @@ func updateBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, b BillUpdate) (Bil
 			balance = a
 		}
 	}
+	opening := cur.Status == "DRAFT" && status == "OPEN"
+	editing := cur.Status == "OPEN" && status == "OPEN" && reposts
+	if opening || editing {
+		balance = amount
+	}
 
 	err = q.UpdateBill(ctx, billsdb.UpdateBillParams{
 		BillID: id, VendorID: b.VendorID.Or(cur.VendorID), ProjectID: platform.MergeUUID(f.ProjectID, cur.ProjectID),
@@ -222,6 +246,28 @@ func updateBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, b BillUpdate) (Bil
 	})
 	if err != nil {
 		return BillOut{}, mapWriteError(err)
+	}
+
+	switch {
+	case target == "VOID":
+		return voidBill(ctx, tx, id, "status set to VOID via update")
+	case cur.Status == "OPEN" && status == "DRAFT":
+		if err := unpostBill(ctx, tx, id, "Bill "+id.String()+" returned to draft"); err != nil {
+			return BillOut{}, err
+		}
+	case opening || editing:
+		if editing {
+			if err := unpostBill(ctx, tx, id, "Edit of bill "+id.String()); err != nil {
+				return BillOut{}, err
+			}
+		}
+		row, err := q.GetBill(ctx, id)
+		if err != nil {
+			return BillOut{}, err
+		}
+		if err := openBill(ctx, tx, base, row); err != nil {
+			return BillOut{}, err
+		}
 	}
 	return get(ctx, q, id)
 }

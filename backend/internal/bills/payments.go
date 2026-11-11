@@ -16,6 +16,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/bills/billsdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
@@ -57,7 +58,7 @@ func (r routes) registerPayments(api huma.API, prefix string, tags []string) {
 	huma.Register(api, platform.Admin(huma.Operation{
 		OperationID: "bills-void", Method: http.MethodPost, Path: prefix + "/{bill_id}/void", Tags: tags,
 		Summary:     "Void a DRAFT, OPEN or PARTIAL bill",
-		Description: "Nothing is left due, and \"[voided] <reason>\" is appended to the notes on a new line.",
+		Description: "Nothing is left due, \"[voided] <reason>\" is appended to the notes on a new line, and the bill's ledger entry is reversed. An OPEN or PARTIAL bill with no ledger entry (opened before bills posted) is refused until the back-post has run.",
 		Errors:      []int{http.StatusBadRequest, http.StatusNotFound},
 	}), r.void)
 }
@@ -153,6 +154,11 @@ func (r routes) void(ctx context.Context, in *voidIn) (*billBody, error) {
 // bill read FOR UPDATE: a PAID or VOID bill is refused; any other becomes
 // VOID with nothing due and the reason appended to its notes on a new line
 // (so null notes start with the newline).
+//
+// Go's own (PORT-NOTES 164), under the row lock: the issue entry is reversed
+// (memo "Void of bill <id>"). An OPEN or PARTIAL bill with an amount but no
+// issue entry (opened before the change) is refused until the back-post has
+// run; a DRAFT or a bill of 0 has nothing to reverse.
 func voidBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, reason string) (BillOut, error) {
 	q := billsdb.New(tx)
 	cur, err := lock(ctx, q, id)
@@ -161,6 +167,13 @@ func voidBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, reason string) (Bill
 	}
 	if cur.Status == "PAID" || cur.Status == "VOID" {
 		return BillOut{}, refuse("bill_not_voidable", "bill is %s and cannot be voided", cur.Status)
+	}
+	reversed, err := ledger.ReverseIssued(ctx, tx, ledger.SourceBill, id, "Void of bill "+id.String())
+	if err != nil {
+		return BillOut{}, err
+	}
+	if !reversed && (cur.Status == "OPEN" || cur.Status == "PARTIAL") && cur.Amount.IsPositive() {
+		return BillOut{}, ledger.Refuse("bill %s has no issue entry — run api backpost-ledger", id)
 	}
 	notes := ""
 	if cur.Notes != nil {

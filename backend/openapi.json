@@ -1166,7 +1166,7 @@
             ]
           },
           "status": {
-            "description": "Any of the five, with no payment or void behind it; the only way to open a bill.",
+            "description": "OPEN opens a DRAFT bill and posts it to the ledger (the only way to open one); DRAFT takes an OPEN bill back and reverses its entry; VOID voids as POST /void does. PARTIAL and PAID are refused: they come from recording a payment.",
             "enum": [
               "DRAFT",
               "OPEN",
@@ -7866,7 +7866,7 @@
     },
     "/api/v1/bills/{bill_id}/void": {
       "post": {
-        "description": "Nothing is left due, and \"[voided] \u003creason\u003e\" is appended to the notes on a new line.",
+        "description": "Nothing is left due, \"[voided] \u003creason\u003e\" is appended to the notes on a new line, and the bill's ledger entry is reversed. An OPEN or PARTIAL bill with no ledger entry (opened before bills posted) is refused until the back-post has run.",
         "operationId": "bills-void",
         "parameters": [
           {

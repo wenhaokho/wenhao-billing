@@ -71,3 +71,12 @@ UPDATE bills SET balance_due = @balance_due, status = @status WHERE bill_id = @b
 -- A void: VOID with nothing due, notes as computed from the row read with
 -- GetBillForUpdate.
 UPDATE bills SET status = 'VOID', balance_due = 0, notes = @notes WHERE bill_id = @bill_id;
+
+-- name: ListBillLineAccounts :many
+-- The issue entry's expense split: each line's amount, its own expense
+-- account and its item's (either NULL), in ListBillLines' order.
+SELECT l.amount, l.expense_account_id AS line_account_id, i.expense_account_id AS item_account_id
+  FROM bill_line_items l
+  LEFT JOIN items i ON i.item_id = l.item_id
+ WHERE l.bill_id = $1
+ ORDER BY l.position, l.line_item_id;

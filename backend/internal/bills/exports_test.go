@@ -84,7 +84,7 @@ func TestExportBillUpdate(t *testing.T) {
 	var updated bills.BillOut
 	err := db.InTx(t.Context(), a.Pool, func(tx pgx.Tx) error {
 		var err error
-		updated, err = bills.UpdateBill(t.Context(), tx, created.BillID, bills.BillUpdate{
+		updated, err = bills.UpdateBill(t.Context(), tx, base, created.BillID, bills.BillUpdate{
 			BillFields: bills.BillFields{Notes: platform.Optional[string]{Set: true, Value: "second"}},
 		})
 		return err
