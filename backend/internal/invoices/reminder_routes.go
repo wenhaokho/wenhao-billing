@@ -79,7 +79,9 @@ func (r reminderRoutes) send(ctx context.Context, in *sendReminderIn) (*reminder
 	}
 	now := r.clock.Now()
 	var out Reminder
-	err := db.InTx(ctx, r.pool, func(tx pgx.Tx) error {
+	// The transaction runs uncancellable so a hang-up after the email went
+	// out cannot roll the log row back.
+	err := db.InTx(context.WithoutCancel(ctx), r.pool, func(tx pgx.Tx) error {
 		d, err := PrepareReminder(ctx, tx, rin, now)
 		if err != nil {
 			return err

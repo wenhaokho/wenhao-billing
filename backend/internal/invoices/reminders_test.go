@@ -281,10 +281,36 @@ func TestReminderRoutes(t *testing.T) {
 		t.Fatalf("guarded send emailed: %d", n)
 	}
 
-	// Forced: 201.
+	var prob struct {
+		Errors []struct{ Location, Message string } `json:"errors"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &prob)
+	var sentAt string
+	for _, e := range prob.Errors {
+		if e.Location == "sent_at" {
+			sentAt = e.Message
+		}
+	}
+	if got, err := time.Parse(time.RFC3339, sentAt); err != nil || !got.Equal(first.SentAt.Time) {
+		t.Errorf("409 sent_at %q (%v), want %v: %s", sentAt, err, first.SentAt.Time, rec.Body)
+	}
+
+	// Forced: 201, a second email and a second row.
 	rec = a.Do(t, http.MethodPost, remindersPath(y), map[string]any{"force": true})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("forced: %d %s", rec.Code, rec.Body)
+	}
+	if n := len(a.Mail.Messages()); n != 2 {
+		t.Errorf("%d emails after forced send, want 2", n)
+	}
+	if n := countReminders(t, a); n != 2 {
+		t.Errorf("%d reminder rows after forced send, want 2", n)
+	}
+
+	// An invalid address: 422, nothing sent.
+	rec = a.Do(t, http.MethodPost, remindersPath(x), map[string]any{"to_email": "not-an-email", "force": true})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("bad to_email: %d %s", rec.Code, rec.Body)
 	}
 
 	// PAID: 422 with the refusal sentence.
@@ -314,5 +340,20 @@ func TestReminderRoutes(t *testing.T) {
 	}
 	if rec = a.Do(t, http.MethodGet, remindersPath(uuid.New()), nil); rec.Code != http.StatusNotFound {
 		t.Errorf("list unknown: %d", rec.Code)
+	}
+}
+
+func TestReminderRouteSendFailure(t *testing.T) {
+	t.Parallel()
+	s := &failingSender{fail: map[string]bool{"ap@acme.example": true}}
+	a := apitest.New(t, func(api huma.API, d apitest.Deps) { RegisterReminders(api, d.Pool, d.Clock, s) })
+	acme := docCustomer(t, a, "ap@acme.example")
+	x := docInv{number: str("INV-X"), customer: &acme}.insert(t, a)
+	rec := a.Do(t, http.MethodPost, remindersPath(x), map[string]any{})
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if n := countReminders(t, a); n != 0 {
+		t.Errorf("%d reminder rows after a failed send, want 0", n)
 	}
 }

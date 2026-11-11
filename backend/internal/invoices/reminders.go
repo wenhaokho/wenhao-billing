@@ -206,7 +206,9 @@ func SendReminder(ctx context.Context, tx pgx.Tx, mail email.Sender, d ReminderD
 	if in.ActorUserID != nil {
 		actor = pgtype.UUID{Bytes: *in.ActorUserID, Valid: true}
 	}
-	row, err := invoicesdb.New(tx).InsertInvoiceReminder(ctx, invoicesdb.InsertInvoiceReminderParams{
+	// The email is out: a client that hung up must not skip the log row (it
+	// drives the 24 h guard).
+	row, err := invoicesdb.New(tx).InsertInvoiceReminder(context.WithoutCancel(ctx), invoicesdb.InsertInvoiceReminderParams{
 		ReminderID: uuid.New(), InvoiceID: id, SentAt: now, SentByUserID: actor,
 		Channel: in.Channel, Recipient: d.Recipient, Amount: d.Amount, Currency: inv.Currency,
 	})
