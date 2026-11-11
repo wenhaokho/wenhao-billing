@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
@@ -218,7 +219,7 @@ function typeSeverity(t: string) {
         >
           <template #empty>
             <div class="empty-state">
-              <i class="pi pi-inbox" />
+              <AppIcon name="inbox" />
               <div>No postings as of this date.</div>
             </div>
           </template>
@@ -266,7 +267,7 @@ function typeSeverity(t: string) {
         </div>
         <div v-if="balanceSheet.isLoading.value" class="empty-mini">Loading…</div>
         <div v-else-if="!(balanceSheet.data.value?.groups?.length)" class="empty-state">
-          <i class="pi pi-inbox" />
+          <AppIcon name="inbox" />
           <div>No balances as of this date.</div>
         </div>
         <div v-else class="bs-groups">
@@ -320,7 +321,7 @@ function typeSeverity(t: string) {
         >
           <template #empty>
             <div class="empty-state">
-              <i class="pi pi-inbox" />
+              <AppIcon name="inbox" />
               <div>No open foreign-currency balances as of this date.</div>
             </div>
           </template>
@@ -386,7 +387,7 @@ function typeSeverity(t: string) {
         >
           <template #empty>
             <div class="empty-state">
-              <i class="pi pi-check-circle" />
+              <AppIcon name="circle-check" />
               <div>No open AR as of this date.</div>
             </div>
           </template>
@@ -430,7 +431,7 @@ function typeSeverity(t: string) {
         >
           <template #empty>
             <div class="empty-state">
-              <i class="pi pi-check-circle" />
+              <AppIcon name="circle-check" />
               <div>No open AP as of this date.</div>
             </div>
           </template>

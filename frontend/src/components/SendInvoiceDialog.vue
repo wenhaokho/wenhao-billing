@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, watch } from "vue";
 import Dialog from "primevue/dialog";
 import Button from "primevue/button";
@@ -90,7 +91,7 @@ function submit() {
         <Textarea v-model="message" rows="6" autoResize />
       </label>
       <p class="note">
-        <i class="pi pi-paperclip" /> The invoice PDF will be attached automatically.
+        <AppIcon name="paperclip" /> The invoice PDF will be attached automatically.
       </p>
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
     </div>
@@ -98,11 +99,11 @@ function submit() {
       <Button label="Cancel" text :disabled="loading" @click="close" />
       <Button
         label="Send"
-        icon="pi pi-send"
         :loading="loading"
         :disabled="!toEmail.trim() || loading"
-        @click="submit"
-      />
+        @click="submit">
+        <template #icon><AppIcon name="send" /></template>
+      </Button>
     </template>
   </Dialog>
 </template>
@@ -114,5 +115,5 @@ function submit() {
 .field .muted { font-weight: 400; color: var(--color-text-muted); font-size: 0.78rem; }
 .field :deep(.p-inputtext), .field :deep(textarea) { width: 100%; }
 .note { font-size: 0.78rem; color: var(--color-text-muted); margin: 0; }
-.note i { margin-right: 0.3rem; }
+.note .app-icon { margin-right: 0.3rem; vertical-align: -0.15em; }
 </style>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed } from "vue";
 import Button from "primevue/button";
 import Select from "primevue/select";
@@ -128,25 +129,25 @@ function rowAmount(row: LineItemRow): number {
       <div class="col-action">
         <Button
           v-if="!readOnly"
-          icon="pi pi-trash"
           text
           rounded
           severity="danger"
           title="Remove"
           :disabled="rows.length <= 1"
-          @click="emit('remove', idx)"
-        />
+          @click="emit('remove', idx)">
+          <template #icon><AppIcon name="trash-2" /></template>
+        </Button>
       </div>
     </div>
 
     <Button
       v-if="!readOnly"
       label="Add an item"
-      icon="pi pi-plus"
       text
       class="add-btn"
-      @click="emit('add')"
-    />
+      @click="emit('add')">
+      <template #icon><AppIcon name="plus" /></template>
+    </Button>
   </div>
 </template>
 

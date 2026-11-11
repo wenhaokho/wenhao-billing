@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed, ref, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
@@ -99,7 +100,9 @@ function openDetail(row: Project) {
         </p>
       </div>
       <div class="page-actions">
-        <Button label="New project" icon="pi pi-plus" @click="openCreate" />
+        <Button label="New project" @click="openCreate">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </div>
     </header>
 
@@ -114,7 +117,7 @@ function openDetail(row: Project) {
     <DataTable :value="projects ?? []" :loading="isLoading" data-key="project_id" striped-rows>
       <template #empty>
         <div class="empty-state">
-          <i class="pi pi-folder-open" />
+          <AppIcon name="folder-open" />
           <div>No projects yet. Create one to tag invoices and bills.</div>
         </div>
       </template>
@@ -152,8 +155,12 @@ function openDetail(row: Project) {
       <Column header="" :style="{ width: '140px' }">
         <template #body="{ data: row }">
           <div class="row-actions">
-            <Button icon="pi pi-eye" text rounded title="View" @click="openDetail(row)" />
-            <Button icon="pi pi-pencil" text rounded title="Edit" @click="openEdit(row)" />
+            <Button text rounded title="View" @click="openDetail(row)">
+              <template #icon><AppIcon name="eye" /></template>
+            </Button>
+            <Button text rounded title="Edit" @click="openEdit(row)">
+              <template #icon><AppIcon name="pencil" /></template>
+            </Button>
           </div>
         </template>
       </Column>

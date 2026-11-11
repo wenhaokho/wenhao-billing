@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, onMounted } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import Password from "primevue/password";
@@ -91,10 +92,10 @@ async function submit() {
       <Button
         type="submit"
         label="Reset password"
-        icon="pi pi-check"
         :loading="submitting"
-        class="submit-btn"
-      />
+        class="submit-btn">
+        <template #icon><AppIcon name="check" /></template>
+      </Button>
     </form>
 
     <Message v-else severity="success" :closable="false">

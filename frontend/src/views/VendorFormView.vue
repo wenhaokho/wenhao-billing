@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -131,7 +132,9 @@ function cancel() {
 <template>
   <section class="page">
     <div class="back">
-      <Button label="Vendors" icon="pi pi-arrow-left" text size="small" @click="cancel" />
+      <Button label="Vendors" text size="small" @click="cancel">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <div class="header">
@@ -162,7 +165,7 @@ function cancel() {
           aria-describedby="vendor-name-error"
         />
         <span v-if="showNameError" id="vendor-name-error" class="field-error">
-          <i class="pi pi-exclamation-circle" /> Name is required.
+          <AppIcon name="circle-alert" /> Name is required.
         </span>
       </label>
       <div class="two-col">
@@ -179,7 +182,7 @@ function cancel() {
             aria-describedby="vendor-email-error"
           />
           <span v-if="emailInvalid" id="vendor-email-error" class="field-error">
-            <i class="pi pi-exclamation-circle" /> Enter a valid email.
+            <AppIcon name="circle-alert" /> Enter a valid email.
           </span>
         </label>
       </div>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useReturnTo } from "@/composables/useReturnTo";
@@ -182,7 +183,9 @@ const canSave = computed(
 <template>
   <section class="page">
     <div class="back">
-      <Button label="Projects" icon="pi pi-arrow-left" text size="small" @click="cancel" />
+      <Button label="Projects" text size="small" @click="cancel">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <div class="header">

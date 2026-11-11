@@ -50,3 +50,6 @@
   border-color: var(--wb-red) !important;
   box-shadow: none !important;
 }
+
+/* Lucide icons (AppIcon) never shrink inside flex rows. */
+.app-icon { flex-shrink: 0; }

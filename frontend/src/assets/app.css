@@ -156,8 +156,9 @@ h1, h2, h3, h4 { color: var(--wb-ink); font-family: var(--wb-font-display); font
   text-align: center;
   color: var(--wb-muted);
 }
-.empty-state .pi {
-  font-size: 2rem;
+.empty-state .app-icon {
+  width: 2rem;
+  height: 2rem;
   color: var(--wb-muted-soft);
   margin-bottom: 0.75rem;
   display: block;

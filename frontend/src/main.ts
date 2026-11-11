@@ -10,7 +10,6 @@ import ConfirmationService from "primevue/confirmationservice";
 import App from "./App.vue";
 import router from "./router";
 
-import "primeicons/primeicons.css";
 // Self-hosted brand fonts: Manrope for headings and figures, DM Sans for the rest.
 import "@fontsource/manrope/500.css";
 import "@fontsource/manrope/600.css";

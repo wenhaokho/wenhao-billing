@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useReturnTo } from "@/composables/useReturnTo";
@@ -259,7 +260,9 @@ function openPdfPreview() {
 <template>
   <section class="quote-form">
     <div class="back">
-      <Button label="Quotations" icon="pi pi-arrow-left" text size="small" @click="goBack" />
+      <Button label="Quotations" text size="small" @click="goBack">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <header class="page-header">
@@ -273,20 +276,20 @@ function openPdfPreview() {
         <StatusTag v-if="existing?.status" :status="existing.status" />
         <Button
           label="Preview PDF"
-          icon="pi pi-file-pdf"
           text
           :disabled="!isEdit"
           :title="isEdit ? 'Preview PDF' : 'Save first to preview'"
-          @click="openPdfPreview"
-        />
+          @click="openPdfPreview">
+          <template #icon><AppIcon name="file-down" /></template>
+        </Button>
         <Button
           v-if="!readOnly"
           :label="isEdit ? 'Save changes' : 'Save as DRAFT'"
-          icon="pi pi-save"
           :loading="save.isPending.value"
           :disabled="!canSave"
-          @click="save.mutate()"
-        />
+          @click="save.mutate()">
+          <template #icon><AppIcon name="save" /></template>
+        </Button>
       </div>
     </header>
 
@@ -359,10 +362,10 @@ function openPdfPreview() {
             v-if="!readOnly"
             label="Add a discount"
             text
-            icon="pi pi-plus"
             size="small"
-            @click="discountEnabled = true; discountType = 'PERCENT'"
-          />
+            @click="discountEnabled = true; discountType = 'PERCENT'">
+            <template #icon><AppIcon name="plus" /></template>
+          </Button>
         </div>
         <div v-else class="totals-row discount">
           <div class="discount-input">
@@ -384,12 +387,13 @@ function openPdfPreview() {
             />
             <Button
               v-if="!readOnly"
-              icon="pi pi-times"
               text
               rounded
               size="small"
-              @click="discountEnabled = false; discountType = null; discountValue = null"
-            />
+              aria-label="Remove discount"
+              @click="discountEnabled = false; discountType = null; discountValue = null">
+              <template #icon><AppIcon name="x" /></template>
+            </Button>
           </div>
         </div>
 

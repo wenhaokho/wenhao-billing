@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -98,7 +99,7 @@ function confirmDeactivate(row: Customer) {
   confirm.require({
     message: `Deactivate "${row.name}"? It will be hidden from active lists but kept for ledger history.`,
     header: "Deactivate customer",
-    icon: "pi pi-exclamation-triangle",
+    icon: "triangle-alert",
     acceptLabel: "Deactivate",
     rejectLabel: "Cancel",
     acceptClass: "p-button-danger",
@@ -122,7 +123,9 @@ function confirmDeactivate(row: Customer) {
           <ToggleSwitch v-model="showInactive" />
           <span>Show inactive</span>
         </label>
-        <Button label="New customer" icon="pi pi-plus" @click="openCreate" />
+        <Button label="New customer" @click="openCreate">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </div>
     </header>
 
@@ -134,7 +137,7 @@ function confirmDeactivate(row: Customer) {
     >
       <template #empty>
         <div class="empty-state">
-          <i class="pi pi-users" />
+          <AppIcon name="users" />
           <div>No customers yet. Click <strong>New customer</strong> to create your first.</div>
         </div>
       </template>
@@ -181,28 +184,32 @@ function confirmDeactivate(row: Customer) {
       <Column header="" :style="{ width: '200px' }">
         <template #body="{ data: row }">
           <div class="row-actions">
-            <Button icon="pi pi-eye" text rounded title="View" @click="openDetail(row)" />
-            <Button icon="pi pi-pencil" text rounded title="Edit" @click="openEdit(row)" />
+            <Button text rounded title="View" @click="openDetail(row)">
+              <template #icon><AppIcon name="eye" /></template>
+            </Button>
+            <Button text rounded title="Edit" @click="openEdit(row)">
+              <template #icon><AppIcon name="pencil" /></template>
+            </Button>
             <Button
               v-if="row.active"
-              icon="pi pi-ban"
               text
               rounded
               severity="danger"
               title="Deactivate"
               :loading="deactivateCustomer.isPending.value"
-              @click="confirmDeactivate(row)"
-            />
+              @click="confirmDeactivate(row)">
+              <template #icon><AppIcon name="ban" /></template>
+            </Button>
             <Button
               v-else
-              icon="pi pi-undo"
               text
               rounded
               severity="success"
               title="Reactivate"
               :loading="reactivateCustomer.isPending.value"
-              @click="reactivateCustomer.mutate(row.customer_id)"
-            />
+              @click="reactivateCustomer.mutate(row.customer_id)">
+              <template #icon><AppIcon name="undo-2" /></template>
+            </Button>
           </div>
         </template>
       </Column>

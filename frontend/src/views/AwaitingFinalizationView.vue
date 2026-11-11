@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -85,7 +86,7 @@ const voidInvoice = useMutation({
     >
       <template #empty>
         <div class="empty-state">
-          <i class="pi pi-check-circle" />
+          <AppIcon name="circle-check" />
           <div>No drafts waiting. The finalization queue is clear.</div>
         </div>
       </template>
@@ -118,28 +119,28 @@ const voidInvoice = useMutation({
           <div class="actions" @click.stop>
             <Button
               label="View"
-              icon="pi pi-eye"
               size="small"
               severity="secondary"
               outlined
-              @click="openInvoice(row.invoice_id)"
-            />
+              @click="openInvoice(row.invoice_id)">
+              <template #icon><AppIcon name="eye" /></template>
+            </Button>
             <Button
               label="Finalize"
-              icon="pi pi-check"
               size="small"
               :loading="finalize.isPending.value"
-              @click="finalize.mutate(row.invoice_id)"
-            />
+              @click="finalize.mutate(row.invoice_id)">
+              <template #icon><AppIcon name="check" /></template>
+            </Button>
             <Button
               label="Void"
-              icon="pi pi-times"
               size="small"
               severity="secondary"
               text
               :loading="voidInvoice.isPending.value"
-              @click="voidInvoice.mutate(row.invoice_id)"
-            />
+              @click="voidInvoice.mutate(row.invoice_id)">
+              <template #icon><AppIcon name="x" /></template>
+            </Button>
           </div>
         </template>
       </Column>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -279,11 +280,11 @@ watch(
     <div class="back">
       <Button
         label="Customers"
-        icon="pi pi-arrow-left"
         text
         size="small"
-        @click="goBack"
-      />
+        @click="goBack">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <Message v-if="customerQuery.error.value" severity="error" :closable="false">
@@ -308,7 +309,7 @@ watch(
       <aside class="cd-sidebar">
         <div class="cd-card">
           <div class="cd-avatar">
-            <i class="pi pi-user" />
+            <AppIcon name="user" />
           </div>
 
           <div class="cd-group">
@@ -318,17 +319,17 @@ watch(
             </div>
             <div v-else class="muted">No contact set</div>
             <div v-if="customerQuery.data.value.contact_email" class="cd-line">
-              <i class="pi pi-envelope" />
+              <AppIcon name="mail" />
               <a :href="`mailto:${customerQuery.data.value.contact_email}`">
                 {{ customerQuery.data.value.contact_email }}
               </a>
             </div>
             <div v-if="customerQuery.data.value.contact_phone" class="cd-line">
-              <i class="pi pi-phone" />
+              <AppIcon name="phone" />
               <span>{{ customerQuery.data.value.contact_phone }}</span>
             </div>
             <div v-if="customerQuery.data.value.website" class="cd-line">
-              <i class="pi pi-link" />
+              <AppIcon name="link" />
               <a :href="customerQuery.data.value.website" target="_blank" rel="noopener">
                 {{ customerQuery.data.value.website }}
               </a>
@@ -625,7 +626,7 @@ watch(
 }
 .cd-strong { font-weight: 600; color: var(--color-text); }
 .cd-line { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; color: var(--color-text); }
-.cd-line i { color: var(--color-text-muted); font-size: 0.8rem; }
+.cd-line .app-icon { color: var(--color-text-muted); width: 0.8rem; height: 0.8rem; }
 .cd-line a { color: inherit; text-decoration: none; }
 .cd-line a:hover { text-decoration: underline; }
 .cd-address { font-size: 0.88rem; white-space: pre-line; color: var(--color-text); }

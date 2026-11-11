@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed, defineAsyncComponent } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import { useRouter } from "vue-router";
@@ -332,7 +333,9 @@ function timeAgo(iso: string) {
         <p class="subtitle">Reconciliation health and open AR at a glance.</p>
       </div>
       <div class="page-actions">
-        <Button icon="pi pi-refresh" label="Refresh" text @click="refetch()" />
+        <Button label="Refresh" text @click="refetch()">
+          <template #icon><AppIcon name="refresh-cw" /></template>
+        </Button>
       </div>
     </header>
 
@@ -349,7 +352,7 @@ function timeAgo(iso: string) {
       <!-- stat cards -->
       <div class="stat-grid">
         <div class="stat-card" @click="router.push('/review')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon warn"><i class="pi pi-exclamation-triangle" /></div>
+          <div class="stat-icon warn"><AppIcon name="triangle-alert" /></div>
           <div>
             <div class="stat-label">Manual Review</div>
             <div class="stat-value">{{ stats.awaiting_review_count }}</div>
@@ -358,7 +361,7 @@ function timeAgo(iso: string) {
         </div>
 
         <div class="stat-card" @click="router.push('/queue')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon info"><i class="pi pi-inbox" /></div>
+          <div class="stat-icon info"><AppIcon name="inbox" /></div>
           <div>
             <div class="stat-label">DRAFT Invoices</div>
             <div class="stat-value">{{ stats.draft_count }}</div>
@@ -367,7 +370,7 @@ function timeAgo(iso: string) {
         </div>
 
         <div class="stat-card" @click="router.push('/invoices')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon primary"><i class="pi pi-send" /></div>
+          <div class="stat-icon primary"><AppIcon name="send" /></div>
           <div>
             <div class="stat-label">Open Invoices</div>
             <div class="stat-value">{{ stats.sent_count }}</div>
@@ -376,7 +379,7 @@ function timeAgo(iso: string) {
         </div>
 
         <div class="stat-card" @click="router.push('/quotations')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon quote"><i class="pi pi-file-edit" /></div>
+          <div class="stat-icon quote"><AppIcon name="file-pen" /></div>
           <div>
             <div class="stat-label">Open Quotations</div>
             <div class="stat-value">{{ openQuotationCount }}</div>
@@ -385,7 +388,7 @@ function timeAgo(iso: string) {
         </div>
 
         <div class="stat-card" @click="router.push('/customers')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon neutral"><i class="pi pi-users" /></div>
+          <div class="stat-icon neutral"><AppIcon name="users" /></div>
           <div>
             <div class="stat-label">Customers</div>
             <div class="stat-value">{{ stats.customer_count }}</div>
@@ -394,7 +397,7 @@ function timeAgo(iso: string) {
         </div>
 
         <div class="stat-card" @click="router.push('/invoices/recurring')" role="button" tabindex="0" @keydown.enter.space.prevent="($event.currentTarget as HTMLElement).click()">
-          <div class="stat-icon info"><i class="pi pi-sync" /></div>
+          <div class="stat-icon info"><AppIcon name="refresh-cw" /></div>
           <div class="stat-body">
             <div class="stat-label">Monthly Recurring</div>
             <div v-if="!stats.mrr_by_currency.length" class="stat-value">0</div>
@@ -421,7 +424,7 @@ function timeAgo(iso: string) {
             </div>
           </div>
           <div v-if="!hasRevenueData" class="empty-state chart-empty">
-            <i class="pi pi-chart-bar" />
+            <AppIcon name="chart-column" />
             <div>No invoiced revenue yet in the last 12 months.</div>
           </div>
           <div v-else class="chart-wrap">
@@ -442,7 +445,7 @@ function timeAgo(iso: string) {
             <Tag :value="`${stats.auto_cleared_last_30d} auto-cleared · 30d`" severity="success" />
           </div>
           <div v-if="!stats.open_ar_by_currency.length" class="empty-state">
-            <i class="pi pi-check-circle" />
+            <AppIcon name="circle-check" />
             <div>No open AR. You're all caught up.</div>
           </div>
           <ul v-else class="ar-list">
@@ -471,7 +474,7 @@ function timeAgo(iso: string) {
             </div>
           </div>
           <div v-if="!stats.upcoming_invoices.length" class="empty-state">
-            <i class="pi pi-calendar" />
+            <AppIcon name="calendar" />
             <div>Nothing scheduled in the next 90 days.</div>
           </div>
           <ul v-else class="activity upcoming-list">
@@ -497,7 +500,7 @@ function timeAgo(iso: string) {
             </div>
           </div>
           <div v-if="!stats.recent_activity.length" class="empty-state">
-            <i class="pi pi-clock" />
+            <AppIcon name="clock" />
             <div>No activity yet. POST a payment to the intake endpoints to see events here.</div>
           </div>
           <ul v-else class="activity">
@@ -568,7 +571,7 @@ function timeAgo(iso: string) {
 }
 .stat-icon {
   width: 40px; height: 40px; border-radius: 10px;
-  display: grid; place-items: center; font-size: 1.05rem; flex-shrink: 0;
+  display: grid; place-items: center; flex-shrink: 0;
 }
 .stat-icon.warn { background: var(--color-warning-soft); color: var(--color-warning); }
 .stat-icon.info { background: var(--color-primary-soft); color: var(--color-primary); }
@@ -583,7 +586,7 @@ function timeAgo(iso: string) {
 /* Keep labels on the card once six columns get narrow on a laptop screen. */
 @media (max-width: 1500px) {
   .stat-card { padding: 0.85rem 0.9rem; gap: 0.6rem; }
-  .stat-icon { width: 32px; height: 32px; font-size: 0.9rem; }
+  .stat-icon { width: 32px; height: 32px; }
   .stat-label { font-size: 0.7rem; letter-spacing: 0.02em; }
   .stat-value { font-size: 1.6rem; }
   .stat-hint { font-size: 0.72rem; }
@@ -652,7 +655,7 @@ function timeAgo(iso: string) {
 .chart-wrap :deep(.p-chart > *) { height: 100%; width: 100%; }
 .chart-wrap :deep(canvas) { height: 100% !important; width: 100% !important; }
 .chart-empty { padding: 3rem 1.25rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; color: var(--color-text-muted); }
-.chart-empty i { font-size: 1.5rem; }
+.chart-empty .app-icon { width: 1.5rem; height: 1.5rem; }
 
 .reason-chip {
   font-size: 0.72rem; padding: 0.15rem 0.45rem;

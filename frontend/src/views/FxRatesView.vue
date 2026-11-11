@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -77,7 +78,7 @@ function confirmDelete(row: FxRate) {
   confirm.require({
     message: `Delete rate ${row.from_currency}→${row.to_currency} @ ${row.as_of_date}?`,
     header: "Delete FX rate",
-    icon: "pi pi-exclamation-triangle",
+    icon: "triangle-alert",
     acceptLabel: "Delete",
     rejectLabel: "Cancel",
     acceptClass: "p-button-danger",
@@ -112,14 +113,16 @@ function openCreate() {
       <div class="page-actions">
         <Button
           label="Sync now"
-          icon="pi pi-sync"
           severity="secondary"
           outlined
           :loading="syncRates.isPending.value"
           title="Fetch the latest reference rates from the provider"
-          @click="syncRates.mutate()"
-        />
-        <Button label="New rate" icon="pi pi-plus" @click="openCreate" />
+          @click="syncRates.mutate()">
+          <template #icon><AppIcon name="refresh-cw" /></template>
+        </Button>
+        <Button label="New rate" @click="openCreate">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </div>
     </header>
 
@@ -143,7 +146,7 @@ function openCreate() {
     >
       <template #empty>
         <div class="empty-state">
-          <i class="pi pi-inbox" />
+          <AppIcon name="inbox" />
           <div>No FX rates recorded yet.</div>
         </div>
       </template>
@@ -167,14 +170,14 @@ function openCreate() {
       <Column header="" :style="{ width: '70px' }">
         <template #body="{ data: r }">
           <Button
-            icon="pi pi-trash"
             text
             rounded
             severity="danger"
             title="Delete"
             :loading="deleteRate.isPending.value"
-            @click="confirmDelete(r)"
-          />
+            @click="confirmDelete(r)">
+            <template #icon><AppIcon name="trash-2" /></template>
+          </Button>
         </template>
       </Column>
     </DataTable>

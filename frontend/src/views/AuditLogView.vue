@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import { useRouter } from "vue-router";
@@ -100,7 +101,9 @@ function openPayment(row: AuditRow) {
         </p>
       </div>
       <div class="page-actions">
-        <Button icon="pi pi-refresh" text @click="refetch()" />
+        <Button aria-label="Refresh" text @click="refetch()">
+          <template #icon><AppIcon name="refresh-cw" /></template>
+        </Button>
       </div>
     </header>
 
@@ -141,7 +144,7 @@ function openPayment(row: AuditRow) {
     >
       <template #empty>
         <div class="empty-state">
-          <i class="pi pi-inbox" />
+          <AppIcon name="inbox" />
           <div>No audit entries match these filters.</div>
         </div>
       </template>

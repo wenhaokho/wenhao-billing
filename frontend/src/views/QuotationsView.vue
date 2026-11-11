@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
@@ -87,7 +88,9 @@ const customerNameById = computed(() => {
         </p>
       </div>
       <div class="page-actions">
-        <Button label="New quotation" icon="pi pi-plus" @click="router.push('/quotations/new')" />
+        <Button label="New quotation" @click="router.push('/quotations/new')">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </div>
     </header>
 
@@ -109,7 +112,7 @@ const customerNameById = computed(() => {
     >
       <template #empty>
         <div class="empty-state">
-          <i class="pi pi-file-edit" />
+          <AppIcon name="file-pen" />
           <div>No quotations match the current filter.</div>
         </div>
       </template>

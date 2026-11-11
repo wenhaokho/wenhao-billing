@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { reactive, watch, ref, computed } from "vue";
 import InputText from "primevue/inputtext";
 import Textarea from "primevue/textarea";
@@ -212,25 +213,25 @@ function onToggleSameAsBilling(v: boolean) {
         <Button
           v-if="!showSecondPhone"
           label="Add phone"
-          icon="pi pi-plus"
           text
           size="small"
           class="inline-add-btn"
-          @click="addSecondPhone"
-        />
+          @click="addSecondPhone">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </label>
 
       <label v-if="showSecondPhone" class="field">
         <span class="field-label-row">
           <span class="field-label">Phone 2</span>
           <Button
-            icon="pi pi-times"
             text
             rounded
             size="small"
             title="Remove second phone"
-            @click="removeSecondPhone"
-          />
+            @click="removeSecondPhone">
+            <template #icon><AppIcon name="x" /></template>
+          </Button>
         </span>
         <InputText v-model="local.contact_phone_2" />
       </label>

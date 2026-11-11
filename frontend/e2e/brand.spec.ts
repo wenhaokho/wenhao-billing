@@ -80,3 +80,17 @@ test("every status gets a defined tone", () => {
   expect(statusTone("Awaiting finalization")).toBe("amber");
   expect(statusTone("Inactive")).toBe("neutral");
 });
+
+test("no PrimeIcons font is loaded", async ({ page }) => {
+  const requested: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("primeicons")) requested.push(r.url());
+  });
+  for (const path of ["/dashboard", "/invoices", "/invoices/new"]) {
+    await page.goto(path);
+    await expect(page.locator("main#main-content")).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    expect(await page.locator(".pi").count(), `.pi elements on ${path}`).toBe(0);
+  }
+  expect(requested).toEqual([]);
+});

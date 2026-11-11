@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, watch, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import InputText from "primevue/inputtext";
@@ -327,9 +328,9 @@ function fmtDate(iso?: string) {
               <Button
                 type="submit"
                 label="Save changes"
-                icon="pi pi-check"
-                :loading="profileSaving"
-              />
+                :loading="profileSaving">
+                <template #icon><AppIcon name="check" /></template>
+              </Button>
             </div>
           </form>
         </div>
@@ -387,28 +388,28 @@ function fmtDate(iso?: string) {
                   <img :src="company.logo_url" alt="Company logo preview" />
                 </div>
                 <div v-else class="logo-preview logo-empty">
-                  <i class="pi pi-image" />
+                  <AppIcon name="image" />
                 </div>
                 <div class="logo-buttons">
                   <Button
                     type="button"
                     :label="company.logo_url ? 'Replace image' : 'Choose image'"
-                    icon="pi pi-upload"
                     severity="secondary"
                     outlined
                     size="small"
-                    @click="triggerLogoPicker"
-                  />
+                    @click="triggerLogoPicker">
+                    <template #icon><AppIcon name="upload" /></template>
+                  </Button>
                   <Button
                     v-if="company.logo_url"
                     type="button"
                     label="Remove"
-                    icon="pi pi-times"
                     severity="danger"
                     text
                     size="small"
-                    @click="removeLogo"
-                  />
+                    @click="removeLogo">
+                    <template #icon><AppIcon name="x" /></template>
+                  </Button>
                 </div>
               </div>
               <input
@@ -458,10 +459,10 @@ function fmtDate(iso?: string) {
               <Button
                 type="submit"
                 label="Save"
-                icon="pi pi-check"
                 :loading="companySaving"
-                :disabled="companyLoading"
-              />
+                :disabled="companyLoading">
+                <template #icon><AppIcon name="check" /></template>
+              </Button>
             </div>
           </form>
         </div>
@@ -516,9 +517,9 @@ function fmtDate(iso?: string) {
               <Button
                 type="submit"
                 label="Change password"
-                icon="pi pi-key"
-                :loading="pwSaving"
-              />
+                :loading="pwSaving">
+                <template #icon><AppIcon name="key-round" /></template>
+              </Button>
             </div>
           </form>
         </div>

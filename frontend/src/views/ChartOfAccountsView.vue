@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -64,7 +65,7 @@ function confirmDeactivate(row: Account) {
   confirm.require({
     message: `Deactivate "${row.code} · ${row.name}"? Existing journal lines remain; new postings will be blocked.`,
     header: "Deactivate account",
-    icon: "pi pi-exclamation-triangle",
+    icon: "triangle-alert",
     acceptLabel: "Deactivate",
     rejectLabel: "Cancel",
     acceptClass: "p-button-danger",
@@ -94,7 +95,9 @@ function typeSeverity(t: string) {
         </p>
       </div>
       <div class="page-actions">
-        <Button label="New account" icon="pi pi-plus" @click="openCreate" />
+        <Button label="New account" @click="openCreate">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </div>
     </header>
 
@@ -121,27 +124,29 @@ function typeSeverity(t: string) {
           <Column header="" :style="{ width: '160px' }">
             <template #body="{ data: row }">
               <div class="row-actions">
-                <Button icon="pi pi-pencil" text rounded title="Edit" @click="openEdit(row)" />
+                <Button text rounded title="Edit" @click="openEdit(row)">
+                  <template #icon><AppIcon name="pencil" /></template>
+                </Button>
                 <Button
                   v-if="row.active"
-                  icon="pi pi-ban"
                   text
                   rounded
                   severity="danger"
                   title="Deactivate"
                   :loading="deactivateAccount.isPending.value"
-                  @click="confirmDeactivate(row)"
-                />
+                  @click="confirmDeactivate(row)">
+                  <template #icon><AppIcon name="ban" /></template>
+                </Button>
                 <Button
                   v-else
-                  icon="pi pi-undo"
                   text
                   rounded
                   severity="success"
                   title="Reactivate"
                   :loading="reactivateAccount.isPending.value"
-                  @click="reactivateAccount.mutate(row.account_id)"
-                />
+                  @click="reactivateAccount.mutate(row.account_id)">
+                  <template #icon><AppIcon name="undo-2" /></template>
+                </Button>
               </div>
             </template>
           </Column>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
+import type { IconName } from "@/theme/icons";
 import { ref, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useReturnTo } from "@/composables/useReturnTo";
@@ -228,7 +230,7 @@ function confirmVoid() {
   confirm.require({
     message: "Void this quotation? It will no longer be valid.",
     header: "Void quotation",
-    icon: "pi pi-exclamation-triangle",
+    icon: "triangle-alert",
     acceptClass: "p-button-danger",
     accept: () => voidQuote.mutate(),
   });
@@ -237,7 +239,7 @@ function confirmDecline() {
   confirm.require({
     message: "Mark this quotation as declined by the customer?",
     header: "Decline quotation",
-    icon: "pi pi-times",
+    icon: "x",
     accept: () => declineQuote.mutate(),
   });
 }
@@ -245,7 +247,7 @@ function confirmAccept() {
   confirm.require({
     message: "Mark this quotation as accepted by the customer?",
     header: "Accept quotation",
-    icon: "pi pi-check",
+    icon: "check",
     accept: () => acceptQuote.mutate(),
   });
 }
@@ -253,7 +255,7 @@ function confirmDelete() {
   confirm.require({
     message: "Permanently delete this DRAFT quotation?",
     header: "Delete quotation",
-    icon: "pi pi-trash",
+    icon: "trash-2",
     acceptClass: "p-button-danger",
     accept: () => deleteQuote.mutate(),
   });
@@ -262,7 +264,7 @@ function confirmConvert() {
   confirm.require({
     message: "Convert this quotation into a DRAFT invoice? The quotation will be marked INVOICED.",
     header: "Convert to invoice",
-    icon: "pi pi-file",
+    icon: "file-text",
     accept: () => convertToInvoice.mutate(),
   });
 }
@@ -271,17 +273,17 @@ const moreMenu = ref<InstanceType<typeof Menu> | null>(null);
 const moreMenuItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = [];
   if (canAccept.value) {
-    items.push({ label: "Mark as accepted", icon: "pi pi-check", command: confirmAccept });
+    items.push({ label: "Mark as accepted", icon: "check", command: confirmAccept });
   }
   if (canDecline.value) {
-    items.push({ label: "Mark as declined", icon: "pi pi-times", command: confirmDecline });
+    items.push({ label: "Mark as declined", icon: "x", command: confirmDecline });
   }
   if (canVoid.value) {
     items.push({ separator: true });
-    items.push({ label: "Void quotation", icon: "pi pi-ban", command: confirmVoid });
+    items.push({ label: "Void quotation", icon: "ban", command: confirmVoid });
   }
   if (canDelete.value) {
-    items.push({ label: "Delete", icon: "pi pi-trash", command: confirmDelete });
+    items.push({ label: "Delete", icon: "trash-2", command: confirmDelete });
   }
   if (!items.length) items.push({ label: "No actions available", disabled: true });
   return items;
@@ -296,11 +298,11 @@ function toggleMoreMenu(event: Event) {
     <div class="back">
       <Button
         label="Quotations"
-        icon="pi pi-arrow-left"
         text
         size="small"
-        @click="goBack"
-      />
+        @click="goBack">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <div v-if="isLoading" class="loading">Loading quotation…</div>
@@ -325,26 +327,30 @@ function toggleMoreMenu(event: Event) {
         <div class="page-actions">
           <Button
             label="Preview PDF"
-            icon="pi pi-file-pdf"
             text
-            @click="openPdfPreview"
-          />
+            @click="openPdfPreview">
+            <template #icon><AppIcon name="file-down" /></template>
+          </Button>
           <Button
             v-if="canEdit"
             label="Edit"
-            icon="pi pi-pencil"
             outlined
-            @click="router.push({ path: `/quotations/${quote.quotation_id}/edit`, query: { from: route.fullPath } })"
-          />
+            @click="router.push({ path: `/quotations/${quote.quotation_id}/edit`, query: { from: route.fullPath } })">
+            <template #icon><AppIcon name="pencil" /></template>
+          </Button>
           <Button
             label="More actions"
-            icon="pi pi-ellipsis-v"
             severity="secondary"
             outlined
             aria-haspopup="true"
-            @click="toggleMoreMenu"
-          />
-          <Menu ref="moreMenu" :model="moreMenuItems" :popup="true" />
+            @click="toggleMoreMenu">
+            <template #icon><AppIcon name="ellipsis-vertical" /></template>
+          </Button>
+          <Menu ref="moreMenu" :model="moreMenuItems" :popup="true">
+            <template #itemicon="{ item, class: iconClass }">
+              <AppIcon :name="item.icon as IconName" :class="iconClass" />
+            </template>
+          </Menu>
         </div>
       </header>
 
@@ -353,18 +359,18 @@ function toggleMoreMenu(event: Event) {
       </Message>
 
       <div v-if="quote.status === 'INVOICED' && quote.converted_invoice_id" class="invoiced-banner">
-        <i class="pi pi-check-circle" />
+        <AppIcon name="circle-check" />
         <div>
           <div class="banner-title">Converted to invoice</div>
           <div class="banner-sub">This quotation was converted into a draft invoice.</div>
         </div>
         <Button
           label="Open invoice"
-          icon="pi pi-arrow-right"
           icon-pos="right"
           text
-          @click="router.push({ path: `/invoices/${quote.converted_invoice_id}/edit`, query: { from: route.fullPath } })"
-        />
+          @click="router.push({ path: `/invoices/${quote.converted_invoice_id}/edit`, query: { from: route.fullPath } })">
+          <template #icon><AppIcon name="arrow-right" /></template>
+        </Button>
       </div>
 
       <!-- Workflow steps -->
@@ -372,7 +378,7 @@ function toggleMoreMenu(event: Event) {
         <!-- Step 1: Create -->
         <div class="step" :class="{ done: true }">
           <div class="step-num">
-            <i class="pi pi-check" />
+            <AppIcon name="check" />
           </div>
           <div class="step-body">
             <div class="step-title">Create quotation</div>
@@ -383,18 +389,18 @@ function toggleMoreMenu(event: Event) {
               <Button
                 v-if="canEdit"
                 label="Edit estimate"
-                icon="pi pi-pencil"
                 size="small"
                 outlined
-                @click="router.push({ path: `/quotations/${quote.quotation_id}/edit`, query: { from: route.fullPath } })"
-              />
+                @click="router.push({ path: `/quotations/${quote.quotation_id}/edit`, query: { from: route.fullPath } })">
+                <template #icon><AppIcon name="pencil" /></template>
+              </Button>
               <Button
                 label="Preview PDF"
-                icon="pi pi-eye"
                 size="small"
                 text
-                @click="openPdfPreview"
-              />
+                @click="openPdfPreview">
+                <template #icon><AppIcon name="eye" /></template>
+              </Button>
             </div>
           </div>
         </div>
@@ -409,7 +415,7 @@ function toggleMoreMenu(event: Event) {
           }"
         >
           <div class="step-num">
-            <i v-if="quote.status !== 'DRAFT'" class="pi pi-check" />
+            <AppIcon v-if="quote.status !== 'DRAFT'" name="check" />
             <span v-else>2</span>
           </div>
           <div class="step-body">
@@ -429,19 +435,19 @@ function toggleMoreMenu(event: Event) {
               <Button
                 v-if="canSendEmail"
                 label="Send estimate"
-                icon="pi pi-send"
                 size="small"
-                @click="sendError = null; showSendDialog = true"
-              />
+                @click="sendError = null; showSendDialog = true">
+                <template #icon><AppIcon name="send" /></template>
+              </Button>
               <Button
                 v-if="canMarkSent"
                 label="Mark as sent"
-                icon="pi pi-check"
                 size="small"
                 outlined
                 :loading="markSent.isPending.value"
-                @click="markSent.mutate()"
-              />
+                @click="markSent.mutate()">
+                <template #icon><AppIcon name="check" /></template>
+              </Button>
             </div>
           </div>
         </div>
@@ -458,7 +464,7 @@ function toggleMoreMenu(event: Event) {
           }"
         >
           <div class="step-num">
-            <i v-if="quote.status === 'INVOICED'" class="pi pi-check" />
+            <AppIcon v-if="quote.status === 'INVOICED'" name="check" />
             <span v-else>3</span>
           </div>
           <div class="step-body">
@@ -478,21 +484,21 @@ function toggleMoreMenu(event: Event) {
               <Button
                 v-if="canConvert"
                 label="Convert to invoice"
-                icon="pi pi-file"
                 size="small"
                 severity="success"
                 :loading="convertToInvoice.isPending.value"
-                @click="confirmConvert"
-              />
+                @click="confirmConvert">
+                <template #icon><AppIcon name="file-text" /></template>
+              </Button>
               <Button
                 v-if="quote.status === 'INVOICED' && quote.converted_invoice_id"
                 label="Open invoice"
-                icon="pi pi-arrow-right"
                 icon-pos="right"
                 size="small"
                 text
-                @click="router.push({ path: `/invoices/${quote.converted_invoice_id}/edit`, query: { from: route.fullPath } })"
-              />
+                @click="router.push({ path: `/invoices/${quote.converted_invoice_id}/edit`, query: { from: route.fullPath } })">
+                <template #icon><AppIcon name="arrow-right" /></template>
+              </Button>
             </div>
           </div>
         </div>
@@ -623,8 +629,10 @@ function toggleMoreMenu(event: Event) {
   border-radius: 10px;
   color: #065f46;
 }
-.invoiced-banner > i {
-  font-size: 1.3rem;
+.invoiced-banner > .app-icon {
+  width: 1.3rem;
+  height: 1.3rem;
+  flex: none;
   color: #10b981;
 }
 .banner-title { font-weight: 600; font-size: 0.95rem; }

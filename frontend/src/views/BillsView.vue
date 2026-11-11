@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
@@ -88,7 +89,9 @@ const vendorNameById = computed(() => {
         </p>
       </div>
       <div class="page-actions">
-        <Button label="New bill" icon="pi pi-plus" @click="router.push('/bills/new')" />
+        <Button label="New bill" @click="router.push('/bills/new')">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </div>
     </header>
 
@@ -110,7 +113,7 @@ const vendorNameById = computed(() => {
     >
       <template #empty>
         <div class="empty-state">
-          <i class="pi pi-file" />
+          <AppIcon name="file-text" />
           <div>No bills match the current filter.</div>
         </div>
       </template>

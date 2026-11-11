@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -156,7 +157,7 @@ async function sendReceipt(
     confirm.require({
       header: "Receipt email failed",
       message: `The payment was recorded, but the receipt email to ${receipt.to_email} failed: ${detail}. Retry?`,
-      icon: "pi pi-envelope",
+      icon: "mail",
       acceptLabel: "Retry",
       rejectLabel: "Dismiss",
       accept: () => void sendReceipt(invoiceId, paymentId, receipt),
@@ -214,8 +215,12 @@ function canRecordPayment(row: Invoice): boolean {
         </p>
       </div>
       <div class="page-actions">
-        <Button label="Recurring templates" icon="pi pi-replay" severity="secondary" outlined @click="router.push('/invoices/recurring')" />
-        <Button label="New invoice" icon="pi pi-plus" @click="router.push('/invoices/new')" />
+        <Button label="Recurring templates" severity="secondary" outlined @click="router.push('/invoices/recurring')">
+          <template #icon><AppIcon name="repeat" /></template>
+        </Button>
+        <Button label="New invoice" @click="router.push('/invoices/new')">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </div>
     </header>
 
@@ -252,7 +257,7 @@ function canRecordPayment(row: Invoice): boolean {
     >
       <template #empty>
         <div class="empty-state">
-          <i class="pi pi-file" />
+          <AppIcon name="file-text" />
           <div>No invoices match the current filter.</div>
         </div>
       </template>
@@ -291,11 +296,11 @@ function canRecordPayment(row: Invoice): boolean {
           <Button
             v-if="canRecordPayment(row)"
             label="Record payment"
-            icon="pi pi-dollar"
             size="small"
             text
-            @click.stop="openRecordPayment(row)"
-          />
+            @click.stop="openRecordPayment(row)">
+            <template #icon><AppIcon name="dollar-sign" /></template>
+          </Button>
         </template>
       </Column>
     </DataTable>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { useRouter } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import Button from "primevue/button";
@@ -34,7 +35,9 @@ function goEdit() {
 <template>
   <section>
     <div class="back">
-      <Button label="Vendors" icon="pi pi-arrow-left" text size="small" @click="router.push('/vendors')" />
+      <Button label="Vendors" text size="small" @click="router.push('/vendors')">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <header class="page-header">
@@ -45,7 +48,9 @@ function goEdit() {
         </p>
       </div>
       <div class="page-actions">
-        <Button label="Edit" icon="pi pi-pencil" @click="goEdit" :disabled="!vendor" />
+        <Button label="Edit" @click="goEdit" :disabled="!vendor">
+          <template #icon><AppIcon name="pencil" /></template>
+        </Button>
       </div>
     </header>
 

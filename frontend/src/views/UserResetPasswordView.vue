@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useMutation } from "@tanstack/vue-query";
@@ -52,7 +53,9 @@ function cancel() {
 <template>
   <section class="page">
     <div class="back">
-      <Button label="Users" icon="pi pi-arrow-left" text size="small" @click="cancel" />
+      <Button label="Users" text size="small" @click="cancel">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <div class="header">

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
+import type { IconName } from "@/theme/icons";
 import { computed, ref } from "vue";
 
 // The MCP endpoint is served by the backend origin. In production the backend
@@ -46,33 +48,33 @@ const steps = [
   },
 ];
 
-type Capability = { icon: string; label: string; detail: string };
+type Capability = { icon: IconName; label: string; detail: string };
 
 const reads: Capability[] = [
-  { icon: "pi-search", label: "Ask anything", detail: "“What does Acme still owe?”, “revenue this quarter in SGD”, “what's overdue?”" },
+  { icon: "search", label: "Ask anything", detail: "“What does Acme still owe?”, “revenue this quarter in SGD”, “what's overdue?”" },
 ];
 const writes: Capability[] = [
-  { icon: "pi-file-edit", label: "Draft & issue", detail: "Create invoices, quotations, bills, customers, projects, items — and finalize invoices." },
-  { icon: "pi-sync", label: "Recurring & reconciliation", detail: "Spin up recurring templates and resolve clear payment matches (mismatches always stop for you)." },
+  { icon: "file-pen", label: "Draft & issue", detail: "Create invoices, quotations, bills, customers, projects, items — and finalize invoices." },
+  { icon: "refresh-cw", label: "Recurring & reconciliation", detail: "Spin up recurring templates and resolve clear payment matches (mismatches always stop for you)." },
 ];
 const gated: Capability[] = [
-  { icon: "pi-send", label: "Emails to customers", detail: "Sending an invoice or reminder shows you a preview first — nothing goes out until you confirm." },
-  { icon: "pi-trash", label: "Deletions", detail: "Any delete is previewed and requires your explicit confirmation." },
+  { icon: "send", label: "Emails to customers", detail: "Sending an invoice or reminder shows you a preview first — nothing goes out until you confirm." },
+  { icon: "trash-2", label: "Deletions", detail: "Any delete is previewed and requires your explicit confirmation." },
 ];
 
-const securityPoints = computed(() => [
+const securityPoints = computed<{ icon: IconName; title: string; body: string }[]>(() => [
   {
-    icon: "pi-lock",
+    icon: "lock",
     title: "Your login, nothing new",
     body: "Access is granted through the same admin sign-in you already use — no separate password or API key to manage.",
   },
   {
-    icon: "pi-user-edit",
+    icon: "user-pen",
     title: "Admin-only",
     body: "Only an admin account can connect and drive the assistant. Non-admin sessions are refused.",
   },
   {
-    icon: "pi-verified",
+    icon: "badge-check",
     title: "Consent + revocable",
     body: "Every connection passes an explicit consent screen, and access tokens can be revoked at any time.",
   },
@@ -83,7 +85,7 @@ const securityPoints = computed(() => [
   <div class="mcp-page">
     <div class="page-header">
       <div>
-        <h1><i class="pi pi-sparkles title-spark" /> AI Assistant</h1>
+        <h1><AppIcon name="sparkles" class="title-spark" /> AI Assistant</h1>
         <p class="subtitle">
           Connect Claude to your billing so you can create invoices, answer
           questions, and run your books by just asking.
@@ -104,14 +106,14 @@ const securityPoints = computed(() => [
         </p>
       </div>
       <div class="hero-glyph" aria-hidden="true">
-        <i class="pi pi-sparkles" />
+        <AppIcon name="sparkles" />
       </div>
     </section>
 
     <!-- Connect -->
     <section class="card card-pad connect">
       <div class="section-head">
-        <span class="step-badge"><i class="pi pi-link" /></span>
+        <span class="step-badge"><AppIcon name="link" /></span>
         <div>
           <h3>Connect Claude Desktop</h3>
           <p class="section-sub">Add this as a custom connector, then sign in once.</p>
@@ -136,12 +138,12 @@ const securityPoints = computed(() => [
           :aria-label="copied ? 'Copied' : 'Copy connector URL'"
           @click="copyUrl"
         >
-          <i :class="copied ? 'pi pi-check' : 'pi pi-copy'" />
+          <AppIcon :name="copied ? 'check' : 'copy'" />
           <span>{{ copied ? "Copied" : "Copy" }}</span>
         </button>
       </div>
       <p class="url-hint">
-        <i class="pi pi-info-circle" />
+        <AppIcon name="info" />
         Running locally? Use <code>{{ DEV_CONNECTOR_URL }}</code> instead.
       </p>
 
@@ -164,7 +166,7 @@ const securityPoints = computed(() => [
           <span class="cap-note">no confirmation</span>
         </div>
         <div v-for="c in reads" :key="c.label" class="cap-item">
-          <i :class="['pi', c.icon]" />
+          <AppIcon :name="c.icon" />
           <div>
             <div class="cap-label">{{ c.label }}</div>
             <div class="cap-detail">{{ c.detail }}</div>
@@ -178,7 +180,7 @@ const securityPoints = computed(() => [
           <span class="cap-note">automatic</span>
         </div>
         <div v-for="c in writes" :key="c.label" class="cap-item">
-          <i :class="['pi', c.icon]" />
+          <AppIcon :name="c.icon" />
           <div>
             <div class="cap-label">{{ c.label }}</div>
             <div class="cap-detail">{{ c.detail }}</div>
@@ -192,7 +194,7 @@ const securityPoints = computed(() => [
           <span class="cap-note">you approve</span>
         </div>
         <div v-for="c in gated" :key="c.label" class="cap-item">
-          <i :class="['pi', c.icon]" />
+          <AppIcon :name="c.icon" />
           <div>
             <div class="cap-label">{{ c.label }}</div>
             <div class="cap-detail">{{ c.detail }}</div>
@@ -204,7 +206,7 @@ const securityPoints = computed(() => [
     <!-- Security -->
     <section class="card card-pad security">
       <div class="section-head">
-        <span class="step-badge badge-shield"><i class="pi pi-shield" /></span>
+        <span class="step-badge badge-shield"><AppIcon name="shield" /></span>
         <div>
           <h3>How access works</h3>
           <p class="section-sub">Secured through your existing login &mdash; nothing new to manage.</p>
@@ -212,7 +214,7 @@ const securityPoints = computed(() => [
       </div>
       <div class="sec-grid">
         <div v-for="s in securityPoints" :key="s.title" class="sec-item">
-          <i :class="['pi', s.icon]" />
+          <AppIcon :name="s.icon" />
           <div class="sec-title">{{ s.title }}</div>
           <div class="sec-body">{{ s.body }}</div>
         </div>
@@ -240,7 +242,9 @@ const securityPoints = computed(() => [
 }
 .title-spark {
   color: var(--color-primary);
-  font-size: 1.2rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  vertical-align: -0.15em;
 }
 
 /* ---- hero ---- */
@@ -283,7 +287,7 @@ const securityPoints = computed(() => [
   background: linear-gradient(135deg, var(--color-primary), #60a5fa);
   box-shadow: var(--shadow-md);
 }
-.hero-glyph .pi { font-size: 2.4rem; color: #fff; }
+.hero-glyph .app-icon { width: 2.4rem; height: 2.4rem; color: #fff; }
 
 /* ---- section heads ---- */
 .section-head { display: flex; align-items: flex-start; gap: 0.85rem; margin-bottom: 1.25rem; }
@@ -417,7 +421,7 @@ const securityPoints = computed(() => [
 .tag-gated { background: var(--color-warning-soft); color: var(--color-warning); }
 .cap-note { font-size: 0.72rem; color: var(--color-text-subtle); text-transform: uppercase; letter-spacing: 0.05em; }
 .cap-item { display: flex; gap: 0.7rem; padding: 0.6rem 0; align-items: flex-start; }
-.cap-item > .pi { color: var(--color-text-muted); font-size: 1rem; margin-top: 0.15rem; width: 18px; text-align: center; }
+.cap-item > .app-icon { color: var(--color-text-muted); width: 1rem; height: 1rem; margin-top: 0.15rem; flex: none; }
 .cap-label { font-weight: 600; font-size: 0.88rem; margin-bottom: 0.15rem; }
 .cap-detail { color: var(--color-text-muted); font-size: 0.82rem; line-height: 1.5; }
 
@@ -429,13 +433,13 @@ const securityPoints = computed(() => [
   border-radius: var(--radius-md);
   background: var(--color-surface-alt);
 }
-.sec-item > .pi { color: var(--color-success); font-size: 1.15rem; margin-bottom: 0.5rem; display: block; }
+.sec-item > .app-icon { color: var(--color-success); width: 1.15rem; height: 1.15rem; margin-bottom: 0.5rem; display: block; }
 .sec-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem; }
 .sec-body { color: var(--color-text-muted); font-size: 0.82rem; line-height: 1.5; }
 
 @media (max-width: 900px) {
   .capabilities, .sec-grid { grid-template-columns: 1fr; }
   .hero-glyph { width: 72px; height: 72px; }
-  .hero-glyph .pi { font-size: 1.8rem; }
+  .hero-glyph .app-icon { width: 1.8rem; height: 1.8rem; }
 }
 </style>

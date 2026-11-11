@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useReturnTo } from "@/composables/useReturnTo";
@@ -283,7 +284,9 @@ const canSave = computed(
 <template>
   <section class="bill-form">
     <div class="back">
-      <Button label="Bills" icon="pi pi-arrow-left" text size="small" @click="goBack" />
+      <Button label="Bills" text size="small" @click="goBack">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <header class="page-header">
@@ -299,18 +302,18 @@ const canSave = computed(
           <Button
             v-if="canRecordPayment"
             label="Record payment"
-            icon="pi pi-wallet"
-            @click="paymentError = null; showPaymentDialog = true"
-          />
+            @click="paymentError = null; showPaymentDialog = true">
+            <template #icon><AppIcon name="wallet" /></template>
+          </Button>
         </template>
         <template v-else>
           <Button
             :label="isEdit ? 'Save changes' : 'Save as DRAFT'"
-            icon="pi pi-save"
             :loading="save.isPending.value"
             :disabled="!canSave"
-            @click="save.mutate()"
-          />
+            @click="save.mutate()">
+            <template #icon><AppIcon name="save" /></template>
+          </Button>
         </template>
       </div>
     </header>
@@ -419,18 +422,21 @@ const canSave = computed(
           <template #body="{ index }">
             <Button
               v-if="!readOnly"
-              icon="pi pi-times"
               text
               rounded
               severity="danger"
               size="small"
-              @click="removeLine(index)"
-            />
+              aria-label="Remove line"
+              @click="removeLine(index)">
+              <template #icon><AppIcon name="x" /></template>
+            </Button>
           </template>
         </Column>
       </DataTable>
       <div v-if="!readOnly" class="add-line">
-        <Button label="Add line" icon="pi pi-plus" text size="small" @click="addLine" />
+        <Button label="Add line" text size="small" @click="addLine">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </div>
     </div>
 

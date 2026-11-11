@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref } from "vue";
 import { RouterLink } from "vue-router";
 import InputText from "primevue/inputtext";
@@ -59,10 +60,10 @@ async function submit() {
       <Button
         type="submit"
         label="Send reset link"
-        icon="pi pi-envelope"
         :loading="submitting"
-        class="submit-btn"
-      />
+        class="submit-btn">
+        <template #icon><AppIcon name="mail" /></template>
+      </Button>
     </form>
 
     <div v-else class="auth-form">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -78,7 +79,7 @@ function confirmEnd(row: RecurringRow) {
   confirm.require({
     message: `End "${row.customer_name ?? 'template'}" now? No further invoices will be generated.`,
     header: "End recurring template",
-    icon: "pi pi-exclamation-triangle",
+    icon: "triangle-alert",
     acceptLabel: "End now",
     rejectLabel: "Cancel",
     acceptClass: "p-button-danger",
@@ -121,8 +122,12 @@ function fmtDate(d: string | null) {
         </p>
       </div>
       <div class="page-actions">
-        <Button label="Back to invoices" icon="pi pi-arrow-left" text @click="router.push('/invoices')" />
-        <Button label="New recurring invoice" icon="pi pi-plus" @click="openNew" />
+        <Button label="Back to invoices" text @click="router.push('/invoices')">
+          <template #icon><AppIcon name="arrow-left" /></template>
+        </Button>
+        <Button label="New recurring invoice" @click="openNew">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </div>
     </header>
 
@@ -143,7 +148,7 @@ function fmtDate(d: string | null) {
     >
       <template #empty>
         <div class="empty-state">
-          <i class="pi pi-replay" />
+          <AppIcon name="repeat" />
           <div v-if="hasTemplates">No recurring templates match the current filter.</div>
           <div v-else>
             No recurring templates yet. Click
@@ -194,41 +199,42 @@ function fmtDate(d: string | null) {
         <template #body="{ data: row }">
           <div class="row-actions">
             <Button
-              :icon="row.status === 'ENDED' ? 'pi pi-eye' : 'pi pi-pencil'"
               text
               rounded
               :title="row.status === 'ENDED' ? 'View' : 'Edit'"
               @click="router.push({ name: 'invoice-recurring-edit', params: { id: row.template_id }, query: { from: route.fullPath } })"
-            />
+            >
+              <template #icon><AppIcon :name="row.status === 'ENDED' ? 'eye' : 'pencil'" /></template>
+            </Button>
             <Button
               v-if="row.status === 'ACTIVE'"
-              icon="pi pi-pause"
               text
               rounded
               title="Pause"
               :loading="patchTemplate.isPending.value"
-              @click="pauseTemplate(row)"
-            />
+              @click="pauseTemplate(row)">
+              <template #icon><AppIcon name="pause" /></template>
+            </Button>
             <Button
               v-else-if="row.status === 'PAUSED'"
-              icon="pi pi-play"
               text
               rounded
               severity="success"
               title="Resume"
               :loading="patchTemplate.isPending.value"
-              @click="resumeTemplate(row)"
-            />
+              @click="resumeTemplate(row)">
+              <template #icon><AppIcon name="play" /></template>
+            </Button>
             <Button
               v-if="row.status !== 'ENDED'"
-              icon="pi pi-stop-circle"
               text
               rounded
               severity="danger"
               title="End now"
               :loading="patchTemplate.isPending.value"
-              @click="confirmEnd(row)"
-            />
+              @click="confirmEnd(row)">
+              <template #icon><AppIcon name="circle-stop" /></template>
+            </Button>
           </div>
         </template>
       </Column>

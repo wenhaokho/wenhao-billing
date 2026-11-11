@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { useRouter } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
@@ -47,14 +48,16 @@ function fmtDate(iso: string) {
         </p>
       </div>
       <div class="page-actions">
-        <Button label="Invite user" icon="pi pi-plus" @click="openCreate" />
+        <Button label="Invite user" @click="openCreate">
+          <template #icon><AppIcon name="plus" /></template>
+        </Button>
       </div>
     </header>
 
     <DataTable :value="data ?? []" :loading="isLoading" data-key="user_id" striped-rows>
       <template #empty>
         <div class="empty-state">
-          <i class="pi pi-users" />
+          <AppIcon name="users" />
           <div>No users — seed one with scripts/seed_admin.py.</div>
         </div>
       </template>
@@ -78,11 +81,11 @@ function fmtDate(iso: string) {
         <template #body="{ data: row }">
           <Button
             label="Reset password"
-            icon="pi pi-key"
             size="small"
             text
-            @click="openReset(row)"
-          />
+            @click="openReset(row)">
+            <template #icon><AppIcon name="key-round" /></template>
+          </Button>
         </template>
       </Column>
     </DataTable>

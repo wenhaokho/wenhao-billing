@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref } from "vue";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
@@ -107,7 +108,7 @@ const reverse = useMutation({
       >
         <template #empty>
           <div class="empty-state">
-            <i class="pi pi-check-circle" />
+            <AppIcon name="circle-check" />
             <div>Nothing held. All recent payments auto-cleared.</div>
           </div>
         </template>
@@ -156,11 +157,11 @@ const reverse = useMutation({
             <InputText v-model="invoiceId" placeholder="invoice UUID" />
             <Button
               label="Approve & Post"
-              icon="pi pi-check"
               :disabled="!invoiceId"
               :loading="approve.isPending.value"
-              @click="approve.mutate()"
-            />
+              @click="approve.mutate()">
+              <template #icon><AppIcon name="check" /></template>
+            </Button>
           </div>
           <Message v-if="approve.error.value" severity="error" :closable="false">
             {{ (approve.error.value as any)?.response?.data?.detail ?? 'Approval failed' }}
@@ -170,16 +171,16 @@ const reverse = useMutation({
         <div v-if="selected.status === 'CLEARED'" class="section">
           <Button
             label="Reverse this payment"
-            icon="pi pi-undo"
             severity="danger"
             text
-            @click="showReverse = true"
-          />
+            @click="showReverse = true">
+            <template #icon><AppIcon name="undo-2" /></template>
+          </Button>
         </div>
       </aside>
 
       <aside v-else class="detail card card-pad placeholder">
-        <i class="pi pi-arrow-left" />
+        <AppIcon name="arrow-left" />
         <div>Select a payment on the left to see its match reasons and take action.</div>
       </aside>
     </div>
@@ -225,5 +226,5 @@ dd.num { font-variant-numeric: tabular-nums; font-weight: 500; }
   gap: 0.75rem; color: var(--color-text-muted); text-align: center;
   min-height: 200px;
 }
-.placeholder i { font-size: 1.5rem; color: var(--color-text-subtle); }
+.placeholder .app-icon { width: 1.5rem; height: 1.5rem; color: var(--color-text-subtle); }
 </style>

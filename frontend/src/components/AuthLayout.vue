@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 defineProps<{
   title: string;
   subtitle?: string;
@@ -29,9 +30,9 @@ defineProps<{
         </div>
 
         <ul class="hero-points">
-          <li><i class="pi pi-check-circle" /> Automated monthly retainers</li>
-          <li><i class="pi pi-check-circle" /> Reconciled against bank feeds</li>
-          <li><i class="pi pi-check-circle" /> Client-ready statements in one click</li>
+          <li><AppIcon name="circle-check" /> Automated monthly retainers</li>
+          <li><AppIcon name="circle-check" /> Reconciled against bank feeds</li>
+          <li><AppIcon name="circle-check" /> Client-ready statements in one click</li>
         </ul>
 
         <div class="hero-footer">&copy; {{ new Date().getFullYear() }} Wenhao Billing</div>
@@ -111,7 +112,7 @@ defineProps<{
 }
 .hero-points { list-style: none; padding: 0; margin: 0 0 auto; display: flex; flex-direction: column; gap: 0.65rem; }
 .hero-points li { display: flex; align-items: center; gap: 0.6rem; color: #dbeafe; font-size: 0.88rem; }
-.hero-points .pi { color: #60a5fa; font-size: 0.95rem; }
+.hero-points .app-icon { color: #60a5fa; width: 0.95rem; height: 0.95rem; vertical-align: -0.15em; }
 .hero-footer { margin-top: 2.5rem; color: #94a3b8; font-size: 0.75rem; letter-spacing: 0.02em; }
 
 .hero-glow { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.55; pointer-events: none; }

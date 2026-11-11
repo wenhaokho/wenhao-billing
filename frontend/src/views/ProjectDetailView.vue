@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useReturnTo } from "@/composables/useReturnTo";
@@ -128,7 +129,9 @@ function openInvoice(row: Invoice) {
 <template>
   <section class="page">
     <div class="back">
-      <Button label="Projects" icon="pi pi-arrow-left" text size="small" @click="backToList" />
+      <Button label="Projects" text size="small" @click="backToList">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <div v-if="isLoading">Loading…</div>
@@ -146,7 +149,9 @@ function openInvoice(row: Invoice) {
           </p>
         </div>
         <div class="actions">
-          <Button label="Edit" icon="pi pi-pencil" outlined @click="openEdit" />
+          <Button label="Edit" outlined @click="openEdit">
+            <template #icon><AppIcon name="pencil" /></template>
+          </Button>
         </div>
       </div>
 
@@ -224,7 +229,9 @@ function openInvoice(row: Invoice) {
           </Column>
           <Column header="" :style="{ width: '70px' }">
             <template #body="{ data: row }">
-              <Button icon="pi pi-pencil" text rounded @click="openInvoice(row)" />
+              <Button text rounded aria-label="Edit invoice" @click="openInvoice(row)">
+                <template #icon><AppIcon name="pencil" /></template>
+              </Button>
             </template>
           </Column>
         </DataTable>
@@ -268,7 +275,9 @@ function openInvoice(row: Invoice) {
           </Column>
           <Column header="" :style="{ width: '70px' }">
             <template #body="{ data: row }">
-              <Button icon="pi pi-arrow-right" text rounded @click="openQuotation(row)" />
+              <Button text rounded aria-label="Open quotation" @click="openQuotation(row)">
+                <template #icon><AppIcon name="arrow-right" /></template>
+              </Button>
             </template>
           </Column>
         </DataTable>

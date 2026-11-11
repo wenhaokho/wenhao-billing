@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, watch, computed } from "vue";
 import Dialog from "primevue/dialog";
 import Button from "primevue/button";
@@ -162,10 +163,10 @@ function submit() {
           />
           <Button
             label="Full balance"
-            icon="pi pi-arrow-down-left"
             :disabled="loading || balanceNum <= 0"
-            @click.prevent="fillFullBalance"
-          />
+            @click.prevent="fillFullBalance">
+            <template #icon><AppIcon name="arrow-down-left" /></template>
+          </Button>
         </div>
       </label>
       <label v-if="showWht" class="field">
@@ -214,7 +215,7 @@ function submit() {
             <span>Cc <span class="muted">(optional)</span></span>
             <InputText v-model="receiptCc" placeholder="Separate multiple with commas" />
           </label>
-          <p class="note"><i class="pi pi-paperclip" /> A PDF receipt will be attached automatically.</p>
+          <p class="note"><AppIcon name="paperclip" /> A PDF receipt will be attached automatically.</p>
         </template>
       </template>
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
@@ -223,11 +224,11 @@ function submit() {
       <Button label="Cancel" text :disabled="loading" @click="close" />
       <Button
         label="Record payment"
-        icon="pi pi-check"
         :loading="loading"
         :disabled="!canSubmit || loading"
-        @click="submit"
-      />
+        @click="submit">
+        <template #icon><AppIcon name="check" /></template>
+      </Button>
     </template>
   </Dialog>
 </template>
@@ -259,5 +260,5 @@ function submit() {
 .receipt-check { border-top: 1px solid var(--color-border); padding-top: 0.6rem; }
 .receipt-row { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; }
 .note { font-size: 0.78rem; color: var(--color-text-muted); margin: 0; }
-.note i { margin-right: 0.3rem; }
+.note .app-icon { margin-right: 0.3rem; vertical-align: -0.15em; }
 </style>

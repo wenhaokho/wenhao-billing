@@ -8,6 +8,8 @@ import type { MenuItem } from "primevue/menuitem";
 import ConfirmDialog from "primevue/confirmdialog";
 import { useAuthStore } from "@/stores/auth";
 import { useTheme } from "@/composables/useTheme";
+import AppIcon from "@/components/AppIcon.vue";
+import type { IconName } from "@/theme/icons";
 
 const { theme, toggle: toggleTheme } = useTheme();
 
@@ -22,18 +24,18 @@ const userMenuItems = computed<MenuItem[]>(() => [
     items: [
       {
         label: "My account",
-        icon: "pi pi-id-card",
+        icon: "id-card",
         command: () => router.push("/account"),
       },
       {
         label: "Change password",
-        icon: "pi pi-key",
+        icon: "key-round",
         command: () => router.push("/account?tab=password"),
       },
       { separator: true },
       {
         label: "Sign out",
-        icon: "pi pi-sign-out",
+        icon: "log-out",
         command: () => logout(),
       },
     ],
@@ -49,49 +51,49 @@ async function logout() {
   router.push("/login");
 }
 
-const navGroups = [
+const navGroups: { label: string; items: { to: string; icon: IconName; label: string }[] }[] = [
   {
     label: "Overview",
-    items: [{ to: "/dashboard", icon: "pi pi-home", label: "Dashboard" }],
+    items: [{ to: "/dashboard", icon: "house", label: "Dashboard" }],
   },
   {
     label: "Sales",
     items: [
-      { to: "/customers", icon: "pi pi-users", label: "Customers" },
-      { to: "/projects", icon: "pi pi-folder", label: "Projects" },
-      { to: "/quotations", icon: "pi pi-file-edit", label: "Quotations" },
-      { to: "/invoices", icon: "pi pi-file", label: "Invoices" },
+      { to: "/customers", icon: "users", label: "Customers" },
+      { to: "/projects", icon: "folder", label: "Projects" },
+      { to: "/quotations", icon: "file-pen", label: "Quotations" },
+      { to: "/invoices", icon: "file-text", label: "Invoices" },
     ],
   },
   {
     label: "Purchases",
     items: [
-      { to: "/vendors", icon: "pi pi-briefcase", label: "Vendors" },
-      { to: "/bills", icon: "pi pi-receipt", label: "Bills" },
+      { to: "/vendors", icon: "briefcase", label: "Vendors" },
+      { to: "/bills", icon: "receipt", label: "Bills" },
     ],
   },
   {
     label: "Accounting",
     items: [
-      { to: "/items", icon: "pi pi-tags", label: "Products & Services" },
-      { to: "/chart-of-accounts", icon: "pi pi-book", label: "Chart of Accounts" },
-      { to: "/reports", icon: "pi pi-chart-bar", label: "Reports" },
-      { to: "/fx-rates", icon: "pi pi-dollar", label: "FX Rates" },
+      { to: "/items", icon: "tag", label: "Products & Services" },
+      { to: "/chart-of-accounts", icon: "book-open", label: "Chart of Accounts" },
+      { to: "/reports", icon: "chart-column", label: "Reports" },
+      { to: "/fx-rates", icon: "dollar-sign", label: "FX Rates" },
     ],
   },
   {
     label: "Operations",
     items: [
-      { to: "/queue", icon: "pi pi-inbox", label: "Awaiting Finalization" },
-      { to: "/review", icon: "pi pi-exclamation-triangle", label: "Manual Review" },
+      { to: "/queue", icon: "inbox", label: "Awaiting Finalization" },
+      { to: "/review", icon: "triangle-alert", label: "Manual Review" },
     ],
   },
   {
     label: "Admin",
     items: [
-      { to: "/mcp-integration", icon: "pi pi-sparkles", label: "AI Assistant" },
-      { to: "/users", icon: "pi pi-user", label: "Users" },
-      { to: "/audit-log", icon: "pi pi-history", label: "Audit Log" },
+      { to: "/mcp-integration", icon: "sparkles", label: "AI Assistant" },
+      { to: "/users", icon: "user", label: "Users" },
+      { to: "/audit-log", icon: "history", label: "Audit Log" },
     ],
   },
 ];
@@ -172,7 +174,7 @@ function closeMobileNav() { mobileNavOpen.value = false; }
             class="nav-item"
             @click="closeMobileNav"
           >
-            <i :class="item.icon" />
+            <AppIcon :name="item.icon" :size="17" />
             <span>{{ item.label }}</span>
           </RouterLink>
         </div>
@@ -195,7 +197,7 @@ function closeMobileNav() { mobileNavOpen.value = false; }
             aria-label="Open navigation"
             @click="toggleMobileNav"
           >
-            <i class="pi pi-bars" />
+            <AppIcon name="menu" />
           </button>
           <h2 class="topbar-title">{{ pageTitle }}</h2>
         </div>
@@ -207,7 +209,7 @@ function closeMobileNav() { mobileNavOpen.value = false; }
             :title="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
             @click="toggleTheme"
           >
-            <i :class="theme === 'dark' ? 'pi pi-sun' : 'pi pi-moon'" />
+            <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" />
           </button>
           <button
             type="button"
@@ -221,9 +223,13 @@ function closeMobileNav() { mobileNavOpen.value = false; }
               <div class="user-email">{{ auth.displayLabel }}</div>
               <div class="user-role">{{ auth.user?.role ?? 'admin' }}</div>
             </div>
-            <i class="pi pi-chevron-down chevron" />
+            <AppIcon name="chevron-down" class="chevron" />
           </button>
-          <Menu ref="userMenu" :model="userMenuItems" :popup="true" />
+          <Menu ref="userMenu" :model="userMenuItems" :popup="true">
+            <template #itemicon="{ item, class: iconClass }">
+              <AppIcon :name="item.icon as IconName" :class="iconClass" />
+            </template>
+          </Menu>
         </div>
       </header>
       <main id="main-content" class="page" tabindex="-1">
@@ -236,7 +242,12 @@ function closeMobileNav() { mobileNavOpen.value = false; }
     <RouterView />
   </div>
 
-  <ConfirmDialog />
+  <ConfirmDialog>
+    <template #message="{ message }">
+      <AppIcon v-if="message.icon" :name="message.icon as IconName" :size="24" class="p-confirmdialog-icon" />
+      <span class="p-confirmdialog-message">{{ message.message }}</span>
+    </template>
+  </ConfirmDialog>
 </template>
 
 <style scoped>
@@ -295,12 +306,12 @@ function closeMobileNav() { mobileNavOpen.value = false; }
 }
 .nav-item:hover { background: #1e293b; color: #f1f5f9; }
 .nav-item:focus-visible { outline: none; box-shadow: 0 0 0 2px #60a5fa; background: #1e293b; color: #f1f5f9; }
-.nav-item i { font-size: 0.95rem; width: 16px; text-align: center; color: #94a3b8; }
+.nav-item .app-icon { color: #94a3b8; }
 .nav-item.router-link-active {
   background: #1d4ed8;
   color: white;
 }
-.nav-item.router-link-active i { color: white; }
+.nav-item.router-link-active .app-icon { color: white; }
 
 .sidebar-footer { padding: 0.75rem 0.5rem 0; border-top: 1px solid #1e293b; }
 .env-pill {
@@ -411,7 +422,7 @@ function closeMobileNav() { mobileNavOpen.value = false; }
 }
 .user-chip:hover { background: var(--color-border); border-color: var(--color-text-muted); }
 .user-chip:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
-.user-chip .chevron { font-size: 0.7rem; color: var(--color-text-muted); }
+.user-chip .chevron { width: 12px; height: 12px; color: var(--color-text-muted); }
 .avatar { background: var(--color-primary); color: white; font-weight: 600; font-size: 0.75rem; width: 28px; height: 28px; }
 .user-meta { line-height: 1.1; }
 .user-email { font-size: 0.8rem; font-weight: 500; color: var(--color-text); }
@@ -432,7 +443,6 @@ function closeMobileNav() { mobileNavOpen.value = false; }
   .sidebar { padding: 1rem 0.5rem; }
   .brand-text, .nav-group-label, .sidebar-footer, .nav-item span { display: none; }
   .nav-item { justify-content: center; padding: 0.6rem 0.4rem; }
-  .nav-item i { width: auto; }
   .user-meta { display: none; }
 }
 

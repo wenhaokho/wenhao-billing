@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { computed } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery } from "@tanstack/vue-query";
@@ -64,7 +65,9 @@ function goEdit() {
 <template>
   <section>
     <div class="back">
-      <Button label="Items" icon="pi pi-arrow-left" text size="small" @click="router.push('/items')" />
+      <Button label="Items" text size="small" @click="router.push('/items')">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <header class="page-header">
@@ -76,7 +79,9 @@ function goEdit() {
         </p>
       </div>
       <div class="page-actions">
-        <Button label="Edit" icon="pi pi-pencil" @click="goEdit" :disabled="!item" />
+        <Button label="Edit" @click="goEdit" :disabled="!item">
+          <template #icon><AppIcon name="pencil" /></template>
+        </Button>
       </div>
     </header>
 

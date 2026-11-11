@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "@/components/AppIcon.vue";
 import { ref, computed, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
@@ -401,7 +402,7 @@ async function sendReceipt(
     confirm.require({
       header: "Receipt email failed",
       message: `The payment was recorded, but the receipt email to ${receipt.to_email} failed: ${detail}. Retry?`,
-      icon: "pi pi-envelope",
+      icon: "mail",
       acceptLabel: "Retry",
       rejectLabel: "Dismiss",
       accept: () => void sendReceipt(invoiceId, paymentId, receipt),
@@ -775,11 +776,11 @@ const canSave = computed(() => {
     <div class="back">
       <Button
         :label="isRecurring ? 'Recurring invoices' : 'Invoices'"
-        icon="pi pi-arrow-left"
         text
         size="small"
-        @click="goBack"
-      />
+        @click="goBack">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
     </div>
 
     <header class="page-header sticky-header">
@@ -809,55 +810,55 @@ const canSave = computed(() => {
         <StatusTag v-else-if="existing?.status" :status="existing.status" />
         <Button
           label="Preview PDF"
-          icon="pi pi-file-pdf"
           text
           :disabled="!isEdit"
           :title="isEdit ? 'Preview PDF' : 'Save first to preview'"
-          @click="openPdfPreview"
-        />
+          @click="openPdfPreview">
+          <template #icon><AppIcon name="file-down" /></template>
+        </Button>
         <Button
           v-if="showSendInvoice"
           label="Send invoice"
-          icon="pi pi-send"
           :disabled="!canSendInvoice"
           :title="sendBlockedReason ?? 'Email the invoice PDF'"
-          @click="openSendDialog"
-        />
+          @click="openSendDialog">
+          <template #icon><AppIcon name="send" /></template>
+        </Button>
         <template v-if="readOnly">
           <Button
             v-if="canRecordPayment"
             label="Record payment"
-            icon="pi pi-wallet"
             severity="success"
-            @click="paymentError = null; showPaymentDialog = true"
-          />
+            @click="paymentError = null; showPaymentDialog = true">
+            <template #icon><AppIcon name="wallet" /></template>
+          </Button>
           <Button
             v-if="canMarkPaid"
             label="Mark as paid"
-            icon="pi pi-check-circle"
             severity="success"
             :loading="markPaid.isPending.value"
             title="This invoice has nothing to collect — mark it settled"
-            @click="markPaid.mutate()"
-          />
+            @click="markPaid.mutate()">
+            <template #icon><AppIcon name="circle-check" /></template>
+          </Button>
           <Button
             v-if="canSendReceipt"
             label="Send receipt"
-            icon="pi pi-envelope"
             severity="secondary"
             :disabled="!(invoicePayments?.length)"
             :title="invoicePayments?.length ? 'Email a receipt for a recorded payment' : 'No payments recorded'"
-            @click="receiptError = null; showReceiptDialog = true"
-          />
+            @click="receiptError = null; showReceiptDialog = true">
+            <template #icon><AppIcon name="mail" /></template>
+          </Button>
         </template>
         <template v-else>
           <Button
             :label="isEdit ? 'Save changes' : 'Save as DRAFT'"
-            icon="pi pi-save"
             :loading="save.isPending.value"
             :disabled="!canSave"
-            @click="save.mutate()"
-          />
+            @click="save.mutate()">
+            <template #icon><AppIcon name="save" /></template>
+          </Button>
         </template>
       </div>
     </header>
@@ -872,76 +873,76 @@ const canSave = computed(() => {
               <Button
                 v-if="!readOnly && !pickerOpen"
                 label="Edit"
-                icon="pi pi-pencil"
                 text
                 size="small"
                 class="customer-edit"
-                @click="focusCustomerPicker"
-              />
+                @click="focusCustomerPicker">
+                <template #icon><AppIcon name="pencil" /></template>
+              </Button>
               <Button
                 v-if="pickerOpen"
                 label="Cancel"
-                icon="pi pi-times"
                 text
                 size="small"
                 class="customer-edit"
-                @click="pickerOpen = false"
-              />
+                @click="pickerOpen = false">
+                <template #icon><AppIcon name="x" /></template>
+              </Button>
             </div>
             <template v-if="!pickerOpen">
               <div class="customer-name">{{ selectedCustomer.name }}</div>
               <div v-if="composedContactName(selectedCustomer)" class="customer-detail">
-                <i class="pi pi-user" />
+                <AppIcon name="user" />
                 <span>{{ composedContactName(selectedCustomer) }}</span>
               </div>
               <div v-if="selectedCustomer.contact_email" class="customer-detail">
-                <i class="pi pi-envelope" />
+                <AppIcon name="mail" />
                 <a :href="`mailto:${selectedCustomer.contact_email}`">{{ selectedCustomer.contact_email }}</a>
               </div>
               <div v-if="selectedCustomer.contact_phone" class="customer-detail">
-                <i class="pi pi-phone" />
+                <AppIcon name="phone" />
                 <span>{{ selectedCustomer.contact_phone }}</span>
               </div>
               <div v-if="composedBillingAddress(selectedCustomer)" class="customer-detail address">
-                <i class="pi pi-map-marker" />
+                <AppIcon name="map-pin" />
                 <span>{{ composedBillingAddress(selectedCustomer) }}</span>
               </div>
               <div class="customer-project">
                 <template v-if="selectedProject && !projectPickerOpen">
-                  <i class="pi pi-briefcase" />
+                  <AppIcon name="briefcase" />
                   <span class="customer-project-name">
                     <code>{{ selectedProject.code }}</code> {{ selectedProject.name }}
                   </span>
                   <Button
                     v-if="!readOnly"
-                    icon="pi pi-pencil"
                     text
                     rounded
                     size="small"
                     aria-label="Change project"
                     class="customer-project-btn"
-                    @click="openProjectPicker"
-                  />
+                    @click="openProjectPicker">
+                    <template #icon><AppIcon name="pencil" /></template>
+                  </Button>
                   <Button
                     v-if="!readOnly"
-                    icon="pi pi-times"
                     text
                     rounded
                     size="small"
                     aria-label="Unlink project"
                     class="customer-project-btn"
-                    @click="projectId = null"
-                  />
+                    @click="projectId = null">
+                    <template #icon><AppIcon name="x" /></template>
+                  </Button>
                 </template>
                 <Button
                   v-else-if="!selectedProject && !projectPickerOpen && !readOnly"
                   label="Link to a project"
-                  icon="pi pi-link"
                   text
                   size="small"
                   class="customer-project-link"
-                  @click="openProjectPicker"
-                />
+                  @click="openProjectPicker">
+                  <template #icon><AppIcon name="link" /></template>
+                </Button>
                 <Select
                   v-if="projectPickerOpen"
                   ref="projectPickerRef"
@@ -974,7 +975,7 @@ const canSave = computed(() => {
         </template>
         <template v-else>
           <div class="customer-empty">
-            <i class="pi pi-user-plus" />
+            <AppIcon name="user-plus" />
             <div class="customer-empty-title">Add a customer</div>
             <Select
               v-model="customerId"
@@ -1113,10 +1114,10 @@ const canSave = computed(() => {
             v-if="!readOnly"
             label="Add a discount"
             text
-            icon="pi pi-plus"
             size="small"
-            @click="discountEnabled = true; discountType = 'PERCENT'"
-          />
+            @click="discountEnabled = true; discountType = 'PERCENT'">
+            <template #icon><AppIcon name="plus" /></template>
+          </Button>
         </div>
         <div v-else class="totals-row discount">
           <div class="discount-input">
@@ -1138,12 +1139,13 @@ const canSave = computed(() => {
             />
             <Button
               v-if="!readOnly"
-              icon="pi pi-times"
               text
               rounded
               size="small"
-              @click="discountEnabled = false; discountType = null; discountValue = null"
-            />
+              aria-label="Remove discount"
+              @click="discountEnabled = false; discountType = null; discountValue = null">
+              <template #icon><AppIcon name="x" /></template>
+            </Button>
           </div>
         </div>
 
@@ -1409,8 +1411,9 @@ const canSave = computed(() => {
   color: var(--color-text-muted);
   width: 100%;
 }
-.customer-empty .pi {
-  font-size: 1.6rem;
+.customer-empty .app-icon {
+  width: 1.6rem;
+  height: 1.6rem;
   color: var(--color-text-subtle);
 }
 .customer-empty-title {
@@ -1467,9 +1470,11 @@ const canSave = computed(() => {
   color: var(--color-text-muted);
   line-height: 1.35;
 }
-.customer-detail i {
+.customer-detail .app-icon {
   color: var(--color-text-subtle);
-  font-size: 0.85rem;
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
   margin-top: 0.15rem;
   min-width: 14px;
 }
@@ -1489,9 +1494,10 @@ const canSave = computed(() => {
   gap: 0.35rem;
   min-height: 1.75rem;
 }
-.customer-project > .pi-briefcase {
+.customer-project > .app-icon {
   color: var(--color-text-subtle);
-  font-size: 0.85rem;
+  width: 0.85rem;
+  height: 0.85rem;
   min-width: 14px;
 }
 .customer-project-name {
