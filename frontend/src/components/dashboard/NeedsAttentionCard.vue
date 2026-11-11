@@ -2,14 +2,55 @@
 // Needs attention (mockup): overdue invoices, oldest due date first (the API
 // sends at most six). Amounts are native, in the invoice's own currency: the
 // expected cash (balance less withholding not yet booked), with the balance due
-// beside it when the two differ. "Send reminder" comes with the reminders work.
+// beside it when the two differ. "Send reminder" opens ReminderDialog; once a
+// reminder goes out, every row of that customer reads "reminded just now"
+// (last_reminder_at is the customer's latest reminder).
+import AppIcon from "@/components/AppIcon.vue";
 import EmptyState from "@/components/EmptyState.vue";
+import ReminderDialog from "./ReminderDialog.vue";
+import Button from "primevue/button";
 import Tag from "primevue/tag";
+import { onBeforeUnmount, ref } from "vue";
+import { useQueryClient } from "@tanstack/vue-query";
 import { formatAmount } from "@/utils/money";
-import { decSub, decIsZero } from "./format";
-import type { AttentionRow } from "./types";
+import { decSub, decIsZero, timeAgo } from "./format";
+import type { AttentionRow, ReceivablesResponse, Reminder } from "./types";
 
 defineProps<{ rows: AttentionRow[] }>();
+
+const queryClient = useQueryClient();
+const dialogOpen = ref(false);
+const target = ref<AttentionRow | null>(null);
+
+// "reminded 5 min ago" moves on while the page stays open.
+const now = ref(Date.now());
+const tick = window.setInterval(() => (now.value = Date.now()), 30_000);
+onBeforeUnmount(() => window.clearInterval(tick));
+
+function openReminder(r: AttentionRow) {
+  target.value = r;
+  dialogOpen.value = true;
+}
+
+/**
+ * Marks every row of the reminded customer (or, with no customer, the invoice
+ * itself) as reminded at once, then refetches the receivables to confirm.
+ */
+function onSent(rem: Reminder) {
+  const sent = target.value;
+  now.value = Date.now();
+  queryClient.setQueryData<ReceivablesResponse>(["stats-receivables"], (old) => {
+    if (!old || !sent) return old;
+    const same = (r: AttentionRow) =>
+      sent.customer_id ? r.customer_id === sent.customer_id : r.invoice_id === sent.invoice_id;
+    return {
+      ...old,
+      needs_attention: old.needs_attention.map((r) => (same(r) ? { ...r, last_reminder_at: rem.sent_at } : r)),
+    };
+  });
+  queryClient.invalidateQueries({ queryKey: ["stats-receivables"] });
+  queryClient.invalidateQueries({ queryKey: ["invoice-reminders", rem.invoice_id] });
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -54,8 +95,25 @@ function differs(r: AttentionRow): boolean {
           · due {{ formatDate(r.due_date) }}
         </div>
         <span v-if="differs(r)" class="na-balance num" title="Balance due before withholding tax not yet booked">of {{ formatAmount(r.balance_due, r.currency) }} due</span>
+        <span v-else />
+        <span class="na-reminded" data-testid="reminded">
+          <template v-if="r.last_reminder_at">
+            <AppIcon name="mail" />reminded {{ timeAgo(r.last_reminder_at, now) }}
+          </template>
+        </span>
+        <Button
+          class="na-remind"
+          label="Send reminder"
+          size="small"
+          text
+          @click="openReminder(r)"
+        >
+          <template #icon><AppIcon name="send" /></template>
+        </Button>
       </li>
     </ul>
+
+    <ReminderDialog v-model:visible="dialogOpen" :row="target" @sent="onSent" />
   </div>
 </template>
 
@@ -98,6 +156,9 @@ a.na-customer:hover { text-decoration: underline; }
 .na-meta { font-size: 13px; color: var(--wb-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .na-doc { color: var(--wb-muted); }
 .na-balance { font-size: 12px; color: var(--wb-muted-soft); white-space: nowrap; text-align: right; }
+.na-reminded { font-size: 12px; color: var(--wb-muted); display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.na-reminded :deep(.app-icon) { width: 13px; height: 13px; flex: none; }
+.na-remind { justify-self: end; margin-right: -8px; }
 @media (max-width: 640px) {
   .na-head { padding: 18px 18px 14px; }
   .na-row { padding: 14px 18px; gap: 4px 10px; }

@@ -160,8 +160,8 @@ async function checkSeeded(page: Page) {
     else await expect(row).toContainText("No customer");
     await expect(row).toContainText(`${r.days_late}d late`);
   }
-  // No reminder button yet (it comes with the reminders work).
-  await expect(card.getByRole("button")).toHaveCount(0);
+  // One "Send reminder" per row (reminders.spec.ts covers sending).
+  await expect(card.getByRole("button", { name: "Send reminder" })).toHaveCount(body.needs_attention.length);
 }
 
 test("no horizontal scroll at 375", async ({ page }) => {
