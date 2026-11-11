@@ -612,7 +612,7 @@ func registerWriteTools(s *mcp.Server, d Deps) {
 			if err != nil {
 				return Object{}, err
 			}
-			out, err := bills.UpdateBill(ctx, tx, id, upd)
+			out, err := bills.UpdateBill(ctx, tx, d.Cfg.BaseCurrency, id, upd)
 			if err != nil {
 				return Object{}, writeErr(err, "bill", in.BillID)
 			}

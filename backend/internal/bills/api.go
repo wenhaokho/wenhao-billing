@@ -17,6 +17,8 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/bills/billsdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
@@ -44,13 +46,19 @@ var errNotFound = errors.New("bill not found")
 var ErrNotFound = errNotFound
 
 // clientError is err as the client reads it: a refusal is a 400 with
-// Python's sentence, an unknown bill the 404; anything else is unchanged.
+// Python's sentence, a ledger refusal 400 ledger_refused and a missing rate
+// 400 fx_rate_missing (PORT-NOTES 161, 164), an unknown bill the 404;
+// anything else is unchanged.
 func clientError(err error) error {
 	var e billingError
-	if errors.As(err, &e) {
+	switch {
+	case errors.As(err, &e):
 		return platform.Err(http.StatusBadRequest, e.code, e.msg)
-	}
-	if errors.Is(err, errNotFound) {
+	case errors.Is(err, ledger.ErrLedger):
+		return platform.Err(http.StatusBadRequest, "ledger_refused", err.Error())
+	case errors.Is(err, fx.ErrRateMissing):
+		return platform.Err(http.StatusBadRequest, "fx_rate_missing", err.Error())
+	case errors.Is(err, errNotFound):
 		return notFound()
 	}
 	return err
@@ -102,7 +110,7 @@ type BillCreate struct {
 type BillUpdate struct {
 	VendorID platform.NotNull[uuid.UUID] `json:"vendor_id" doc:"It must exist."`
 	Currency platform.NotNull[string]    `json:"currency" minLength:"3" maxLength:"3" doc:"Upper-cased."`
-	Status   platform.NotNull[string]    `json:"status" enum:"DRAFT,OPEN,PARTIAL,PAID,VOID" doc:"Any of the five, with no payment or void behind it; the only way to open a bill."`
+	Status   platform.NotNull[string]    `json:"status" enum:"DRAFT,OPEN,PARTIAL,PAID,VOID" doc:"OPEN opens a DRAFT bill and posts it to the ledger (the only way to open one); DRAFT takes an OPEN bill back and reverses its entry; VOID voids as POST /void does. PARTIAL and PAID are refused: they come from recording a payment."`
 	BillFields
 	// A pointer, not Optional, for the reason BillCreate.LineItems is a slice.
 	LineItems *[]BillLineItemIn `json:"line_items" doc:"A list replaces every line and reprices the bill (an empty one leaves none); null or left out keeps the lines and the totals."`

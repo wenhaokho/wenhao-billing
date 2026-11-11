@@ -31,11 +31,15 @@ func pay(t *testing.T, a *apitest.App, id uuid.UUID, amount any) bills.BillOut {
 }
 
 // openBill is a bill of 1000 (one line 1 x 1000) in status, with extra on
-// its create body.
+// its create body. An OPEN or PARTIAL one is opened by PATCH, so it has its
+// issue entry (PORT-NOTES 164); PARTIAL, PAID and VOID are then set as is.
 func openBill(t *testing.T, a *apitest.App, status string, extra map[string]any) bills.BillOut {
 	t.Helper()
 	out := post(t, a, body(insertVendor(t, a), extra))
-	if status != "DRAFT" {
+	if status == "OPEN" || status == "PARTIAL" {
+		patch(t, a, out.BillID, map[string]any{"status": "OPEN"})
+	}
+	if status != "DRAFT" && status != "OPEN" {
 		setStatus(t, a, out.BillID, status)
 	}
 	return out
@@ -249,16 +253,20 @@ func TestRecordPaymentConcurrentNeverOverpays(t *testing.T) {
 	}
 }
 
-// A bill payment posts nothing: no payment row, no journal (port note 8).
+// A bill payment posts nothing: no payment row, and no journal beyond the
+// bill's issue entry (port note 8; the issue entry is note 164's).
 func TestRecordPaymentWritesNoJournal(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
 	b := openBill(t, a, "OPEN", nil)
 	pay(t, a, b.BillID, 250)
 	pay(t, a, b.BillID, 750)
-	for _, table := range []string{"journal_entries", "journal_lines", "payments"} {
-		if n := countRows(t, a, table); n != 0 {
-			t.Errorf("%d rows in %s, want 0", n, table)
+	for _, c := range []struct {
+		table string
+		want  int
+	}{{"journal_entries", 1}, {"journal_lines", 2}, {"payments", 0}} {
+		if n := countRows(t, a, c.table); n != c.want {
+			t.Errorf("%d rows in %s, want %d", n, c.table, c.want)
 		}
 	}
 }

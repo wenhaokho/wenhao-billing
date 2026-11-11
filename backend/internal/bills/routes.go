@@ -20,11 +20,15 @@ type routes struct {
 	pool  *pgxpool.Pool
 	q     *billsdb.Queries
 	clock platform.Clock
+	// base is the ledger's base currency: opening, editing and voiding a
+	// bill post in it.
+	base string
 }
 
-// Register adds the bill operations; every one is admin-only.
-func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock) {
-	r := routes{pool: pool, q: billsdb.New(pool), clock: clock}
+// Register adds the bill operations; every one is admin-only. base is the
+// ledger's base currency (a bill posts to the ledger at open).
+func Register(api huma.API, pool *pgxpool.Pool, clock platform.Clock, base string) {
+	r := routes{pool: pool, q: billsdb.New(pool), clock: clock, base: base}
 	const prefix = "/api/v1/bills"
 	tags := []string{"bills"}
 
@@ -106,5 +110,5 @@ type updateIn struct {
 }
 
 func (r routes) update(ctx context.Context, in *updateIn) (*billBody, error) {
-	return r.inTx(ctx, func(tx pgx.Tx) (BillOut, error) { return UpdateBill(ctx, tx, in.BillID, in.Body) })
+	return r.inTx(ctx, func(tx pgx.Tx) (BillOut, error) { return UpdateBill(ctx, tx, r.base, in.BillID, in.Body) })
 }

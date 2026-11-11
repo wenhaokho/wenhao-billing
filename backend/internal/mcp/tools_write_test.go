@@ -736,6 +736,41 @@ func TestUpdateBillEditsOpenBill(t *testing.T) {
 	}
 }
 
+// update_bill opens, re-posts and voids as PATCH /bills does (PORT-NOTES 164).
+func TestMCPUpdateBillOpenPosts(t *testing.T) {
+	t.Parallel()
+	h := newWriteHarness(t)
+	h.exec(t, `INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source) VALUES ('USD', 'IDR', 16000, '2026-01-01', 'TEST')`)
+	created := h.done(t, "create_bill", map[string]any{
+		"vendor_id": h.vendor(t, "Acme Vendor Pte Ltd").String(), "currency": "USD",
+		"issue_date": "2026-01-10", "line_items": lines("AWS", "1", "200"),
+	})
+	id := created["bill_id"]
+	h.done(t, "update_bill", map[string]any{"bill_id": id, "changes": map[string]any{"status": "OPEN"}})
+	lineSQL := `SELECT string_agg(a.code || ' ' || l.debit::text || '/' || l.credit::text || ' ' || l.base_amount_debit::text || '/' || l.base_amount_credit::text, ', ' ORDER BY a.code)
+FROM journal_lines l JOIN journal_entries e ON e.entry_id = l.entry_id JOIN chart_of_accounts a ON a.account_id = l.account_id
+WHERE e.source_type = 'BILL' AND e.source_id = $1::uuid AND e.reversed_by_entry_id IS NULL
+  AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id)`
+	if got, want := h.cell(t, lineSQL, id), "2000 0.0000/200.0000 0.0000/3200000.0000, 6000 200.0000/0.0000 3200000.0000/0.0000"; got != want {
+		t.Errorf("issue entry %v, want %s", got, want)
+	}
+	// Refusals come back as the tool's error sentence.
+	if msg := h.refused(t, "update_bill", map[string]any{"bill_id": id, "changes": map[string]any{"status": "PARTIAL"}}); msg != "PARTIAL comes from recording a payment" {
+		t.Errorf("refusal %q", msg)
+	}
+	h.done(t, "update_bill", map[string]any{"bill_id": id, "changes": map[string]any{"status": "VOID"}})
+	if n := h.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'BILL' AND source_id = $1::uuid AND reversed_by_entry_id IS NOT NULL`, id); n != 1 {
+		t.Errorf("%d reversed entries, want 1", n)
+	}
+	other := h.done(t, "create_bill", map[string]any{
+		"vendor_id": h.vendor(t, "Other Vendor").String(), "currency": "EUR",
+		"issue_date": "2026-01-15", "line_items": lines("x", "1", "10"),
+	})
+	if msg := h.refused(t, "update_bill", map[string]any{"bill_id": other["bill_id"], "changes": map[string]any{"status": "OPEN"}}); msg != "no fx rate for EUR->IDR on or before 2026-01-15" {
+		t.Errorf("refusal %q", msg)
+	}
+}
+
 func TestUpdateBillNotFoundReturnsError(t *testing.T) {
 	t.Parallel()
 	h := newWriteHarness(t)

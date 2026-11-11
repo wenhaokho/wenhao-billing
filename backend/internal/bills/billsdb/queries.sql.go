@@ -181,6 +181,42 @@ func (q *Queries) InsertBillLine(ctx context.Context, arg InsertBillLineParams) 
 	return err
 }
 
+const listBillLineAccounts = `-- name: ListBillLineAccounts :many
+SELECT l.amount, l.expense_account_id AS line_account_id, i.expense_account_id AS item_account_id
+  FROM bill_line_items l
+  LEFT JOIN items i ON i.item_id = l.item_id
+ WHERE l.bill_id = $1
+ ORDER BY l.position, l.line_item_id
+`
+
+type ListBillLineAccountsRow struct {
+	Amount        decimal.Decimal
+	LineAccountID *int32
+	ItemAccountID *int32
+}
+
+// The issue entry's expense split: each line's amount, its own expense
+// account and its item's (either NULL), in ListBillLines' order.
+func (q *Queries) ListBillLineAccounts(ctx context.Context, billID uuid.UUID) ([]ListBillLineAccountsRow, error) {
+	rows, err := q.db.Query(ctx, listBillLineAccounts, billID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBillLineAccountsRow
+	for rows.Next() {
+		var i ListBillLineAccountsRow
+		if err := rows.Scan(&i.Amount, &i.LineAccountID, &i.ItemAccountID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBillLines = `-- name: ListBillLines :many
 SELECT line_item_id, bill_id, item_id, expense_account_id, position, description, quantity, unit_price, amount, created_at FROM bill_line_items WHERE bill_id = $1 ORDER BY position, line_item_id
 `

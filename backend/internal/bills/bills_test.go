@@ -32,7 +32,7 @@ type problem struct {
 
 func newApp(t *testing.T) *apitest.App {
 	t.Helper()
-	return apitest.New(t, func(api huma.API, d apitest.Deps) { bills.Register(api, d.Pool, d.Clock) })
+	return apitest.New(t, func(api huma.API, d apitest.Deps) { bills.Register(api, d.Pool, d.Clock, base) })
 }
 
 // wantProblem checks the status and detail, the code when one is given, and
@@ -393,10 +393,11 @@ func TestPatchStatusOpensBill(t *testing.T) {
 		t.Errorf("status %q", got.Status)
 	}
 	wantDec4(t, "balance_due", p4(got.BalanceDue), "1000")
-	// An OPEN bill is still editable, and may go straight to PAID without a payment.
-	if got := patch(t, a, out.BillID, map[string]any{"status": "PAID"}); got.Status != "PAID" {
-		t.Errorf("status %q", got.Status)
-	}
+	// An OPEN bill is still editable; PAID comes only from a payment
+	// (PORT-NOTES 164), where Python set it as any other field.
+	wantProblem(t, a.Do(t, http.MethodPatch, billPath(out.BillID), map[string]any{"status": "PAID"}),
+		http.StatusBadRequest, "bill_status_not_settable", "PAID comes from recording a payment", "", "")
+	setStatus(t, a, out.BillID, "PAID")
 	wantProblem(t, a.Do(t, http.MethodPatch, billPath(out.BillID), map[string]any{"status": "OPEN"}),
 		http.StatusBadRequest, "bill_not_editable", "bill is PAID and cannot be edited", "", "")
 	wantFieldError(t, a.Do(t, http.MethodPatch, billPath(out.BillID), map[string]any{"status": "BOGUS"}),
@@ -417,9 +418,10 @@ func TestPatchPaidIs400(t *testing.T) {
 	}
 }
 
-// Changing the lines of an OPEN bill reprices amount but leaves balance_due
-// (Python re-baselines it only while the bill is DRAFT, oddity 6).
-func TestPatchOpenBillLinesKeepsBalance(t *testing.T) {
+// Changing the lines of an OPEN bill reprices amount and re-baselines
+// balance_due (PORT-NOTES 164: an OPEN bill has no payment; Python
+// re-baselined it only while the bill was DRAFT, oddity 6).
+func TestPatchOpenBillLinesRebaselinesBalance(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
 	out := post(t, a, body(insertVendor(t, a), nil))
@@ -427,15 +429,15 @@ func TestPatchOpenBillLinesKeepsBalance(t *testing.T) {
 	got := patch(t, a, out.BillID, map[string]any{"line_items": []any{line(3, 1000)}})
 	wantDec4(t, "amount", p4(got.Amount), "3000")
 	wantDec4(t, "subtotal", got.Subtotal, "3000")
-	wantDec4(t, "balance_due", p4(got.BalanceDue), "1000")
+	wantDec4(t, "balance_due", p4(got.BalanceDue), "3000")
 	if len(got.LineItems) != 1 {
 		t.Errorf("lines %+v", got.LineItems)
 	}
-	// Opening and repricing in one PATCH: the status sent counts, so no re-baseline either.
+	// Opening and repricing in one PATCH: re-baselined too.
 	d := post(t, a, body(insertVendor(t, a), nil))
 	got = patch(t, a, d.BillID, map[string]any{"status": "OPEN", "line_items": []any{line(2, 1000)}})
 	wantDec4(t, "amount", p4(got.Amount), "2000")
-	wantDec4(t, "balance_due", p4(got.BalanceDue), "1000")
+	wantDec4(t, "balance_due", p4(got.BalanceDue), "2000")
 	// Back to DRAFT and repriced in one PATCH: re-baselined.
 	got = patch(t, a, d.BillID, map[string]any{"status": "DRAFT", "line_items": []any{line(5, 1000)}})
 	wantDec4(t, "balance_due", p4(got.BalanceDue), "5000")
