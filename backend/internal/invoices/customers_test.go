@@ -287,12 +287,12 @@ func bothApp(t *testing.T, invoicesFirst bool) *apitest.App {
 	t.Helper()
 	return apitest.New(t, func(api huma.API, d apitest.Deps) {
 		if invoicesFirst {
-			Register(api, d.Pool, d.Clock, nil)
+			Register(api, d.Pool, d.Clock, base, nil)
 			customers.Register(api, d.Pool)
 			return
 		}
 		customers.Register(api, d.Pool)
-		Register(api, d.Pool, d.Clock, nil)
+		Register(api, d.Pool, d.Clock, base, nil)
 	})
 }
 

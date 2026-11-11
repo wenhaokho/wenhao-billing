@@ -1,12 +1,12 @@
 // Package ledger posts double-entry journal entries, as Python's
 // services/ledger.py does: a cleared payment (bank, withholding to Prepaid
-// Tax, receivable, realised FX gain or loss across currencies) and the
-// reversal of an entry. It runs inside the caller's transaction and has no
+// Tax, receivable at the invoice's issue basis, realised FX gain or loss)
+// and the reversal of an entry; and Go's own document issue entries. It runs inside the caller's transaction and has no
 // routes.
 //
 // Every entry balances in the base currency; an entry whose lines share one
-// currency also balances in that currency. A cross-currency entry balances
-// through its FX gain or loss line, booked in the base currency.
+// currency also balances in that currency. An entry with an FX gain or loss
+// line (booked in the base currency) balances through it.
 package ledger
 
 import (
@@ -30,6 +30,10 @@ const (
 	BankCode       = "1000" // Operating Bank
 	ReceivableCode = "1100" // Accounts Receivable
 	PrepaidTaxCode = "1300" // Prepaid Income Tax (PPh withheld by the customer)
+	PayableCode    = "2000" // Accounts Payable
+	FixedFeeCode   = "4000" // Fixed-Fee Revenue
+	SupportCode    = "4100" // Support/Maintenance Revenue
+	UsageCode      = "4200" // Usage-Based Revenue (AI Tokens)
 	FXGainCode     = "4900" // FX Gain (Realised)
 	FXLossCode     = "5900" // FX Loss (Realised)
 )
@@ -45,14 +49,22 @@ func (e ledgerError) Is(target error) bool { return target == ErrLedger }
 
 func refuse(format string, args ...any) error { return ledgerError{fmt.Sprintf(format, args...)} }
 
+// Refuse is an ErrLedger whose text is the formatted sentence: a caller's own
+// check on what it posts (a share's account that cannot take it) refuses as
+// the ledger does.
+func Refuse(format string, args ...any) error { return refuse(format, args...) }
+
 // Payment is the payment being posted. Date is its payment date: its
-// calendar date is the FX as-of date (see fx.GetRate).
+// calendar date is the FX as-of date (see fx.GetRate). Memo is the entry's
+// memo; empty is "Payment <id> cleared against invoice <invoice id>" (the
+// back-post's restatements set their own, PORT-NOTES 166).
 type Payment struct {
 	ID       uuid.UUID
 	Status   string
 	Amount   decimal.Decimal
 	Currency string
 	Date     time.Time
+	Memo     string
 }
 
 // Invoice is the invoice the payment settles.
@@ -82,14 +94,17 @@ type Entry struct {
 
 // PostPaymentCleared posts DR bank (and DR Prepaid Tax for withheld, in the
 // invoice currency, when it is above zero) / CR receivable for a CLEARED
-// payment, converting each line into baseCurrency on the payment date.
+// payment, posted at now. Bank and Prepaid Tax convert into baseCurrency on
+// the payment date.
 //
-// Same currency: the receivable is relieved by p.Amount + withheld, its base
-// credit the exact sum of the debit lines' base debits. Cross currency: the
-// payment settles the invoice's whole balance; the receivable is credited
-// inv.BalanceDue in the invoice currency and the base difference (bank +
-// withheld − receivable) is booked to FX Loss (below zero) or FX Gain (above),
-// in baseCurrency.
+// The receivable is relieved by R: p.Amount + withheld in the same currency;
+// across currencies the payment settles the invoice's whole balance, so R is
+// inv.BalanceDue in the invoice currency. R is relieved at the invoice's
+// issue basis (InvoiceBasis, reliefBase), not at the payment date's rate; its
+// fx_rate is that base / R to 8 places. The base difference (Σ debit bases −
+// the receivable's base) is realised FX in baseCurrency: above zero FX Gain
+// (CR), below zero FX Loss (DR), in every currency combination
+// (PORT-NOTES 163). An invoice with no active issue entry is refused.
 //
 // An amount of 0 is posted only with withheld above 0 in the invoice's
 // currency (a manual withholding-only payment): Prepaid Tax against the
@@ -99,6 +114,16 @@ type Entry struct {
 // Nothing is written unless the entry balances. A missing rate returns the
 // error fx returns (errors.Is fx.ErrRateMissing).
 func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p Payment, inv Invoice, withheld decimal.Decimal) (Entry, error) {
+	return postPaymentCleared(ctx, tx, baseCurrency, p, inv, withheld, nil)
+}
+
+// PostPaymentClearedAt is PostPaymentCleared posted at postedAt (never later
+// than now): a back-post restatement keeps the original entry's posted_at.
+func PostPaymentClearedAt(ctx context.Context, tx pgx.Tx, baseCurrency string, p Payment, inv Invoice, withheld decimal.Decimal, postedAt time.Time) (Entry, error) {
+	return postPaymentCleared(ctx, tx, baseCurrency, p, inv, withheld, &postedAt)
+}
+
+func postPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p Payment, inv Invoice, withheld decimal.Decimal, postedAt *time.Time) (Entry, error) {
 	if p.Status != "CLEARED" {
 		return Entry{}, refuse("refuse to post ledger for payment %s with status %s — only CLEARED may post", p.ID, platform.PyRepr(p.Status))
 	}
@@ -111,80 +136,101 @@ func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 	// The one exception is Go's: a manual invoice payment of withholding only
 	// (amount 0, withheld above 0, the invoice's currency) posts DR Prepaid
 	// Tax / CR receivable with no bank line (PORT-NOTES 161).
-	withholdingOnly := p.Amount.IsZero() && withheld.IsPositive() && p.Currency == inv.Currency
+	sameCurrency := p.Currency == inv.Currency
+	withholdingOnly := p.Amount.IsZero() && withheld.IsPositive() && sameCurrency
 	if !p.Amount.IsPositive() && !withholdingOnly {
 		return Entry{}, fmt.Errorf("ledger: payment %s amount must be > 0 (got %s)", p.ID, platform.PyDecimalStr(p.Amount))
 	}
+	relief := p.Amount.Add(withheld)
+	if !sameCurrency {
+		if !inv.BalanceDue.IsPositive() {
+			return Entry{}, refuse("cross-currency settlement requires invoice balance_due > 0 (invoice %s balance=%s)", inv.ID, platform.PyDecimalStr(inv.BalanceDue))
+		}
+		relief = inv.BalanceDue
+	}
 	q := ledgerdb.New(tx)
-	b, err := newBuilder(ctx, q, fxdb.New(tx), baseCurrency, p.Date)
+	fq := fxdb.New(tx)
+	b, err := newBuilder(ctx, q, fq, baseCurrency, p.Date, BankCode, ReceivableCode, PrepaidTaxCode, FXGainCode, FXLossCode)
 	if err != nil {
 		return Entry{}, err
 	}
 
-	var bank Line
 	var lines []Line
 	if !withholdingOnly {
-		if bank, err = b.line(BankCode, p.Amount, decimal.Zero, p.Currency); err != nil {
+		bank, err := b.line(BankCode, p.Amount, decimal.Zero, p.Currency)
+		if err != nil {
 			return Entry{}, err
 		}
 		lines = append(lines, bank)
 	}
-	withheldBase := decimal.Zero
 	if withheld.IsPositive() {
 		wht, err := b.line(PrepaidTaxCode, withheld, decimal.Zero, inv.Currency)
 		if err != nil {
 			return Entry{}, err
 		}
 		lines = append(lines, wht)
-		withheldBase = wht.BaseDebit
 	}
 
-	if p.Currency == inv.Currency {
-		ar, err := b.line(ReceivableCode, decimal.Zero, p.Amount.Add(withheld), p.Currency)
+	basis, err := InvoiceBasis(ctx, tx, inv.ID)
+	if err != nil {
+		return Entry{}, err
+	}
+	if !basis.Issued {
+		return Entry{}, refuse("invoice %s has no issue entry — run api backpost-ledger", inv.ID)
+	}
+	// Go's own (PORT-NOTES 7): across currencies the relief is balance_due,
+	// which a reversal under Python's arithmetic can leave above what the
+	// ledger still holds. Relieving more than the remaining face would book
+	// the excess as a false FX loss; refused instead (safe-stop: intake holds
+	// the payment for manual review, approval answers 400).
+	if !sameCurrency && relief.GreaterThan(basis.Face) {
+		return Entry{}, refuse("cross-currency settlement of invoice %s would relieve %s %s but the ledger receivable is %s %s; correct balance_due first",
+			inv.ID, relief.StringFixed(4), inv.Currency, basis.Face.StringFixed(4), inv.Currency)
+	}
+	arBase, err := reliefBase("invoice "+inv.ID.String()+" receivable", basis, relief, func(x decimal.Decimal) (decimal.Decimal, error) {
+		c, err := fx.Convert(ctx, fq, x, inv.Currency, p.Date, baseCurrency)
+		return c.BaseAmount, err
+	})
+	if err != nil {
+		return Entry{}, err
+	}
+	arID, ok := b.accounts[ReceivableCode]
+	if !ok {
+		return Entry{}, refuse("chart_of_accounts missing code %s", ReceivableCode)
+	}
+	lines = append(lines, Line{
+		AccountID: arID, Debit: decimal.Zero, Credit: relief, Currency: inv.Currency,
+		BaseDebit: decimal.Zero, BaseCredit: arBase, FXRate: arBase.DivRound(relief, 8),
+	})
+
+	// Below zero we received less value than we relieved: an FX loss (DR).
+	// Above zero, more: an FX gain (CR).
+	diff := arBase.Neg()
+	for _, l := range lines {
+		diff = diff.Add(l.BaseDebit)
+	}
+	if !diff.IsZero() {
+		var plug Line
+		if diff.IsNegative() {
+			plug, err = b.line(FXLossCode, diff.Neg(), decimal.Zero, baseCurrency)
+		} else {
+			plug, err = b.line(FXGainCode, decimal.Zero, diff, baseCurrency)
+		}
 		if err != nil {
 			return Entry{}, err
 		}
-		// Bank and withholding convert separately, so their rounded base
-		// amounts can differ from base(amount + withheld) by 0.0001. All
-		// lines share one rate; relieve AR by the exact sum of the debit bases.
-		debitBase := decimal.Zero
-		for _, l := range lines {
-			debitBase = debitBase.Add(l.BaseDebit)
-		}
-		ar.BaseCredit = debitBase
-		lines = append(lines, ar)
-	} else {
-		if !inv.BalanceDue.IsPositive() {
-			return Entry{}, refuse("cross-currency settlement requires invoice balance_due > 0 (invoice %s balance=%s)", inv.ID, platform.PyDecimalStr(inv.BalanceDue))
-		}
-		ar, err := b.line(ReceivableCode, decimal.Zero, inv.BalanceDue, inv.Currency)
-		if err != nil {
-			return Entry{}, err
-		}
-		lines = append(lines, ar)
-		// Below zero we received less value than we relieved: an FX loss
-		// (DR). Above zero, more: an FX gain (CR).
-		diff := bank.BaseDebit.Add(withheldBase).Sub(ar.BaseCredit)
-		if !diff.IsZero() {
-			var plug Line
-			if diff.IsNegative() {
-				plug, err = b.line(FXLossCode, diff.Neg(), decimal.Zero, baseCurrency)
-			} else {
-				plug, err = b.line(FXGainCode, decimal.Zero, diff, baseCurrency)
-			}
-			if err != nil {
-				return Entry{}, err
-			}
-			lines = append(lines, plug)
-		}
+		lines = append(lines, plug)
 	}
 
-	memo := fmt.Sprintf("Payment %s cleared against invoice %s", p.ID, inv.ID)
+	memo := p.Memo
+	if memo == "" {
+		memo = fmt.Sprintf("Payment %s cleared against invoice %s", p.ID, inv.ID)
+	}
 	e := Entry{ID: uuid.New(), SourceType: "PAYMENT", SourceID: p.ID, Memo: &memo, Lines: lines}
 	if err := checkBalanced(e.Lines); err != nil {
 		return Entry{}, err
 	}
-	if err := insert(ctx, q, e); err != nil {
+	if err := insert(ctx, q, e, postedAt); err != nil {
 		return Entry{}, err
 	}
 	return e, nil
@@ -196,8 +242,36 @@ func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 // points the original's reversed_by_entry_id at it. The original is locked
 // until the caller's transaction ends, so a concurrent reversal of it waits
 // and is then refused. The reversal copies the original's base amounts, so
-// baseCurrency is not used; it keeps the two posting calls alike.
+// baseCurrency is not used; it keeps the two posting calls alike. The
+// reversal is posted at now.
 func PostReversal(ctx context.Context, tx pgx.Tx, _ string, originalID uuid.UUID, memo *string) (Entry, error) {
+	return postReversal(ctx, tx, originalID, memo, nil)
+}
+
+// PostReversalAt is PostReversal posted at postedAt (never later than now):
+// a back-post restatement keeps the original entry's posted_at.
+func PostReversalAt(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *string, postedAt time.Time) (Entry, error) {
+	return postReversal(ctx, tx, originalID, memo, &postedAt)
+}
+
+// ReversePayment reverses a payment's entry (an invoice payment's or a bill
+// payment's) with memo, posted at the original entry's posted_at, not now: a
+// payment reversal is a correction (the payment never applied), so the
+// reports as of any date never show a reversed payment, and a payment
+// cleared, reversed and cleared again counts once (PORT-NOTES 167). Voids
+// and edits are business events and reverse at now (ReverseIssued).
+func ReversePayment(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *string) (Entry, error) {
+	at, err := ledgerdb.New(tx).EntryPostedAt(ctx, originalID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Entry{}, refuse("entry %s not found", originalID)
+	}
+	if err != nil {
+		return Entry{}, fmt.Errorf("ledger: entry posted_at: %w", err)
+	}
+	return PostReversalAt(ctx, tx, originalID, memo, at)
+}
+
+func postReversal(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *string, postedAt *time.Time) (Entry, error) {
 	q := ledgerdb.New(tx)
 	orig, err := q.LockEntry(ctx, originalID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -228,7 +302,7 @@ func PostReversal(ctx context.Context, tx pgx.Tx, _ string, originalID uuid.UUID
 	if err := checkBalanced(e.Lines); err != nil {
 		return Entry{}, err
 	}
-	if err := insert(ctx, q, e); err != nil {
+	if err := insert(ctx, q, e, postedAt); err != nil {
 		return Entry{}, err
 	}
 	if err := q.SetReversedBy(ctx, ledgerdb.SetReversedByParams{ReversedBy: e.ID, EntryID: originalID}); err != nil {
@@ -246,8 +320,9 @@ type builder struct {
 	accounts map[string]int32
 }
 
-func newBuilder(ctx context.Context, q *ledgerdb.Queries, fq *fxdb.Queries, base string, on time.Time) (*builder, error) {
-	rows, err := q.AccountIDsByCode(ctx, []string{BankCode, ReceivableCode, PrepaidTaxCode, FXGainCode, FXLossCode})
+// newBuilder is a builder for lines on the accounts with codes.
+func newBuilder(ctx context.Context, q *ledgerdb.Queries, fq *fxdb.Queries, base string, on time.Time, codes ...string) (*builder, error) {
+	rows, err := q.AccountsByCode(ctx, codes)
 	if err != nil {
 		return nil, fmt.Errorf("ledger: account ids: %w", err)
 	}
@@ -320,9 +395,16 @@ func checkBalanced(lines []Line) error {
 	return nil
 }
 
-func insert(ctx context.Context, q *ledgerdb.Queries, e Entry) error {
+// Midnight is d's calendar day at 00:00 UTC: the posted_at of an entry dated
+// on a document's date (an issue date, a payment date; PORT-NOTES 162, 167).
+func Midnight(d time.Time) time.Time {
+	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// insert writes e, posted at postedAt (nil = now; never later than now).
+func insert(ctx context.Context, q *ledgerdb.Queries, e Entry, postedAt *time.Time) error {
 	if err := q.InsertEntry(ctx, ledgerdb.InsertEntryParams{
-		EntryID: e.ID, SourceType: e.SourceType, SourceID: e.SourceID, Memo: e.Memo,
+		EntryID: e.ID, SourceType: e.SourceType, SourceID: e.SourceID, Memo: e.Memo, PostedAt: postedAt,
 	}); err != nil {
 		return fmt.Errorf("ledger: insert entry: %w", err)
 	}
@@ -338,8 +420,11 @@ func insert(ctx context.Context, q *ledgerdb.Queries, e Entry) error {
 	return nil
 }
 
-// ActiveEntryFor returns the newest entry for the source that is neither
-// reversed nor itself a reversal, or false when there is none. A reversal
+// ActiveEntryFor returns the entry for the source that is neither reversed nor
+// itself a reversal, or false when there is none. A PAYMENT or BILL_PAYMENT
+// source has at most one such entry (clear refuses an already-CLEARED payment
+// under the lock; a bill payment posts once), so the ORDER BY only matters for
+// re-posted INVOICE and BILL entries; the NOT EXISTS is the guard. A reversal
 // shares its original's source and has reversed_by_entry_id NULL, so that
 // test alone would pick it; the original's reversed_by_entry_id points at the
 // reversal, so an entry some other entry points at is a reversal and is
@@ -353,4 +438,40 @@ func ActiveEntryFor(ctx context.Context, tx pgx.Tx, sourceType string, sourceID 
 		return uuid.Nil, false, fmt.Errorf("ledger: active entry: %w", err)
 	}
 	return id, true, nil
+}
+
+// Account is a chart-of-accounts row, for callers that check an account's
+// type or that it is active before posting to it.
+type Account struct {
+	ID         int32
+	Code, Type string
+	Active     bool
+}
+
+// AccountsByID are the accounts with the ids, by id; an id with no account is
+// absent.
+func AccountsByID(ctx context.Context, tx pgx.Tx, ids []int32) (map[int32]Account, error) {
+	rows, err := ledgerdb.New(tx).AccountsByID(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: accounts by id: %w", err)
+	}
+	out := make(map[int32]Account, len(rows))
+	for _, r := range rows {
+		out[r.AccountID] = Account{ID: r.AccountID, Code: r.Code, Type: r.Type, Active: r.Active}
+	}
+	return out, nil
+}
+
+// AccountsByCode are the accounts with the codes, by code; a code with no
+// account is absent.
+func AccountsByCode(ctx context.Context, tx pgx.Tx, codes []string) (map[string]Account, error) {
+	rows, err := ledgerdb.New(tx).AccountsByCode(ctx, codes)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: accounts by code: %w", err)
+	}
+	out := make(map[string]Account, len(rows))
+	for _, r := range rows {
+		out[r.Code] = Account{ID: r.AccountID, Code: r.Code, Type: r.Type, Active: r.Active}
+	}
+	return out, nil
 }

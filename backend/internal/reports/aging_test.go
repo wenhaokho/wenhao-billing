@@ -8,10 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/bills"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/reports"
 )
 
 const (
@@ -351,4 +354,57 @@ func TestAgingSameCustomerCurrenciesOrderedByCurrency(t *testing.T) {
 			t.Fatalf("rows %d..%d: %+v", i, i+2, got.Rows[i:i+3])
 		}
 	}
+}
+
+// AP aging follows bill payments and their reversals (PORT-NOTES 165), and
+// agrees with the payable on the ledger.
+func TestApAgingAfterBillPaymentAndReversal(t *testing.T) {
+	t.Parallel()
+	cfg := platform.Config{BaseCurrency: "IDR"}
+	a := apitest.New(t, func(api huma.API, d apitest.Deps) {
+		reports.Register(api, d.Pool, cfg, d.Clock)
+		bills.Register(api, d.Pool, d.Clock, cfg.BaseCurrency)
+	})
+	v := newVendor(t, a, "Supplier")
+	created := apitest.Decode[bills.BillOut](t, a.Do(t, http.MethodPost, "/api/v1/bills", map[string]any{
+		"vendor_id": v, "currency": "IDR", "issue_date": "2026-01-10", "due_date": dueDays(5).Format(time.DateOnly),
+		"line_items": []any{map[string]any{"description": "Work", "quantity": 1, "unit_price": 1000}},
+	}), http.StatusCreated)
+	billPath := "/api/v1/bills/" + created.BillID.String()
+	apitest.Decode[bills.BillOut](t, a.Do(t, http.MethodPatch, billPath, map[string]any{"status": "OPEN"}), http.StatusOK)
+
+	wantAP := func(total string) {
+		t.Helper()
+		got, _ := getAging(t, a, apPath, "?as_of="+asOf)
+		have := "0.0000"
+		if len(got.Rows) == 1 {
+			have = got.Rows[0].Buckets.Total
+		} else if len(got.Rows) > 1 {
+			t.Fatalf("rows %+v", got.Rows)
+		}
+		if have != total {
+			t.Errorf("AP aging total %s, want %s", have, total)
+		}
+		var ledgerAP string
+		if err := a.Pool.QueryRow(t.Context(), `SELECT COALESCE(sum(l.base_amount_credit - l.base_amount_debit), 0)::numeric(19,4)::text
+FROM journal_lines l JOIN chart_of_accounts c ON c.account_id = l.account_id WHERE c.code = '2000'`).Scan(&ledgerAP); err != nil {
+			t.Fatal(err)
+		}
+		if ledgerAP != total {
+			t.Errorf("ledger AP %s, want %s", ledgerAP, total)
+		}
+	}
+	wantAP("1000.0000")
+	apitest.Decode[bills.BillOut](t, a.Do(t, http.MethodPost, billPath+"/record-payment",
+		map[string]any{"amount": 400, "payment_date": "2026-01-20"}), http.StatusOK)
+	wantAP("600.0000")
+	ps := apitest.Decode[[]bills.BillPaymentOut](t, a.Do(t, http.MethodGet, billPath+"/payments", nil), http.StatusOK)
+	if len(ps) != 1 {
+		t.Fatalf("payments %+v", ps)
+	}
+	apitest.Decode[bills.BillPaymentOut](t, a.Do(t, http.MethodPost, billPath+"/payments/"+ps[0].BillPaymentID.String()+"/reverse",
+		map[string]any{"reason": "bounced"}), http.StatusOK)
+	wantAP("1000.0000")
+	apitest.Decode[bills.BillOut](t, a.Do(t, http.MethodPatch, billPath, map[string]any{"status": "PAID"}), http.StatusOK)
+	wantAP("0.0000")
 }

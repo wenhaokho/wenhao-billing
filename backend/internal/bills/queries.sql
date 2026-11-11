@@ -36,6 +36,15 @@ LIMIT sqlc.narg(row_limit);
 -- second lock.
 DELETE FROM bills WHERE bill_id = $1 AND status = 'DRAFT';
 
+-- name: BillHasHistory :one
+-- True when the bill has a payment row (any status) or a journal entry of its
+-- own (source BILL) or of its payments (source BILL_PAYMENT): a delete would
+-- orphan them.
+SELECT (EXISTS (SELECT 1 FROM bill_payments bp WHERE bp.bill_id = @bill_id::uuid)
+    OR EXISTS (SELECT 1 FROM journal_entries je WHERE je.source_type = 'BILL' AND je.source_id = @bill_id::uuid)
+    OR EXISTS (SELECT 1 FROM journal_entries e JOIN bill_payments p ON p.bill_payment_id = e.source_id
+               WHERE e.source_type = 'BILL_PAYMENT' AND p.bill_id = @bill_id::uuid))::boolean AS has_history;
+
 -- name: InsertBill :exec
 INSERT INTO bills (
     bill_id, vendor_id, project_id, bill_number, po_number, currency, subtotal,
@@ -71,3 +80,41 @@ UPDATE bills SET balance_due = @balance_due, status = @status WHERE bill_id = @b
 -- A void: VOID with nothing due, notes as computed from the row read with
 -- GetBillForUpdate.
 UPDATE bills SET status = 'VOID', balance_due = 0, notes = @notes WHERE bill_id = @bill_id;
+
+-- name: ListBillLineAccounts :many
+-- The issue entry's expense split: each line's amount, its own expense
+-- account and its item's (either NULL), in ListBillLines' order.
+SELECT l.amount, l.expense_account_id AS line_account_id, i.expense_account_id AS item_account_id
+  FROM bill_line_items l
+  LEFT JOIN items i ON i.item_id = l.item_id
+ WHERE l.bill_id = $1
+ ORDER BY l.position, l.line_item_id;
+
+-- name: InsertBillPayment :one
+-- A bill payment (PORT-NOTES 165), CLEARED, in the bill's currency.
+INSERT INTO bill_payments (bill_payment_id, bill_id, amount, currency, payment_date, payer_name, reference, notes, source)
+VALUES (@bill_payment_id, @bill_id, @amount, @currency, @payment_date, @payer_name, @reference, @notes, @source)
+RETURNING *;
+
+-- name: ListBillPayments :many
+-- A bill's payments, oldest first, the id breaking ties.
+SELECT * FROM bill_payments WHERE bill_id = $1 ORDER BY created_at, bill_payment_id;
+
+-- name: GetBillPaymentForUpdate :one
+-- The bill payment to reverse, locked before its bill (lock order: bill
+-- payment → bill → entry).
+SELECT * FROM bill_payments WHERE bill_payment_id = @bill_payment_id AND bill_id = @bill_id FOR UPDATE;
+
+-- name: ReverseBillPayment :one
+UPDATE bill_payments SET status = 'REVERSED', reversed_at = CURRENT_TIMESTAMP, reversal_reason = @reason
+WHERE bill_payment_id = @bill_payment_id
+RETURNING *;
+
+-- name: CountActiveBillPayments :one
+-- The bill's payments not reversed: a bill with any is neither voided nor
+-- re-posted.
+SELECT count(*) FROM bill_payments WHERE bill_id = $1 AND status = 'CLEARED';
+
+-- name: CurrentDate :one
+-- The database's date: a PATCH to PAID dates its payment CURRENT_DATE.
+SELECT CURRENT_DATE::date AS today;

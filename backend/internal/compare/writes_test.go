@@ -262,6 +262,42 @@ func TestJournalLinesAsMultiset(t *testing.T) {
 	}
 }
 
+// TestJournalReversedEntriesPairThroughReversal: a payment cleared, reversed
+// and cleared again has two clearings with one memo. Python posts each at
+// now; Go dates a payment reversal at its clearing's posted_at (PORT-NOTES
+// 167), so Go's four entries tie on posted_at and its entry ids order the
+// clearings the other way. Each clearing pairs through its reversal
+// (reversed_by_entry_id), so there is no difference.
+func TestJournalReversedEntriesPairThroughReversal(t *testing.T) {
+	t.Parallel()
+	f := newRowsFixture(t, "journal_entries")
+	f.snapshot(t)
+	const (
+		pySrc, goSrc = "c0000000-0000-4000-8000-000000000001", "d0000000-0000-4000-8000-000000000001"
+		pyC1, pyR1   = "c1000000-0000-4000-8000-000000000001", "c1000000-0000-4000-8000-000000000002"
+		pyC2, pyR2   = "c1000000-0000-4000-8000-000000000003", "c1000000-0000-4000-8000-000000000004"
+		// Go's first clearing has the larger id.
+		goC1, goR1 = "d1000000-0000-4000-8000-000000000009", "d1000000-0000-4000-8000-000000000002"
+		goC2, goR2 = "d1000000-0000-4000-8000-000000000001", "d1000000-0000-4000-8000-000000000004"
+	)
+	mustExec(t, f.py, `INSERT INTO journal_entries (entry_id, source_type, source_id, memo, posted_at) VALUES
+		($1, 'PAYMENT', $5, 'Reversal: first', '2026-11-11 10:00'), ($2, 'PAYMENT', $5, 'Reversal: second', '2026-11-11 12:00'),
+		($3, 'PAYMENT', $5, 'Payment cleared', '2026-11-11 09:00'), ($4, 'PAYMENT', $5, 'Payment cleared', '2026-11-11 11:00')`,
+		pyR1, pyR2, pyC1, pyC2, pySrc)
+	mustExec(t, f.py, `UPDATE journal_entries SET reversed_by_entry_id = CASE entry_id WHEN $1::uuid THEN $2::uuid ELSE $4::uuid END
+		WHERE entry_id IN ($1, $3)`, pyC1, pyR1, pyC2, pyR2)
+	mustExec(t, f.gov, `INSERT INTO journal_entries (entry_id, source_type, source_id, memo, posted_at) VALUES
+		($1, 'PAYMENT', $5, 'Reversal: first', '2025-02-01'), ($2, 'PAYMENT', $5, 'Reversal: second', '2025-02-01'),
+		($3, 'PAYMENT', $5, 'Payment cleared', '2025-02-01'), ($4, 'PAYMENT', $5, 'Payment cleared', '2025-02-01')`,
+		goR1, goR2, goC1, goC2, goSrc)
+	mustExec(t, f.gov, `UPDATE journal_entries SET reversed_by_entry_id = CASE entry_id WHEN $1::uuid THEN $2::uuid ELSE $4::uuid END
+		WHERE entry_id IN ($1, $3)`, goC1, goR1, goC2, goR2)
+
+	if diffs := f.compare(t, mapsOf(t, "payments", pySrc, goSrc)); len(diffs) != 0 {
+		t.Fatalf("diffs %+v, want none: each clearing pairs through its reversal", diffs)
+	}
+}
+
 // TestRowsGeneratedNumbers is I2: only the numbers the server generates are
 // normalised (invoices.invoice_number in the WH<year><n> shape); a bill_number
 // difference is reported.
@@ -803,7 +839,7 @@ func TestWritesRejectsGoOnlyTable(t *testing.T) {
 
 // TestWritesFileLoads pins the shipped scenarios file: every scenario, step
 // and table validates (no placeholder is extracted twice or used after its
-// DELETE), and approve-intake applies the intake payment to the
+// DELETE), and approve-intake applies the intake payment to its own
 // invoice-lifecycle invoice.
 func TestWritesFileLoads(t *testing.T) {
 	t.Parallel()
@@ -821,14 +857,77 @@ func TestWritesFileLoads(t *testing.T) {
 				extractedBy = step.ID
 			}
 			if step.ID == "approve-intake" {
-				if !strings.Contains(step.BodyString(), "{invoice_id}") || !strings.Contains(step.Path, "{intake_payment_id}") {
-					t.Fatalf("approve-intake %+v, want {intake_payment_id} applied to {invoice_id}", step)
+				if !strings.Contains(step.BodyString(), "{intake_invoice_id}") || !strings.Contains(step.Path, "{intake_payment_id}") {
+					t.Fatalf("approve-intake %+v, want {intake_payment_id} applied to {intake_invoice_id}", step)
 				}
 			}
 		}
 	}
 	if extractedBy != "create-invoice" {
 		t.Fatalf("{invoice_id} is extracted by %q, want create-invoice", extractedBy)
+	}
+
+	// Plan 12 Task 8: each invoice is finalized (PN 162) before it is paid,
+	// and the bill lifecycle opens, pays part, reverses (Go only, PN 165),
+	// pays again and is refused a void while PAID on both backends.
+	steps := map[string][]WriteStep{}
+	tables := map[string][]string{}
+	for _, sc := range scenarios.Scenarios {
+		steps[sc.ID] = sc.Steps
+		tables[sc.ID] = sc.Tables
+	}
+	order := func(scenario string) string {
+		ids := make([]string, 0, len(steps[scenario]))
+		for _, s := range steps[scenario] {
+			ids = append(ids, s.ID)
+		}
+		return strings.Join(ids, ",")
+	}
+	if got := order("invoice-lifecycle"); !strings.HasPrefix(got, "create-invoice,finalize-invoice,record-payment") {
+		t.Fatalf("invoice-lifecycle steps %s, want finalize before the payment", got)
+	}
+	if got := order("webhook-intake"); !strings.Contains(got, "finalize-intake-invoice,intake-webhook") {
+		t.Fatalf("webhook-intake steps %s, want finalize before the webhook", got)
+	}
+	const lifecycle = "create-lifecycle-bill,open-lifecycle-bill,pay-part,list-bill-payments,reverse-bill-payment,pay-part-again,pay-rest,void-paid-bill"
+	if got := order("bill-lifecycle"); got != lifecycle {
+		t.Fatalf("bill-lifecycle steps %s, want %s", got, lifecycle)
+	}
+	if got := strings.Join(tables["bill-lifecycle"], ","); got != "bills,bill_line_items,journal_entries,journal_lines" {
+		t.Fatalf("bill-lifecycle tables %s", got)
+	}
+	const voidWithPayment = "create-paid-void-bill,open-paid-void-bill,pay-paid-void-bill,void-bill-with-payment," +
+		"list-paid-void-bill-payments,reverse-paid-void-bill-payment,void-paid-void-bill-on-go"
+	if got := order("bill-void-with-payment"); got != voidWithPayment {
+		t.Fatalf("bill-void-with-payment steps %s, want %s", got, voidWithPayment)
+	}
+	for _, s := range steps["bill-void-with-payment"] {
+		if s.ID == "void-bill-with-payment" && (s.ExpectStatus == nil || *s.ExpectStatus != (ExpectStatus{200, 400}) ||
+			s.Note != "PN 165" || s.ExpectDetail != "cannot void a bill with payments") {
+			t.Fatalf("void-bill-with-payment %+v, want python 200 go 400 with Go's refusal and PN 165", s)
+		}
+	}
+	for _, s := range steps["bill"] {
+		if s.ID == "patch-void-bill" && (s.ClassifyAnswers == nil || s.ClassifyAnswers.Note != "PN 164" ||
+			strings.Join(s.ClassifyAnswers.Paths, ",") != "$.balance_due,$.notes") {
+			t.Fatalf("patch-void-bill %+v, want balance_due and notes classified PN 164", s)
+		}
+	}
+	for _, s := range steps["bill-lifecycle"] {
+		switch s.ID {
+		case "list-bill-payments", "reverse-bill-payment", "pay-part-again":
+			if !s.GoOnly || s.Note != "PN 165" {
+				t.Fatalf("step %s %+v, want go_only with PN 165", s.ID, s)
+			}
+		case "void-paid-bill":
+			if s.ExpectStatus == nil || *s.ExpectStatus != (ExpectStatus{400, 400}) || s.ExpectDetail != "is PAID and cannot be voided" {
+				t.Fatalf("void-paid-bill %+v, want 400 on both with the PAID detail", s)
+			}
+		default:
+			if s.GoOnly {
+				t.Fatalf("step %s is go_only", s.ID)
+			}
+		}
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/LOQATO/gokit/db"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
@@ -26,15 +27,20 @@ func lock(ctx context.Context, q *invoicesdb.Queries, id uuid.UUID) (invoicesdb.
 }
 
 // FinalizeInvoice is the finalize route's transition: a DRAFT invoice in
-// tx. Exported for the MCP finalize_invoice tool (inventory §4).
-func FinalizeInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, error) {
-	return finalizeInvoice(ctx, tx, id)
+// tx, posted to the ledger in base. Exported for the MCP finalize_invoice
+// tool (inventory §4).
+func FinalizeInvoice(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID) (InvoiceOut, error) {
+	return finalizeInvoice(ctx, tx, base, id)
 }
 
 // finalizeInvoice is Python's finalize_invoice (invoicing.py:643-664): a
 // DRAFT that owes something is issued as OPEN (SENT is for the email); one
 // with nothing to collect is settled straight to PAID.
-func finalizeInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, error) {
+//
+// Go's own (PORT-NOTES 162): an invoice issued as OPEN posts its issue
+// entry under the row lock taken here; a ledger refusal or a missing rate
+// leaves it DRAFT. A PAID one (amount 0) posts nothing.
+func finalizeInvoice(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID) (InvoiceOut, error) {
 	q := invoicesdb.New(tx)
 	inv, err := lock(ctx, q, id)
 	if err != nil {
@@ -46,9 +52,23 @@ func finalizeInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, 
 	if inv.IsTemplate {
 		return InvoiceOut{}, refuse("invoice_is_template", "cannot finalize a recurring template")
 	}
+	// Go's own: the receivable posted is the amount, so a balance that is
+	// not the amount (never written by Go's DRAFT paths) is refused rather
+	// than issued, or settled to PAID, out of step with the ledger. An
+	// amount of 0 with a balance above 0 is refused too: it would be OPEN
+	// with a receivable the ledger never booked.
+	if !inv.BalanceDue.Equal(inv.Amount) {
+		return InvoiceOut{}, ledger.Refuse("invoice %s balance_due %s is not its amount %s; cannot issue it",
+			id, inv.BalanceDue.StringFixed(4), inv.Amount.StringFixed(4))
+	}
 	status, balance := "OPEN", inv.BalanceDue
 	if !balance.IsPositive() {
 		status, balance = "PAID", decimal.Zero
+	}
+	if status == "OPEN" && inv.Amount.IsPositive() {
+		if err := postIssue(ctx, tx, base, inv); err != nil {
+			return InvoiceOut{}, err
+		}
 	}
 	return transition(ctx, q, id, status, balance)
 }
@@ -82,6 +102,13 @@ func VoidInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, erro
 
 // voidInvoice is Python's void_invoice (invoicing.py:693-700): anything but
 // a PAID invoice (a template included) becomes VOID with nothing owing.
+//
+// Go's own (PORT-NOTES 162), under the invoice's row lock: an invoice with a
+// CLEARED payment (a withholding-only one included) is refused, where Python
+// voided it and left its payments; the issue entry is reversed. An issued
+// invoice with an amount but no issue entry is refused until the back-post
+// has run; a DRAFT, a template, a zero-amount or an already VOID invoice has
+// nothing to reverse.
 func voidInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, error) {
 	q := invoicesdb.New(tx)
 	inv, err := lock(ctx, q, id)
@@ -91,7 +118,30 @@ func voidInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (InvoiceOut, erro
 	if inv.Status == "PAID" {
 		return InvoiceOut{}, refuse("invoice_paid", "cannot void a PAID invoice — reverse payments first")
 	}
+	paid, err := q.HasClearedPayments(ctx, pgUUID(&id))
+	if err != nil {
+		return InvoiceOut{}, err
+	}
+	if paid {
+		return InvoiceOut{}, refuse("invoice_has_payments", "cannot void an invoice with cleared payments — reverse payments first")
+	}
+	reversed, err := ledger.ReverseIssued(ctx, tx, ledger.SourceInvoice, id, "Void of invoice "+invoiceLabel(inv))
+	if err != nil {
+		return InvoiceOut{}, err
+	}
+	if !reversed && inv.Status != "DRAFT" && inv.Status != "VOID" && !inv.IsTemplate && inv.Amount.IsPositive() {
+		return InvoiceOut{}, ledger.Refuse("invoice %s has no issue entry — run api backpost-ledger", id)
+	}
 	return transition(ctx, q, id, "VOID", decimal.Zero)
+}
+
+// invoiceLabel names an invoice in a memo: its number, else its id (as
+// bills do).
+func invoiceLabel(inv invoicesdb.Invoice) string {
+	if inv.InvoiceNumber != nil && *inv.InvoiceNumber != "" {
+		return *inv.InvoiceNumber
+	}
+	return inv.InvoiceID.String()
 }
 
 func transition(ctx context.Context, q *invoicesdb.Queries, id uuid.UUID, status string, balance decimal.Decimal) (InvoiceOut, error) {
@@ -129,7 +179,7 @@ func deleteInvoice(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
 }
 
 func (r routes) finalize(ctx context.Context, in *idIn) (*invoiceBody, error) {
-	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return FinalizeInvoice(ctx, tx, in.InvoiceID) })
+	return r.inTx(ctx, func(tx pgx.Tx) (InvoiceOut, error) { return FinalizeInvoice(ctx, tx, r.base, in.InvoiceID) })
 }
 
 func (r routes) markPaid(ctx context.Context, in *idIn) (*invoiceBody, error) {

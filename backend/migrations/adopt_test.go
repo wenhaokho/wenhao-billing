@@ -112,8 +112,9 @@ func TestAdoptThenMigrateAppliesOnlyNewMigrations(t *testing.T) {
 	if !scalar[bool](t, pool, `SELECT to_regclass('public.scheduled_job_runs') IS NOT NULL`) {
 		t.Error("scheduled_job_runs is missing")
 	}
-	if got := scalar[int64](t, pool, `SELECT count(*) FROM chart_of_accounts`); got != accounts {
-		t.Errorf("%d chart of accounts rows after migrating, want %d (seed rows duplicated)", got, accounts)
+	// 00008 adds 6000 and only guards the other seeded accounts.
+	if got := scalar[int64](t, pool, `SELECT count(*) FROM chart_of_accounts`); got != accounts+1 {
+		t.Errorf("%d chart of accounts rows after migrating, want %d (the seed rows and 6000; seed rows duplicated?)", got, accounts+1)
 	}
 }
 

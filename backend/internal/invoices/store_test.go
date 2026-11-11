@@ -21,7 +21,7 @@ import (
 // apitest's clock and the default (logging) draft notifier.
 func newApp(t *testing.T) *apitest.App {
 	t.Helper()
-	return apitest.New(t, func(api huma.API, d apitest.Deps) { Register(api, d.Pool, d.Clock, nil) })
+	return apitest.New(t, func(api huma.API, d apitest.Deps) { Register(api, d.Pool, d.Clock, base, nil) })
 }
 
 // insertInvoice stores a minimal DRAFT invoice with the given number (nil

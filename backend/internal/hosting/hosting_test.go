@@ -20,6 +20,7 @@ import (
 	"github.com/LOQATO/gokit/db"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger/ledgertest"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
 )
 
@@ -84,7 +85,7 @@ maintenance_content, proxied) VALUES ($1, $2, 'zone_123', 'record_123', 'example
 }
 
 // invoice is a SENT USD invoice of amount for item, issued 2026-06-01 (the
-// recurring cycle Python triggers), due due.
+// recurring cycle Python triggers) with its issue entry, due due.
 func (e *env) invoice(t *testing.T, customer, item uuid.UUID, amount string, due time.Time) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
@@ -93,7 +94,23 @@ issue_date, due_date, wht_type, wht_amount, wht_booked)
 VALUES ($1, $2, 'RECURRING', 'USD', $3, $3, 'SENT', '2026-06-01', $4, 'NONE', 0, 0)`, id, customer, decimal.RequireFromString(amount), due)
 	e.exec(t, `INSERT INTO invoice_line_items (line_item_id, invoice_id, item_id, position, description, quantity, unit_price, amount)
 VALUES ($1, $2, $3, 0, 'Acme hosting - example.com', 1, $4, $4)`, uuid.New(), id, item, decimal.RequireFromString(amount))
+	e.issue(t, id)
 	return id
+}
+
+// issue posts the issue entry of invoice id (PORT-NOTES 163: a payment
+// needs one).
+func (e *env) issue(t *testing.T, id uuid.UUID) {
+	t.Helper()
+	tx, err := e.pool.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	ledgertest.IssueFixture(t, tx, id)
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // fixture is Python's: customer, hosting item, and its SENT 240 invoice due due.

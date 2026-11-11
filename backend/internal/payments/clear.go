@@ -61,10 +61,19 @@ func (s Service) clear(ctx context.Context, tx pgx.Tx, p paymentsdb.Payment, inv
 // recordManual (record-payment) both call it, after locking the invoice, so
 // the entry is written under the invoice lock and rolls back with the caller.
 // A ledger refusal or a missing rate comes back unchanged.
+//
+// The entry is posted on the payment date (00:00 UTC, never later than now),
+// the date its bank and FX lines convert on, so a back-dated payment lands in
+// the reports as of that date; a payment with no date posts at now
+// (PORT-NOTES 167).
 func (s Service) postCleared(ctx context.Context, tx pgx.Tx, p paymentsdb.Payment, inv paymentsdb.LockInvoiceRow, withheld decimal.Decimal) error {
-	_, err := ledger.PostPaymentCleared(ctx, tx, s.BaseCurrency,
-		ledger.Payment{ID: p.PaymentID, Status: p.Status, Amount: p.Amount, Currency: p.Currency, Date: p.PaymentDate.Time},
-		ledger.Invoice{ID: inv.InvoiceID, Currency: inv.Currency, BalanceDue: inv.BalanceDue},
-		withheld)
+	lp := ledger.Payment{ID: p.PaymentID, Status: p.Status, Amount: p.Amount, Currency: p.Currency, Date: p.PaymentDate.Time}
+	li := ledger.Invoice{ID: inv.InvoiceID, Currency: inv.Currency, BalanceDue: inv.BalanceDue}
+	var err error
+	if p.PaymentDate.Valid {
+		_, err = ledger.PostPaymentClearedAt(ctx, tx, s.BaseCurrency, lp, li, withheld, ledger.Midnight(p.PaymentDate.Time))
+	} else {
+		_, err = ledger.PostPaymentCleared(ctx, tx, s.BaseCurrency, lp, li, withheld)
+	}
 	return err
 }

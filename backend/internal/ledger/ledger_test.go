@@ -48,10 +48,12 @@ func invoice(currency, balance string) Invoice {
 	return Invoice{ID: uuid.New(), Currency: currency, BalanceDue: dec(balance)}
 }
 
-// post posts p against inv and commits.
+// post issues inv (its BalanceDue, on p's date) and posts p against it, and
+// commits.
 func post(t *testing.T, pool *pgxpool.Pool, p Payment, inv Invoice, withheld string) Entry {
 	t.Helper()
 	tx := begin(t, pool)
+	issueIn(t, tx, inv, p.Date)
 	e, err := PostPaymentCleared(context.Background(), tx, base, p, inv, dec(withheld))
 	if err != nil {
 		t.Fatal(err)
@@ -174,6 +176,21 @@ func countRows(t *testing.T, q interface {
 	return entries, lines
 }
 
+// paymentRows is the number of PAYMENT journal entries and their lines q
+// sees (a test's issue entries are not counted).
+func paymentRows(t *testing.T, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+},
+) (entries, lines int) {
+	t.Helper()
+	if err := q.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'),
+(SELECT count(*) FROM journal_lines l JOIN journal_entries e ON e.entry_id = l.entry_id WHERE e.source_type = 'PAYMENT')`).
+		Scan(&entries, &lines); err != nil {
+		t.Fatal(err)
+	}
+	return entries, lines
+}
+
 // refused checks err is an ErrLedger with text msg, and that tx (the
 // posting's transaction) holds no journal rows.
 func refused(t *testing.T, tx pgx.Tx, err error, msg string) {
@@ -184,7 +201,7 @@ func refused(t *testing.T, tx pgx.Tx, err error, msg string) {
 	if err.Error() != msg {
 		t.Errorf("text = %q, want %q", err.Error(), msg)
 	}
-	if e, l := countRows(t, tx); e != 0 || l != 0 {
+	if e, l := paymentRows(t, tx); e != 0 || l != 0 {
 		t.Errorf("%d entries and %d lines written, want none", e, l)
 	}
 }
@@ -215,9 +232,11 @@ func TestSameCurrencyUSD(t *testing.T) {
 }
 
 // At 16000.00003 per USD, 1 USD and 1 USD each convert to 16000.0000
-// (16000.00003 rounds down) but 2 USD converts to 32000.0001 (32000.00006
-// rounds up): AR is relieved by the debits' 32000.0000, not its own 32000.0001.
-func TestSameCurrencyWithholdingRelievesExactDebitBase(t *testing.T) {
+// (16000.00003 rounds down) but the 2 USD issued converts to 32000.0001
+// (32000.00006 rounds up). AR is relieved at its issue basis, 32000.0001, and
+// the 0.0001 the debits fall short is a realised loss (PORT-NOTES 163; it
+// was relieved at the debits' 32000.0000 before).
+func TestSameCurrencyWithholdingRelievesIssueBasis(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
 	if _, err := pool.Exec(context.Background(),
@@ -230,7 +249,8 @@ func TestSameCurrencyWithholdingRelievesExactDebitBase(t *testing.T) {
 	checkLines(t, pool, e, []want{
 		{BankCode, "1", "0", "USD", "16000.0000", "0", "16000.00003"},
 		{PrepaidTaxCode, "1", "0", "USD", "16000.0000", "0", "16000.00003"},
-		{ReceivableCode, "0", "2", "USD", "0", "32000.0000", "16000.00003"},
+		{ReceivableCode, "0", "2", "USD", "0", "32000.0001", "16000.00005"},
+		{FXLossCode, "0.0001", "0", "IDR", "0.0001", "0", "1"},
 	})
 }
 
@@ -324,7 +344,7 @@ func TestRefusesNonPositiveAmount(t *testing.T) {
 		if want := "ledger: payment " + p.ID.String() + " amount must be > 0 (got " + amount + ")"; err.Error() != want {
 			t.Errorf("text = %q, want %q", err.Error(), want)
 		}
-		if e, l := countRows(t, tx); e != 0 || l != 0 {
+		if e, l := paymentRows(t, tx); e != 0 || l != 0 {
 			t.Errorf("%s: %d entries and %d lines written, want none", amount, e, l)
 		}
 	}
@@ -352,7 +372,7 @@ func TestWithholdingOnlyAcrossCurrenciesRefused(t *testing.T) {
 	if err == nil || errors.Is(err, ErrLedger) {
 		t.Fatalf("err = %v, want a plain error", err)
 	}
-	if e, l := countRows(t, tx); e != 0 || l != 0 {
+	if e, l := paymentRows(t, tx); e != 0 || l != 0 {
 		t.Errorf("%d entries and %d lines written, want none", e, l)
 	}
 }
@@ -360,15 +380,23 @@ func TestWithholdingOnlyAcrossCurrenciesRefused(t *testing.T) {
 func TestRateMissingPassesThrough(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
+	// The invoice is issued at a later EUR rate; none is on or before the
+	// payment's date.
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source) VALUES ('EUR', 'IDR', 17000, '2026-02-01', 'TEST')`); err != nil {
+		t.Fatal(err)
+	}
 	tx := begin(t, pool)
-	_, err := PostPaymentCleared(context.Background(), tx, base, cleared("100", "EUR"), invoice("EUR", "100"), dec("0"))
+	inv := invoice("EUR", "100")
+	issueIn(t, tx, inv, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC))
+	_, err := PostPaymentCleared(context.Background(), tx, base, cleared("100", "EUR"), inv, dec("0"))
 	if !errors.Is(err, fx.ErrRateMissing) {
 		t.Fatalf("err = %v, want fx.ErrRateMissing", err)
 	}
 	if want := "no fx rate for EUR->IDR on or before 2026-01-15"; err.Error() != want {
 		t.Errorf("text = %q, want %q", err.Error(), want)
 	}
-	if e, l := countRows(t, tx); e != 0 || l != 0 {
+	if e, l := paymentRows(t, tx); e != 0 || l != 0 {
 		t.Errorf("%d entries and %d lines written, want none", e, l)
 	}
 }
@@ -377,10 +405,12 @@ func TestMissingAccountCode(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)
 	tx := begin(t, pool)
+	inv := invoice("IDR", "110")
+	issueIn(t, tx, inv, payDay)
 	if _, err := tx.Exec(context.Background(), `UPDATE chart_of_accounts SET code = '1301' WHERE code = '1300'`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := PostPaymentCleared(context.Background(), tx, base, cleared("100", "IDR"), invoice("IDR", "110"), dec("10"))
+	_, err := PostPaymentCleared(context.Background(), tx, base, cleared("100", "IDR"), inv, dec("10"))
 	refused(t, tx, err, "chart_of_accounts missing code 1300")
 }
 
@@ -458,7 +488,7 @@ func TestReverseTwiceFails(t *testing.T) {
 	if !errors.Is(err, ErrLedger) || err.Error() != "entry "+orig.ID.String()+" already reversed" {
 		t.Fatalf("err = %v, want already reversed", err)
 	}
-	if e, _ := countRows(t, tx2); e != 2 {
+	if e, _ := paymentRows(t, tx2); e != 2 {
 		t.Errorf("%d entries, want the original and one reversal", e)
 	}
 }
@@ -605,8 +635,9 @@ count(*) FILTER (WHERE NOT ((debit = 0 AND credit > 0 AND base_amount_debit = 0)
 FROM journal_lines`).Scan(&total, &bad); err != nil {
 		t.Fatal(err)
 	}
-	if total != 14 || bad != 0 {
-		t.Errorf("%d lines, %d not one-sided; want 14 and 0", total, bad)
+	// 14 payment and reversal lines, and 2 for each of the 4 issue entries.
+	if total != 22 || bad != 0 {
+		t.Errorf("%d lines, %d not one-sided; want 22 and 0", total, bad)
 	}
 }
 

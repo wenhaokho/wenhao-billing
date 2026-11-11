@@ -266,6 +266,24 @@ func TestDeleteNonDraftBillErrors(t *testing.T) {
 	}
 }
 
+// A DRAFT bill that still has (reversed) payment history is refused with a
+// clean sentence, not a foreign-key error, and stays.
+func TestDeleteBillWithHistoryErrors(t *testing.T) {
+	t.Parallel()
+	g := newGatedHarness(t)
+	id := g.bill(t, g.vendor(t, "Vendor"), "BILL-0003", "DRAFT", "500.0000")
+	g.exec(t, `INSERT INTO bill_payments (bill_payment_id, bill_id, amount, currency, payment_date, status, source, reversed_at, reversal_reason)
+VALUES ($1, $2, 100, 'USD', CURRENT_DATE, 'REVERSED', 'MANUAL', now(), 'typo')`, uuid.New(), id)
+	args := map[string]any{"bill_id": id.String()}
+	_, tok := g.preview(t, "delete_bill", args)
+	if msg := g.refused(t, "delete_bill", with(args, "confirm_token", tok)); msg != "bill BILL-0003 has payment or ledger history and cannot be deleted; void it instead" {
+		t.Fatalf("refusal %q", msg)
+	}
+	if n := g.count(t, `SELECT count(*) FROM bills WHERE bill_id = $1`, id); n != 1 {
+		t.Fatalf("bill rows %d, want 1", n)
+	}
+}
+
 func TestDeleteBillTamperedTokenRejected(t *testing.T) {
 	t.Parallel()
 	g := newGatedHarness(t)

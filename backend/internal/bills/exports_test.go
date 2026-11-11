@@ -2,6 +2,7 @@ package bills_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -84,7 +85,7 @@ func TestExportBillUpdate(t *testing.T) {
 	var updated bills.BillOut
 	err := db.InTx(t.Context(), a.Pool, func(tx pgx.Tx) error {
 		var err error
-		updated, err = bills.UpdateBill(t.Context(), tx, created.BillID, bills.BillUpdate{
+		updated, err = bills.UpdateBill(t.Context(), tx, base, created.BillID, bills.BillUpdate{
 			BillFields: bills.BillFields{Notes: platform.Optional[string]{Set: true, Value: "second"}},
 		})
 		return err
@@ -110,6 +111,34 @@ func TestExportBillDeleteDraft(t *testing.T) {
 	}
 	if _, err := bills.Get(t.Context(), billsdb.New(a.Pool), created.BillID); !errors.Is(err, pgx.ErrNoRows) {
 		t.Errorf("get after delete err = %v, want ErrNoRows", err)
+	}
+}
+
+// A DRAFT bill that was opened, paid, reversed and returned to DRAFT keeps
+// payment and ledger rows: delete refuses it, the bill stays.
+func TestExportBillDeleteWithHistoryRefused(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	b := openBill(t, a, "OPEN", map[string]any{"bill_number": "B-77"})
+	pay(t, a, b.BillID, 400)
+	reverse(t, a, b.BillID, listPayments(t, a, b.BillID)[0].BillPaymentID, "typo")
+	patch(t, a, b.BillID, map[string]any{"status": "DRAFT"})
+	err := db.InTx(t.Context(), a.Pool, func(tx pgx.Tx) error { return bills.DeleteBill(t.Context(), tx, b.BillID) })
+	if !errors.Is(err, bills.ErrBilling) {
+		t.Fatalf("delete err = %v, want ErrBilling", err)
+	}
+	if want := "bill B-77 has payment or ledger history and cannot be deleted; void it instead"; err.Error() != want {
+		t.Errorf("sentence %q, want %q", err, want)
+	}
+	if got := get(t, a, b.BillID); got.Status != "DRAFT" {
+		t.Errorf("status %s", got.Status)
+	}
+	// Ledger history alone (no payment) is refused too.
+	c := openBill(t, a, "OPEN", nil)
+	patch(t, a, c.BillID, map[string]any{"status": "DRAFT"})
+	err = db.InTx(t.Context(), a.Pool, func(tx pgx.Tx) error { return bills.DeleteBill(t.Context(), tx, c.BillID) })
+	if !errors.Is(err, bills.ErrBilling) || !strings.Contains(err.Error(), "bill "+c.BillID.String()+" has payment or ledger history") {
+		t.Fatalf("ledger-only delete err = %v", err)
 	}
 }
 
