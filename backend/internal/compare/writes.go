@@ -55,6 +55,60 @@ type WriteStep struct {
 	Body    any               `yaml:"body"`
 	Extract map[string]string `yaml:"extract"`
 	Sign    bool              `yaml:"sign"`
+	// ExpectStatus, when set, is the status each backend must answer with (a
+	// single int for both, or {python: N, go: N}); the run continues past a
+	// non-2xx answer that matches it. Note names the PORT-NOTES note and is
+	// required whenever the two expected statuses differ.
+	ExpectStatus *ExpectStatus `yaml:"expect_status"`
+	Note         string        `yaml:"note"`
+	// ExpectDetail, when set, is a substring every non-2xx answer of the step
+	// must contain in its body; a miss is a hard failure.
+	ExpectDetail string `yaml:"expect_detail"`
+	// GoOnly sends the step to Go alone: a route Python never had (a bill
+	// payment's list or reversal, PN 165). Note is required. Its answer must
+	// be 2xx and is not compared; its extracts are Go's alone, so no step
+	// sent to both backends may use them.
+	GoOnly bool `yaml:"go_only"`
+	// ClassifyAnswers names the PORT-NOTES note for answer differences at the
+	// listed JSON paths only. The differences are still counted and listed.
+	ClassifyAnswers *ClassifyAnswers `yaml:"classify_answers"`
+}
+
+// ClassifyAnswers is a step's classification of its answer differences: a
+// difference whose path is one of Paths takes Note ("PN n").
+type ClassifyAnswers struct {
+	Note  string   `yaml:"note"`
+	Paths []string `yaml:"paths"`
+}
+
+// pnNote is the shape every step note has: one PORT-NOTES number.
+var pnNote = regexp.MustCompile(`^PN [0-9]+$`)
+
+// ExpectStatus is the status each backend is expected to answer a step with.
+type ExpectStatus struct {
+	Python int
+	Go     int
+}
+
+// UnmarshalYAML accepts a single int (both backends) or a {python, go} map
+// with both keys present.
+func (e *ExpectStatus) UnmarshalYAML(unmarshal func(any) error) error {
+	var both int
+	if err := unmarshal(&both); err == nil {
+		e.Python, e.Go = both, both
+		return nil
+	}
+	var m map[string]int
+	if err := unmarshal(&m); err != nil {
+		return errors.New("expect_status must be an int or {python: N, go: N}")
+	}
+	py, okPy := m["python"]
+	gv, okGo := m["go"]
+	if !okPy || !okGo || len(m) != 2 {
+		return errors.New("expect_status as a map needs exactly the keys python and go")
+	}
+	e.Python, e.Go = py, gv
+	return nil
 }
 
 // WritesReport is one `compare writes` run's result. It never holds a DSN or a
@@ -68,6 +122,16 @@ type WritesReport struct {
 	Scenarios   []WritesScenarioResult `json:"scenarios"`
 	RowDiffs    []RowDiff              `json:"row_diffs,omitempty"`
 	Differences int                    `json:"differences"`
+	// Unclassified is the differences no PORT-NOTES rule names: every step
+	// answer difference and every row difference without a Classify. It is
+	// part of Differences, never subtracted from it.
+	Unclassified int `json:"unclassified"`
+}
+
+// WritesSummary is the report's one-line count: "N differences, M
+// unclassified".
+func WritesSummary(r WritesReport) string {
+	return fmt.Sprintf("%d differences, %d unclassified", r.Differences, r.Unclassified)
 }
 
 // WritesScenarioResult is one scenario's steps. Classify names the note the
@@ -90,6 +154,13 @@ type WritesStepResult struct {
 	Python      int          `json:"python_status"`
 	Go          int          `json:"go_status"`
 	Differences []Difference `json:"differences,omitempty"`
+	// ExpectedStatusDiff is the step's note (a PN) when the two backends were
+	// expected to answer with different statuses and did. The bodies are not
+	// compared then, and it does not count as a difference.
+	ExpectedStatusDiff string `json:"expected_status_diff,omitempty"`
+	// GoOnly is the step's note when it was sent to Go alone; Python is then
+	// 0 and nothing is compared.
+	GoOnly string `json:"go_only,omitempty"`
 }
 
 // WritesOptions is one write run's inputs. The DSNs arrive as arguments and
@@ -106,8 +177,11 @@ type WritesOptions struct {
 	PythonCookie string
 	// GoToken is `api issue-session` output, sent as the billing_session
 	// cookie.
-	GoToken   string
-	Scenarios WritesScenarios
+	GoToken string
+	// BaseCurrency is the ledger's base currency (the row classification's
+	// rate check); empty means DefaultBaseCurrency (IDR).
+	BaseCurrency string
+	Scenarios    WritesScenarios
 	// Allowed is the allowed-diffs entries the step answers are compared
 	// under; the zero value allows nothing.
 	Allowed Allowed
@@ -124,6 +198,26 @@ type WritesOptions struct {
 type idPair struct {
 	python string
 	goID   string
+	// pyVal and goVal are the extracted values with their JSON type (a
+	// json.Number stays a number); nil means use the string id.
+	pyVal, goVal any
+	// pyMissing and goMissing mark a side the value was not taken from,
+	// because that side's step answer was not 2xx.
+	pyMissing, goMissing bool
+}
+
+// side is the pair's id, typed value and presence for one backend.
+func (p idPair) side(goSide bool) (string, any, bool) {
+	if goSide {
+		if p.goVal != nil {
+			return p.goID, p.goVal, !p.goMissing
+		}
+		return p.goID, p.goID, !p.goMissing
+	}
+	if p.pyVal != nil {
+		return p.python, p.pyVal, !p.pyMissing
+	}
+	return p.python, p.python, !p.pyMissing
 }
 
 // stepAnswers is one sent step's two answers, kept for the comparison after
@@ -132,13 +226,18 @@ type stepAnswers struct {
 	scenario, step int
 	route          string
 	py, gov        Response
+	// statusDiffers marks a step expected to answer differently per backend
+	// (and did): its bodies are not compared.
+	statusDiffers bool
+	classify      *ClassifyAnswers
 }
 
 // RunWrites runs the write scenarios against both backends, then compares the
 // rows they touched and every step's answers. It refuses to run unless both
 // database hosts and both backend URLs are local and the runner's own
-// environment has no RESEND_API_KEY. A non-2xx answer is a hard failure: the
-// run stops there, so later steps never run against a broken flow.
+// environment has no RESEND_API_KEY. A non-2xx answer is a hard failure unless the
+// step declares expect_status and both statuses match it: the run stops at a
+// failure, so later steps never run against a broken flow.
 //
 // Before the first step it snapshots every touched table on both databases,
 // so only rows the run created, changed or deleted are compared. Each
@@ -234,22 +333,38 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 
 	diffs, err := Rows(ctx, RowsInput{
 		Python: pyDB, Go: goDB, Schema: schema, Tables: tables, Maps: r.maps,
-		PythonSnapshot: pySnap, GoSnapshot: goSnap,
+		PythonSnapshot: pySnap, GoSnapshot: goSnap, BaseCurrency: o.BaseCurrency,
 	})
 	if err != nil {
 		return report, dbErr("row comparison", err)
 	}
 	report.RowDiffs = diffs
 	report.Differences = len(diffs)
+	for _, d := range diffs {
+		if d.Classify == "" {
+			report.Unclassified++
+		}
+	}
 
 	c := newRowComparer(schema, r.maps)
 	allowed := o.Allowed
 	allowed.PythonHost = hostOf(o.PythonURL)
 	allowed.GoHost = hostOf(o.GoURL)
 	for _, a := range r.answers {
+		if a.statusDiffers {
+			continue
+		}
 		py := Response{Status: a.py.Status, Header: a.py.Header, Body: c.normalizeBody(a.py.Body, true)}
 		gov := Response{Status: a.gov.Status, Header: a.gov.Header, Body: c.normalizeBody(a.gov.Body, false)}
 		d := Diff(a.route, py, gov, allowed)
+		for i := range d {
+			if a.classify != nil && containsString(a.classify.Paths, d[i].Path) {
+				d[i].Classify = a.classify.Note
+			}
+			if d[i].Classify == "" {
+				report.Unclassified++
+			}
+		}
 		report.Scenarios[a.scenario].Steps[a.step].Differences = d
 		report.Differences += len(d)
 	}
@@ -290,6 +405,16 @@ func (r *writesRun) scenario(ctx context.Context, index int, sc WritesScenario) 
 		fail := func(format string, args ...any) error {
 			return fmt.Errorf("scenario %s: step %s: "+format, append([]any{sc.ID, step.ID}, args...)...)
 		}
+		if step.GoOnly {
+			stepResult, err := r.goOnly(ctx, step)
+			if stepResult.ID != "" {
+				result.Steps = append(result.Steps, stepResult)
+			}
+			if err != nil {
+				return result, fail("%w", err)
+			}
+			continue
+		}
 		pyPath, err := expandPath(step.Path, r.extracted, false)
 		if err != nil {
 			return result, fail("%w", err)
@@ -315,41 +440,120 @@ func (r *writesRun) scenario(ctx context.Context, index int, sc WritesScenario) 
 		if err != nil {
 			return result, fail("go: %w", redactErr(err, o.GoURL))
 		}
-		result.Steps = append(result.Steps, WritesStepResult{
+		stepResult := WritesStepResult{
 			ID: step.ID, Method: step.Method, Path: step.Path,
 			Python: pyResp.Status, Go: goResp.Status,
-		})
+		}
+		differs := false
+		if e := step.ExpectStatus; e != nil {
+			if pyResp.Status != e.Python || goResp.Status != e.Go {
+				result.Steps = append(result.Steps, stepResult)
+				return result, fail("status python %d go %d, expected python %d go %d", pyResp.Status, goResp.Status, e.Python, e.Go)
+			}
+			if e.Python != e.Go {
+				differs = true
+				stepResult.ExpectedStatusDiff = step.Note
+			}
+		}
+		if step.ExpectDetail != "" {
+			for _, side := range []struct {
+				name string
+				resp Response
+			}{{"python", pyResp}, {"go", goResp}} {
+				if side.resp.Status >= 200 && side.resp.Status < 300 {
+					continue
+				}
+				if !strings.Contains(string(side.resp.Body), step.ExpectDetail) {
+					result.Steps = append(result.Steps, stepResult)
+					return result, fail("%s answered %d without expect_detail %q", side.name, side.resp.Status, step.ExpectDetail)
+				}
+			}
+		}
+		result.Steps = append(result.Steps, stepResult)
 		r.answers = append(r.answers, stepAnswers{
 			scenario: index, step: len(result.Steps) - 1,
 			route: strings.ToUpper(step.Method) + " " + step.Path, py: pyResp, gov: goResp,
+			statusDiffers: differs, classify: step.ClassifyAnswers,
 		})
-		if pyResp.Status < 200 || pyResp.Status >= 300 {
-			return result, fail("python status %d", pyResp.Status)
+		if step.ExpectStatus == nil {
+			if pyResp.Status < 200 || pyResp.Status >= 300 {
+				return result, fail("python status %d", pyResp.Status)
+			}
+			if goResp.Status < 200 || goResp.Status >= 300 {
+				return result, fail("go status %d", goResp.Status)
+			}
 		}
-		if goResp.Status < 200 || goResp.Status >= 300 {
-			return result, fail("go status %d", goResp.Status)
-		}
+		pyOK := pyResp.Status >= 200 && pyResp.Status < 300
+		goOK := goResp.Status >= 200 && goResp.Status < 300
 		for _, name := range sortedExtracts(step.Extract) {
 			path := step.Extract[name]
 			table, ok := r.schema.EntityForKey(lastKey(path))
 			if !ok {
 				return result, fail("extract %s: %q names no single table's id", name, path)
 			}
-			pyID, err := extractID(pyResp.Body, path)
-			if err != nil {
-				return result, fail("python %s: %w", name, err)
+			pair := idPair{pyMissing: !pyOK, goMissing: !goOK}
+			if pyOK {
+				pair.python, pair.pyVal, err = extractValue(pyResp.Body, path)
+				if err != nil {
+					return result, fail("python %s: %w", name, err)
+				}
 			}
-			goID, err := extractID(goResp.Body, path)
-			if err != nil {
-				return result, fail("go %s: %w", name, err)
+			if goOK {
+				pair.goID, pair.goVal, err = extractValue(goResp.Body, path)
+				if err != nil {
+					return result, fail("go %s: %w", name, err)
+				}
 			}
-			r.extracted[name] = idPair{python: pyID, goID: goID}
-			if err := r.maps.Set(table, pyID, goID); err != nil {
-				return result, fail("extract %s: %w", name, err)
+			r.extracted[name] = pair
+			if pyOK && goOK {
+				if err := r.maps.Set(table, pair.python, pair.goID); err != nil {
+					return result, fail("extract %s: %w", name, err)
+				}
 			}
 		}
 	}
 	return result, nil
+}
+
+// goOnly sends a go_only step to Go alone. A non-2xx answer is a hard
+// failure. Its extracts are stored as Go's alone (Python marked missing), with
+// no table and no id pair: Python has no such row to map. The answer is not
+// kept for comparison. The result's ID is empty when nothing was sent.
+func (r *writesRun) goOnly(ctx context.Context, step WriteStep) (WritesStepResult, error) {
+	path, err := expandPath(step.Path, r.extracted, true)
+	if err != nil {
+		return WritesStepResult{}, err
+	}
+	body, err := buildBody(step.Body, r.extracted, true)
+	if err != nil {
+		return WritesStepResult{}, err
+	}
+	resp, err := send(ctx, r.client, r.o, r.o.GoURL, step.Method, path, body, r.o.GoToken, step.Sign)
+	if err != nil {
+		return WritesStepResult{}, fmt.Errorf("go: %w", redactErr(err, r.o.GoURL))
+	}
+	result := WritesStepResult{ID: step.ID, Method: step.Method, Path: step.Path, Go: resp.Status, GoOnly: step.Note}
+	if resp.Status < 200 || resp.Status >= 300 {
+		return result, fmt.Errorf("go status %d", resp.Status)
+	}
+	for _, name := range sortedExtracts(step.Extract) {
+		pair := idPair{pyMissing: true}
+		if pair.goID, pair.goVal, err = extractValue(resp.Body, step.Extract[name]); err != nil {
+			return result, fmt.Errorf("go %s: %w", name, err)
+		}
+		r.extracted[name] = pair
+	}
+	return result, nil
+}
+
+// containsString reports whether list holds s.
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // sortedExtracts is a step's extract names in order, so a run is repeatable.
@@ -426,11 +630,11 @@ func expandPath(path string, extracted map[string]idPair, goSide bool) (string, 
 		if !ok {
 			return "", fmt.Errorf("path %q: no {%s} extracted yet", path, name)
 		}
-		if goSide {
-			out.WriteString(pair.goID)
-		} else {
-			out.WriteString(pair.python)
+		id, _, present := pair.side(goSide)
+		if !present {
+			return "", fmt.Errorf("path %q: {%s} was not extracted on this backend (its step answered non-2xx)", path, name)
 		}
+		out.WriteString(id)
 		last = m[1]
 	}
 	out.WriteString(path[last:])
@@ -485,11 +689,28 @@ func replacePlaceholders(v any, extracted map[string]idPair, goSide bool) (any, 
 		}
 		return out, nil
 	case string:
+		// A value that is exactly one placeholder keeps the extracted value's
+		// JSON type (a number stays a number); a placeholder inside a longer
+		// string is string interpolation.
+		if m := wholePlaceholder.FindStringSubmatch(x); m != nil {
+			pair, ok := extracted[m[1]]
+			if !ok {
+				return nil, fmt.Errorf("body %q: no {%s} extracted yet", x, m[1])
+			}
+			_, val, present := pair.side(goSide)
+			if !present {
+				return nil, fmt.Errorf("body %q: {%s} was not extracted on this backend (its step answered non-2xx)", x, m[1])
+			}
+			return val, nil
+		}
 		return expandString(x, extracted, goSide)
 	default:
 		return v, nil
 	}
 }
+
+// wholePlaceholder matches a string that is exactly one {name}.
+var wholePlaceholder = regexp.MustCompile(`^\{([A-Za-z0-9_]+)\}$`)
 
 // expandString replaces each {name} in a string with the backend's id.
 func expandString(s string, extracted map[string]idPair, goSide bool) (string, error) {
@@ -502,35 +723,39 @@ func expandString(s string, extracted map[string]idPair, goSide bool) (string, e
 		if !ok {
 			return "", fmt.Errorf("body %q: no {%s} extracted yet", s, name)
 		}
-		if goSide {
-			out.WriteString(pair.goID)
-		} else {
-			out.WriteString(pair.python)
+		id, _, present := pair.side(goSide)
+		if !present {
+			return "", fmt.Errorf("body %q: {%s} was not extracted on this backend (its step answered non-2xx)", s, name)
 		}
+		out.WriteString(id)
 		last = m[1]
 	}
 	out.WriteString(s[last:])
 	return out.String(), nil
 }
 
-// extractID reads one JSONPath from a response body. The id is a string or a
-// number; a missing or null value is an error.
-func extractID(body []byte, path string) (string, error) {
+// extractValue reads one JSONPath from a response body: the id string and the
+// value with its JSON type (a json.Number for a number, the string otherwise).
+// The id is a string or a number; a missing or null value is an error.
+func extractValue(body []byte, path string) (string, any, error) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
 	var v any
 	if err := dec.Decode(&v); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	got, err := jsonPath(v, path)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	id := idString(got)
 	if id == "" {
-		return "", fmt.Errorf("path %q has no id", path)
+		return "", nil, fmt.Errorf("path %q has no id", path)
 	}
-	return id, nil
+	if n, ok := got.(json.Number); ok {
+		return id, n, nil
+	}
+	return id, id, nil
 }
 
 // jsonPath walks a simple JSONPath: $, .key, and [index].
@@ -697,7 +922,9 @@ func LoadWritesFile(path string) (WritesScenarios, error) {
 // validate refuses a scenario set that cannot run: no scenarios, a duplicate
 // id, a step without a method or a path, a placeholder that no earlier step
 // extracted, a placeholder extracted twice, a placeholder used after a DELETE
-// on it, a Go-only table, or a table name that is not a plain identifier.
+// on it, a Go-only table, a table name that is not a plain identifier, a
+// go_only step without a note or with expect_status/expect_detail, or a step
+// sent to both backends that uses a placeholder a go_only step extracted.
 func (w WritesScenarios) validate() error {
 	if len(w.Scenarios) == 0 {
 		return errors.New("compare writes: no scenarios")
@@ -707,6 +934,8 @@ func (w WritesScenarios) validate() error {
 	// can create an id the next scenario uses (master data, then invoices).
 	extracted := map[string]bool{}
 	deleted := map[string]string{}
+	// goOnlyBy is each placeholder a go_only step extracted, and that step.
+	goOnlyBy := map[string]string{}
 	for i, sc := range w.Scenarios {
 		where := fmt.Sprintf("scenario %d", i+1)
 		if strings.TrimSpace(sc.ID) == "" {
@@ -741,6 +970,49 @@ func (w WritesScenarios) validate() error {
 			}
 			if !strings.HasPrefix(step.Path, "/") {
 				return fmt.Errorf("compare writes: %s: path %q has no leading slash", stepWhere, step.Path)
+			}
+			if strings.TrimSpace(step.Note) != "" && !pnNote.MatchString(step.Note) {
+				return fmt.Errorf("compare writes: %s: note %q is not one PN (\"PN n\")", stepWhere, step.Note)
+			}
+			if ca := step.ClassifyAnswers; ca != nil {
+				if !pnNote.MatchString(ca.Note) {
+					return fmt.Errorf("compare writes: %s: classify_answers note %q is not one PN (\"PN n\")", stepWhere, ca.Note)
+				}
+				if len(ca.Paths) == 0 {
+					return fmt.Errorf("compare writes: %s: classify_answers names no paths", stepWhere)
+				}
+				for _, p := range ca.Paths {
+					if !strings.HasPrefix(p, "$.") || strings.ContainsAny(p, "*?") {
+						return fmt.Errorf("compare writes: %s: classify_answers path %q is not one JSON path ($.key)", stepWhere, p)
+					}
+				}
+				if step.GoOnly {
+					return fmt.Errorf("compare writes: %s: a go_only step's answer is not compared; classify_answers does not apply", stepWhere)
+				}
+			}
+			if step.GoOnly {
+				if strings.TrimSpace(step.Note) == "" {
+					return fmt.Errorf("compare writes: %s: a go_only step needs a note naming its PN", stepWhere)
+				}
+				if step.ExpectStatus != nil || step.ExpectDetail != "" {
+					return fmt.Errorf("compare writes: %s: a go_only step takes no expect_status or expect_detail (its Go answer must be 2xx)", stepWhere)
+				}
+			} else {
+				for _, name := range append(placeholders(step.Path), placeholders(step.BodyString())...) {
+					if by, ok := goOnlyBy[name]; ok {
+						return fmt.Errorf("compare writes: %s: {%s} was extracted by go_only step %s; only Go answered with it", stepWhere, name, by)
+					}
+				}
+			}
+			if e := step.ExpectStatus; e != nil {
+				for side, code := range map[string]int{"python": e.Python, "go": e.Go} {
+					if code < 100 || code > 599 {
+						return fmt.Errorf("compare writes: %s: expect_status %s %d is not an HTTP status", stepWhere, side, code)
+					}
+				}
+				if e.Python != e.Go && strings.TrimSpace(step.Note) == "" {
+					return fmt.Errorf("compare writes: %s: expect_status differs per backend (python %d, go %d) and needs a note naming its PN", stepWhere, e.Python, e.Go)
+				}
 			}
 			for _, name := range placeholders(step.Path) {
 				if !extracted[name] {
@@ -779,6 +1051,9 @@ func (w WritesScenarios) validate() error {
 					return fmt.Errorf("compare writes: %s: {%s} is extracted twice; give each extract its own name", stepWhere, name)
 				}
 				extracted[name] = true
+				if step.GoOnly {
+					goOnlyBy[name] = step.ID
+				}
 			}
 		}
 	}

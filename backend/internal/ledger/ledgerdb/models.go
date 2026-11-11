@@ -45,6 +45,22 @@ type BillLineItem struct {
 	CreatedAt        time.Time
 }
 
+type BillPayment struct {
+	BillPaymentID  uuid.UUID
+	BillID         uuid.UUID
+	Amount         decimal.Decimal
+	Currency       string
+	PaymentDate    pgtype.Date
+	PayerName      *string
+	Reference      *string
+	Notes          *string
+	Status         string
+	Source         string
+	CreatedAt      time.Time
+	ReversedAt     *time.Time
+	ReversalReason *string
+}
+
 type BusinessProfile struct {
 	ID             int32
 	Name           *string

@@ -252,8 +252,8 @@ func writesCommand(args []string, cio commandIO) int {
 		logger.Error("compare writes: the run failed", "err", runErr, "report", *outFile)
 		return code
 	}
-	_, _ = fmt.Fprintf(cio.stdout, "compare writes: scenarios=%d differences=%d report=%s\n",
-		len(report.Scenarios), report.Differences, *outFile)
+	_, _ = fmt.Fprintf(cio.stdout, "compare writes: scenarios=%d, %s, report=%s\n",
+		len(report.Scenarios), compare.WritesSummary(report), *outFile)
 	return code
 }
 

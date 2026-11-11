@@ -31,6 +31,13 @@ type RowDiff struct {
 	Key    string `json:"key,omitempty"`
 	Python string `json:"python,omitempty"`
 	Go     string `json:"go,omitempty"`
+	// Classify names the PORT-NOTES note the difference is known for (see
+	// classifyRowDiff), or is empty. It never hides the difference: a
+	// classified difference is still counted and listed.
+	Classify string `json:"classify,omitempty"`
+	// Check, on an unclassified difference, names the rule's check the rows
+	// failed ("PN 162 check failed: …"), so a near miss is visible.
+	Check string `json:"check,omitempty"`
 }
 
 // tableName is the plain identifier a table name may be. It is a first line
@@ -45,6 +52,9 @@ var goOnlyTables = map[string]bool{
 	"scheduled_job_runs":       true,
 	"oauth_spent_codes":        true,
 	"mcp_spent_confirm_tokens": true,
+	// Go's own table (PORT-NOTES 165): a bill payment is a row on Go only.
+	// Python never had it; a Python bill payment only lowered balance_due.
+	"bill_payments": true,
 }
 
 // uuidText matches a canonical uuid inside a text value, such as the payment
@@ -242,6 +252,9 @@ type RowsInput struct {
 	Maps           IDMaps
 	PythonSnapshot Snapshot
 	GoSnapshot     Snapshot
+	// BaseCurrency is the ledger's base currency, for the issue entries'
+	// rate check; empty means DefaultBaseCurrency (IDR).
+	BaseCurrency string
 }
 
 // tableState is one table's touched rows on both sides: the pre-existing rows
@@ -256,6 +269,9 @@ type tableState struct {
 	goPre  map[string]Row
 	pyNew  []Row
 	goNew  []Row
+	// goAll is every Go row, touched or not: the classification checks read
+	// a Go entry's siblings and lines whether or not the run touched them.
+	goAll []Row
 }
 
 // Rows compares the rows the run touched. It reads each table on both
@@ -295,6 +311,9 @@ func Rows(ctx context.Context, in RowsInput) ([]RowDiff, error) {
 		}
 	}
 	c.uuids = in.Maps.uuidMap()
+	if err := c.prepareClassification(ctx, in, states); err != nil {
+		return nil, fmt.Errorf("row comparison: classification: %w", err)
+	}
 
 	var diffs []RowDiff
 	for _, table := range order {
@@ -319,7 +338,7 @@ func readState(ctx context.Context, in RowsInput, table string) (*tableState, er
 		return nil, fmt.Errorf("row comparison: go %s: %w", table, err)
 	}
 	pk := in.Schema.PK[table]
-	st := &tableState{table: table, pk: pk, pyPre: map[string]Row{}, goPre: map[string]Row{}}
+	st := &tableState{table: table, pk: pk, pyPre: map[string]Row{}, goPre: map[string]Row{}, goAll: goRows}
 	pySnap, goSnap := in.PythonSnapshot[table], in.GoSnapshot[table]
 	touched := map[string]bool{}
 	split := func(rows []Row, snap map[string]string) (pre map[string]Row, created []Row) {
@@ -362,10 +381,15 @@ func readState(ctx context.Context, in RowsInput, table string) (*tableState, er
 // derivationRule pairs created rows whose ids no response named. key returns
 // the columns the pair must agree on (after the Python side's ids are mapped);
 // rows that share a key pair in orderBy order.
+//
+// via, when set, is a self-referencing column: the rows where it is null
+// pair first, then a row where it is set pairs with the row whose via points
+// at its own via's partner, and only the rows left pair by key and orderBy.
 type derivationRule struct {
 	table   string
 	key     func(Row) []string
 	orderBy string
+	via     string
 }
 
 // cols is a fixed key.
@@ -377,13 +401,16 @@ func cols(c ...string) func(Row) []string { return func(Row) []string { return c
 //   - payments: the mapped invoice_id and payer_reference, or amount and
 //     currency when payer_reference is empty;
 //   - journal_entries: source_type, the mapped source_id and the memo (whose
-//     uuids are mapped), in posted_at order;
+//     uuids are mapped), in posted_at order; a reversed entry pairs through
+//     its reversal (reversed_by_entry_id) first, since Go dates a payment
+//     reversal at its original's posted_at and two clearings of one payment
+//     then tie on posted_at (PORT-NOTES 167);
 //   - reconciliation_log: the mapped payment_id and action, in created_at order;
 //   - invoice, quotation and bill line items: the mapped parent and position;
 //   - payment_account: business_profile_id and currency (PUT replaces them all);
 //   - business_profile: its singleton id.
 //
-// There is no bill_payments table: a bill payment only updates the bill row.
+// bill_payments is Go-only (goOnlyTables) and never paired.
 var derivationRules = []derivationRule{
 	{table: "payments", key: func(r Row) []string {
 		if valueString(r["payer_reference"]) != "" {
@@ -391,7 +418,7 @@ var derivationRules = []derivationRule{
 		}
 		return []string{"invoice_id", "amount", "currency"}
 	}, orderBy: "created_at"},
-	{table: "journal_entries", key: cols("source_type", "source_id", "memo"), orderBy: "posted_at"},
+	{table: "journal_entries", key: cols("source_type", "source_id", "memo"), orderBy: "posted_at", via: "reversed_by_entry_id"},
 	{table: "reconciliation_log", key: cols("payment_id", "action"), orderBy: "created_at"},
 	{table: "invoice_line_items", key: cols("invoice_id", "position"), orderBy: "created_at"},
 	{table: "quotation_line_items", key: cols("quotation_id", "position"), orderBy: "created_at"},
@@ -412,6 +439,9 @@ type rowComparer struct {
 	schema Schema
 	maps   IDMaps
 	uuids  map[string]string
+	// cls is the classification state (classify.go); nil when Rows has not
+	// prepared it, and then nothing is classified.
+	cls *classification
 }
 
 // newRowComparer is a comparer over the final maps, for the step answers.
@@ -488,13 +518,74 @@ func (c *rowComparer) normalizeJSON(key string, v any, python bool) any {
 // already in the map (a response named it) is left as it is, and so is a Go
 // row some Python id already maps to.
 func (c *rowComparer) derive(rule derivationRule, st *tableState) error {
-	c.uuids = c.maps.uuidMap()
+	if rule.via == "" {
+		return c.deriveWhere(rule, st, nil)
+	}
+	unset := func(r Row) bool { return valueString(r[rule.via]) == "" }
+	if err := c.deriveWhere(rule, st, unset); err != nil {
+		return err
+	}
+	if err := c.deriveVia(rule, st); err != nil {
+		return err
+	}
+	return c.deriveWhere(rule, st, nil)
+}
+
+// deriveVia pairs each unpaired Python row whose via is set with the
+// unpaired Go row whose via is its via's Go partner.
+func (c *rowComparer) deriveVia(rule derivationRule, st *tableState) error {
+	taken := c.takenGo(st)
+	goByVia := map[string]Row{}
+	for _, row := range st.goNew {
+		if v := valueString(row[rule.via]); v != "" && !taken[valueString(row[st.pk])] {
+			goByVia[v] = row
+		}
+	}
+	pys := append([]Row(nil), st.pyNew...)
+	sortRows(pys, rule.orderBy, st.pk)
+	for _, row := range pys {
+		v := valueString(row[rule.via])
+		if v == "" {
+			continue
+		}
+		if _, ok := c.maps.lookup(st.table, valueString(row[st.pk])); ok {
+			continue
+		}
+		goVia, ok := c.maps.lookup(st.table, v)
+		if !ok {
+			continue
+		}
+		gov, ok := goByVia[goVia]
+		if !ok {
+			continue
+		}
+		if err := c.maps.Set(st.table, valueString(row[st.pk]), valueString(gov[st.pk])); err != nil {
+			return err
+		}
+		delete(goByVia, goVia)
+	}
+	return nil
+}
+
+// takenGo is the Go ids of st's table that some Python id already maps to.
+func (c *rowComparer) takenGo(st *tableState) map[string]bool {
 	taken := map[string]bool{}
 	for _, goID := range c.maps[st.table] {
 		taken[goID] = true
 	}
+	return taken
+}
+
+// deriveWhere pairs the unpaired rows that match (all when match is nil) by
+// the rule's key, in orderBy order.
+func (c *rowComparer) deriveWhere(rule derivationRule, st *tableState, match func(Row) bool) error {
+	c.uuids = c.maps.uuidMap()
+	taken := c.takenGo(st)
 	pyGroups := map[string][]Row{}
 	for _, row := range st.pyNew {
+		if match != nil && !match(row) {
+			continue
+		}
 		if _, ok := c.maps.lookup(st.table, valueString(row[st.pk])); ok {
 			continue
 		}
@@ -503,6 +594,9 @@ func (c *rowComparer) derive(rule derivationRule, st *tableState) error {
 	}
 	goGroups := map[string][]Row{}
 	for _, row := range st.goNew {
+		if match != nil && !match(row) {
+			continue
+		}
 		if taken[valueString(row[st.pk])] {
 			continue
 		}
@@ -567,7 +661,14 @@ func (c *rowComparer) comparePaired(st *tableState) []RowDiff {
 		if !pyOK && !goOK {
 			continue // deleted on both sides: the backends agree
 		}
-		diffs = append(diffs, c.pair(st.table, key, py, pyOK, gov, goOK, nil)...)
+		// A pre-existing row is classified only when both sides still have
+		// it: a row deleted on one side is never an accrual posting.
+		for _, d := range c.pair(st.table, key, py, pyOK, gov, goOK, nil) {
+			if pyOK && goOK {
+				d = c.classifyRowDiff(d, gov, py)
+			}
+			diffs = append(diffs, d)
+		}
 	}
 	goByPK := map[string]Row{}
 	for _, row := range st.goNew {
@@ -583,12 +684,15 @@ func (c *rowComparer) comparePaired(st *tableState) []RowDiff {
 			continue
 		}
 		used[goID] = true
-		diffs = append(diffs, c.pair(st.table, goID, py, true, gov, true, nil)...)
+		for _, d := range c.pair(st.table, goID, py, true, gov, true, nil) {
+			diffs = append(diffs, c.classifyRowDiff(d, gov, py))
+		}
 	}
 	for _, gov := range st.goNew {
 		goKey := valueString(gov[st.pk])
 		if !used[goKey] {
-			diffs = append(diffs, RowDiff{Table: st.table, Key: goKey, Go: c.canonical(st.table, gov, false, nil)})
+			d := RowDiff{Table: st.table, Key: goKey, Go: c.canonical(st.table, gov, false, nil)}
+			diffs = append(diffs, c.classifyRowDiff(d, gov, nil))
 		}
 	}
 	return diffs
@@ -635,6 +739,10 @@ func (c *rowComparer) compareMultiset(st *tableState, group string) []RowDiff {
 		}
 	}
 	pyCounts, goCounts := count(pyRows, true), count(goRows, false)
+	classify := func(_ string, d RowDiff) RowDiff { return d }
+	if st.table == "journal_lines" {
+		classify = c.lineClassifier(pyRows, goRows)
+	}
 	groups := map[string]bool{}
 	for g := range pyCounts {
 		groups[g] = true
@@ -654,10 +762,10 @@ func (c *rowComparer) compareMultiset(st *tableState, group string) []RowDiff {
 		for _, t := range sortedKeys(texts) {
 			p, q := pyCounts[g][t], goCounts[g][t]
 			for i := 0; i < p-q; i++ {
-				diffs = append(diffs, RowDiff{Table: st.table, Key: g, Python: t})
+				diffs = append(diffs, classify(g, RowDiff{Table: st.table, Key: g, Python: t}))
 			}
 			for i := 0; i < q-p; i++ {
-				diffs = append(diffs, RowDiff{Table: st.table, Key: g, Go: t})
+				diffs = append(diffs, classify(g, RowDiff{Table: st.table, Key: g, Go: t}))
 			}
 		}
 	}

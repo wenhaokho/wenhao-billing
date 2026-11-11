@@ -34,7 +34,7 @@ func convert(t *testing.T, a *apitest.App, id uuid.UUID, b any) invoices.Invoice
 func newAppWithInvoices(t *testing.T) *apitest.App {
 	t.Helper()
 	return apitest.New(t, func(api huma.API, d apitest.Deps) {
-		invoices.Register(api, d.Pool, d.Clock, nil)
+		invoices.Register(api, d.Pool, d.Clock, "IDR", nil)
 		quotations.Register(api, d.Pool, d.Clock)
 	})
 }
@@ -463,5 +463,25 @@ func TestConvertRequiresBody(t *testing.T) {
 	}
 	if got := get(t, a, q.QuotationID); got.Status != "DRAFT" {
 		t.Errorf("status %s after refused converts", got.Status)
+	}
+}
+
+// A converted quotation is a DRAFT invoice: nothing is posted until it is
+// finalized (PORT-NOTES 162).
+func TestConvertPostsNothing(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := insertCustomer(t, a)
+	q := post(t, a, body(c, map[string]any{"line_items": []any{line(1, 1000)}}))
+	if inv := convert(t, a, q.QuotationID, map[string]any{}); inv.Status != "DRAFT" {
+		t.Errorf("status %s", inv.Status)
+	}
+	var entries, lines int
+	if err := a.Pool.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM journal_entries), (SELECT count(*) FROM journal_lines)`).
+		Scan(&entries, &lines); err != nil {
+		t.Fatal(err)
+	}
+	if entries != 0 || lines != 0 {
+		t.Errorf("%d journal entries and %d lines, want none", entries, lines)
 	}
 }

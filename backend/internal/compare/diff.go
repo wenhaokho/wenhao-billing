@@ -35,6 +35,9 @@ type Difference struct {
 	// "instant-equal", "number-equal", "status", "detail-shape", or "" for a
 	// plain value difference.
 	Rule string `json:"rule"`
+	// Classify is the PORT-NOTES note a write step names for this JSON path
+	// (classify_answers); the difference is still counted and listed.
+	Classify string `json:"classify,omitempty"`
 }
 
 // missing marks a value present on one side only.

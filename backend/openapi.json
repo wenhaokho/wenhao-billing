@@ -1006,6 +1006,109 @@
         ],
         "type": "object"
       },
+      "BillPaymentOut": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "bill_id": {
+            "type": "string"
+          },
+          "bill_payment_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "description": "The bill's.",
+            "type": "string"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payer_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "reference": {
+            "description": "record-payment's payer_reference.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reversal_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reversed_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "description": "MANUAL: record-payment; STATUS_UPDATE: a PATCH to PAID; LEGACY_BACKPOST: paid before the switch (the back-post).",
+            "enum": [
+              "MANUAL",
+              "STATUS_UPDATE",
+              "LEGACY_BACKPOST"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "CLEARED",
+              "REVERSED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "bill_payment_id",
+          "bill_id",
+          "amount",
+          "currency",
+          "payment_date",
+          "payer_name",
+          "reference",
+          "notes",
+          "status",
+          "source",
+          "created_at",
+          "reversed_at",
+          "reversal_reason"
+        ],
+        "type": "object"
+      },
       "BillPaymentRequest": {
         "additionalProperties": true,
         "properties": {
@@ -1025,28 +1128,28 @@
             ]
           },
           "notes": {
-            "description": "Not stored.",
             "type": [
               "string",
               "null"
             ]
           },
           "payer_name": {
-            "description": "Not stored.",
+            "maxLength": 255,
             "type": [
               "string",
               "null"
             ]
           },
           "payer_reference": {
-            "description": "Not stored.",
+            "description": "Stored as the payment's reference.",
+            "maxLength": 255,
             "type": [
               "string",
               "null"
             ]
           },
           "payment_date": {
-            "description": "Required, but not stored.",
+            "description": "Required. The FX date of the posting.",
             "examples": [
               "2026-03-09"
             ],
@@ -1166,7 +1269,7 @@
             ]
           },
           "status": {
-            "description": "Any of the five, with no payment or void behind it; the only way to open a bill.",
+            "description": "OPEN opens a DRAFT bill and posts it to the ledger (the only way to open one); DRAFT takes an OPEN bill back and reverses its entry; VOID voids as POST /void does. PAID (from DRAFT, OPEN or PARTIAL) opens a DRAFT first, then records a payment of the whole balance dated today, as record-payment does. PARTIAL is refused: it comes from recording a payment.",
             "enum": [
               "DRAFT",
               "OPEN",
@@ -5696,6 +5799,21 @@
         ],
         "type": "object"
       },
+      "ReverseBillPaymentRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "reason": {
+            "description": "Required. Kept on the payment and as the ledger memo \"Reversal: \u003creason\u003e\".",
+            "maxLength": 490,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
       "ReverseRequest": {
         "additionalProperties": true,
         "properties": {
@@ -7782,9 +7900,163 @@
         ]
       }
     },
+    "/api/v1/bills/{bill_id}/payments": {
+      "get": {
+        "operationId": "bills-list-payments",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BillPaymentOut"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "A bill's payments, oldest first, reversed ones included",
+        "tags": [
+          "bills"
+        ]
+      }
+    },
+    "/api/v1/bills/{bill_id}/payments/{bill_payment_id}/reverse": {
+      "post": {
+        "description": "The payment's ledger entry is reversed (memo \"Reversal: \u003creason\u003e\"), the payment becomes REVERSED, and its amount is due again: the bill is OPEN when its balance is back to its amount, otherwise PARTIAL.",
+        "operationId": "bills-reverse-payment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "bill_payment_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReverseBillPaymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillPaymentOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Reverse a bill payment",
+        "tags": [
+          "bills"
+        ]
+      }
+    },
     "/api/v1/bills/{bill_id}/record-payment": {
       "post": {
-        "description": "The balance falls by the amount: to 0 is PAID, otherwise PARTIAL. More than the balance is refused. Nothing is posted to the ledger and no payment row is kept.",
+        "description": "The payment is stored (GET /payments lists it) and posted: Dr accounts payable at the bill's issue basis / Cr bank at the payment date's rate, the difference booked as realised FX gain or loss. The balance falls by the amount: to 0 is PAID, otherwise PARTIAL. More than the balance is refused.",
         "operationId": "bills-record-payment",
         "parameters": [
           {
@@ -7866,7 +8138,7 @@
     },
     "/api/v1/bills/{bill_id}/void": {
       "post": {
-        "description": "Nothing is left due, and \"[voided] \u003creason\u003e\" is appended to the notes on a new line.",
+        "description": "Nothing is left due, \"[voided] \u003creason\u003e\" is appended to the notes on a new line, and the bill's ledger entry is reversed. A bill with payments that are not reversed is refused (reverse them first). An OPEN or PARTIAL bill with no ledger entry (opened before bills posted) is refused until the back-post has run.",
         "operationId": "bills-void",
         "parameters": [
           {

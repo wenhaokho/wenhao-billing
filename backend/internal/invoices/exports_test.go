@@ -84,7 +84,7 @@ func TestExportInvoiceFinalizeVoidDelete(t *testing.T) {
 	var finalized InvoiceOut
 	err := db.InTx(t.Context(), a.Pool, func(tx pgx.Tx) error {
 		var err error
-		finalized, err = FinalizeInvoice(t.Context(), tx, created.InvoiceID)
+		finalized, err = FinalizeInvoice(t.Context(), tx, base, created.InvoiceID)
 		return err
 	})
 	if err != nil {

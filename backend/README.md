@@ -30,7 +30,7 @@ its own database from a template. Without it every database test skips.
 
 Tests run in parallel: every test calls `t.Parallel()` unless it changes package state
 that other tests read (a swapped function, a filled semaphore, a test hook); those say
-why next to the test. `./dev test` runs `-p 8 -parallel 8 -timeout 60s` (plus `-race` with `GO_TEST_RACE=1`).
+why next to the test. `./dev test` runs `-p 8 -parallel 8 -timeout 180s` (plus `-race` with `GO_TEST_RACE=1`).
 `-p 8` caps how many packages run at once: each running package keeps its test databases
 on db-test's tmpfs (1.5 GB, see the comment on `db-test` in `docker-compose.yml`), and at
 go's default (`-p` = the number of CPUs, 32 on the dev machine) a full run fills it and

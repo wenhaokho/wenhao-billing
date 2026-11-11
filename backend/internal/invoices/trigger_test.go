@@ -61,7 +61,7 @@ func (r *recorder) taken() [][]DraftSummary {
 // newAppNotifying is newApp with notify as the routes' draft notifier.
 func newAppNotifying(t *testing.T, notify DraftNotifier) *apitest.App {
 	t.Helper()
-	return apitest.New(t, func(api huma.API, d apitest.Deps) { Register(api, d.Pool, d.Clock, notify) })
+	return apitest.New(t, func(api huma.API, d apitest.Deps) { Register(api, d.Pool, d.Clock, base, notify) })
 }
 
 // triggerTx is Trigger in its own committed transaction.

@@ -49,10 +49,17 @@ func active(t *testing.T, e *env, paymentID uuid.UUID) jentry {
 	return found[0]
 }
 
+// balanced fails unless the entry nets to 0 in base and, when its lines
+// share one currency, in that currency (an FX line is in the base currency).
 func balanced(t *testing.T, je jentry) {
 	t.Helper()
-	if n, b := je.nets(); !n.IsZero() || !b.IsZero() {
-		t.Errorf("entry nets %s, base %s; want 0, 0", n, b)
+	n, b := je.nets()
+	one := true
+	for _, l := range je.lines {
+		one = one && l.currency == je.lines[0].currency
+	}
+	if !b.IsZero() || (one && !n.IsZero()) {
+		t.Errorf("entry nets %s, base %s; want 0 in base (and in its one currency)", n, b)
 	}
 }
 
@@ -120,9 +127,10 @@ func TestManualApproveNonMatchingAmountBooksNoWithholding(t *testing.T) {
 	balanced(t, je)
 }
 
-// A USD invoice with PPh paid net in USD (plan 7 review focus 5). At this
-// rate base(1000.00) + base(20.41) is 0.0001 off base(1020.41), so the
-// receivable's base credit must be the sum of the debits' bases.
+// A USD invoice with PPh paid net in USD (plan 7 review focus 5). Bank and
+// Prepaid Tax convert at the payment date's rate; the receivable is relieved
+// at its issue basis (1020.41 at 16000), and the difference is a realised
+// loss (PORT-NOTES 163; before, the receivable took the debits' bases).
 func TestForeignCurrencyWithholdingBalancesInBase(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -137,15 +145,16 @@ func TestForeignCurrencyWithholdingBalancesInBase(t *testing.T) {
 	checkInvoice(t, e, invID, "0", "20.41", "PAID")
 	je := active(t, e, p.PaymentID)
 	balanced(t, je)
-	for _, l := range je.lines {
-		if l.currency != "USD" || !l.rate.Equal(dec(rate)) {
-			t.Errorf("line %s in %s at %s, want USD at %s", l.code, l.currency, l.rate, rate)
+	for code, w := range map[string][2]string{"1000": {"USD", rate}, "1300": {"USD", rate}, "1100": {"USD", "16000"}, "5900": {"IDR", "1"}} {
+		if l := je.line(code); l == nil || l.currency != w[0] || !l.rate.Equal(dec(w[1])) {
+			t.Errorf("line %s = %+v, want %s at %s", code, l, w[0], w[1])
 		}
 	}
 	want := map[string][2]string{ // base debit, base credit
 		"1000": {"15204602.5620", "0"},
 		"1300": {"310325.9383", "0"},
-		"1100": {"0", "15514928.5003"},
+		"1100": {"0", "16326560"},
+		"5900": {"811631.4997", "0"},
 	}
 	for code, w := range want {
 		l := je.line(code)

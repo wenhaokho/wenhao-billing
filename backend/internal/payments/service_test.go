@@ -20,6 +20,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger/ledgertest"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments/paymentsdb"
 )
 
@@ -86,12 +87,26 @@ func (e *env) customer(t *testing.T, name string, aliases ...string) uuid.UUID {
 	return id
 }
 
-// inv is an invoice to insert; zero dates are NULL.
+// inv is an invoice to insert; zero dates are NULL. An OPEN, SENT or
+// PARTIAL one gets its issue entry (PORT-NOTES 163) unless unissued.
 type inv struct {
 	customer         uuid.UUID
 	currency, status string
 	balance, wht     string
 	issue, due       time.Time
+	unissued         bool
+}
+
+// issue posts the issue entry of invoice id, inserted by SQL.
+func (e *env) issue(t *testing.T, id uuid.UUID) {
+	t.Helper()
+	_, err := inTx(t, e, func(tx pgx.Tx) (struct{}, error) {
+		ledgertest.IssueFixture(t, tx, id)
+		return struct{}{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (e *env) invoice(t *testing.T, v inv) uuid.UUID {
@@ -115,6 +130,9 @@ func (e *env) invoice(t *testing.T, v inv) uuid.UUID {
 issue_date, due_date, wht_type, wht_amount, wht_booked)
 VALUES ($1, $2, 'MILESTONE', $3, $4, $4, $5, $6, $7, $8, $9, 0)`,
 		id, v.customer, v.currency, dec(v.balance), v.status, date(v.issue), date(v.due), whtType, dec(wht))
+	if !v.unissued && (v.status == invoiceOpen || v.status == invoiceSent || v.status == invoicePartial) {
+		e.issue(t, id)
+	}
 	return id
 }
 
@@ -262,12 +280,20 @@ func (je jentry) nets() (net, base decimal.Decimal) {
 	return net, base
 }
 
-// entries are the journal entries whose source is the payment, oldest first.
+// entries are the journal entries whose source is the payment, each clearing
+// followed by its reversal, the active clearing last. A clearing is posted on
+// the payment date and its reversal at the clearing's posted_at (PORT-NOTES
+// 167), so posted_at ties every entry of one payment: pairs of one date come
+// in entry_id order, not the order they were recorded.
 func (e *env) entries(t *testing.T, paymentID uuid.UUID) []jentry {
 	t.Helper()
 	ctx := context.Background()
-	rows, err := e.pool.Query(ctx, `SELECT entry_id, reversed_by_entry_id, COALESCE(memo, '') FROM journal_entries
-WHERE source_id = $1 ORDER BY posted_at, entry_id`, paymentID)
+	rows, err := e.pool.Query(ctx, `SELECT e.entry_id, e.reversed_by_entry_id, COALESCE(e.memo, '')
+FROM journal_entries e LEFT JOIN journal_entries o ON o.reversed_by_entry_id = e.entry_id
+WHERE e.source_id = $1
+ORDER BY COALESCE(o.posted_at, e.posted_at),
+  (o.entry_id IS NULL AND e.reversed_by_entry_id IS NULL),
+  COALESCE(o.entry_id, e.entry_id), o.entry_id IS NOT NULL`, paymentID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,10 +609,10 @@ func TestHeldPaymentLeavesInvoiceAndLedger(t *testing.T) {
 	if !p.ConfidenceScore.Valid || !p.ConfidenceScore.Decimal.Equal(dec("46.43")) {
 		t.Errorf("confidence %v, want 46.43", p.ConfidenceScore)
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`); n != 0 {
 		t.Errorf("%d journal entries, want 0", n)
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_lines`); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM journal_lines l JOIN journal_entries j ON j.entry_id = l.entry_id WHERE j.source_type = 'PAYMENT'`); n != 0 {
 		t.Errorf("%d journal lines, want 0", n)
 	}
 	checkInvoice(t, e, invID, "1000.0000", "0", "SENT")
@@ -601,13 +627,15 @@ func TestHeldPaymentLeavesInvoiceAndLedger(t *testing.T) {
 }
 
 // rateless is an invoice dated before apitest's first USD rate (2026-01-01),
-// with withheld tax wht ("0" for none) of its balance.
+// with withheld tax wht ("0" for none) of its balance. It has no rate to
+// issue at, so it has no issue entry: the payment's own rate is missing
+// first.
 func (e *env) rateless(t *testing.T, balance, wht string) uuid.UUID {
 	t.Helper()
 	c := e.customer(t, "Acme Corp")
 	return e.invoice(t, inv{
 		customer: c, currency: "USD", status: "SENT", balance: balance, wht: wht,
-		issue: day(2025, 11, 28), due: day(2025, 12, 12),
+		issue: day(2025, 11, 28), due: day(2025, 12, 12), unissued: true,
 	})
 }
 
@@ -624,7 +652,7 @@ func TestIncomingClearWithoutRateIsHeld(t *testing.T) {
 	if p.Status != "PENDING_MANUAL_REVIEW" || !p.WhtAmount.IsZero() || !p.InvoiceID.Valid || p.InvoiceID.Bytes != invID {
 		t.Errorf("payment %s wht %s invoice %v", p.Status, p.WhtAmount, p.InvoiceID)
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`); n != 0 {
 		t.Errorf("%d journal entries, want 0", n)
 	}
 	checkInvoice(t, e, invID, "1020.41", "0", "SENT")
@@ -672,7 +700,7 @@ func TestApproveDraftOrVoidInvoiceIs400(t *testing.T) {
 	if got := e.payment(t, p.PaymentID); got.Status != "PENDING_MANUAL_REVIEW" || got.InvoiceID.Valid {
 		t.Errorf("payment %s invoice %v, want untouched", got.Status, got.InvoiceID)
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`); n != 0 {
 		t.Errorf("%d journal entries, want 0", n)
 	}
 }
@@ -816,7 +844,7 @@ func TestIncomingConcurrentSameInvoiceClearsOnce(t *testing.T) {
 	if second.Status != "PENDING_MANUAL_REVIEW" {
 		t.Errorf("second payment %s, want held", second.Status)
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 1 {
+	if n := e.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`); n != 1 {
 		t.Errorf("%d journal entries, want 1", n)
 	}
 	checkInvoice(t, e, invID, "0", "0", "PAID")
@@ -840,9 +868,40 @@ func TestApproveReverseTwiceUndoesLatestClearing(t *testing.T) {
 	p := e.incoming(t, payload(amount("999")))
 	e.mustApprove(t, p.PaymentID, invID)
 	checkInvoice(t, e, invID, "1", "0", "PARTIAL")
+	// active returns the payment's active entry (the one a reverse targets).
+	type activeEntry struct {
+		id uuid.UUID
+		ok bool
+	}
+	active := func() activeEntry {
+		t.Helper()
+		a, err := inTx(t, e, func(tx pgx.Tx) (activeEntry, error) {
+			id, ok, err := ledger.ActiveEntryFor(context.Background(), tx, "PAYMENT", p.PaymentID)
+			return activeEntry{id, ok}, err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	c1 := active()
+	if !c1.ok {
+		t.Fatal("no active entry after the first approve")
+	}
 	e.mustReverse(t, p.PaymentID, "first")
+	// A reversal is never the active entry: nothing is active until the next clearing.
+	if a := active(); a.ok {
+		t.Fatalf("active entry %s after reverse, want none (a reversal must not be active)", a.id)
+	}
 	e.mustApprove(t, p.PaymentID, invID)
+	c2 := active()
+	if !c2.ok || c2.id == c1.id {
+		t.Fatalf("active entry after the second approve %v, want a new clearing (first was %s)", c2, c1.id)
+	}
 	e.mustReverse(t, p.PaymentID, "second")
+	if a := active(); a.ok {
+		t.Fatalf("active entry %s after the second reverse, want none", a.id)
+	}
 
 	es := e.entries(t, p.PaymentID)
 	if len(es) != 4 {
@@ -852,11 +911,33 @@ func TestApproveReverseTwiceUndoesLatestClearing(t *testing.T) {
 	for _, je := range es {
 		byID[je.id] = je
 	}
-	// Oldest first: clearing, its reversal, clearing, its reversal.
-	wantMemo := []string{"Payment ", "Reversal: first", "Payment ", "Reversal: second"}
+	// Clearing, its reversal, clearing, its reversal. Each reversal is dated
+	// its clearing's posted_at (PORT-NOTES 167), so all four tie on posted_at
+	// and the two pairs come in either order: each reversal reverses its own
+	// clearing, and the reversals are "first" and "second".
+	reversals := map[string]bool{}
 	for i, je := range es {
-		if !strings.HasPrefix(je.memo, wantMemo[i]) {
-			t.Errorf("entry %d memo %q, want %q…", i, je.memo, wantMemo[i])
+		want := "Payment "
+		if i%2 == 1 {
+			want = "Reversal: "
+			reversals[je.memo] = true
+		}
+		if !strings.HasPrefix(je.memo, want) {
+			t.Errorf("entry %d memo %q, want %q…", i, je.memo, want)
+		}
+	}
+	if !reversals["Reversal: first"] || !reversals["Reversal: second"] {
+		t.Errorf("reversal memos %v, want Reversal: first and Reversal: second", reversals)
+	}
+	// The reverses hit the then-active clearings, by entry id, not by order.
+	reversedBy := map[uuid.UUID]*uuid.UUID{}
+	for _, je := range es {
+		reversedBy[je.id] = je.reversedBy
+	}
+	for name, c := range map[string]uuid.UUID{"first": c1.id, "second": c2.id} {
+		rid := reversedBy[c]
+		if rid == nil || byID[*rid].memo != "Reversal: "+name {
+			t.Errorf("clearing %s reversed by %v, want the %q reversal", c, rid, name)
 		}
 	}
 	for _, i := range []int{0, 2} {
@@ -1083,7 +1164,7 @@ func TestIncomingAmbiguousIsHeld(t *testing.T) {
 	for _, id := range ids {
 		checkInvoice(t, e, id, "1000.0000", "0", "SENT")
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`); n != 0 {
 		t.Errorf("%d journal entries, want 0", n)
 	}
 	if got := rec.got(); len(got) != 0 {

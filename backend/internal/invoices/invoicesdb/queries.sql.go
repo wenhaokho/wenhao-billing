@@ -224,6 +224,19 @@ func (q *Queries) GetLatestInvoiceOfCustomer(ctx context.Context, customerID pgt
 	return i, err
 }
 
+const hasClearedPayments = `-- name: HasClearedPayments :one
+SELECT EXISTS (SELECT 1 FROM payments WHERE invoice_id = $1 AND status = 'CLEARED')
+`
+
+// Void's refusal: any CLEARED payment against the invoice, a withholding-only
+// one (amount 0) included.
+func (q *Queries) HasClearedPayments(ctx context.Context, invoiceID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, hasClearedPayments, invoiceID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const insertInvoice = `-- name: InsertInvoice :exec
 INSERT INTO invoices (
     invoice_id, customer_id, project_id, source_quote_id, invoice_type, invoice_number, po_so_number, currency,
@@ -445,6 +458,42 @@ func (q *Queries) ListCustomerBalances(ctx context.Context, today pgtype.Date) (
 			&i.Balance,
 			&i.Overdue,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInvoiceLineAccounts = `-- name: ListInvoiceLineAccounts :many
+SELECT l.amount, i.revenue_account_id
+  FROM invoice_line_items l
+  LEFT JOIN items i ON i.item_id = l.item_id
+ WHERE l.invoice_id = $1
+ ORDER BY l.position, l.line_item_id
+`
+
+type ListInvoiceLineAccountsRow struct {
+	Amount           decimal.Decimal
+	RevenueAccountID *int32
+}
+
+// The issue entry's revenue split: each line's amount and its item's revenue
+// account (NULL for a line without an item or an item without one), in
+// ListInvoiceLines' order.
+func (q *Queries) ListInvoiceLineAccounts(ctx context.Context, invoiceID uuid.UUID) ([]ListInvoiceLineAccountsRow, error) {
+	rows, err := q.db.Query(ctx, listInvoiceLineAccounts, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListInvoiceLineAccountsRow
+	for rows.Next() {
+		var i ListInvoiceLineAccountsRow
+		if err := rows.Scan(&i.Amount, &i.RevenueAccountID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

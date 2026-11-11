@@ -377,7 +377,7 @@ func (q *Queries) ListInvoicePayments(ctx context.Context, invoiceID pgtype.UUID
 }
 
 const lockInvoice = `-- name: LockInvoice :one
-SELECT invoice_id, customer_id, currency, status, balance_due, wht_amount, wht_booked, issue_date, due_date
+SELECT invoice_id, customer_id, currency, status, amount, balance_due, wht_amount, wht_booked, issue_date, due_date
   FROM invoices
  WHERE invoice_id = $1
    FOR NO KEY UPDATE
@@ -388,6 +388,7 @@ type LockInvoiceRow struct {
 	CustomerID pgtype.UUID
 	Currency   string
 	Status     string
+	Amount     decimal.Decimal
 	BalanceDue decimal.Decimal
 	WhtAmount  decimal.Decimal
 	WhtBooked  decimal.Decimal
@@ -409,6 +410,7 @@ func (q *Queries) LockInvoice(ctx context.Context, invoiceID uuid.UUID) (LockInv
 		&i.CustomerID,
 		&i.Currency,
 		&i.Status,
+		&i.Amount,
 		&i.BalanceDue,
 		&i.WhtAmount,
 		&i.WhtBooked,

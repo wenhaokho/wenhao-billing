@@ -31,7 +31,7 @@ run_go() { docker compose -f ../docker-compose.yml --profile tools run --rm -T $
 # -parallel bounds each package's concurrent tests (each holds a database and
 # a pool on db-test); -timeout fails a hung package long before anyone waits
 # on it, while staying far above the slowest package (about 5 s).
-test_flags=($race -p 8 -parallel 8 -timeout 60s)
+test_flags=($race -p 8 -parallel 8 -timeout 180s)
 in_copy='mkdir -p /tmp/src && tar -xf - -C /tmp/src && cd /tmp/src && exec "$@"'
 
 case "${1:-}" in

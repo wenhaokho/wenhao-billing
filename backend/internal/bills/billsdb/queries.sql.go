@@ -13,6 +13,48 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const billHasHistory = `-- name: BillHasHistory :one
+SELECT (EXISTS (SELECT 1 FROM bill_payments bp WHERE bp.bill_id = $1::uuid)
+    OR EXISTS (SELECT 1 FROM journal_entries je WHERE je.source_type = 'BILL' AND je.source_id = $1::uuid)
+    OR EXISTS (SELECT 1 FROM journal_entries e JOIN bill_payments p ON p.bill_payment_id = e.source_id
+               WHERE e.source_type = 'BILL_PAYMENT' AND p.bill_id = $1::uuid))::boolean AS has_history
+`
+
+// True when the bill has a payment row (any status) or a journal entry of its
+// own (source BILL) or of its payments (source BILL_PAYMENT): a delete would
+// orphan them.
+func (q *Queries) BillHasHistory(ctx context.Context, billID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, billHasHistory, billID)
+	var has_history bool
+	err := row.Scan(&has_history)
+	return has_history, err
+}
+
+const countActiveBillPayments = `-- name: CountActiveBillPayments :one
+SELECT count(*) FROM bill_payments WHERE bill_id = $1 AND status = 'CLEARED'
+`
+
+// The bill's payments not reversed: a bill with any is neither voided nor
+// re-posted.
+func (q *Queries) CountActiveBillPayments(ctx context.Context, billID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveBillPayments, billID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const currentDate = `-- name: CurrentDate :one
+SELECT CURRENT_DATE::date AS today
+`
+
+// The database's date: a PATCH to PAID dates its payment CURRENT_DATE.
+func (q *Queries) CurrentDate(ctx context.Context) (pgtype.Date, error) {
+	row := q.db.QueryRow(ctx, currentDate)
+	var today pgtype.Date
+	err := row.Scan(&today)
+	return today, err
+}
+
 const deleteBill = `-- name: DeleteBill :execrows
 DELETE FROM bills WHERE bill_id = $1 AND status = 'DRAFT'
 `
@@ -94,6 +136,38 @@ func (q *Queries) GetBillForUpdate(ctx context.Context, billID uuid.UUID) (Bill,
 		&i.Notes,
 		&i.CreatedAt,
 		&i.ProjectID,
+	)
+	return i, err
+}
+
+const getBillPaymentForUpdate = `-- name: GetBillPaymentForUpdate :one
+SELECT bill_payment_id, bill_id, amount, currency, payment_date, payer_name, reference, notes, status, source, created_at, reversed_at, reversal_reason FROM bill_payments WHERE bill_payment_id = $1 AND bill_id = $2 FOR UPDATE
+`
+
+type GetBillPaymentForUpdateParams struct {
+	BillPaymentID uuid.UUID
+	BillID        uuid.UUID
+}
+
+// The bill payment to reverse, locked before its bill (lock order: bill
+// payment → bill → entry).
+func (q *Queries) GetBillPaymentForUpdate(ctx context.Context, arg GetBillPaymentForUpdateParams) (BillPayment, error) {
+	row := q.db.QueryRow(ctx, getBillPaymentForUpdate, arg.BillPaymentID, arg.BillID)
+	var i BillPayment
+	err := row.Scan(
+		&i.BillPaymentID,
+		&i.BillID,
+		&i.Amount,
+		&i.Currency,
+		&i.PaymentDate,
+		&i.PayerName,
+		&i.Reference,
+		&i.Notes,
+		&i.Status,
+		&i.Source,
+		&i.CreatedAt,
+		&i.ReversedAt,
+		&i.ReversalReason,
 	)
 	return i, err
 }
@@ -181,6 +255,92 @@ func (q *Queries) InsertBillLine(ctx context.Context, arg InsertBillLineParams) 
 	return err
 }
 
+const insertBillPayment = `-- name: InsertBillPayment :one
+INSERT INTO bill_payments (bill_payment_id, bill_id, amount, currency, payment_date, payer_name, reference, notes, source)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING bill_payment_id, bill_id, amount, currency, payment_date, payer_name, reference, notes, status, source, created_at, reversed_at, reversal_reason
+`
+
+type InsertBillPaymentParams struct {
+	BillPaymentID uuid.UUID
+	BillID        uuid.UUID
+	Amount        decimal.Decimal
+	Currency      string
+	PaymentDate   pgtype.Date
+	PayerName     *string
+	Reference     *string
+	Notes         *string
+	Source        string
+}
+
+// A bill payment (PORT-NOTES 165), CLEARED, in the bill's currency.
+func (q *Queries) InsertBillPayment(ctx context.Context, arg InsertBillPaymentParams) (BillPayment, error) {
+	row := q.db.QueryRow(ctx, insertBillPayment,
+		arg.BillPaymentID,
+		arg.BillID,
+		arg.Amount,
+		arg.Currency,
+		arg.PaymentDate,
+		arg.PayerName,
+		arg.Reference,
+		arg.Notes,
+		arg.Source,
+	)
+	var i BillPayment
+	err := row.Scan(
+		&i.BillPaymentID,
+		&i.BillID,
+		&i.Amount,
+		&i.Currency,
+		&i.PaymentDate,
+		&i.PayerName,
+		&i.Reference,
+		&i.Notes,
+		&i.Status,
+		&i.Source,
+		&i.CreatedAt,
+		&i.ReversedAt,
+		&i.ReversalReason,
+	)
+	return i, err
+}
+
+const listBillLineAccounts = `-- name: ListBillLineAccounts :many
+SELECT l.amount, l.expense_account_id AS line_account_id, i.expense_account_id AS item_account_id
+  FROM bill_line_items l
+  LEFT JOIN items i ON i.item_id = l.item_id
+ WHERE l.bill_id = $1
+ ORDER BY l.position, l.line_item_id
+`
+
+type ListBillLineAccountsRow struct {
+	Amount        decimal.Decimal
+	LineAccountID *int32
+	ItemAccountID *int32
+}
+
+// The issue entry's expense split: each line's amount, its own expense
+// account and its item's (either NULL), in ListBillLines' order.
+func (q *Queries) ListBillLineAccounts(ctx context.Context, billID uuid.UUID) ([]ListBillLineAccountsRow, error) {
+	rows, err := q.db.Query(ctx, listBillLineAccounts, billID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBillLineAccountsRow
+	for rows.Next() {
+		var i ListBillLineAccountsRow
+		if err := rows.Scan(&i.Amount, &i.LineAccountID, &i.ItemAccountID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBillLines = `-- name: ListBillLines :many
 SELECT line_item_id, bill_id, item_id, expense_account_id, position, description, quantity, unit_price, amount, created_at FROM bill_line_items WHERE bill_id = $1 ORDER BY position, line_item_id
 `
@@ -207,6 +367,45 @@ func (q *Queries) ListBillLines(ctx context.Context, billID uuid.UUID) ([]BillLi
 			&i.UnitPrice,
 			&i.Amount,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBillPayments = `-- name: ListBillPayments :many
+SELECT bill_payment_id, bill_id, amount, currency, payment_date, payer_name, reference, notes, status, source, created_at, reversed_at, reversal_reason FROM bill_payments WHERE bill_id = $1 ORDER BY created_at, bill_payment_id
+`
+
+// A bill's payments, oldest first, the id breaking ties.
+func (q *Queries) ListBillPayments(ctx context.Context, billID uuid.UUID) ([]BillPayment, error) {
+	rows, err := q.db.Query(ctx, listBillPayments, billID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BillPayment
+	for rows.Next() {
+		var i BillPayment
+		if err := rows.Scan(
+			&i.BillPaymentID,
+			&i.BillID,
+			&i.Amount,
+			&i.Currency,
+			&i.PaymentDate,
+			&i.PayerName,
+			&i.Reference,
+			&i.Notes,
+			&i.Status,
+			&i.Source,
+			&i.CreatedAt,
+			&i.ReversedAt,
+			&i.ReversalReason,
 		); err != nil {
 			return nil, err
 		}
@@ -311,6 +510,38 @@ func (q *Queries) ListLinesOfBills(ctx context.Context, billIds []uuid.UUID) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const reverseBillPayment = `-- name: ReverseBillPayment :one
+UPDATE bill_payments SET status = 'REVERSED', reversed_at = CURRENT_TIMESTAMP, reversal_reason = $1
+WHERE bill_payment_id = $2
+RETURNING bill_payment_id, bill_id, amount, currency, payment_date, payer_name, reference, notes, status, source, created_at, reversed_at, reversal_reason
+`
+
+type ReverseBillPaymentParams struct {
+	Reason        *string
+	BillPaymentID uuid.UUID
+}
+
+func (q *Queries) ReverseBillPayment(ctx context.Context, arg ReverseBillPaymentParams) (BillPayment, error) {
+	row := q.db.QueryRow(ctx, reverseBillPayment, arg.Reason, arg.BillPaymentID)
+	var i BillPayment
+	err := row.Scan(
+		&i.BillPaymentID,
+		&i.BillID,
+		&i.Amount,
+		&i.Currency,
+		&i.PaymentDate,
+		&i.PayerName,
+		&i.Reference,
+		&i.Notes,
+		&i.Status,
+		&i.Source,
+		&i.CreatedAt,
+		&i.ReversedAt,
+		&i.ReversalReason,
+	)
+	return i, err
 }
 
 const setBillBalance = `-- name: SetBillBalance :exec

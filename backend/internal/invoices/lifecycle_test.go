@@ -199,6 +199,13 @@ func TestVoidFromEachNonPaidStatus(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if st != "DRAFT" && st != "VOID" {
+				// An issued invoice has its issue entry (PORT-NOTES 162):
+				// issue it through finalize, then move it to the status.
+				id = insertWithStatus(t, a.Pool, "DRAFT", "250")
+				finalize(t, a, id)
+				setStatus(t, a.Pool, id, st)
+			}
 			out := apitest.Decode[InvoiceOut](t, a.Do(t, http.MethodPost, actionPath(id, "void"), map[string]any{"reason": "mistake"}), http.StatusOK)
 			if out.Status != "VOID" {
 				t.Errorf("status = %s", out.Status)
