@@ -6,6 +6,7 @@ import (
 	"image"
 	_ "image/jpeg" // logo sizes
 	_ "image/png"  // logo sizes
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -609,8 +610,30 @@ func (b *brand) box() (w float64, ext extension.Type, ok bool) {
 	return w, ext, true
 }
 
-func (b *brand) text() *stack {
-	name := style(fontDisplay, true, 15, colWhite)
+// The business name prints at nameMaxSize, smaller when a word would not fit
+// its column (a wide logo leaves it about 33 mm), down to nameMinSize; only a
+// word too wide even then breaks between characters.
+const (
+	nameMaxSize  = 15.0
+	nameMinSize  = 10.0
+	nameSizeStep = 0.5
+)
+
+// nameSize is the largest size, nameMaxSize down to nameMinSize, at which
+// every word of the name fits width.
+func (b *brand) nameSize(width float64) float64 {
+	words := strings.Fields(b.name)
+	for size := nameMaxSize; size > nameMinSize; size -= nameSizeStep {
+		t := style(fontDisplay, true, size, colWhite)
+		if !slices.ContainsFunc(words, func(w string) bool { return textWidth(t, w) > width }) {
+			return size
+		}
+	}
+	return nameMinSize
+}
+
+func (b *brand) text(width float64) *stack {
+	name := style(fontDisplay, true, b.nameSize(width), colWhite)
 	var blocks []block
 	if b.name != "" {
 		blocks = append(blocks, block{lines: []string{b.name}, prop: name})
@@ -635,7 +658,7 @@ func (b *brand) textCell(cell *entity.Cell) entity.Cell {
 
 func (b *brand) GetHeight(p core.Provider, cell *entity.Cell) float64 {
 	sub := b.textCell(cell)
-	return max(b.text().GetHeight(p, &sub), logoBoxH)
+	return max(b.text(sub.Width).GetHeight(p, &sub), logoBoxH)
 }
 
 func (b *brand) Render(p core.Provider, cell *entity.Cell) {
@@ -645,7 +668,7 @@ func (b *brand) Render(p core.Provider, cell *entity.Cell) {
 		p.AddImageFromBytes(b.logo, &in, &props.Rect{Center: true, Percent: 100}, ext)
 	}
 	sub := b.textCell(cell)
-	t := b.text()
+	t := b.text(sub.Width)
 	if h := t.GetHeight(p, &sub); h < logoBoxH {
 		sub.Y += (logoBoxH - h) / 2
 	}
