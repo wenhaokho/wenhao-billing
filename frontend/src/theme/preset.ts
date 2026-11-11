@@ -145,7 +145,14 @@ export const AppPreset = definePreset(Aura, {
           popover: { background: "{surface.900}", borderColor: "{surface.700}" },
           modal: { background: "{surface.900}", borderColor: "{surface.700}" },
         },
-        formField: { color: "{surface.50}", borderColor: "{surface.700}", hoverBorderColor: "{surface.600}" },
+        // Disabled fields: surface-2, the dark twin of light's surface.100 (Aura's
+        // default surface.700 reads as a solid grey slab on the dark page).
+        formField: {
+          color: "{surface.50}",
+          borderColor: "{surface.700}",
+          hoverBorderColor: "{surface.600}",
+          disabledBackground: "{surface.800}",
+        },
       },
     },
   },

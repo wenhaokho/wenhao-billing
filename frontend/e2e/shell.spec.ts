@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { initials } from "../src/utils/initials";
+import { ROUTES } from "./helpers";
 
 // The app shell: burgundy sidebar (252px) on desktop, a 76px icon rail on
 // tablet (721–1100px) and an off-canvas drawer on phones (≤720px).
@@ -108,4 +109,28 @@ test("topbar", async ({ page }) => {
   await expect(chip).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("menuitem", { name: "My account" })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
+});
+
+test("every route names itself in the topbar", async ({ page }) => {
+  const blank: string[] = [];
+  for (const path of ROUTES) {
+    await page.goto(path);
+    await expect(page.locator("main h1").first()).toBeVisible();
+    const title = (await page.locator("header.topbar .topbar-title").innerText()).trim();
+    if (!title) blank.push(path);
+  }
+  expect(blank).toEqual([]);
+});
+
+test("designed screens do not scroll sideways at 375", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const wide: string[] = [];
+  for (const path of ["/dashboard", "/invoices", "/invoices/new", "/review", "/reports"]) {
+    await page.goto(path);
+    await expect(page.locator("main h1").first()).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    if (over > 0) wide.push(`${path} +${over}px`);
+  }
+  expect(wide).toEqual([]);
 });

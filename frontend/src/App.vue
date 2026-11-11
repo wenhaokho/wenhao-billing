@@ -40,6 +40,23 @@ const pageTitle = computed(() => {
     reports: "Reports",
     "fx-rates": "FX Rates",
     account: "My Account",
+    "customer-new": "New customer",
+    "vendor-new": "New vendor",
+    "vendor-edit": "Edit vendor",
+    "vendor-detail": "Vendor",
+    "item-new": "New item",
+    "item-edit": "Edit item",
+    "item-detail": "Item",
+    "account-new": "New account",
+    "account-edit": "Account",
+    "invoice-new": "New invoice",
+    "invoice-edit": "Invoice",
+    "invoices-recurring": "Recurring invoices",
+    "invoice-recurring-new": "New recurring invoice",
+    "invoice-recurring-edit": "Recurring invoice",
+    "fx-rate-new": "New FX rate",
+    "user-new": "New user",
+    "user-reset-password": "Reset password",
   };
   return map[(route.name as string) ?? ""] ?? "";
 });
