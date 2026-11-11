@@ -9,6 +9,8 @@ import Column from "primevue/column";
 import Button from "primevue/button";
 import Chip from "primevue/chip";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import ToggleSwitch from "primevue/toggleswitch";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
@@ -110,24 +112,19 @@ function confirmDeactivate(row: Customer) {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Customers</h1>
-        <p class="subtitle">
-          Each customer has optional <strong>matching aliases</strong> — alternate names the AI
-          matcher will recognize on incoming payments.
-        </p>
-      </div>
-      <div class="page-actions">
-        <label class="toggle">
-          <ToggleSwitch v-model="showInactive" />
-          <span>Show inactive</span>
-        </label>
-        <Button label="New customer" @click="openCreate">
-          <template #icon><AppIcon name="plus" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="02 / Sales" title="Customers">
+      <template #lede>
+        Each customer has optional <strong>matching aliases</strong> — alternate names the AI
+        matcher will recognize on incoming payments.
+      </template>
+      <label class="toggle">
+        <ToggleSwitch v-model="showInactive" />
+        <span>Show inactive</span>
+      </label>
+      <Button label="New customer" @click="openCreate">
+        <template #icon><AppIcon name="plus" /></template>
+      </Button>
+    </PageHeader>
 
     <DataTable
       :value="data ?? []"
@@ -136,12 +133,15 @@ function confirmDeactivate(row: Customer) {
       striped-rows
     >
       <template #empty>
-        <div class="empty-state">
-          <AppIcon name="users" />
-          <div>No customers yet. Click <strong>New customer</strong> to create your first.</div>
-        </div>
+        <EmptyState icon="users" title="No customers yet">
+          <template #message>Click <strong>New customer</strong> to create your first.</template>
+        </EmptyState>
       </template>
-      <Column field="name" header="Name" />
+      <Column header="Name">
+        <template #body="{ data: row }">
+          <span class="name">{{ row.name }}</span>
+        </template>
+      </Column>
       <Column header="Contact">
         <template #body="{ data: row }">
           <div v-if="contactName(row) || row.contact_email">
@@ -159,7 +159,7 @@ function confirmDeactivate(row: Customer) {
           </span>
         </template>
       </Column>
-      <Column header="Balance / Overdue" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+      <Column header="Balance / Overdue" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <div v-if="balancesByCustomer[row.customer_id]?.length" class="balance-cell">
             <div
@@ -167,10 +167,10 @@ function confirmDeactivate(row: Customer) {
               :key="b.currency"
               class="balance-line"
             >
-              <span class="num">{{ formatAmount(b.balance, b.currency) }} {{ b.currency }}</span>
-              <span v-if="Number(b.overdue) > 0" class="overdue">
-                · {{ formatAmount(b.overdue, b.currency) }} overdue
-              </span>
+              <div class="num">{{ formatAmount(b.balance, b.currency) }} <span class="ccy">{{ b.currency }}</span></div>
+              <div v-if="Number(b.overdue) > 0" class="overdue num">
+                {{ formatAmount(b.overdue, b.currency) }} overdue
+              </div>
             </div>
           </div>
           <span v-else class="muted">—</span>
@@ -181,7 +181,7 @@ function confirmDeactivate(row: Customer) {
           <StatusTag :status="row.active ? 'ACTIVE' : 'INACTIVE'" />
         </template>
       </Column>
-      <Column header="" :style="{ width: '200px' }">
+      <Column header="" :style="{ width: '160px' }" :body-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <div class="row-actions">
             <Button text rounded title="View" @click="openDetail(row)">
@@ -219,13 +219,22 @@ function confirmDeactivate(row: Customer) {
 </template>
 
 <style scoped>
-.muted { color: var(--color-text-subtle); }
-.small { font-size: 0.8rem; }
+.muted { color: var(--wb-muted-soft); }
+.small { font-size: 13px; color: var(--wb-muted); }
+.name { font-weight: 500; color: var(--wb-ink); }
 .num { font-variant-numeric: tabular-nums; }
-.balance-cell { display: flex; flex-direction: column; gap: 0.1rem; }
-.balance-line { font-size: 0.9rem; }
-.overdue { color: #b91c1c; font-weight: 500; font-size: 0.82rem; }
-.chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-.row-actions { display: flex; gap: 0.15rem; align-items: center; }
-.toggle { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted); }
+.ccy { font-size: 12px; color: var(--wb-muted-soft); }
+.balance-cell { display: flex; flex-direction: column; gap: 6px; }
+.overdue { color: var(--wb-red); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips :deep(.p-chip) {
+  padding: 5px 10px;
+  border: 1px solid var(--wb-line);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--wb-muted);
+  font-size: 13px;
+}
+.row-actions { display: flex; gap: 2px; align-items: center; justify-content: flex-end; }
+.toggle { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--wb-muted); cursor: pointer; }
 </style>

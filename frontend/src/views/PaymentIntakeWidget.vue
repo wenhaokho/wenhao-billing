@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppIcon from "@/components/AppIcon.vue";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import { computed, defineAsyncComponent, ref, watch } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import { useRouter } from "vue-router";
@@ -381,18 +382,12 @@ function go(path: string) {
 
 <template>
   <section class="dash">
-    <header class="dash-header">
-      <div class="dash-heading">
-        <div class="eyebrow">01 / Overview</div>
-        <h1>Dashboard</h1>
-        <p class="lede">Reconciliation health, revenue and open receivables at a glance.</p>
-      </div>
-      <div class="page-actions">
-        <Button label="Refresh" outlined severity="secondary" @click="refetch()">
-          <template #icon><AppIcon name="refresh-cw" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="01 / Overview" title="Dashboard">
+      <template #lede>Reconciliation health, revenue and open receivables at a glance.</template>
+      <Button label="Refresh" outlined severity="secondary" @click="refetch()">
+        <template #icon><AppIcon name="refresh-cw" /></template>
+      </Button>
+    </PageHeader>
 
     <div v-if="isLoading && !stats" class="loading">
       <ProgressSpinner style="width: 40px; height: 40px" />
@@ -581,33 +576,8 @@ function go(path: string) {
 .num { font-variant-numeric: tabular-nums; }
 .nowrap { white-space: nowrap; }
 
-/* ---------- page header (mockup: eyebrow, 40px H1, lede) ---------- */
-.dash-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 24px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-.dash-heading { flex: 1 1 360px; min-width: 0; max-width: 640px; }
-.eyebrow {
-  font: 500 12px/1.6 var(--wb-font-sans);
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: var(--wb-red);
-}
-.dash-heading h1 {
-  font: 500 40px/1.1 var(--wb-font-display);
-  letter-spacing: -1.4px;
-  color: var(--wb-ink);
-  margin: 6px 0 8px;
-}
-.lede { margin: 0; color: var(--wb-muted); font-size: 16px; line-height: 1.6; }
-@media (max-width: 720px) {
-  .dash-heading h1 { font-size: 32px; letter-spacing: -1px; }
-  .lede { font-size: 15px; }
-}
+/* Page header: the shared PageHeader; the section's 24px gap adds to its margin. */
+.dash > .page-head { margin-bottom: 8px; }
 
 /* ---------- KPI strip ---------- */
 /* Hairlines between cells: the strip's line-coloured background shows through

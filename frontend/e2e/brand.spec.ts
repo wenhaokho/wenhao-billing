@@ -130,3 +130,61 @@ test("no PrimeIcons font is loaded", async ({ page }) => {
   }
   expect(requested).toEqual([]);
 });
+
+// The seven designed list screens (spec "Screens"): the shared page header
+// (eyebrow + 40px Manrope H1) and the 11px uppercase table header.
+const LIST_SCREENS = ["/customers", "/invoices", "/chart-of-accounts", "/reports", "/fx-rates", "/audit-log", "/users"];
+
+test("list pages use the page header", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  for (const path of LIST_SCREENS) {
+    await page.goto(path);
+    const main = page.locator("main#main-content");
+    const h1 = main.getByRole("heading", { level: 1 });
+    await expect(h1, path).toBeVisible();
+    await expect(h1, path).toHaveCSS("font-size", "40px");
+    await expect(h1, path).toHaveCSS("font-weight", "500");
+    const eyebrow = main.locator(".page-eyebrow");
+    await expect(eyebrow, path).toBeVisible();
+    await expect(eyebrow, path).toHaveCSS("text-transform", "uppercase");
+    await expect(eyebrow, path).toHaveCSS("font-size", "12px");
+    await expect(eyebrow, path).toHaveCSS("color", "rgb(165, 28, 48)");
+    const th = main.locator("thead th:visible").first();
+    await expect(th, path).toBeVisible();
+    await expect(th, path).toHaveCSS("font-size", "11px");
+    await expect(th, path).toHaveCSS("text-transform", "uppercase");
+  }
+});
+
+test("table dates stay on one line", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/invoices?tab=all");
+  const main = page.locator("main#main-content");
+  await expect(main.locator("tbody tr").first()).toBeVisible();
+  const headers = (await main.locator("thead th").allInnerTexts()).map((t) => t.trim().toLowerCase());
+  const col = headers.indexOf("issued");
+  expect(col, "Issued column").toBeGreaterThanOrEqual(0);
+  const cell = main.locator("tbody tr").first().locator("td").nth(col);
+  await expect(cell).toHaveText(/^\d{4}-\d{2}-\d{2}/);
+  const { height, line } = await cell.evaluate((td) => {
+    const range = document.createRange();
+    range.selectNodeContents(td);
+    const style = getComputedStyle(td);
+    const lh = parseFloat(style.lineHeight);
+    return { height: range.getBoundingClientRect().height, line: Number.isFinite(lh) ? lh : parseFloat(style.fontSize) * 1.6 };
+  });
+  expect(height, "date cell text height").toBeLessThan(line * 1.5);
+});
+
+test("empty state centres its icon", async ({ page }) => {
+  await page.goto("/audit-log");
+  const main = page.locator("main#main-content");
+  await main.getByPlaceholder("Search payer name…").fill(`no-such-payer-${Date.now()}`);
+  const empty = main.locator(".empty-state");
+  await expect(empty).toBeVisible();
+  const box = await empty.boundingBox();
+  const icon = await empty.locator(".app-icon").first().boundingBox();
+  expect(box && icon).toBeTruthy();
+  const centre = (b: { x: number; width: number }) => b.x + b.width / 2;
+  expect(Math.abs(centre(icon!) - centre(box!))).toBeLessThan(2);
+});

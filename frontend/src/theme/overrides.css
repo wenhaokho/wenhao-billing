@@ -54,3 +54,36 @@
 
 /* Lucide icons (AppIcon) never shrink inside flex rows. */
 .app-icon { flex-shrink: 0; }
+
+/* Table cells that must never wrap: dates, amounts, document numbers and IDs
+   (Column body-class / header-class). */
+.cell-nowrap { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cell-muted { color: var(--wb-muted); }
+.doc-no {
+  font: 500 13px var(--wb-font-mono);
+  color: var(--wb-ink);
+  white-space: nowrap;
+}
+
+/* Status tabs as the head of a list card (mockup): the tab strip sits on the
+   table's bordered surface; the table's own top border is the divider. */
+.list-tabs.p-tabs { border: 1px solid var(--wb-line); border-bottom: 0; background: var(--wb-surface); }
+.list-tabs .p-tablist-tab-list { background: transparent; border-width: 0; padding: 0 20px; }
+.list-tabs .p-tab,
+.card-tabs .p-tab { font: 500 14px var(--wb-font-sans); padding: 16px 14px; white-space: nowrap; }
+.list-tabs .p-tab:not(.p-tab-active),
+.card-tabs .p-tab:not(.p-tab-active) { color: var(--wb-muted); }
+.list-tabs .p-tab-active,
+.card-tabs .p-tab-active { color: var(--wb-ink); }
+.list-tabs .p-tablist-active-bar,
+.card-tabs .p-tablist-active-bar { background: var(--wb-red); height: 2px; }
+
+/* A whole Tabs block as one card (Reports): strip, panels and tables inside. */
+.card-tabs.p-tabs { border: 1px solid var(--wb-line); background: var(--wb-surface); }
+.card-tabs .p-tablist-tab-list { background: transparent; border-color: var(--wb-line); padding: 0 20px; }
+.card-tabs .p-tabpanels { padding: 0; background: transparent; }
+.card-tabs .p-datatable-table-container { border: 0; }
+
+/* Right-aligned columns (header-style text-align: right): PrimeVue 4 wraps the
+   header text in a flex box, so align that too. */
+.p-datatable-thead > tr > th[style*="text-align: right"] .p-datatable-column-header-content { justify-content: flex-end; }

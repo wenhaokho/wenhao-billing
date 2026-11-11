@@ -169,7 +169,7 @@ h1, h2, h3, h4 { color: var(--wb-ink); font-family: var(--wb-font-display); font
   width: 2rem;
   height: 2rem;
   color: var(--wb-muted-soft);
-  margin-bottom: 0.75rem;
+  margin: 0 auto 0.75rem;
   display: block;
 }
 

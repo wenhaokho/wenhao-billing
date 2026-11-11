@@ -10,6 +10,8 @@ import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
 import { whtOutstanding } from "@/composables/withholding";
 import { useConfirm } from "primevue/useconfirm";
@@ -206,23 +208,18 @@ function canRecordPayment(row: Invoice): boolean {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Invoices</h1>
-        <p class="subtitle">
-          All invoices across milestone, recurring, and usage-locked cycles.
-          New ones land as <code>DRAFT</code> in the Awaiting Finalization queue.
-        </p>
-      </div>
-      <div class="page-actions">
-        <Button label="Recurring templates" severity="secondary" outlined @click="router.push('/invoices/recurring')">
-          <template #icon><AppIcon name="repeat" /></template>
-        </Button>
-        <Button label="New invoice" @click="router.push('/invoices/new')">
-          <template #icon><AppIcon name="plus" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="02 / Sales" title="Invoices">
+      <template #lede>
+        All invoices across milestone, recurring, and usage-locked cycles.
+        New ones land as <code>DRAFT</code> in the Awaiting Finalization queue.
+      </template>
+      <Button label="Recurring templates" severity="secondary" outlined @click="router.push('/invoices/recurring')">
+        <template #icon><AppIcon name="repeat" /></template>
+      </Button>
+      <Button label="New invoice" @click="router.push('/invoices/new')">
+        <template #icon><AppIcon name="plus" /></template>
+      </Button>
+    </PageHeader>
 
     <div class="summary-tiles">
       <div class="tile" :class="{ alert: hasOverdue }">
@@ -239,7 +236,7 @@ function canRecordPayment(row: Invoice): boolean {
       </div>
     </div>
 
-    <Tabs v-model:value="activeTab" class="status-tabs">
+    <Tabs v-model:value="activeTab" class="list-tabs">
       <TabList>
         <Tab value="unpaid">Unpaid</Tab>
         <Tab value="draft">Draft</Tab>
@@ -256,42 +253,43 @@ function canRecordPayment(row: Invoice): boolean {
       @row-click="(ev) => router.push({ path: `/invoices/${(ev.data as Invoice).invoice_id}/edit`, query: { from: route.fullPath } })"
     >
       <template #empty>
-        <div class="empty-state">
-          <AppIcon name="file-text" />
-          <div>No invoices match the current filter.</div>
-        </div>
+        <EmptyState icon="file-text" title="No invoices here" message="No invoices match the current filter." />
       </template>
-      <Column header="Invoice #">
+      <Column header="Invoice #" body-class="cell-nowrap">
         <template #body="{ data: row }">
-          <code v-if="row.invoice_number">{{ row.invoice_number }}</code>
+          <span v-if="row.invoice_number" class="doc-no">{{ row.invoice_number }}</span>
           <span v-else class="muted">—</span>
         </template>
       </Column>
       <Column header="Customer">
         <template #body="{ data: row }">
-          {{ customerNameById[row.customer_id] ?? row.customer_id.slice(0, 8) }}
+          <span class="customer">{{ customerNameById[row.customer_id] ?? row.customer_id.slice(0, 8) }}</span>
         </template>
       </Column>
-      <Column field="invoice_type" header="Type" />
+      <Column header="Type">
+        <template #body="{ data: row }">
+          <span class="type">{{ row.invoice_type }}</span>
+        </template>
+      </Column>
       <Column header="Status">
         <template #body="{ data: row }">
           <StatusTag :status="row.status" />
         </template>
       </Column>
-      <Column header="Amount" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+      <Column header="Amount" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <span class="num">{{ formatAmount(row.amount, row.currency) }}</span>
         </template>
       </Column>
-      <Column header="Balance" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+      <Column header="Balance" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
-          <span class="num">{{ formatAmount(row.balance_due, row.currency) }}</span>
+          <span class="num strong">{{ formatAmount(row.balance_due, row.currency) }}</span>
         </template>
       </Column>
-      <Column field="currency" header="Ccy" />
-      <Column field="issue_date" header="Issued" />
-      <Column field="due_date" header="Due" />
-      <Column header="" :style="{ width: '150px' }" :body-style="{ textAlign: 'right' }">
+      <Column field="currency" header="Ccy" body-class="cell-nowrap cell-muted" />
+      <Column field="issue_date" header="Issued" body-class="cell-nowrap cell-muted" />
+      <Column field="due_date" header="Due" body-class="cell-nowrap" />
+      <Column header="" :style="{ width: '150px' }" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <Button
             v-if="canRecordPayment(row)"
@@ -323,42 +321,43 @@ function canRecordPayment(row: Invoice): boolean {
 </template>
 
 <style scoped>
+/* KPI strip (mockup): one bordered strip, hairlines between cells; the
+   overdue cell gets the red rule when anything is overdue. */
 .summary-tiles {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.85rem;
-  margin: 0 0 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1px;
+  background: var(--wb-line);
+  border: 1px solid var(--wb-line);
+  margin: 0 0 24px;
 }
-.tile {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 10px;
-  padding: 0.85rem 1rem;
-}
-.tile.alert {
-  border-color: #fca5a5;
-  background: #fef2f2;
-}
+.tile { background: var(--wb-surface); padding: 22px 26px; min-width: 0; }
+.tile.alert { border-left: 4px solid var(--wb-red); padding-left: 22px; }
 .tile-label {
-  font-size: 0.74rem;
+  font: 500 11px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.3px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-muted, #64748b);
+  color: var(--wb-muted-soft);
 }
 .tile-value {
-  font-size: 1.15rem;
-  font-weight: 600;
-  margin-top: 0.25rem;
+  font: 500 28px/1.1 var(--wb-font-display);
+  letter-spacing: -1px;
+  color: var(--wb-ink);
+  margin-top: 8px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.tile.alert .tile-value { color: #b91c1c; }
-@media (max-width: 900px) {
-  .summary-tiles { grid-template-columns: 1fr; }
+.tile.alert .tile-value { color: var(--wb-red); }
+@media (max-width: 720px) {
+  .tile { padding: 16px 18px; }
+  .tile-value { font-size: 24px; }
 }
-.filters { margin: 0 0 1rem; }
-.status-tabs { margin-bottom: 0.5rem; }
-code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
+.customer { font-weight: 500; }
+.type { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--wb-muted); }
 .num { font-variant-numeric: tabular-nums; }
-.muted { color: var(--color-text-muted, #64748b); }
+.strong { font-weight: 500; }
+.muted { color: var(--wb-muted-soft); }
 :deep(.p-datatable-tbody > tr) { cursor: pointer; }
 </style>

@@ -18,6 +18,7 @@ const TONES: Record<string, StatusTone> = {
   SENT: "blue",
   FINALIZED: "blue",
   OPEN: "blue",
+  MATCHED: "blue",
   // needs attention
   PARTIAL: "amber",
   PARTIALLY_PAID: "amber",
