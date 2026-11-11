@@ -32,6 +32,7 @@ import InvoiceLineItemsTable from "@/components/InvoiceLineItemsTable.vue";
 import RecordPaymentDialog from "@/components/RecordPaymentDialog.vue";
 import SendInvoiceDialog from "@/components/SendInvoiceDialog.vue";
 import SendReceiptDialog, { type ReceiptPayment } from "@/components/SendReceiptDialog.vue";
+import InvoiceReminders from "@/components/InvoiceReminders.vue";
 import { useReturnTo } from "@/composables/useReturnTo";
 
 const props = defineProps<{ id?: string }>();
@@ -1253,6 +1254,8 @@ const canSave = computed(() => {
         />
       </div>
     </div>
+
+    <InvoiceReminders v-if="isEdit && !isRecurring && existing && props.id" :invoice-id="props.id" />
 
     <Message v-if="save.error.value" severity="error" :closable="false">
       {{ (save.error.value as any)?.response?.data?.detail ?? 'Save failed' }}

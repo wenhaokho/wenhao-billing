@@ -87,3 +87,20 @@ export function monthLong(ym: string): string {
   const [y] = ym.split("-");
   return `${monthShort(ym)} ${y}`;
 }
+
+/**
+ * How long ago `iso` was, from `now` (ms): "just now" under a minute, then
+ * "5 min ago", "3 h ago", "2 d ago". A time slightly in the future (clock
+ * skew between browser and server) reads "just now".
+ */
+export function timeAgo(iso: string, now: number = Date.now()): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "—";
+  const secs = Math.floor((now - t) / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} d ago`;
+}

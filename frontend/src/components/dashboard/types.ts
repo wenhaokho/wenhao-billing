@@ -180,3 +180,17 @@ export interface KpiDelta {
   text: string;
   tone: "good" | "bad" | "neutral";
 }
+
+/** POST/GET /invoices/{invoice_id}/reminders */
+export interface Reminder {
+  reminder_id: string;
+  invoice_id: string;
+  sent_at: string;
+  sent_by_user_id: string | null;
+  /** "REST" (the app) or "MCP" (the Claude connector). */
+  channel: string;
+  recipient: string;
+  /** The expected cash the reminder asked for, in `currency`. */
+  amount: string;
+  currency: string;
+}

@@ -19,7 +19,6 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/oauth/oauthdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/pdf"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
-	"github.com/wenhaokho/wenhao-billing/backend/internal/withholding"
 )
 
 // The 5 gated tools (inventory §2.6 rows 38-42). Each runs in two calls: the
@@ -38,7 +37,7 @@ const (
 	descDeleteBill     = "Permanently delete a DRAFT bill. GATED: first call (no\nconfirm_token) previews the delete and returns a confirm_token; call\nagain passing that confirm_token to actually delete. Only DRAFT bills\ncan be deleted — a bill that has moved past DRAFT already affects AP\nand should be voided instead (see void_bill)."
 	descDeleteCustomer = "Deactivate a customer (soft delete — sets active=False). GATED:\nfirst call (no confirm_token) previews the action and returns a\nconfirm_token; call again passing that confirm_token to actually\ndeactivate. Matches the existing DELETE /customers/{id} endpoint:\ncustomers are never hard-deleted anywhere in this app."
 	descSendInvoice    = "Email an invoice PDF to a customer. GATED: first call (no\nconfirm_token) previews the send and returns a confirm_token; call again\npassing that confirm_token to actually send. Only a finalized invoice\ncan be sent: a DRAFT or a recurring template is refused (finalize it\nfirst). An OPEN invoice becomes SENT once the email is sent."
-	descSendReminder   = "Email a payment reminder for an outstanding invoice. GATED: first\ncall (no confirm_token) previews the send and returns a confirm_token;\ncall again passing that confirm_token to actually send. Bound to the\ninvoice's cash still expected (balance_due less unbooked PPh) so a partial\npayment between preview and confirm invalidates a stale token. No PDF\nis attached — a plain-text/HTML reminder only."
+	descSendReminder   = "Email a payment reminder for an outstanding invoice. GATED: first\ncall (no confirm_token) previews the send and returns a confirm_token;\ncall again passing that confirm_token to actually send. Bound to the\ninvoice's cash still expected (balance_due less unbooked PPh) so a partial\npayment between preview and confirm invalidates a stale token. No PDF\nis attached — a plain-text/HTML reminder only. A reminder to the same\ncustomer in the last 24 hours refuses (naming the earlier invoice and\ntime) unless force is true."
 )
 
 const (
@@ -51,8 +50,7 @@ const (
 	// errConfirmSpent answers a second use of a confirm token (Go change 4).
 	errConfirmSpent = "confirm_token already used — re-request the action"
 	// errSendFailed answers a send the mail provider refused; nothing changed.
-	errSendFailed  = "failed to send invoice email"
-	errNoRecipient = "no recipient: pass to_email or set customer contact_email"
+	errSendFailed = "failed to send invoice email"
 
 	// spentConfirmGrace keeps a spent row this long past its token's expiry,
 	// for clock skew between replicas (as spent codes are kept).
@@ -80,8 +78,11 @@ type (
 		ConfirmToken *string `json:"confirm_token"`
 	}
 	sendReminderIn struct {
-		InvoiceID    string  `json:"invoice_id"`
-		ToEmail      *string `json:"to_email"`
+		InvoiceID string  `json:"invoice_id"`
+		ToEmail   *string `json:"to_email"`
+		// Force overrides the 24 h per-customer repeat guard (Go's own,
+		// UI revamp part 2). Null is false.
+		Force        *bool   `json:"force"`
 		ConfirmToken *string `json:"confirm_token"`
 	}
 )
@@ -177,21 +178,11 @@ func invoiceFor(ctx context.Context, tx pgx.Tx, rawID string, confirming bool) (
 }
 
 // recipientFor is Python's `to_email or customer.contact_email`, or the
-// refusal when neither is set.
+// refusal when neither is set (invoices.DefaultRecipient, which the
+// reminder shares).
 func recipientFor(ctx context.Context, tx pgx.Tx, inv invoicesdb.Invoice, toEmail *string) (string, error) {
-	if to := text(toEmail); to != "" {
-		return to, nil
-	}
-	if inv.CustomerID.Valid {
-		c, err := customersdb.New(tx).GetCustomer(ctx, inv.CustomerID.Bytes)
-		if err != nil && !noRows(err) {
-			return "", err
-		}
-		if err == nil && text(c.ContactEmail) != "" {
-			return *c.ContactEmail, nil
-		}
-	}
-	return "", Refuse(errNoRecipient)
+	to, err := invoices.DefaultRecipient(ctx, tx, inv, toEmail)
+	return to, refuseDomain(err)
 }
 
 // registerGatedTools adds the 5 gated tools, in Python's tools/list order.
@@ -308,60 +299,67 @@ func registerGatedTools(s *mcp.Server, d Deps) {
 		g.sendInvoiceEmail)
 
 	addTool(s, d, writeTool(actSendReminder, descSendReminder, toolInput(
-		p("invoice_id", tStr), p("to_email", tNStr), p("confirm_token", tNStr))),
-		func(ctx context.Context, tx pgx.Tx, _ principalRef, in sendReminderIn) (Object, error) {
-			inv, err := invoiceFor(ctx, tx, in.InvoiceID, in.ConfirmToken != nil)
-			if err != nil {
-				return Object{}, err
-			}
-			if inv.Status == "VOID" || inv.Status == "PAID" {
-				return Object{}, Refuse("cannot remind on a %s invoice", inv.Status)
-			}
-			// As for send_invoice_email (PORT-NOTES 112): nothing goes out
-			// for an unfinalized invoice, on the preview as well as the
-			// confirm. A template is checked first, as it is a DRAFT too.
-			if inv.IsTemplate {
-				return Object{}, Refuse("cannot send a recurring template")
-			}
-			if inv.Status == "DRAFT" {
-				return Object{}, Refuse("finalize the invoice before sending it")
-			}
-			recipient, err := recipientFor(ctx, tx, inv, in.ToEmail)
-			if err != nil {
-				return Object{}, err
-			}
-			id := inv.InvoiceID
-			// The cash still expected, so a partial payment since the preview
-			// makes the token stale.
-			cash := platform.PyDecimalStr(withholding.ExpectedCash(inv.BalanceDue, inv.WhtAmount, inv.WhtBooked))
-			payload := map[string]string{"target_id": id.String(), "amount": cash, "currency": inv.Currency, "recipient": recipient}
-			if in.ConfirmToken == nil {
-				return object("requires_confirmation", true, "action", actSendReminder, "invoice_id", id.String(),
-					"invoice_number", inv.InvoiceNumber, "recipient", recipient, "amount", cash, "currency", inv.Currency,
-					"confirm_token", g.confirm.MakeConfirm(actSendReminder, payload, g.clock.Now()))
-			}
-			if err := g.spend(ctx, tx, *in.ConfirmToken, actSendReminder, payload); err != nil {
-				return Object{}, err
-			}
-			number := text(inv.InvoiceNumber)
-			subject, ref := "Payment reminder", id.String()
-			if number != "" {
-				subject, ref = "Payment reminder: invoice "+number, number
-			}
-			msg := email.Message{
-				To: recipient, Subject: subject,
-				Text: "This is a reminder that invoice " + ref + " has an outstanding balance of " + cash + " " + inv.Currency + ".",
-			}
-			msg.IdempotencyKey = email.IdempotencyKey(id.String(), msg, g.clock.Now())
-			if err := g.mail.Send(ctx, msg); err != nil {
-				logger(ctx).ErrorContext(ctx, "mcp send_payment_reminder: send failed", "invoice_id", id, "err", err)
-				return Object{}, Refuse("failed to send payment reminder")
-			}
-			// The reminder is out and nothing else runs here; runTool commits
-			// the spent token without the request's cancellation, so a client
-			// that hangs up now cannot make the token replayable.
-			return object("sent", true, "invoice_id", id.String(), "recipient", recipient)
-		})
+		p("invoice_id", tStr), p("to_email", tNStr), p("force", tNBool), p("confirm_token", tNStr))),
+		g.sendReminder)
+}
+
+// sendReminder is send_payment_reminder's body, on invoices' shared
+// reminder functions: the refusals (VOID, PAID, template, DRAFT, no
+// recipient), the 24 h per-customer repeat guard, the email and the
+// reminder log are theirs.
+func (g gate) sendReminder(ctx context.Context, tx pgx.Tx, pr principalRef, in sendReminderIn) (Object, error) {
+	id, err := parseID("invoice_id", in.InvoiceID)
+	if err != nil {
+		return Object{}, refuseArg(err)
+	}
+	force := in.Force != nil && *in.Force
+	actor := pr.UserID
+	rin := invoices.ReminderIn{
+		InvoiceID: id, ToEmail: in.ToEmail, Force: force,
+		Channel: invoices.ReminderChannelMCP, ActorUserID: &actor,
+	}
+	now := g.clock.Now()
+	confirming := in.ConfirmToken != nil
+	// The preview applies the repeat guard (unless force) so a recent
+	// reminder is its refusal. The confirm validates without it, spends the
+	// token, and only then applies it: a second confirm of a spent token is
+	// "already used" rather than the guard tripped by the first.
+	prep := rin
+	if confirming {
+		prep.Force = true
+	}
+	d, err := invoices.PrepareReminder(ctx, tx, prep, now)
+	if err != nil {
+		return Object{}, refuseDomain(err)
+	}
+	inv := d.Invoice
+	// The cash still expected, so a partial payment since the preview
+	// makes the token stale.
+	cash := d.AmountText()
+	payload := map[string]string{"target_id": id.String(), "amount": cash, "currency": inv.Currency, "recipient": d.Recipient}
+	if !confirming {
+		return object("requires_confirmation", true, "action", actSendReminder, "invoice_id", id.String(),
+			"invoice_number", inv.InvoiceNumber, "recipient", d.Recipient, "amount", cash, "currency", inv.Currency,
+			"confirm_token", g.confirm.MakeConfirm(actSendReminder, payload, now))
+	}
+	if err := g.spend(ctx, tx, *in.ConfirmToken, actSendReminder, payload); err != nil {
+		return Object{}, err
+	}
+	// A refusal here rolls the spend back with the rest, so the token stays
+	// usable (with force) until it expires.
+	if !force {
+		if err := invoices.CheckReminderGuard(ctx, tx, d, now); err != nil {
+			return Object{}, refuseDomain(err)
+		}
+	}
+	if _, err := invoices.SendReminder(ctx, tx, g.mail, d, rin, now); err != nil {
+		return Object{}, refuseDomain(err)
+	}
+	// The reminder is out and logged, and nothing else runs here; runTool
+	// commits the spent token and the log row without the request's
+	// cancellation, so a client that hangs up now cannot make the token
+	// replayable.
+	return object("sent", true, "invoice_id", id.String(), "recipient", d.Recipient)
 }
 
 // sendInvoiceEmail is send_invoice_email's body.

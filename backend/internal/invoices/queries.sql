@@ -277,3 +277,38 @@ SELECT l.amount, i.revenue_account_id
 -- Void's refusal: any CLEARED payment against the invoice, a withholding-only
 -- one (amount 0) included.
 SELECT EXISTS (SELECT 1 FROM payments WHERE invoice_id = $1 AND status = 'CLEARED');
+
+-- name: GetCustomerContactEmail :one
+-- A reminder's default recipient (Python's customer.contact_email).
+SELECT contact_email FROM customers WHERE customer_id = $1;
+
+-- name: InsertInvoiceReminder :one
+INSERT INTO invoice_reminders (reminder_id, invoice_id, sent_at, sent_by_user_id, channel, recipient, amount, currency)
+VALUES (@reminder_id, @invoice_id, @sent_at, sqlc.narg(sent_by_user_id), @channel, @recipient, @amount, @currency)
+RETURNING *;
+
+-- name: ListInvoiceReminders :many
+-- An invoice's reminder history, latest first.
+SELECT * FROM invoice_reminders
+WHERE invoice_id = $1
+ORDER BY sent_at DESC, reminder_id DESC;
+
+-- name: GetRecentReminder :one
+-- The repeat guard: the latest reminder since @since to the invoice's
+-- customer, or, for an invoice with no customer, of that invoice itself.
+SELECT r.invoice_id, i.invoice_number, r.sent_at
+  FROM invoice_reminders r
+  JOIN invoices i ON i.invoice_id = r.invoice_id
+ WHERE r.sent_at > @since
+   AND ((sqlc.narg(customer_id)::uuid IS NULL AND r.invoice_id = @invoice_id)
+        OR i.customer_id = sqlc.narg(customer_id)::uuid)
+ ORDER BY r.sent_at DESC, r.reminder_id DESC
+ LIMIT 1;
+
+-- name: ListLastReminderByCustomer :many
+-- Each customer's latest reminder, for the customers given.
+SELECT i.customer_id::uuid AS customer_id, max(r.sent_at)::timestamptz AS sent_at
+  FROM invoice_reminders r
+  JOIN invoices i ON i.invoice_id = r.invoice_id
+ WHERE i.customer_id = ANY(@customer_ids::uuid[])
+ GROUP BY i.customer_id;

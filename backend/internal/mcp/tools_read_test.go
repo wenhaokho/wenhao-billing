@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http/httptest"
 	"os"
 	"reflect"
@@ -1229,7 +1230,11 @@ func TestToolsListMatchesPython(t *testing.T) {
 		} else if tool.Description != p.Description {
 			t.Errorf("%s: description %q, want Python's %q", tool.Name, tool.Description, p.Description)
 		}
-		if got, want := normSchema(asJSON(t, tool.InputSchema)), normSchema(p.InputSchema); !reflect.DeepEqual(got, want) {
+		want := normSchema(p.InputSchema)
+		if added, ok := addedInputs[tool.Name]; ok {
+			want = withInputs(t, want, added)
+		}
+		if got := normSchema(asJSON(t, tool.InputSchema)); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: inputSchema %s, want %s", tool.Name, mustJSON(got), mustJSON(want))
 		}
 		if got, want := normSchema(asJSON(t, tool.OutputSchema)), normSchema(p.OutputSchema); !reflect.DeepEqual(got, want) {
@@ -1244,6 +1249,39 @@ func TestToolsListMatchesPython(t *testing.T) {
 var changedDescriptions = map[string]string{
 	"send_invoice_email": descSendInvoice,
 	"update_bill":        descUpdateBill,
+	// UI revamp part 2: the 24 h per-customer repeat guard and its force.
+	"send_payment_reminder": descSendReminder,
+}
+
+// addedInputs are the optional inputs Go added to a tool on purpose, each
+// with its JSON Schema (UI revamp part 2: send_payment_reminder's force
+// overrides the repeat guard). Python's schema plus these is Go's.
+var addedInputs = map[string]map[string]string{
+	"send_payment_reminder": {"force": tNBool},
+}
+
+// withInputs is the normalized schema want with the properties added.
+func withInputs(t *testing.T, want any, added map[string]string) any {
+	t.Helper()
+	obj, ok := want.(map[string]any)
+	if !ok {
+		t.Fatalf("inputSchema %v is not an object", want)
+	}
+	props, ok := obj["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("inputSchema %v has no properties", want)
+	}
+	out := maps.Clone(obj)
+	outProps := maps.Clone(props)
+	for name, schema := range added {
+		var v any
+		if err := json.Unmarshal([]byte(schema), &v); err != nil {
+			t.Fatal(err)
+		}
+		outProps[name] = normSchema(v)
+	}
+	out["properties"] = outProps
+	return out
 }
 
 func mustJSON(v any) string {
