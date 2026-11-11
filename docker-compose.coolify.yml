@@ -36,8 +36,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    # The Go image: ENTRYPOINT /api (serve; adopts, then migrates), and it
-    # also ships /compare.
+    # The Go image: ENTRYPOINT /api (serve; adopts, then migrates).
     image: wenhao-billing-api:coolify-go
     environment:
       # Shared Postgres — full connection string you provide. The

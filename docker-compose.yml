@@ -20,15 +20,25 @@ services:
       retries: 10
 
 
+  # The Go API (backend/), built as production builds it. Serve applies the
+  # goose migrations to `billing` first (an Alembic-built dev database is
+  # adopted, refusing on schema drift). There is no live reload: after a Go
+  # change, `docker compose up -d --build backend`. ENVIRONMENT=development
+  # allows the published dev secrets below (and the Go defaults for the
+  # intake and MCP secrets) and a non-Secure session cookie; any other value
+  # refuses them. The scheduled jobs stay off unless SCHEDULER_ENABLED=true.
   backend:
     build:
-      context: ./backend-python
+      context: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg://billing:billing@db:5432/billing
-      SESSION_SECRET: dev-session-secret-change-me
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql://billing:billing@db:5432/billing
+      SESSION_SECRET: dev-session-secret-change-me-32-bytes-min
       WEBHOOK_HMAC_SECRET: dev-webhook-secret-change-me
       EMAIL_WEBHOOK_TOKEN: dev-email-token-change-me
       CORS_ORIGINS: '["http://localhost:5173"]'
+      APP_BASE_URL: http://localhost:5173
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-false}
       MCP_ENABLED: ${MCP_ENABLED:-true}
       MCP_CONFIRM_SECRET: ${MCP_CONFIRM_SECRET:-dev-mcp-confirm-secret-change-me}
       MCP_TOKEN_SECRET: ${MCP_TOKEN_SECRET:-dev-mcp-token-secret-change-me}
@@ -43,28 +53,12 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs', timeout=2).read()",
-        ]
+      # Distroless has no shell or curl: the binary probes its own /health.
+      test: ["CMD", "/api", "healthcheck"]
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 10s
-    volumes:
-      - ./backend-python/app:/app/app
-      - ./backend-python/alembic:/app/alembic
-      - ./backend-python/scripts:/app/scripts
-      - ./backend-python/tests:/app/tests
-    command:
-      [
-        "sh",
-        "-c",
-        "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
-      ]
 
 
   frontend:
@@ -140,29 +134,6 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
-
-  # The Go API (backend/) for local comparison with the Python backend on
-  # :8000. Not started by `docker compose up`. Run it against a scratch copy of
-  # the database, never `billing`: serve migrates, and adopt-baseline rewrites
-  # the migration bookkeeping. Set GO_DATABASE_URL to a scratch database for
-  # the run. Unset, it points at the nonexistent billing_go_scratch, so a
-  # forgotten override fails to connect instead of touching `billing` (a
-  # required-variable `:?` would break every compose command, since Compose
-  # interpolates the whole file).
-  api-go:
-    profiles: ["tools"]
-    build:
-      context: ./backend
-    environment:
-      DATABASE_URL: ${GO_DATABASE_URL:-postgresql://billing:billing@db:5432/billing_go_scratch}
-      SESSION_SECRET: dev-session-secret-change-me-32-bytes-min
-      CORS_ORIGINS: '["http://localhost:5173"]'
-      ENVIRONMENT: development
-    ports:
-      - "${GO_API_HOST_PORT:-8001}:8000"
-    depends_on:
-      db:
-        condition: service_healthy
 
 volumes:
   db_data:

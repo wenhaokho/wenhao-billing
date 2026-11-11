@@ -21,7 +21,6 @@ require (
 	github.com/shopspring/decimal v1.6.0
 	golang.org/x/oauth2 v0.35.0
 	golang.org/x/text v0.43.0
-	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
@@ -58,4 +57,5 @@ require (
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
