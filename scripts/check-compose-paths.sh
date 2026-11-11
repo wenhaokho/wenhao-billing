@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Fails when a compose file builds from, or bind-mounts, a path that does not
-# exist in the working tree, so a moved directory (backend/ -> backend-python/)
-# cannot leave Coolify building an empty context or the dev stack mounting
-# empty folders. Checks docker-compose.yml and docker-compose.coolify.yml.
+# exist in the working tree, so a moved or deleted directory cannot leave
+# Coolify building an empty context or the dev stack mounting empty folders.
+# Checks docker-compose.yml and docker-compose.coolify.yml.
 #
 #   bash scripts/check-compose-paths.sh
 set -euo pipefail

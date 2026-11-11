@@ -3,8 +3,8 @@
 -- defaults, constraints, indexes (partial ones with their WHERE), sequences,
 -- functions and triggers give the same lines whatever order they were built
 -- in. Run by TestSchemaMatchesAlembic against the goose-migrated database and
--- by port/make-baseline.sh against the Alembic one (psql -At -f), so both
--- sides use the same query. Left out: alembic_version and goose_db_version,
+-- by port/make-baseline.sh (removed with the Python backend; see git history)
+-- against the Alembic one (psql -At -f), so both sides use the same query. Left out: alembic_version and goose_db_version,
 -- the two bookkeeping tables, which differ by design. It gives the same
 -- lines on PostgreSQL 16 and 18 (production runs 18).
 -- Not compared (Adopt's schema check is blind to these): domain constraints

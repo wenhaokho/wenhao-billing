@@ -56,7 +56,7 @@ func want(t *testing.T, file string) []string {
 		t.Fatal(err)
 	}
 	if len(b) == 0 {
-		t.Fatalf("%s is empty: run port/make-baseline.sh", file)
+		t.Fatalf("%s is empty: restore it from git history (port/make-baseline.sh wrote it)", file)
 	}
 	return strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
 }

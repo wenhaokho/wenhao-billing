@@ -9,7 +9,10 @@ import "embed"
 var FS embed.FS
 
 // Testdata is the reference descriptions of the Alembic database at the frozen
-// head (written by port/make-baseline.sh) and the queries that produce them.
+// head and the queries that produce them. They were written by
+// port/make-baseline.sh from the Python backend's Alembic migrations; both
+// were removed on 2026-11-11 (see git history before that), so these files
+// are now fixed: adopt still checks an Alembic-built database against them.
 //
 //go:embed testdata/*
 var Testdata embed.FS
