@@ -534,7 +534,7 @@ function fmtDate(iso?: string) {
             <dt>Joined</dt>
             <dd>{{ fmtDate(auth.user?.created_at) }}</dd>
             <dt>Auth mechanism</dt>
-            <dd>Server-side session cookie · bcrypt</dd>
+            <dd>Signed session cookie · argon2id</dd>
           </dl>
         </div>
         </div>

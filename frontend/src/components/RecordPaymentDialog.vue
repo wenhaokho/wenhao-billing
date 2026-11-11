@@ -161,7 +161,9 @@ function submit() {
             :min="0"
             :max="balanceNum"
           />
+          <!-- Joined to the amount field as its addon: the field's 2px corners, not a pill. -->
           <Button
+            data-radius-exempt
             label="Full balance"
             :disabled="loading || balanceNum <= 0"
             @click.prevent="fillFullBalance">

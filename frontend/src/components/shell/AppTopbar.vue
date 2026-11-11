@@ -73,7 +73,8 @@ const themeLabel = computed(() =>
       >
         <AppIcon name="menu" />
       </button>
-      <h2 class="topbar-title">{{ title }}</h2>
+      <!-- Not a heading: the page H1 in <main> names the page; this repeats it. -->
+      <p class="topbar-title">{{ title }}</p>
     </div>
     <div class="topbar-right">
       <button

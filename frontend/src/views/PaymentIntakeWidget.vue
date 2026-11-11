@@ -283,6 +283,17 @@ const hasRevenueData = computed(
   () => (revenueData.value?.currencies.length ?? 0) > 0,
 );
 
+// Accessible names for the chart canvases (role="img"): what the chart shows;
+// the visible list beside the pie carries the figures.
+const revenueChartLabel = computed(
+  () =>
+    `Bar chart of invoiced revenue per month over the last 12 months, stacked by currency, converted to ${revenueData.value?.base_currency ?? "IDR"}.`,
+);
+const arChartLabel = computed(() => {
+  const ccys = (stats.value?.open_ar_base_by_currency ?? []).map((r) => r.currency).join(", ");
+  return `Pie chart of open receivables by currency (${ccys}), converted to ${stats.value?.base_currency ?? ""}.`;
+});
+
 const arPieData = computed(() => {
   const rows = stats.value?.open_ar_base_by_currency ?? [];
   // colorForCurrency reads colors.value, so the pie also rebuilds on a theme
@@ -455,7 +466,11 @@ function go(path: string) {
             <div>No invoiced revenue yet in the last 12 months.</div>
           </div>
           <div v-else class="chart-wrap revenue-wrap" data-testid="revenue-chart">
-            <Chart type="bar" :data="chartData" :options="chartOptions" />
+            <Chart
+              type="bar"
+              :data="chartData"
+              :options="chartOptions"
+              :canvas-props="{ role: 'img', 'aria-label': revenueChartLabel }" />
           </div>
           <p v-if="revenueData && revenueData.unconverted.length" class="card-note">
             Not shown (no FX rate): {{ revenueData.unconverted.join(', ') }}
@@ -487,7 +502,11 @@ function go(path: string) {
           <div v-if="hasArPie" class="ar-pie-block">
             <p class="card-sub">Share of open AR, converted to {{ stats.base_currency }}.</p>
             <div class="chart-wrap ar-pie" data-testid="ar-chart">
-              <Chart type="pie" :data="arPieData" :options="arPieOptions" />
+              <Chart
+                type="pie"
+                :data="arPieData"
+                :options="arPieOptions"
+                :canvas-props="{ role: 'img', 'aria-label': arChartLabel }" />
             </div>
           </div>
           <p v-if="stats.open_ar_unconverted.length" class="card-note">
