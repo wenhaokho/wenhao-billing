@@ -1,14 +1,24 @@
-import { test, expect, type Locator, type Page, type Request } from "@playwright/test";
-import { apiPost as post, collectConsoleErrors, isApi, pickDate, pickOption, uniq } from "./helpers";
+import { test, expect, type Page, type Request } from "@playwright/test";
+import {
+  apiPost as post,
+  clearSelect,
+  collectConsoleErrors,
+  fillNumber,
+  isApi,
+  numbersNear,
+  pickDate,
+  pickOption,
+  selectIn,
+  uniq,
+} from "./helpers";
 
-/** The <label class="field"> (or similar) whose caption is exactly `caption`. */
+/**
+ * The <label> wrapping a form control whose caption is exactly `caption`. The
+ * app's selects and date pickers are not labelled for getByLabel (a select's
+ * accessible name is its value), so their controls are found inside this.
+ */
 function field(page: Page, caption: string) {
   return page.locator("label").filter({ has: page.getByText(caption, { exact: true }) });
-}
-
-/** A PrimeVue select (Dropdown) inside `scope`. */
-function select(scope: Locator) {
-  return scope.locator(".p-dropdown, .p-select").first();
 }
 
 /**
@@ -36,13 +46,13 @@ test.describe("in Asia/Jakarta", () => {
     await page.goto("/projects/new");
     await expect(page.locator("main").getByRole("heading", { name: "New project" })).toBeVisible();
 
-    await pickOption(page, select(field(page, "Customer")), customerName);
+    await pickOption(page, selectIn(field(page, "Customer")), customerName);
     const code = `E2E-${uniq()}`;
     // The Code caption carries a hint span, so these two go by placeholder.
     await page.getByPlaceholder("ATLAS-26").fill(code);
     await page.getByPlaceholder("Atlas CRM rebuild").fill(`E2E Project ${code}`);
-    await pickDate(page, field(page, "Start date").locator("input"), "2026-12-01");
-    await pickDate(page, field(page, "End date").locator("input"), "2026-12-31");
+    await pickDate(page, field(page, "Start date").getByRole("combobox"), "2026-12-01");
+    await pickDate(page, field(page, "End date").getByRole("combobox"), "2026-12-31");
 
     const { body } = await submit(
       page,
@@ -64,21 +74,15 @@ test("invoice with due date saves", async ({ page }) => {
   await page.goto("/invoices/new");
   await expect(page.locator("main h1, main h2").first()).toBeVisible();
 
-  const customerSelect = page.locator(".p-dropdown, .p-select").filter({ hasText: "Choose a customer" }).first();
-  await pickOption(page, customerSelect, customerName);
-  await pickOption(page, page.locator(".ccy-select"), "USD");
+  await pickOption(page, selectIn(page, "Choose a customer"), customerName);
+  // The currency select sits in the totals row; .ccy-select is the app's own class.
+  await pickOption(page, selectIn(page.locator(".ccy-select")), "USD");
 
-  const line = page.locator(".line-row").first();
-  await line.getByPlaceholder("Description").fill("E2E consulting");
-  const qty = line.locator(".col-qty input");
-  await qty.click();
-  await qty.press("Control+a");
-  await qty.pressSequentially("2");
-  const price = line.locator(".col-price input");
-  await price.click();
-  await price.press("Control+a");
-  await price.pressSequentially("150");
-  await price.blur();
+  const description = page.getByPlaceholder("Description").first();
+  await description.fill("E2E consulting");
+  const [qty, price] = [numbersNear(description).nth(0), numbersNear(description).nth(1)];
+  await fillNumber(qty, "2");
+  await fillNumber(price, "150");
 
   await pickDate(page, page.getByPlaceholder("On Receipt if left blank"), "2026-12-31");
 
@@ -104,21 +108,13 @@ test("bill saves", async ({ page }) => {
   await page.goto("/bills/new");
   await expect(page.locator("main h1, main h2").first()).toBeVisible();
 
-  const vendorSelect = page.locator(".p-dropdown, .p-select").filter({ hasText: "Choose a vendor" }).first();
-  await pickOption(page, vendorSelect, vendorName);
+  await pickOption(page, selectIn(page, "Choose a vendor"), vendorName);
   const billNumber = `E2E-B${uniq()}`;
   await page.getByPlaceholder("As printed on the bill").fill(billNumber);
-  await page.getByPlaceholder("What was this for").first().fill("E2E hosting");
-  const row = page.locator("tbody tr").first();
-  const qty = row.locator("td").nth(2).locator("input");
-  await qty.click();
-  await qty.press("Control+a");
-  await qty.pressSequentially("1");
-  const price = row.locator("td").nth(3).locator("input");
-  await price.click();
-  await price.press("Control+a");
-  await price.pressSequentially("250000");
-  await price.blur();
+  const description = page.getByPlaceholder("What was this for").first();
+  await description.fill("E2E hosting");
+  await fillNumber(numbersNear(description).nth(0), "1");
+  await fillNumber(numbersNear(description).nth(1), "250000");
 
   const { body } = await submit(
     page,
@@ -156,13 +152,10 @@ async function fxRateSaves(page: Page, from: string, to: string) {
   const errors = collectConsoleErrors(page);
   await page.goto("/fx-rates/new");
   await expect(page.locator("main").getByRole("heading", { name: "New FX rate" })).toBeVisible();
-  await pickOption(page, select(field(page, "From")), from);
-  await pickOption(page, select(field(page, "To")), to);
-  const rate = field(page, "Rate").locator("input");
-  await rate.click();
-  await rate.pressSequentially("0.75");
-  await rate.blur();
-  await pickDate(page, field(page, "As of").locator("input"), date);
+  await pickOption(page, selectIn(field(page, "From")), from);
+  await pickOption(page, selectIn(field(page, "To")), to);
+  await fillNumber(field(page, "Rate").getByRole("spinbutton"), "0.75");
+  await pickDate(page, field(page, "As of").getByRole("combobox"), date);
 
   const { body } = await submit(page, () => page.getByRole("button", { name: "Create" }).click(), "POST", "/accounting/fx-rates");
   expect(body).toMatchObject({ from_currency: from, to_currency: to, rate: 0.75, as_of_date: date });
@@ -191,7 +184,7 @@ test("item saves", async ({ page }) => {
   await page.goto("/items/new");
   await expect(page.locator("main h1, main h2").first()).toBeVisible();
   const name = `E2E Item ${uniq()}`;
-  await pickOption(page, select(field(page, "Type")), "Fixed fee");
+  await pickOption(page, selectIn(field(page, "Type")), "Fixed fee");
   await field(page, "Name").locator("input").fill(name);
   const { body } = await submit(page, () => page.getByRole("button", { name: "Create item" }).click(), "POST", "/items");
   expect(body).toMatchObject({ name, item_type: "FIXED_FEE" });
@@ -204,7 +197,7 @@ test("vendor saves", async ({ page }) => {
   await expect(page.locator("main h1, main h2").first()).toBeVisible();
   const name = `E2E Vendor ${uniq()}`;
   await field(page, "Vendor name").locator("input").fill(name);
-  await pickOption(page, select(field(page, "Default currency")), "SGD");
+  await pickOption(page, selectIn(field(page, "Default currency")), "SGD");
   const { body } = await submit(page, () => page.getByRole("button", { name: "Create vendor" }).click(), "POST", "/vendors");
   expect(body).toMatchObject({ name, default_currency: "SGD" });
   expect(errors()).toEqual([]);
@@ -228,7 +221,7 @@ test("account saves", async ({ page }) => {
   const code = String(Date.now()).slice(-8);
   const name = `E2E Account ${code}`;
   await field(page, "Code").locator("input").fill(code);
-  await pickOption(page, select(field(page, "Type")), "Expense");
+  await pickOption(page, selectIn(field(page, "Type")), "Expense");
   await field(page, "Name").locator("input").fill(name);
   const { body } = await submit(
     page,
@@ -247,14 +240,14 @@ test("clearing a list filter select sends no filter", async ({ page }) => {
   await page.goto("/audit-log");
   await expect(page.locator("main").getByRole("heading", { name: "Audit Log" })).toBeVisible();
   await page.waitForLoadState("networkidle");
-  const action = select(field(page, "Action"));
+  const action = selectIn(field(page, "Action"));
 
   const picked = page.waitForRequest((r) => isApi(r, "GET", path) && new URL(r.url()).searchParams.get("action") === "HELD");
   await pickOption(page, action, "HELD");
   await picked;
 
   const cleared = page.waitForRequest((r) => isApi(r, "GET", path));
-  await action.locator(".p-dropdown-clear-icon, .p-select-clear-icon").click();
+  await clearSelect(action);
   const req = await cleared;
   expect(new URL(req.url()).searchParams.has("action")).toBe(false);
   await expect(action).not.toContainText("HELD");

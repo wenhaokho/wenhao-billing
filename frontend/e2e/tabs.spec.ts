@@ -1,46 +1,86 @@
-import { test, expect, type Page } from "@playwright/test";
-import { apiPost as post, collectConsoleErrors, isApi, uniq } from "./helpers";
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { apiPost as post, collectConsoleErrors, isApi, rowStatuses, uniq } from "./helpers";
 
 function tab(page: Page, name: string) {
   return page.getByRole("tab", { name, exact: true });
 }
 
-/** Status chips (PrimeVue Tag) of the rendered table rows. */
-async function rowStatuses(page: Page): Promise<string[]> {
-  return page.locator("tbody tr .p-tag").allInnerTexts().then((t) => t.map((s) => s.trim()));
+const LINE = [{ description: "E2E tabs line", quantity: "1", unit_price: "100000" }];
+
+async function newCustomer(api: APIRequestContext) {
+  return post<{ customer_id: string }>(api, "/customers", { name: `E2E Tabs Customer ${uniq()}`, default_currency: "IDR" });
+}
+
+async function ok(res: Awaited<ReturnType<APIRequestContext["post"]>>) {
+  expect(res.ok(), `${res.url()}: ${res.status()} ${await res.text()}`).toBe(true);
 }
 
 // ---- views that filter server-side: the tab sets ?status=... on the list request ----
 
-const SERVER_TABS: { view: string; path: string; api: string; tabs: [string, string[] | null][] }[] = [
+const SERVER_TABS: {
+  view: string;
+  path: string;
+  api: string;
+  tabs: [string, string[] | null][];
+  /** Makes sure every status-filtered tab has at least one row. */
+  seed: (api: APIRequestContext) => Promise<void>;
+}[] = [
   {
     view: "Invoices",
     path: "/invoices",
     api: "/invoices",
     tabs: [["Unpaid", ["OPEN", "SENT", "PARTIAL"]], ["Draft", ["DRAFT"]], ["All", null]],
+    seed: async (api) => {
+      const c = await newCustomer(api);
+      const body = { customer_id: c.customer_id, currency: "IDR", line_items: LINE };
+      await post(api, "/invoices", body);
+      const open = await post<{ invoice_id: string }>(api, "/invoices", body);
+      await ok(await api.post(`/api/v1/invoices/${open.invoice_id}/finalize`));
+    },
   },
   {
     view: "Quotations",
     path: "/quotations",
     api: "/quotations",
     tabs: [["Open", ["DRAFT", "SENT"]], ["Accepted", ["ACCEPTED", "INVOICED"]], ["All", null]],
+    seed: async (api) => {
+      const c = await newCustomer(api);
+      const body = { customer_id: c.customer_id, currency: "IDR", line_items: LINE };
+      await post(api, "/quotations", body);
+      const accepted = await post<{ quotation_id: string }>(api, "/quotations", body);
+      await ok(await api.post(`/api/v1/quotations/${accepted.quotation_id}/accept`, { data: {} }));
+    },
   },
   {
     view: "Bills",
     path: "/bills",
     api: "/bills",
     tabs: [["Unpaid", ["OPEN", "PARTIAL"]], ["Draft", ["DRAFT"]], ["All", null]],
+    seed: async (api) => {
+      const v = await post<{ vendor_id: string }>(api, "/vendors", { name: `E2E Tabs Vendor ${uniq()}`, default_currency: "IDR" });
+      const body = { vendor_id: v.vendor_id, currency: "IDR", line_items: LINE };
+      await post(api, "/bills", body);
+      const open = await post<{ bill_id: string }>(api, "/bills", body);
+      await ok(await api.patch(`/api/v1/bills/${open.bill_id}`, { data: { status: "OPEN" } }));
+    },
   },
   {
     view: "Projects",
     path: "/projects",
     api: "/projects",
     tabs: [["Active", ["ACTIVE"]], ["On hold", ["ON_HOLD"]], ["All", null]],
+    seed: async (api) => {
+      const c = await newCustomer(api);
+      for (const status of ["ACTIVE", "ON_HOLD"]) {
+        await post(api, "/projects", { customer_id: c.customer_id, code: `E2E-T${uniq()}`, name: "E2E Tabs Project", currency: "IDR", status });
+      }
+    },
   },
 ];
 
 for (const v of SERVER_TABS) {
   test(`${v.view} status tabs filter the list request`, async ({ page }) => {
+    await v.seed(page.request);
     const errors = collectConsoleErrors(page);
     await page.goto(v.path);
     await expect(tab(page, v.tabs[0][0])).toHaveAttribute("aria-selected", "true");
@@ -57,10 +97,13 @@ for (const v of SERVER_TABS) {
       await req;
       await res;
       await expect(tab(page, name)).toHaveAttribute("aria-selected", "true");
-      if (statuses) {
-        await page.waitForLoadState("networkidle");
-        for (const s of await rowStatuses(page)) expect(statuses).toContain(s);
-      }
+      // The seed guarantees rows on every tab; each chip must belong to the tab.
+      await expect
+        .poll(async () => {
+          const got = await rowStatuses(page);
+          return got.length > 0 && got.every((s) => !statuses || statuses.includes(s));
+        }, { message: `${v.view} / ${name}: rows present and all of ${statuses ?? "any status"}` })
+        .toBe(true);
     }
     expect(errors()).toEqual([]);
   });
@@ -79,38 +122,47 @@ test("Recurring status tabs filter the rows", async ({ page }) => {
     schedule: { frequency: "MONTHLY", start_date: "2027-01-01" },
     line_items: [{ description: "E2E recurring line", quantity: "1", unit_price: "100000" }],
   };
-  await post(api, "/invoices/recurring-template", body);
-  await post(api, "/invoices/recurring-template", body);
+  // One template stays active, one is paused, one ended.
+  for (let i = 0; i < 3; i++) await post(api, "/invoices/recurring-template", body);
   const rows = (await (await api.get("/api/v1/invoices/recurring-templates/rows")).json()) as {
     template_id: string;
     customer_name: string | null;
   }[];
   const mine = rows.filter((r) => r.customer_name === customerName);
-  expect(mine).toHaveLength(2);
-  const p = await api.patch(`/api/v1/invoices/recurring-templates/${mine[0].template_id}`, { data: { action: "PAUSE" } });
-  expect(p.ok(), await p.text()).toBe(true);
+  expect(mine).toHaveLength(3);
+  for (const [i, action] of [[0, "PAUSE"], [1, "END_NOW"]] as const) {
+    const p = await api.patch(`/api/v1/invoices/recurring-templates/${mine[i].template_id}`, { data: { action } });
+    expect(p.ok(), await p.text()).toBe(true);
+  }
 
   const errors = collectConsoleErrors(page);
   await page.goto("/invoices/recurring");
   await expect(tab(page, "Active")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("tbody tr .p-tag").first()).toBeVisible();
+  await expect.poll(async () => (await rowStatuses(page)).length).toBeGreaterThan(0);
   const tabs: [string, string[] | null][] = [
     ["Paused", ["PAUSED", "MISCONFIGURED"]],
     ["Ended", ["ENDED"]],
     ["All", null],
     ["Active", ["ACTIVE"]],
   ];
-  const seen = new Set<string>();
   for (const [name, statuses] of tabs) {
     await tab(page, name).click();
     await expect(tab(page, name)).toHaveAttribute("aria-selected", "true");
-    const got = await rowStatuses(page);
-    got.forEach((s) => seen.add(s));
-    if (statuses) for (const s of got) expect(statuses).toContain(s);
-    if (name === "Paused" || name === "Active") expect(got.length).toBeGreaterThan(0);
+    // Seeded: every tab has rows; each chip must belong to the tab.
+    await expect
+      .poll(async () => {
+        const got = await rowStatuses(page);
+        return got.length > 0 && got.every((s) => !statuses || statuses.includes(s));
+      }, { message: `Recurring / ${name}: rows present and all of ${statuses ?? "any status"}` })
+      .toBe(true);
   }
-  expect(seen).toContain("ACTIVE");
-  expect(seen).toContain("PAUSED");
+  await tab(page, "All").click();
+  await expect
+    .poll(async () => {
+      const all = new Set(await rowStatuses(page));
+      return ["ACTIVE", "PAUSED", "ENDED"].every((s) => all.has(s));
+    }, { message: "Recurring / All shows ACTIVE, PAUSED and ENDED rows" })
+    .toBe(true);
   expect(errors()).toEqual([]);
 });
 

@@ -22,7 +22,9 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   projects: [
-    { name: "setup", testMatch: /auth\.setup\.ts/ },
+    // No trace or screenshot for sign-in: they would keep the typed password
+    // (test-results/, and the HTML report copies traces).
+    { name: "setup", testMatch: /auth\.setup\.ts/, use: { trace: "off", screenshot: "off" } },
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"], storageState: STORAGE_STATE },

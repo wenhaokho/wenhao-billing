@@ -37,24 +37,33 @@ if ! up_log=$(docker compose up -d --wait db backend frontend 2>&1); then
 fi
 
 # The vite dev server has no healthcheck: wait until it serves the SPA.
-FRONTEND_CID=$(docker compose ps -q frontend)
-[[ -n "$FRONTEND_CID" ]] || fail "frontend container not running"
-# Vite rejects requests whose Host is not localhost or an IP address
-# (server.allowedHosts), so the browser addresses the frontend container by
-# its IP on the stack's network rather than by the name `frontend`.
-FRONTEND_IP=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$FRONTEND_CID")
-[[ -n "$FRONTEND_IP" ]] || fail "frontend has no address on $NETWORK"
-export BASE_URL="http://${FRONTEND_IP}:5173"
 frontend_up() { docker compose exec -T frontend wget -q -O /dev/null http://127.0.0.1:5173/login 2>/dev/null; }
 for _ in $(seq 1 60); do frontend_up && break; sleep 1; done
 frontend_up || fail "frontend did not answer on :5173"
 
-# The e2e user: an admin like the first admin row. Dev database only.
+# Vite rejects requests whose Host is not localhost or an IP address
+# (server.allowedHosts), so the browser addresses the frontend container by
+# its IP on the stack's network rather than by the name `frontend`. Read after
+# the wait, so it is the address of the container that answered.
+FRONTEND_CID=$(docker compose ps -q frontend) || fail "could not list the frontend container"
+[[ -n "$FRONTEND_CID" ]] || fail "frontend container not running"
+FRONTEND_IP=$(docker inspect -f "{{with index .NetworkSettings.Networks \"$NETWORK\"}}{{.IPAddress}}{{end}}" "$FRONTEND_CID" 2>/dev/null) \
+  || fail "could not inspect the frontend container"
+[[ -n "$FRONTEND_IP" ]] || fail "frontend is not attached to network $NETWORK"
+export BASE_URL="http://${FRONTEND_IP}:5173"
+
+# The e2e user: an admin like the first admin row. Dev database only. The
+# users table has no business_id today (single tenant); should it gain one,
+# the user copies the admin's so business-scoped lists stay the same.
 export E2E_EMAIL=e2e@wenhao.test
+HAS_BUSINESS_ID=$(docker compose exec -T db psql -U billing -d billing -tAc \
+  "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'business_id'") \
+  || fail "could not read the users table's columns"
+if [[ "$(printf '%s' "$HAS_BUSINESS_ID" | tr -d '[:space:]')" == 1 ]]; then BIZ_COL=", business_id"; BIZ_VAL=", u.business_id"; else BIZ_COL=""; BIZ_VAL=""; fi
 docker compose exec -T db psql -U billing -d billing -v ON_ERROR_STOP=1 -q >/dev/null <<SQL
-INSERT INTO users (user_id, email, password_hash, role, display_name)
-SELECT gen_random_uuid(), '${E2E_EMAIL}', 'e2e-placeholder-not-a-hash', u.role, 'E2E smoke'
-FROM (SELECT role FROM users WHERE role = 'admin' ORDER BY created_at NULLS LAST LIMIT 1) u
+INSERT INTO users (user_id, email, password_hash, role, display_name${BIZ_COL})
+SELECT gen_random_uuid(), '${E2E_EMAIL}', 'e2e-placeholder-not-a-hash', u.role, 'E2E smoke'${BIZ_VAL}
+FROM (SELECT * FROM users WHERE role = 'admin' ORDER BY created_at NULLS LAST LIMIT 1) u
 WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = '${E2E_EMAIL}');
 SQL
 docker compose exec -T db psql -U billing -d billing -tAc \
