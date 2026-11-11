@@ -265,6 +265,41 @@
         ],
         "type": "object"
       },
+      "AgingBucket": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "description": "Base-currency equivalent.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "count": {
+            "description": "Invoices in the bucket, every currency.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "key": {
+            "description": "By today minus due date: not_due is due today or later or without a due date; d1_30 is 1-30 days late; d90_plus is over 90.",
+            "enum": [
+              "not_due",
+              "d1_30",
+              "d31_60",
+              "d61_90",
+              "d90_plus"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "amount",
+          "count"
+        ],
+        "type": "object"
+      },
       "AgingBuckets": {
         "additionalProperties": true,
         "properties": {
@@ -379,6 +414,80 @@
           "party_name",
           "currency",
           "buckets"
+        ],
+        "type": "object"
+      },
+      "AttentionRow": {
+        "additionalProperties": true,
+        "properties": {
+          "balance_due": {
+            "description": "In the invoice's own currency.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "customer_name": {
+            "type": "string"
+          },
+          "days_late": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "due_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "expected_cash": {
+            "description": "The balance less withholding tax not yet booked, in the invoice's own currency.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "invoice_id": {
+            "type": "string"
+          },
+          "invoice_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_reminder_at": {
+            "description": "The customer's latest reminder; null until reminders are logged.",
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "invoice_id",
+          "invoice_number",
+          "customer_id",
+          "customer_name",
+          "balance_due",
+          "expected_cash",
+          "currency",
+          "due_date",
+          "days_late",
+          "last_reminder_at"
         ],
         "type": "object"
       },
@@ -1354,6 +1463,47 @@
           "paid_last_12_months",
           "last_invoice_issue_date",
           "last_invoice_id"
+        ],
+        "type": "object"
+      },
+      "CashInBucket": {
+        "additionalProperties": true,
+        "properties": {
+          "estimate": {
+            "description": "True when a usage estimate is among the recurring runs.",
+            "type": "boolean"
+          },
+          "key": {
+            "description": "Days ahead of today: 0-30, 31-60, 61-90.",
+            "enum": [
+              "d0_30",
+              "d31_60",
+              "d61_90"
+            ],
+            "type": "string"
+          },
+          "open_invoices": {
+            "description": "Open balance not yet overdue and due in the span, base-currency equivalent.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "recurring": {
+            "description": "Next runs of recurring templates and usage drafts in the span, base-currency equivalent.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "open_invoices",
+          "recurring",
+          "estimate"
         ],
         "type": "object"
       },
@@ -5658,6 +5808,87 @@
           "as_of_date",
           "source",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "ReceivablesResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "aging": {
+            "description": "Always the five buckets, in order.",
+            "items": {
+              "$ref": "#/components/schemas/AgingBucket"
+            },
+            "type": "array"
+          },
+          "base_currency": {
+            "type": "string"
+          },
+          "cash_in": {
+            "description": "Always the three buckets, in order.",
+            "items": {
+              "$ref": "#/components/schemas/CashInBucket"
+            },
+            "type": "array"
+          },
+          "customer_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "invoice_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "needs_attention": {
+            "description": "Overdue invoices, oldest due date first, at most six.",
+            "items": {
+              "$ref": "#/components/schemas/AttentionRow"
+            },
+            "type": "array"
+          },
+          "open_ar": {
+            "description": "Base-currency equivalent.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "overdue_excluded": {
+            "description": "The overdue total, left out of the cash-in forecast until collected.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "past_due_share": {
+            "description": "Percent of open AR that is past due; null when nothing is open.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unconverted": {
+            "description": "Sorted currencies with no FX rate, left out of every amount.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "base_currency",
+          "unconverted",
+          "open_ar",
+          "past_due_share",
+          "invoice_count",
+          "customer_count",
+          "aging",
+          "cash_in",
+          "overdue_excluded",
+          "needs_attention"
         ],
         "type": "object"
       },
@@ -13056,6 +13287,37 @@
           }
         },
         "summary": "Dashboard KPIs, days to pay, reconciliation health and top customers for a period",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
+    "/api/v1/stats/receivables": {
+      "get": {
+        "operationId": "stats-receivables",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceivablesResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open receivables: aging, expected cash in and the overdue invoices to chase",
         "tags": [
           "stats"
         ]

@@ -36,6 +36,20 @@ func Register(api huma.API, pool *pgxpool.Pool, cfg platform.Config, clock platf
 		OperationID: "stats-overview", Method: http.MethodGet, Path: "/api/v1/stats/overview", Tags: []string{"stats"},
 		Summary: "Dashboard KPIs, days to pay, reconciliation health and top customers for a period",
 	}), r.overview)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "stats-receivables", Method: http.MethodGet, Path: "/api/v1/stats/receivables", Tags: []string{"stats"},
+		Summary: "Open receivables: aging, expected cash in and the overdue invoices to chase",
+	}), r.receivables)
+}
+
+type receivablesOut struct{ Body ReceivablesResponse }
+
+func (r routes) receivables(ctx context.Context, _ *struct{}) (*receivablesOut, error) {
+	body, err := Receivables(ctx, r.pool, r.cfg.BaseCurrency, platform.TodayUTC(r.clock))
+	if err != nil {
+		return nil, err
+	}
+	return &receivablesOut{Body: body}, nil
 }
 
 type overviewIn struct {

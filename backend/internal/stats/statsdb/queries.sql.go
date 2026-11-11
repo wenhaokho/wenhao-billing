@@ -15,6 +15,55 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const agingByCurrency = `-- name: AgingByCurrency :many
+SELECT CASE
+         WHEN due_date IS NULL OR due_date >= $1::date THEN 'not_due'
+         WHEN due_date >= ($1::date - 30) THEN 'd1_30'
+         WHEN due_date >= ($1::date - 60) THEN 'd31_60'
+         WHEN due_date >= ($1::date - 90) THEN 'd61_90'
+         ELSE 'd90_plus'
+       END::text AS bucket,
+       currency, COALESCE(SUM(balance_due), 0)::numeric AS amount, count(*)::bigint AS invoices
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+ GROUP BY 1, currency
+ ORDER BY 1, currency
+`
+
+type AgingByCurrencyRow struct {
+	Bucket   string
+	Currency string
+	Amount   decimal.Decimal
+	Invoices int64
+}
+
+// The open-AR rule by how late it is: today - due_date in days (no due date
+// counts as not due), per bucket and currency.
+func (q *Queries) AgingByCurrency(ctx context.Context, today pgtype.Date) ([]AgingByCurrencyRow, error) {
+	rows, err := q.db.Query(ctx, agingByCurrency, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgingByCurrencyRow
+	for rows.Next() {
+		var i AgingByCurrencyRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.Currency,
+			&i.Amount,
+			&i.Invoices,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const aliasStats = `-- name: AliasStats :one
 SELECT COALESCE(SUM(jsonb_array_length(matching_aliases)), 0)::bigint AS aliases,
        COUNT(*) FILTER (WHERE jsonb_array_length(matching_aliases) > 0)::bigint AS customers
@@ -582,6 +631,46 @@ func (q *Queries) OpenARCounts(ctx context.Context) (OpenARCountsRow, error) {
 	return i, err
 }
 
+const openNotDueByCurrencyBetween = `-- name: OpenNotDueByCurrencyBetween :many
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date >= $1::date AND due_date <= $2::date
+ GROUP BY currency
+ ORDER BY currency
+`
+
+type OpenNotDueByCurrencyBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type OpenNotDueByCurrencyBetweenRow struct {
+	Currency string
+	Amount   decimal.Decimal
+}
+
+// The open-AR rule with a due date from from_date to to_date, both inclusive.
+func (q *Queries) OpenNotDueByCurrencyBetween(ctx context.Context, arg OpenNotDueByCurrencyBetweenParams) ([]OpenNotDueByCurrencyBetweenRow, error) {
+	rows, err := q.db.Query(ctx, openNotDueByCurrencyBetween, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OpenNotDueByCurrencyBetweenRow
+	for rows.Next() {
+		var i OpenNotDueByCurrencyBetweenRow
+		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const openQuotationPipeline = `-- name: OpenQuotationPipeline :many
 SELECT currency, COALESCE(SUM(amount), 0)::numeric AS amount
   FROM quotations
@@ -677,6 +766,65 @@ func (q *Queries) OverdueByCustomerCurrency(ctx context.Context, today pgtype.Da
 	for rows.Next() {
 		var i OverdueByCustomerCurrencyRow
 		if err := rows.Scan(&i.CustomerID, &i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const overdueOldest = `-- name: OverdueOldest :many
+SELECT i.invoice_id, i.invoice_number, i.customer_id, COALESCE(c.name, '')::text AS customer_name,
+       i.balance_due, i.wht_amount, i.wht_booked, i.currency, i.due_date
+  FROM invoices i
+  LEFT JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.status IN ('OPEN', 'SENT', 'PARTIAL') AND i.is_template = false AND i.balance_due > 0
+   AND i.due_date IS NOT NULL AND i.due_date < $1::date
+ ORDER BY i.due_date, i.invoice_id
+ LIMIT $2::int
+`
+
+type OverdueOldestParams struct {
+	Today pgtype.Date
+	Lim   int32
+}
+
+type OverdueOldestRow struct {
+	InvoiceID     uuid.UUID
+	InvoiceNumber *string
+	CustomerID    pgtype.UUID
+	CustomerName  string
+	BalanceDue    decimal.Decimal
+	WhtAmount     decimal.Decimal
+	WhtBooked     decimal.Decimal
+	Currency      string
+	DueDate       pgtype.Date
+}
+
+// The overdue open invoices, oldest due date first (ties by invoice id).
+func (q *Queries) OverdueOldest(ctx context.Context, arg OverdueOldestParams) ([]OverdueOldestRow, error) {
+	rows, err := q.db.Query(ctx, overdueOldest, arg.Today, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OverdueOldestRow
+	for rows.Next() {
+		var i OverdueOldestRow
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.InvoiceNumber,
+			&i.CustomerID,
+			&i.CustomerName,
+			&i.BalanceDue,
+			&i.WhtAmount,
+			&i.WhtBooked,
+			&i.Currency,
+			&i.DueDate,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
