@@ -15,6 +15,141 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const agingByCurrency = `-- name: AgingByCurrency :many
+SELECT CASE
+         WHEN due_date IS NULL OR due_date >= $1::date THEN 'not_due'
+         WHEN due_date >= ($1::date - 30) THEN 'd1_30'
+         WHEN due_date >= ($1::date - 60) THEN 'd31_60'
+         WHEN due_date >= ($1::date - 90) THEN 'd61_90'
+         ELSE 'd90_plus'
+       END::text AS bucket,
+       currency, COALESCE(SUM(balance_due), 0)::numeric AS amount, count(*)::bigint AS invoices
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+ GROUP BY 1, currency
+ ORDER BY 1, currency
+`
+
+type AgingByCurrencyRow struct {
+	Bucket   string
+	Currency string
+	Amount   decimal.Decimal
+	Invoices int64
+}
+
+// The open-AR rule by how late it is: today - due_date in days (no due date
+// counts as not due), per bucket and currency.
+// The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
+func (q *Queries) AgingByCurrency(ctx context.Context, today pgtype.Date) ([]AgingByCurrencyRow, error) {
+	rows, err := q.db.Query(ctx, agingByCurrency, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgingByCurrencyRow
+	for rows.Next() {
+		var i AgingByCurrencyRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.Currency,
+			&i.Amount,
+			&i.Invoices,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const aliasStats = `-- name: AliasStats :one
+SELECT COALESCE(SUM(jsonb_array_length(matching_aliases)), 0)::bigint AS aliases,
+       COUNT(*) FILTER (WHERE jsonb_array_length(matching_aliases) > 0)::bigint AS customers
+  FROM customers
+`
+
+type AliasStatsRow struct {
+	Aliases   int64
+	Customers int64
+}
+
+// Matching aliases in use across customers, and how many customers have any.
+func (q *Queries) AliasStats(ctx context.Context) (AliasStatsRow, error) {
+	row := q.db.QueryRow(ctx, aliasStats)
+	var i AliasStatsRow
+	err := row.Scan(&i.Aliases, &i.Customers)
+	return i, err
+}
+
+const avgConfidenceBetween = `-- name: AvgConfidenceBetween :one
+SELECT COALESCE(AVG(p.confidence_score), 0)::float8 AS avg_confidence, COUNT(p.confidence_score)::bigint AS scored
+  FROM payments p
+ WHERE p.confidence_score IS NOT NULL AND p.intake_source <> 'MANUAL'
+   AND p.created_at::date >= $1::date AND p.created_at::date <= $2::date
+`
+
+type AvgConfidenceBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type AvgConfidenceBetweenRow struct {
+	AvgConfidence float64
+	Scored        int64
+}
+
+// Mean match confidence of payments created in [from, to] that have a score
+// and did not come from manual entry (scored = how many; 0 means no mean).
+func (q *Queries) AvgConfidenceBetween(ctx context.Context, arg AvgConfidenceBetweenParams) (AvgConfidenceBetweenRow, error) {
+	row := q.db.QueryRow(ctx, avgConfidenceBetween, arg.FromDate, arg.ToDate)
+	var i AvgConfidenceBetweenRow
+	err := row.Scan(&i.AvgConfidence, &i.Scored)
+	return i, err
+}
+
+const collectedByCurrencyBetween = `-- name: CollectedByCurrencyBetween :many
+SELECT currency, COALESCE(SUM(amount + COALESCE(wht_amount, 0)), 0)::numeric AS amount
+  FROM payments
+ WHERE status = 'CLEARED' AND payment_date >= $1::date AND payment_date <= $2::date
+ GROUP BY currency
+ ORDER BY currency
+`
+
+type CollectedByCurrencyBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type CollectedByCurrencyBetweenRow struct {
+	Currency string
+	Amount   decimal.Decimal
+}
+
+// Collected in a window: CLEARED payments dated in [from, to], withholding
+// tax included (the invoice was settled by cash plus the tax certificate).
+func (q *Queries) CollectedByCurrencyBetween(ctx context.Context, arg CollectedByCurrencyBetweenParams) ([]CollectedByCurrencyBetweenRow, error) {
+	rows, err := q.db.Query(ctx, collectedByCurrencyBetween, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CollectedByCurrencyBetweenRow
+	for rows.Next() {
+		var i CollectedByCurrencyBetweenRow
+		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countAutoCleared = `-- name: CountAutoCleared :one
 SELECT count(*) FROM payments WHERE status = 'CLEARED' AND created_at >= $1::timestamp
 `
@@ -87,7 +222,7 @@ func (q *Queries) CountSent(ctx context.Context) (int64, error) {
 }
 
 const daysToPay = `-- name: DaysToPay :one
-SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+SELECT COALESCE(SUM(GREATEST(p.payment_date - i.issue_date, 0)), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
   FROM payments p
   JOIN invoices i ON i.invoice_id = p.invoice_id
  WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
@@ -101,10 +236,38 @@ type DaysToPayRow struct {
 
 // Whole days from issue to payment, summed and counted per CLEARED payment of
 // a PAID invoice paid on or after since (an invoice paid twice counts twice;
-// no upper bound; a negative delta counts).
+// no upper bound; a payment dated before issue counts as 0 days).
 func (q *Queries) DaysToPay(ctx context.Context, since pgtype.Date) (DaysToPayRow, error) {
 	row := q.db.QueryRow(ctx, daysToPay, since)
 	var i DaysToPayRow
+	err := row.Scan(&i.TotalDays, &i.Payments)
+	return i, err
+}
+
+const daysToPayBetween = `-- name: DaysToPayBetween :one
+SELECT COALESCE(SUM(GREATEST(p.payment_date - i.issue_date, 0)), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+  FROM payments p
+  JOIN invoices i ON i.invoice_id = p.invoice_id
+ WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
+   AND p.status = 'CLEARED'
+   AND p.payment_date >= $1::date AND p.payment_date <= $2::date
+`
+
+type DaysToPayBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type DaysToPayBetweenRow struct {
+	TotalDays int64
+	Payments  int64
+}
+
+// DaysToPay with an upper bound: payments dated from since to until, both
+// inclusive. A payment dated before issue counts as 0 days.
+func (q *Queries) DaysToPayBetween(ctx context.Context, arg DaysToPayBetweenParams) (DaysToPayBetweenRow, error) {
+	row := q.db.QueryRow(ctx, daysToPayBetween, arg.FromDate, arg.ToDate)
+	var i DaysToPayBetweenRow
 	err := row.Scan(&i.TotalDays, &i.Payments)
 	return i, err
 }
@@ -139,6 +302,95 @@ func (q *Queries) DueWithinByCurrency(ctx context.Context, arg DueWithinByCurren
 	for rows.Next() {
 		var i DueWithinByCurrencyRow
 		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const invoicedByCurrencyBetween = `-- name: InvoicedByCurrencyBetween :many
+SELECT currency, COALESCE(SUM(amount), 0)::numeric AS amount
+  FROM invoices
+ WHERE is_template = false AND status NOT IN ('DRAFT', 'VOID')
+   AND issue_date IS NOT NULL AND issue_date >= $1::date AND issue_date <= $2::date
+ GROUP BY currency
+ ORDER BY currency
+`
+
+type InvoicedByCurrencyBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type InvoicedByCurrencyBetweenRow struct {
+	Currency string
+	Amount   decimal.Decimal
+}
+
+// Invoiced in a window: issued in [from, to], never a template, never a DRAFT
+// or VOID invoice.
+func (q *Queries) InvoicedByCurrencyBetween(ctx context.Context, arg InvoicedByCurrencyBetweenParams) ([]InvoicedByCurrencyBetweenRow, error) {
+	rows, err := q.db.Query(ctx, invoicedByCurrencyBetween, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InvoicedByCurrencyBetweenRow
+	for rows.Next() {
+		var i InvoicedByCurrencyBetweenRow
+		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const invoicedByCustomerCurrencyBetween = `-- name: InvoicedByCustomerCurrencyBetween :many
+SELECT i.customer_id, c.name, i.currency, COALESCE(SUM(i.amount), 0)::numeric AS amount
+  FROM invoices i
+  JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.is_template = false AND i.status NOT IN ('DRAFT', 'VOID')
+   AND i.issue_date >= $1::date AND i.issue_date <= $2::date
+ GROUP BY i.customer_id, c.name, i.currency
+ ORDER BY i.customer_id, i.currency
+`
+
+type InvoicedByCustomerCurrencyBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type InvoicedByCustomerCurrencyBetweenRow struct {
+	CustomerID pgtype.UUID
+	Name       string
+	Currency   string
+	Amount     decimal.Decimal
+}
+
+// InvoicedByCurrencyBetween per customer.
+func (q *Queries) InvoicedByCustomerCurrencyBetween(ctx context.Context, arg InvoicedByCustomerCurrencyBetweenParams) ([]InvoicedByCustomerCurrencyBetweenRow, error) {
+	rows, err := q.db.Query(ctx, invoicedByCustomerCurrencyBetween, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InvoicedByCustomerCurrencyBetweenRow
+	for rows.Next() {
+		var i InvoicedByCustomerCurrencyBetweenRow
+		if err := rows.Scan(
+			&i.CustomerID,
+			&i.Name,
+			&i.Currency,
+			&i.Amount,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -361,6 +613,66 @@ func (q *Queries) OpenARByCurrency(ctx context.Context) ([]OpenARByCurrencyRow, 
 	return items, nil
 }
 
+const openARCounts = `-- name: OpenARCounts :one
+SELECT count(*)::bigint AS invoice_count, count(DISTINCT customer_id)::bigint AS customer_count
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+`
+
+type OpenARCountsRow struct {
+	InvoiceCount  int64
+	CustomerCount int64
+}
+
+// Invoices and distinct customers behind the open AR rule.
+func (q *Queries) OpenARCounts(ctx context.Context) (OpenARCountsRow, error) {
+	row := q.db.QueryRow(ctx, openARCounts)
+	var i OpenARCountsRow
+	err := row.Scan(&i.InvoiceCount, &i.CustomerCount)
+	return i, err
+}
+
+const openNotDueByCurrencyBetween = `-- name: OpenNotDueByCurrencyBetween :many
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date >= $1::date AND due_date <= $2::date
+ GROUP BY currency
+ ORDER BY currency
+`
+
+type OpenNotDueByCurrencyBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type OpenNotDueByCurrencyBetweenRow struct {
+	Currency string
+	Amount   decimal.Decimal
+}
+
+// The open-AR rule with a due date from from_date to to_date, both inclusive.
+// The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
+func (q *Queries) OpenNotDueByCurrencyBetween(ctx context.Context, arg OpenNotDueByCurrencyBetweenParams) ([]OpenNotDueByCurrencyBetweenRow, error) {
+	rows, err := q.db.Query(ctx, openNotDueByCurrencyBetween, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OpenNotDueByCurrencyBetweenRow
+	for rows.Next() {
+		var i OpenNotDueByCurrencyBetweenRow
+		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const openQuotationPipeline = `-- name: OpenQuotationPipeline :many
 SELECT currency, COALESCE(SUM(amount), 0)::numeric AS amount
   FROM quotations
@@ -420,6 +732,102 @@ func (q *Queries) OverdueByCurrency(ctx context.Context, today pgtype.Date) ([]O
 	for rows.Next() {
 		var i OverdueByCurrencyRow
 		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const overdueByCustomerCurrency = `-- name: OverdueByCustomerCurrency :many
+SELECT customer_id, currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date < $1::date
+ GROUP BY customer_id, currency
+ ORDER BY customer_id, currency
+`
+
+type OverdueByCustomerCurrencyRow struct {
+	CustomerID pgtype.UUID
+	Currency   string
+	Amount     decimal.Decimal
+}
+
+// OverdueByCurrency per customer.
+func (q *Queries) OverdueByCustomerCurrency(ctx context.Context, today pgtype.Date) ([]OverdueByCustomerCurrencyRow, error) {
+	rows, err := q.db.Query(ctx, overdueByCustomerCurrency, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OverdueByCustomerCurrencyRow
+	for rows.Next() {
+		var i OverdueByCustomerCurrencyRow
+		if err := rows.Scan(&i.CustomerID, &i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const overdueOldest = `-- name: OverdueOldest :many
+SELECT i.invoice_id, i.invoice_number, i.customer_id, c.name AS customer_name,
+       i.balance_due, i.wht_amount, i.wht_booked, i.currency, i.due_date
+  FROM invoices i
+  LEFT JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.status IN ('OPEN', 'SENT', 'PARTIAL') AND i.is_template = false AND i.balance_due > 0
+   AND i.due_date IS NOT NULL AND i.due_date < $1::date
+ ORDER BY i.due_date, i.invoice_id
+ LIMIT $2::int
+`
+
+type OverdueOldestParams struct {
+	Today pgtype.Date
+	Lim   int32
+}
+
+type OverdueOldestRow struct {
+	InvoiceID     uuid.UUID
+	InvoiceNumber *string
+	CustomerID    pgtype.UUID
+	CustomerName  *string
+	BalanceDue    decimal.Decimal
+	WhtAmount     decimal.Decimal
+	WhtBooked     decimal.Decimal
+	Currency      string
+	DueDate       pgtype.Date
+}
+
+// The overdue open invoices, oldest due date first (ties by invoice id).
+// The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
+func (q *Queries) OverdueOldest(ctx context.Context, arg OverdueOldestParams) ([]OverdueOldestRow, error) {
+	rows, err := q.db.Query(ctx, overdueOldest, arg.Today, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OverdueOldestRow
+	for rows.Next() {
+		var i OverdueOldestRow
+		if err := rows.Scan(
+			&i.InvoiceID,
+			&i.InvoiceNumber,
+			&i.CustomerID,
+			&i.CustomerName,
+			&i.BalanceDue,
+			&i.WhtAmount,
+			&i.WhtBooked,
+			&i.Currency,
+			&i.DueDate,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -507,4 +915,39 @@ func (q *Queries) RecentActivity(ctx context.Context) ([]RecentActivityRow, erro
 		return nil, err
 	}
 	return items, nil
+}
+
+const reconCountsBetween = `-- name: ReconCountsBetween :one
+SELECT
+  COUNT(*) FILTER (WHERE p.status = 'CLEARED' AND EXISTS (
+    SELECT 1 FROM reconciliation_log l
+     WHERE l.payment_id = p.payment_id AND l.action = 'CLEARED' AND l.actor_user_id IS NULL))::bigint AS auto_cleared,
+  COUNT(*) FILTER (WHERE p.status = 'CLEARED' AND NOT EXISTS (
+    SELECT 1 FROM reconciliation_log l
+     WHERE l.payment_id = p.payment_id AND l.action = 'CLEARED' AND l.actor_user_id IS NULL))::bigint AS manual,
+  COUNT(*) FILTER (WHERE p.status IN ('PENDING_MANUAL_REVIEW', 'FLAGGED'))::bigint AS held
+  FROM payments p
+ WHERE p.created_at::date >= $1::date AND p.created_at::date <= $2::date
+`
+
+type ReconCountsBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type ReconCountsBetweenRow struct {
+	AutoCleared int64
+	Manual      int64
+	Held        int64
+}
+
+// Payments created in [from, to] by outcome. Auto = CLEARED with a CLEARED log
+// row written by the engine (actor_user_id NULL); manual = any other CLEARED
+// (manual entry and override write an actor); held = PENDING_MANUAL_REVIEW or
+// FLAGGED.
+func (q *Queries) ReconCountsBetween(ctx context.Context, arg ReconCountsBetweenParams) (ReconCountsBetweenRow, error) {
+	row := q.db.QueryRow(ctx, reconCountsBetween, arg.FromDate, arg.ToDate)
+	var i ReconCountsBetweenRow
+	err := row.Scan(&i.AutoCleared, &i.Manual, &i.Held)
+	return i, err
 }

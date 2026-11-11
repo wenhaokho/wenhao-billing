@@ -112,9 +112,132 @@ SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
 -- name: DaysToPay :one
 -- Whole days from issue to payment, summed and counted per CLEARED payment of
 -- a PAID invoice paid on or after since (an invoice paid twice counts twice;
--- no upper bound; a negative delta counts).
-SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+-- no upper bound; a payment dated before issue counts as 0 days).
+SELECT COALESCE(SUM(GREATEST(p.payment_date - i.issue_date, 0)), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
   FROM payments p
   JOIN invoices i ON i.invoice_id = p.invoice_id
  WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
    AND p.status = 'CLEARED' AND p.payment_date >= @since::date;
+
+-- name: InvoicedByCurrencyBetween :many
+-- Invoiced in a window: issued in [from, to], never a template, never a DRAFT
+-- or VOID invoice.
+SELECT currency, COALESCE(SUM(amount), 0)::numeric AS amount
+  FROM invoices
+ WHERE is_template = false AND status NOT IN ('DRAFT', 'VOID')
+   AND issue_date IS NOT NULL AND issue_date >= @from_date::date AND issue_date <= @to_date::date
+ GROUP BY currency
+ ORDER BY currency;
+
+-- name: CollectedByCurrencyBetween :many
+-- Collected in a window: CLEARED payments dated in [from, to], withholding
+-- tax included (the invoice was settled by cash plus the tax certificate).
+SELECT currency, COALESCE(SUM(amount + COALESCE(wht_amount, 0)), 0)::numeric AS amount
+  FROM payments
+ WHERE status = 'CLEARED' AND payment_date >= @from_date::date AND payment_date <= @to_date::date
+ GROUP BY currency
+ ORDER BY currency;
+
+-- name: OpenARCounts :one
+-- Invoices and distinct customers behind the open AR rule.
+SELECT count(*)::bigint AS invoice_count, count(DISTINCT customer_id)::bigint AS customer_count
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0;
+
+-- name: DaysToPayBetween :one
+-- DaysToPay with an upper bound: payments dated from since to until, both
+-- inclusive. A payment dated before issue counts as 0 days.
+SELECT COALESCE(SUM(GREATEST(p.payment_date - i.issue_date, 0)), 0)::bigint AS total_days, COUNT(*)::bigint AS payments
+  FROM payments p
+  JOIN invoices i ON i.invoice_id = p.invoice_id
+ WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
+   AND p.status = 'CLEARED'
+   AND p.payment_date >= @from_date::date AND p.payment_date <= @to_date::date;
+
+-- name: ReconCountsBetween :one
+-- Payments created in [from, to] by outcome. Auto = CLEARED with a CLEARED log
+-- row written by the engine (actor_user_id NULL); manual = any other CLEARED
+-- (manual entry and override write an actor); held = PENDING_MANUAL_REVIEW or
+-- FLAGGED.
+SELECT
+  COUNT(*) FILTER (WHERE p.status = 'CLEARED' AND EXISTS (
+    SELECT 1 FROM reconciliation_log l
+     WHERE l.payment_id = p.payment_id AND l.action = 'CLEARED' AND l.actor_user_id IS NULL))::bigint AS auto_cleared,
+  COUNT(*) FILTER (WHERE p.status = 'CLEARED' AND NOT EXISTS (
+    SELECT 1 FROM reconciliation_log l
+     WHERE l.payment_id = p.payment_id AND l.action = 'CLEARED' AND l.actor_user_id IS NULL))::bigint AS manual,
+  COUNT(*) FILTER (WHERE p.status IN ('PENDING_MANUAL_REVIEW', 'FLAGGED'))::bigint AS held
+  FROM payments p
+ WHERE p.created_at::date >= @from_date::date AND p.created_at::date <= @to_date::date;
+
+-- name: AvgConfidenceBetween :one
+-- Mean match confidence of payments created in [from, to] that have a score
+-- and did not come from manual entry (scored = how many; 0 means no mean).
+SELECT COALESCE(AVG(p.confidence_score), 0)::float8 AS avg_confidence, COUNT(p.confidence_score)::bigint AS scored
+  FROM payments p
+ WHERE p.confidence_score IS NOT NULL AND p.intake_source <> 'MANUAL'
+   AND p.created_at::date >= @from_date::date AND p.created_at::date <= @to_date::date;
+
+-- name: AliasStats :one
+-- Matching aliases in use across customers, and how many customers have any.
+SELECT COALESCE(SUM(jsonb_array_length(matching_aliases)), 0)::bigint AS aliases,
+       COUNT(*) FILTER (WHERE jsonb_array_length(matching_aliases) > 0)::bigint AS customers
+  FROM customers;
+
+-- name: InvoicedByCustomerCurrencyBetween :many
+-- InvoicedByCurrencyBetween per customer.
+SELECT i.customer_id, c.name, i.currency, COALESCE(SUM(i.amount), 0)::numeric AS amount
+  FROM invoices i
+  JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.is_template = false AND i.status NOT IN ('DRAFT', 'VOID')
+   AND i.issue_date >= @from_date::date AND i.issue_date <= @to_date::date
+ GROUP BY i.customer_id, c.name, i.currency
+ ORDER BY i.customer_id, i.currency;
+
+-- name: OverdueByCustomerCurrency :many
+-- OverdueByCurrency per customer.
+SELECT customer_id, currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date < @today::date
+ GROUP BY customer_id, currency
+ ORDER BY customer_id, currency;
+
+-- name: AgingByCurrency :many
+-- The open-AR rule by how late it is: today - due_date in days (no due date
+-- counts as not due), per bucket and currency.
+-- The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
+SELECT CASE
+         WHEN due_date IS NULL OR due_date >= sqlc.arg(today)::date THEN 'not_due'
+         WHEN due_date >= (sqlc.arg(today)::date - 30) THEN 'd1_30'
+         WHEN due_date >= (sqlc.arg(today)::date - 60) THEN 'd31_60'
+         WHEN due_date >= (sqlc.arg(today)::date - 90) THEN 'd61_90'
+         ELSE 'd90_plus'
+       END::text AS bucket,
+       currency, COALESCE(SUM(balance_due), 0)::numeric AS amount, count(*)::bigint AS invoices
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+ GROUP BY 1, currency
+ ORDER BY 1, currency;
+
+-- name: OpenNotDueByCurrencyBetween :many
+-- The open-AR rule with a due date from from_date to to_date, both inclusive.
+-- The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date >= @from_date::date AND due_date <= @to_date::date
+ GROUP BY currency
+ ORDER BY currency;
+
+-- name: OverdueOldest :many
+-- The overdue open invoices, oldest due date first (ties by invoice id).
+-- The WHERE repeats the open-AR rule; OpenARByCurrency is the canonical copy, keep them in step.
+SELECT i.invoice_id, i.invoice_number, i.customer_id, c.name AS customer_name,
+       i.balance_due, i.wht_amount, i.wht_booked, i.currency, i.due_date
+  FROM invoices i
+  LEFT JOIN customers c ON c.customer_id = i.customer_id
+ WHERE i.status IN ('OPEN', 'SENT', 'PARTIAL') AND i.is_template = false AND i.balance_due > 0
+   AND i.due_date IS NOT NULL AND i.due_date < @today::date
+ ORDER BY i.due_date, i.invoice_id
+ LIMIT @lim::int;

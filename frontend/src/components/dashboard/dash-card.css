@@ -1,0 +1,47 @@
+/* Shared look of the dashboard's analytics cards (mockup): a bordered surface,
+   Manrope title, muted subtitle, uppercase eyebrow labels, hairline footers.
+   Each card pulls it in with <style scoped src="./dash-card.css">. */
+.dc { padding: 28px; display: flex; flex-direction: column; min-width: 0; }
+.dc-title { font: 500 20px/1.2 var(--wb-font-display); letter-spacing: -0.5px; color: var(--wb-ink); margin: 0; }
+.dc-sub { margin: 4px 0 0; color: var(--wb-muted); font-size: 13px; line-height: 1.5; }
+.dc-label {
+  font: 500 11px/1.4 var(--wb-font-sans);
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  color: var(--wb-muted-soft);
+}
+.dc-figure { font: 500 20px var(--wb-font-display); letter-spacing: -0.6px; margin-top: 6px; color: var(--wb-ink); }
+.dc-aside { font: 400 13px var(--wb-font-sans); letter-spacing: 0; color: var(--wb-muted-soft); }
+.dc-foot {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--wb-line);
+}
+.dc-foot-sub { font-size: 12px; color: var(--wb-muted); margin-top: 2px; }
+.dc-note { margin: 14px 0 0; color: var(--wb-muted-soft); font-size: 12px; }
+.dc-link { font-size: 13px; white-space: nowrap; text-decoration: none; }
+.dc-link:hover { text-decoration: underline; }
+.dc-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 2;
+  padding: 5px 8px;
+  background: var(--wb-ink);
+  color: var(--wb-bg);
+  font: 400 11px/1.3 var(--wb-font-sans);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.num { font-variant-numeric: tabular-nums; }
+.swatch { width: 10px; height: 10px; flex: none; display: inline-block; }
+.good { color: var(--wb-green-fg); }
+.bad { color: var(--wb-red-fg); }
+/* The shared EmptyState is sized for a page; inside a card it sits tighter. */
+.dc :deep(.wb-empty) { padding: 32px 8px; }
+@media (max-width: 640px) {
+  .dc { padding: 20px 18px; }
+}
