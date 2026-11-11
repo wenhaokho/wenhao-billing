@@ -118,3 +118,37 @@ SELECT COALESCE(SUM(p.payment_date - i.issue_date), 0)::bigint AS total_days, CO
   JOIN invoices i ON i.invoice_id = p.invoice_id
  WHERE i.status = 'PAID' AND i.issue_date IS NOT NULL
    AND p.status = 'CLEARED' AND p.payment_date >= @since::date;
+
+-- name: InvoicedByCurrencyBetween :many
+-- Invoiced in a window: issued in [from, to], never a template, never a DRAFT
+-- or VOID invoice.
+SELECT currency, COALESCE(SUM(amount), 0)::numeric AS amount
+  FROM invoices
+ WHERE is_template = false AND status NOT IN ('DRAFT', 'VOID')
+   AND issue_date IS NOT NULL AND issue_date >= @from_date::date AND issue_date <= @to_date::date
+ GROUP BY currency
+ ORDER BY currency;
+
+-- name: CollectedByCurrencyBetween :many
+-- Collected in a window: CLEARED payments dated in [from, to], withholding
+-- tax included (the invoice was settled by cash plus the tax certificate).
+SELECT currency, COALESCE(SUM(amount + COALESCE(wht_amount, 0)), 0)::numeric AS amount
+  FROM payments
+ WHERE status = 'CLEARED' AND payment_date >= @from_date::date AND payment_date <= @to_date::date
+ GROUP BY currency
+ ORDER BY currency;
+
+-- name: OpenARCounts :one
+-- Invoices and distinct customers behind the open AR rule.
+SELECT count(*)::bigint AS invoice_count, count(DISTINCT customer_id)::bigint AS customer_count
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0;
+
+-- name: OverdueARByCurrency :many
+-- The open AR rule with a due date before today.
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date < @today::date
+ GROUP BY currency
+ ORDER BY currency;

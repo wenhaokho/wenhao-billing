@@ -15,6 +15,46 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const collectedByCurrencyBetween = `-- name: CollectedByCurrencyBetween :many
+SELECT currency, COALESCE(SUM(amount + COALESCE(wht_amount, 0)), 0)::numeric AS amount
+  FROM payments
+ WHERE status = 'CLEARED' AND payment_date >= $1::date AND payment_date <= $2::date
+ GROUP BY currency
+ ORDER BY currency
+`
+
+type CollectedByCurrencyBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type CollectedByCurrencyBetweenRow struct {
+	Currency string
+	Amount   decimal.Decimal
+}
+
+// Collected in a window: CLEARED payments dated in [from, to], withholding
+// tax included (the invoice was settled by cash plus the tax certificate).
+func (q *Queries) CollectedByCurrencyBetween(ctx context.Context, arg CollectedByCurrencyBetweenParams) ([]CollectedByCurrencyBetweenRow, error) {
+	rows, err := q.db.Query(ctx, collectedByCurrencyBetween, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CollectedByCurrencyBetweenRow
+	for rows.Next() {
+		var i CollectedByCurrencyBetweenRow
+		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countAutoCleared = `-- name: CountAutoCleared :one
 SELECT count(*) FROM payments WHERE status = 'CLEARED' AND created_at >= $1::timestamp
 `
@@ -138,6 +178,47 @@ func (q *Queries) DueWithinByCurrency(ctx context.Context, arg DueWithinByCurren
 	var items []DueWithinByCurrencyRow
 	for rows.Next() {
 		var i DueWithinByCurrencyRow
+		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const invoicedByCurrencyBetween = `-- name: InvoicedByCurrencyBetween :many
+SELECT currency, COALESCE(SUM(amount), 0)::numeric AS amount
+  FROM invoices
+ WHERE is_template = false AND status NOT IN ('DRAFT', 'VOID')
+   AND issue_date IS NOT NULL AND issue_date >= $1::date AND issue_date <= $2::date
+ GROUP BY currency
+ ORDER BY currency
+`
+
+type InvoicedByCurrencyBetweenParams struct {
+	FromDate pgtype.Date
+	ToDate   pgtype.Date
+}
+
+type InvoicedByCurrencyBetweenRow struct {
+	Currency string
+	Amount   decimal.Decimal
+}
+
+// Invoiced in a window: issued in [from, to], never a template, never a DRAFT
+// or VOID invoice.
+func (q *Queries) InvoicedByCurrencyBetween(ctx context.Context, arg InvoicedByCurrencyBetweenParams) ([]InvoicedByCurrencyBetweenRow, error) {
+	rows, err := q.db.Query(ctx, invoicedByCurrencyBetween, arg.FromDate, arg.ToDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InvoicedByCurrencyBetweenRow
+	for rows.Next() {
+		var i InvoicedByCurrencyBetweenRow
 		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
 			return nil, err
 		}
@@ -361,6 +442,25 @@ func (q *Queries) OpenARByCurrency(ctx context.Context) ([]OpenARByCurrencyRow, 
 	return items, nil
 }
 
+const openARCounts = `-- name: OpenARCounts :one
+SELECT count(*)::bigint AS invoice_count, count(DISTINCT customer_id)::bigint AS customer_count
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+`
+
+type OpenARCountsRow struct {
+	InvoiceCount  int64
+	CustomerCount int64
+}
+
+// Invoices and distinct customers behind the open AR rule.
+func (q *Queries) OpenARCounts(ctx context.Context) (OpenARCountsRow, error) {
+	row := q.db.QueryRow(ctx, openARCounts)
+	var i OpenARCountsRow
+	err := row.Scan(&i.InvoiceCount, &i.CustomerCount)
+	return i, err
+}
+
 const openQuotationPipeline = `-- name: OpenQuotationPipeline :many
 SELECT currency, COALESCE(SUM(amount), 0)::numeric AS amount
   FROM quotations
@@ -383,6 +483,41 @@ func (q *Queries) OpenQuotationPipeline(ctx context.Context) ([]OpenQuotationPip
 	var items []OpenQuotationPipelineRow
 	for rows.Next() {
 		var i OpenQuotationPipelineRow
+		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const overdueARByCurrency = `-- name: OverdueARByCurrency :many
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+  FROM invoices
+ WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
+   AND due_date IS NOT NULL AND due_date < $1::date
+ GROUP BY currency
+ ORDER BY currency
+`
+
+type OverdueARByCurrencyRow struct {
+	Currency string
+	Amount   decimal.Decimal
+}
+
+// The open AR rule with a due date before today.
+func (q *Queries) OverdueARByCurrency(ctx context.Context, today pgtype.Date) ([]OverdueARByCurrencyRow, error) {
+	rows, err := q.db.Query(ctx, overdueARByCurrency, today)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OverdueARByCurrencyRow
+	for rows.Next() {
+		var i OverdueARByCurrencyRow
 		if err := rows.Scan(&i.Currency, &i.Amount); err != nil {
 			return nil, err
 		}
