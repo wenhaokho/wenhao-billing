@@ -151,7 +151,7 @@ case "$MODE" in
       --corpus /src/port/compare-corpus.yaml \
       --allowed /src/port/allowed-diffs.yaml \
       --allowed /src/port/allowed-diffs-prodcopy.yaml \
-      --allow-skips \
+      --allow-skips --ledger-matches-aging \
       --out "/src/.compare-report-$MODE.json" || status=$?
     ;;
   writes)
