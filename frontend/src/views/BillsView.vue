@@ -10,6 +10,8 @@ import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
@@ -80,22 +82,17 @@ const vendorNameById = computed(() => {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Bills</h1>
-        <p class="subtitle">
-          Vendor bills — the AP counterpart to customer invoices. Record spend
-          against the expense accounts you posted in the chart of accounts.
-        </p>
-      </div>
-      <div class="page-actions">
-        <Button label="New bill" @click="router.push('/bills/new')">
-          <template #icon><AppIcon name="plus" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="03 / Purchases" title="Bills">
+      <template #lede>
+        Vendor bills — the AP counterpart to customer invoices. Record spend
+        against the expense accounts you posted in the chart of accounts.
+      </template>
+      <Button label="New bill" @click="router.push('/bills/new')">
+        <template #icon><AppIcon name="plus" /></template>
+      </Button>
+    </PageHeader>
 
-    <Tabs v-model:value="activeTab" class="status-tabs">
+    <Tabs v-model:value="activeTab" class="list-tabs">
       <TabList>
         <Tab value="unpaid">Unpaid</Tab>
         <Tab value="draft">Draft</Tab>
@@ -112,20 +109,19 @@ const vendorNameById = computed(() => {
       @row-click="(ev) => router.push({ path: `/bills/${(ev.data as Bill).bill_id}/edit`, query: { from: route.fullPath } })"
     >
       <template #empty>
-        <div class="empty-state">
-          <AppIcon name="file-text" />
-          <div>No bills match the current filter.</div>
-        </div>
+        <EmptyState icon="receipt" title="No bills here" message="No bills match the current filter.">
+          <Button label="New bill" severity="secondary" outlined @click="router.push('/bills/new')" />
+        </EmptyState>
       </template>
-      <Column header="Bill #">
+      <Column header="Bill #" body-class="cell-nowrap">
         <template #body="{ data: row }">
-          <code v-if="row.bill_number">{{ row.bill_number }}</code>
+          <span v-if="row.bill_number" class="doc-no">{{ row.bill_number }}</span>
           <span v-else class="muted">—</span>
         </template>
       </Column>
       <Column header="Vendor">
         <template #body="{ data: row }">
-          {{ vendorNameById[row.vendor_id] ?? row.vendor_id.slice(0, 8) }}
+          <span class="name">{{ vendorNameById[row.vendor_id] ?? row.vendor_id.slice(0, 8) }}</span>
         </template>
       </Column>
       <Column field="po_number" header="PO">
@@ -139,27 +135,27 @@ const vendorNameById = computed(() => {
           <StatusTag :status="row.status" />
         </template>
       </Column>
-      <Column header="Amount" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+      <Column header="Amount" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <span class="num">{{ formatAmount(row.amount, row.currency) }}</span>
         </template>
       </Column>
-      <Column header="Balance" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+      <Column header="Balance" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
-          <span class="num">{{ formatAmount(row.balance_due, row.currency) }}</span>
+          <span class="num strong">{{ formatAmount(row.balance_due, row.currency) }}</span>
         </template>
       </Column>
-      <Column field="currency" header="Ccy" />
-      <Column field="issue_date" header="Issued" />
-      <Column field="due_date" header="Due" />
+      <Column field="currency" header="Ccy" body-class="cell-nowrap cell-muted" />
+      <Column field="issue_date" header="Issued" body-class="cell-nowrap cell-muted" />
+      <Column field="due_date" header="Due" body-class="cell-nowrap" />
     </DataTable>
   </section>
 </template>
 
 <style scoped>
-.status-tabs { margin-bottom: 0.5rem; }
-code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
 .num { font-variant-numeric: tabular-nums; }
-.muted { color: var(--color-text-muted, #64748b); }
+.strong { font-weight: 500; }
+.name { font-weight: 500; }
+.muted { color: var(--wb-muted-soft); }
 :deep(.p-datatable-tbody > tr) { cursor: pointer; }
 </style>

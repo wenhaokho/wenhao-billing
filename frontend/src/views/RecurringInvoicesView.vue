@@ -11,6 +11,8 @@ import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
@@ -113,25 +115,20 @@ function fmtDate(d: string | null) {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Recurring invoices</h1>
-        <p class="subtitle">
-          Templates that auto-generate DRAFT invoices on a schedule. Each
-          generated invoice still needs to be reviewed and sent.
-        </p>
-      </div>
-      <div class="page-actions">
-        <Button label="Back to invoices" text @click="router.push('/invoices')">
-          <template #icon><AppIcon name="arrow-left" /></template>
-        </Button>
-        <Button label="New recurring invoice" @click="openNew">
-          <template #icon><AppIcon name="plus" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="02 / Sales" title="Recurring invoices">
+      <template #lede>
+        Templates that auto-generate <code>DRAFT</code> invoices on a schedule. Each
+        generated invoice still needs to be reviewed and sent.
+      </template>
+      <Button label="Back to invoices" severity="secondary" outlined @click="router.push('/invoices')">
+        <template #icon><AppIcon name="arrow-left" /></template>
+      </Button>
+      <Button label="New recurring invoice" @click="openNew">
+        <template #icon><AppIcon name="plus" /></template>
+      </Button>
+    </PageHeader>
 
-    <Tabs v-model:value="activeTab" class="status-tabs">
+    <Tabs v-model:value="activeTab" class="list-tabs">
       <TabList>
         <Tab value="active">Active</Tab>
         <Tab value="paused">Paused</Tab>
@@ -147,19 +144,20 @@ function fmtDate(d: string | null) {
       striped-rows
     >
       <template #empty>
-        <div class="empty-state">
-          <AppIcon name="repeat" />
-          <div v-if="hasTemplates">No recurring templates match the current filter.</div>
-          <div v-else>
-            No recurring templates yet. Click
-            <strong>New recurring invoice</strong> to create one.
-          </div>
-        </div>
+        <EmptyState
+          v-if="hasTemplates"
+          icon="repeat"
+          title="No templates here"
+          message="No recurring templates match the current filter."
+        />
+        <EmptyState v-else icon="repeat" title="No recurring templates yet">
+          <template #message>Click <strong>New recurring invoice</strong> to create one.</template>
+        </EmptyState>
       </template>
 
       <Column field="customer_name" header="Customer">
         <template #body="{ data: row }">
-          <span v-if="row.customer_name">{{ row.customer_name }}</span>
+          <span v-if="row.customer_name" class="name">{{ row.customer_name }}</span>
           <span v-else class="muted">—</span>
         </template>
       </Column>
@@ -171,17 +169,17 @@ function fmtDate(d: string | null) {
         </template>
       </Column>
 
-      <Column header="Amount" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+      <Column header="Amount" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
-          <span class="num">{{ formatAmount(row.amount, row.currency) }} {{ row.currency }}</span>
+          <span class="num">{{ formatAmount(row.amount, row.currency) }} <span class="ccy">{{ row.currency }}</span></span>
         </template>
       </Column>
 
-      <Column header="Previous">
+      <Column header="Previous" body-class="cell-nowrap cell-muted">
         <template #body="{ data: row }">{{ fmtDate(row.previous_issue_date) }}</template>
       </Column>
 
-      <Column header="Next">
+      <Column header="Next" body-class="cell-nowrap">
         <template #body="{ data: row }">{{ fmtDate(row.next_run_date) }}</template>
       </Column>
 
@@ -195,7 +193,7 @@ function fmtDate(d: string | null) {
         </template>
       </Column>
 
-      <Column header="" :style="{ width: '220px' }">
+      <Column header="" :style="{ width: '160px' }" :body-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <div class="row-actions">
             <Button
@@ -243,9 +241,10 @@ function fmtDate(d: string | null) {
 </template>
 
 <style scoped>
-.status-tabs { margin-bottom: 0.5rem; }
-.muted { color: var(--color-text-subtle); }
-.small { font-size: 0.8rem; }
+.muted { color: var(--wb-muted-soft); }
+.small { font-size: 13px; }
+.name { font-weight: 500; }
 .num { font-variant-numeric: tabular-nums; }
-.row-actions { display: flex; gap: 0.15rem; align-items: center; }
+.ccy { font-size: 12px; color: var(--wb-muted-soft); }
+.row-actions { display: flex; gap: 2px; align-items: center; justify-content: flex-end; }
 </style>

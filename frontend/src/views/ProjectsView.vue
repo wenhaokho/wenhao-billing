@@ -7,6 +7,8 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
@@ -91,22 +93,17 @@ function openDetail(row: Project) {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Projects</h1>
-        <p class="subtitle">
-          Track engagements, contract value, and milestone billing. Each invoice or bill
-          can be tagged to a project for consolidated reporting.
-        </p>
-      </div>
-      <div class="page-actions">
-        <Button label="New project" @click="openCreate">
-          <template #icon><AppIcon name="plus" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="02 / Sales" title="Projects">
+      <template #lede>
+        Track engagements, contract value, and milestone billing. Each invoice or bill
+        can be tagged to a project for consolidated reporting.
+      </template>
+      <Button label="New project" @click="openCreate">
+        <template #icon><AppIcon name="plus" /></template>
+      </Button>
+    </PageHeader>
 
-    <Tabs v-model:value="activeTab" class="status-tabs">
+    <Tabs v-model:value="activeTab" class="list-tabs">
       <TabList>
         <Tab value="active">Active</Tab>
         <Tab value="hold">On hold</Tab>
@@ -116,30 +113,29 @@ function openDetail(row: Project) {
 
     <DataTable :value="projects ?? []" :loading="isLoading" data-key="project_id" striped-rows>
       <template #empty>
-        <div class="empty-state">
-          <AppIcon name="folder-open" />
-          <div>No projects yet. Create one to tag invoices and bills.</div>
-        </div>
+        <EmptyState icon="folder" title="No projects yet" message="Create one to tag invoices and bills to it.">
+          <Button label="New project" severity="secondary" outlined @click="openCreate" />
+        </EmptyState>
       </template>
-      <Column header="Code">
+      <Column header="Code" body-class="cell-nowrap">
         <template #body="{ data: row }">
-          <code>{{ row.code }}</code>
+          <span class="doc-no">{{ row.code }}</span>
         </template>
       </Column>
-      <Column field="name" header="Name" />
+      <Column header="Name">
+        <template #body="{ data: row }">
+          <span class="name">{{ row.name }}</span>
+        </template>
+      </Column>
       <Column header="Customer">
         <template #body="{ data: row }">
-          <span class="muted small">
+          <span class="muted">
             {{ customerNameById[row.customer_id] ?? row.customer_id.slice(0, 8) }}
           </span>
         </template>
       </Column>
-      <Column header="Currency">
-        <template #body="{ data: row }">
-          <span class="mono">{{ row.currency }}</span>
-        </template>
-      </Column>
-      <Column header="Contract value">
+      <Column field="currency" header="Currency" body-class="cell-nowrap cell-muted" />
+      <Column header="Contract value" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <span v-if="row.contract_value" class="num">
             {{ formatMoney(row.contract_value, row.currency) }}
@@ -152,7 +148,7 @@ function openDetail(row: Project) {
           <StatusTag :status="row.status" />
         </template>
       </Column>
-      <Column header="" :style="{ width: '140px' }">
+      <Column header="" :style="{ width: '120px' }" :body-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <div class="row-actions">
             <Button text rounded title="View" @click="openDetail(row)">
@@ -169,12 +165,8 @@ function openDetail(row: Project) {
 </template>
 
 <style scoped>
-.muted { color: var(--color-text-muted); }
-.small { font-size: 0.82rem; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
-code { background: var(--color-surface-alt); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.85em; }
-.row-actions { display: flex; gap: 0.15rem; }
+.muted { color: var(--wb-muted); }
+.name { font-weight: 500; }
+.row-actions { display: flex; gap: 2px; justify-content: flex-end; }
 .num { font-variant-numeric: tabular-nums; }
-.page-actions { display: flex; gap: 0.5rem; align-items: center; }
-.status-tabs { margin-bottom: 0.5rem; }
 </style>

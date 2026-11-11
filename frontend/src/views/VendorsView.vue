@@ -8,6 +8,8 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Button from "primevue/button";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import ToggleSwitch from "primevue/toggleswitch";
 import { api } from "@/api/client";
 
@@ -76,33 +78,31 @@ function confirmDeactivate(row: Vendor) {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Vendors</h1>
-        <p class="subtitle">
-          Third-party suppliers — cloud, AI providers, subcontractors.
-          These are the "other side" of your P&amp;L (5xxx COGS accounts).
-        </p>
-      </div>
-      <div class="page-actions">
-        <label class="toggle">
-          <ToggleSwitch v-model="showInactive" />
-          <span>Show inactive</span>
-        </label>
-        <Button label="New vendor" @click="openCreate">
-          <template #icon><AppIcon name="plus" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="03 / Purchases" title="Vendors">
+      <template #lede>
+        Third-party suppliers — cloud, AI providers, subcontractors.
+        These are the "other side" of your P&amp;L (5xxx COGS accounts).
+      </template>
+      <label class="toggle">
+        <ToggleSwitch v-model="showInactive" />
+        <span>Show inactive</span>
+      </label>
+      <Button label="New vendor" @click="openCreate">
+        <template #icon><AppIcon name="plus" /></template>
+      </Button>
+    </PageHeader>
 
     <DataTable :value="data ?? []" :loading="isLoading" data-key="vendor_id" striped-rows>
       <template #empty>
-        <div class="empty-state">
-          <AppIcon name="briefcase" />
-          <div>No vendors yet. Add your cloud, AI, and contractor suppliers.</div>
-        </div>
+        <EmptyState icon="briefcase" title="No vendors yet" message="Add your cloud, AI, and contractor suppliers.">
+          <Button label="New vendor" severity="secondary" outlined @click="openCreate" />
+        </EmptyState>
       </template>
-      <Column field="name" header="Name" />
+      <Column header="Name">
+        <template #body="{ data: row }">
+          <span class="name">{{ row.name }}</span>
+        </template>
+      </Column>
       <Column header="Contact">
         <template #body="{ data: row }">
           <div v-if="row.contact_name || row.contact_email">
@@ -112,8 +112,8 @@ function confirmDeactivate(row: Vendor) {
           <span v-else class="muted">—</span>
         </template>
       </Column>
-      <Column field="default_currency" header="Ccy" />
-      <Column header="Terms">
+      <Column field="default_currency" header="Ccy" body-class="cell-nowrap cell-muted" />
+      <Column header="Terms" body-class="cell-nowrap">
         <template #body="{ data: row }">
           Net {{ row.payment_terms_days }}
         </template>
@@ -123,7 +123,7 @@ function confirmDeactivate(row: Vendor) {
           <StatusTag :status="row.active ? 'ACTIVE' : 'INACTIVE'" />
         </template>
       </Column>
-      <Column header="" :style="{ width: '180px' }">
+      <Column header="" :style="{ width: '160px' }" :body-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <div class="row-actions">
             <Button text rounded title="View" @click="openDetail(row)">
@@ -160,8 +160,9 @@ function confirmDeactivate(row: Vendor) {
 </template>
 
 <style scoped>
-.toggle { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted); }
-.muted { color: var(--color-text-muted); }
-.small { font-size: 0.8rem; }
-.row-actions { display: flex; gap: 0.15rem; }
+.toggle { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--wb-muted); cursor: pointer; }
+.muted { color: var(--wb-muted-soft); }
+.small { font-size: 13px; color: var(--wb-muted); }
+.name { font-weight: 500; }
+.row-actions { display: flex; gap: 2px; justify-content: flex-end; }
 </style>

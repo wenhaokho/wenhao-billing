@@ -9,6 +9,8 @@ import Column from "primevue/column";
 import Button from "primevue/button";
 import Tag from "primevue/tag";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import { api } from "@/api/client";
 import { formatMoney } from "@/utils/money";
 
@@ -102,41 +104,39 @@ function typeSeverity(t: string) {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Products &amp; Services</h1>
-        <p class="subtitle">
-          Catalog of billable services — fixed fees, recurring support, and metered usage.
-          Each item maps to a revenue account for posting.
-        </p>
-      </div>
-      <div class="page-actions">
-        <Button label="New item" @click="openCreate">
-          <template #icon><AppIcon name="plus" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="04 / Accounting" title="Products & Services">
+      <template #lede>
+        Catalog of billable services — fixed fees, recurring support, and metered usage.
+        Each item maps to a revenue account for posting.
+      </template>
+      <Button label="New item" @click="openCreate">
+        <template #icon><AppIcon name="plus" /></template>
+      </Button>
+    </PageHeader>
 
     <DataTable :value="items ?? []" :loading="isLoading" data-key="item_id" striped-rows>
       <template #empty>
-        <div class="empty-state">
-          <AppIcon name="tag" />
-          <div>No items yet. Add the services you bill for.</div>
-        </div>
+        <EmptyState icon="tag" title="No items yet" message="Add the services you bill for.">
+          <Button label="New item" severity="secondary" outlined @click="openCreate" />
+        </EmptyState>
       </template>
-      <Column field="sku" header="SKU">
+      <Column field="sku" header="SKU" body-class="cell-nowrap">
         <template #body="{ data: row }">
-          <code v-if="row.sku">{{ row.sku }}</code>
+          <span v-if="row.sku" class="doc-no">{{ row.sku }}</span>
           <span v-else class="muted">—</span>
         </template>
       </Column>
-      <Column field="name" header="Name" />
+      <Column header="Name">
+        <template #body="{ data: row }">
+          <span class="name">{{ row.name }}</span>
+        </template>
+      </Column>
       <Column header="Type">
         <template #body="{ data: row }">
           <Tag :value="row.item_type" :severity="typeSeverity(row.item_type)" />
         </template>
       </Column>
-      <Column header="Unit price">
+      <Column header="Unit price" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <span v-if="row.default_unit_price" class="num">
             {{ formatMoney(row.default_unit_price, row.default_currency) }}
@@ -166,7 +166,7 @@ function typeSeverity(t: string) {
           <StatusTag :status="row.active ? 'ACTIVE' : 'INACTIVE'" />
         </template>
       </Column>
-      <Column header="" :style="{ width: '180px' }">
+      <Column header="" :style="{ width: '160px' }" :body-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <div class="row-actions">
             <Button text rounded title="View" @click="openDetail(row)">
@@ -203,10 +203,10 @@ function typeSeverity(t: string) {
 </template>
 
 <style scoped>
-.muted { color: var(--color-text-muted); }
-.small { font-size: 0.82rem; }
-code { background: var(--color-surface-alt); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.85em; }
-.row-actions { display: flex; gap: 0.15rem; }
+.muted { color: var(--wb-muted-soft); }
+.small { font-size: 13px; color: var(--wb-muted); }
+.name { font-weight: 500; }
+.row-actions { display: flex; gap: 2px; justify-content: flex-end; }
 .num { font-variant-numeric: tabular-nums; }
-.flags { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.flags { display: flex; gap: 6px; flex-wrap: wrap; }
 </style>

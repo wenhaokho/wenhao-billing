@@ -10,6 +10,8 @@ import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
 import StatusTag from "@/components/StatusTag.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 
@@ -79,22 +81,17 @@ const customerNameById = computed(() => {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Quotations</h1>
-        <p class="subtitle">
-          Estimates sent to customers. Accepted quotes can be converted to a
-          <code>DRAFT</code> invoice in one click.
-        </p>
-      </div>
-      <div class="page-actions">
-        <Button label="New quotation" @click="router.push('/quotations/new')">
-          <template #icon><AppIcon name="plus" /></template>
-        </Button>
-      </div>
-    </header>
+    <PageHeader eyebrow="02 / Sales" title="Quotations">
+      <template #lede>
+        Estimates sent to customers. Accepted quotes can be converted to a
+        <code>DRAFT</code> invoice in one click.
+      </template>
+      <Button label="New quotation" @click="router.push('/quotations/new')">
+        <template #icon><AppIcon name="plus" /></template>
+      </Button>
+    </PageHeader>
 
-    <Tabs v-model:value="activeTab" class="status-tabs">
+    <Tabs v-model:value="activeTab" class="list-tabs">
       <TabList>
         <Tab value="open">Open</Tab>
         <Tab value="accepted">Accepted</Tab>
@@ -111,20 +108,19 @@ const customerNameById = computed(() => {
       @row-click="(ev) => router.push({ path: `/quotations/${(ev.data as Quotation).quotation_id}`, query: { from: route.fullPath } })"
     >
       <template #empty>
-        <div class="empty-state">
-          <AppIcon name="file-pen" />
-          <div>No quotations match the current filter.</div>
-        </div>
+        <EmptyState icon="file-pen" title="No quotations here" message="Nothing in the pipeline matches this filter.">
+          <Button label="New quotation" severity="secondary" outlined @click="router.push('/quotations/new')" />
+        </EmptyState>
       </template>
-      <Column header="Quote #">
+      <Column header="Quote #" body-class="cell-nowrap">
         <template #body="{ data: row }">
-          <code v-if="row.quotation_number">{{ row.quotation_number }}</code>
+          <span v-if="row.quotation_number" class="doc-no">{{ row.quotation_number }}</span>
           <span v-else class="muted">—</span>
         </template>
       </Column>
       <Column header="Customer">
         <template #body="{ data: row }">
-          {{ customerNameById[row.customer_id] ?? row.customer_id.slice(0, 8) }}
+          <span class="name">{{ customerNameById[row.customer_id] ?? row.customer_id.slice(0, 8) }}</span>
         </template>
       </Column>
       <Column header="Status">
@@ -132,22 +128,21 @@ const customerNameById = computed(() => {
           <StatusTag :status="row.status" />
         </template>
       </Column>
-      <Column header="Amount" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
+      <Column header="Amount" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
         <template #body="{ data: row }">
           <span class="num">{{ formatAmount(row.amount, row.currency) }}</span>
         </template>
       </Column>
-      <Column field="currency" header="Ccy" />
-      <Column field="issue_date" header="Issued" />
-      <Column field="valid_until" header="Valid until" />
+      <Column field="currency" header="Ccy" body-class="cell-nowrap cell-muted" />
+      <Column field="issue_date" header="Issued" body-class="cell-nowrap cell-muted" />
+      <Column field="valid_until" header="Valid until" body-class="cell-nowrap" />
     </DataTable>
   </section>
 </template>
 
 <style scoped>
-.status-tabs { margin-bottom: 0.5rem; }
-code { background: var(--color-bg); padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.82em; }
 .num { font-variant-numeric: tabular-nums; }
-.muted { color: var(--color-text-muted, #64748b); }
+.name { font-weight: 500; }
+.muted { color: var(--wb-muted-soft); }
 :deep(.p-datatable-tbody > tr) { cursor: pointer; }
 </style>
