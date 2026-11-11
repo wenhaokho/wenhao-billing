@@ -39,8 +39,14 @@ type bEntry struct {
 // entries have no creation time, so in no particular order: find one by memo).
 func billEntries(t *testing.T, a *apitest.App, id uuid.UUID) []bEntry {
 	t.Helper()
+	return billEntriesOf(t, a, "BILL", id)
+}
+
+// billEntriesOf are the journal entries whose source is (sourceType, id).
+func billEntriesOf(t *testing.T, a *apitest.App, sourceType string, id uuid.UUID) []bEntry {
+	t.Helper()
 	rows, err := a.Pool.Query(t.Context(), `SELECT entry_id, COALESCE(memo, ''), posted_at, reversed_by_entry_id IS NOT NULL
-FROM journal_entries WHERE source_type = 'BILL' AND source_id = $1 ORDER BY posted_at, entry_id`, id)
+FROM journal_entries WHERE source_type = $2 AND source_id = $1 ORDER BY posted_at, entry_id`, id, sourceType)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,12 +312,14 @@ func TestOpenBillEditReposts(t *testing.T) {
 		}
 		wantD(t, "net 2000", netBase(t, a, out.BillID, "2000"), "-3000")
 		wantD(t, "net 6000", netBase(t, a, out.BillID, "6000"), "3000")
-		// The currency, the issue date and the discount re-post too.
+		// The currency and the issue date re-post too; a discount-only PATCH
+		// does not reprice (Python's oddity 6), so it does not re-post
+		// (TestOpenEditRepostsOnlyOnChange).
 		for _, change := range []map[string]any{{"currency": "USD"}, {"issue_date": "2026-02-01"}, {"discount_type": "AMOUNT", "discount_value": 1}} {
 			patch(t, a, out.BillID, change)
 		}
-		if es := billEntries(t, a, out.BillID); len(es) != 9 {
-			t.Errorf("%d entries after three more edits, want 9", len(es))
+		if es := billEntries(t, a, out.BillID); len(es) != 7 {
+			t.Errorf("%d entries after three more edits, want 7", len(es))
 		}
 		wantD(t, "net 2000 in USD at 16000", netBase(t, a, out.BillID, "2000"), "-48000000")
 		if n := activeEntries(t, a, out.BillID); n != 1 {
@@ -355,12 +363,12 @@ func TestOpenToDraftReverses(t *testing.T) {
 	wantD(t, "net 2000", netBase(t, a, out.BillID, "2000"), "-2000")
 }
 
+// PAID records a payment (TestPatchToPaidRecordsPayment, PORT-NOTES 165).
 func TestPatchToPartialRefused(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ from, to, detail string }{
 		{"DRAFT", "PARTIAL", "PARTIAL comes from recording a payment"},
 		{"OPEN", "PARTIAL", "PARTIAL comes from recording a payment"},
-		{"OPEN", "PAID", "PAID comes from recording a payment"},
 	} {
 		t.Run(c.from+" to "+c.to, func(t *testing.T) {
 			t.Parallel()

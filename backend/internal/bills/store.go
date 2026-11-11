@@ -12,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/bills/billsdb"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
@@ -168,39 +169,48 @@ func createBill(ctx context.Context, tx pgx.Tx, b BillCreate) (BillOut, error) {
 }
 
 // updateBill is Python's update_bill (billing_ap.py:84-115) in tx, the bill
-// read FOR UPDATE. Only a DRAFT or OPEN bill is editable. The fields sent
-// overlay the row. Only a list of lines replaces the lines and reprices the
-// bill, with the discount as it is after the overlay; a discount-only PATCH
-// does not reprice. The balance is re-baselined to the new amount while the
-// status after the overlay is DRAFT (_apply_totals runs after the fields are
-// set).
+// read FOR UPDATE. Only a DRAFT or OPEN bill is editable (and a PARTIAL one
+// sent to PAID). The fields sent overlay the row. Only a list of lines
+// replaces the lines and reprices the bill, with the discount as it is after
+// the overlay; a discount-only PATCH does not reprice. The balance is
+// re-baselined to the new amount while the status after the overlay is
+// DRAFT (_apply_totals runs after the fields are set).
 //
-// Go's own (PORT-NOTES 164), under the row lock: the status sent is a
-// transition, not a field. PARTIAL and PAID are refused (they come from a
-// payment). DRAFT→OPEN posts the issue entry (openBill) and re-baselines
-// the balance; an OPEN bill whose lines, discount, currency or issue date
-// are sent reverses its entry, re-baselines the balance (an OPEN bill has no
-// payment) and posts again; OPEN→DRAFT reverses it; VOID writes the other
-// fields, then voids as POST /void does. A ledger refusal or a missing rate
-// rolls the whole PATCH back.
+// Go's own (PORT-NOTES 164, 165), under the row lock: the status sent is a
+// transition, not a field. PARTIAL is refused (it comes from a payment).
+// DRAFT→OPEN posts the issue entry (openBill) and re-baselines the balance.
+// An OPEN bill whose lines, discount, currency or issue date are sent
+// re-posts only when its amount, currency, issue day or expense split
+// actually changed: it reverses its entry, re-baselines the balance and
+// posts again. OPEN→DRAFT reverses the entry. Both are refused while the
+// bill has payments not reversed. VOID writes the other fields, then voids
+// as POST /void does. PAID writes the other fields (a DRAFT is opened
+// first), then records a payment of the whole balance dated CURRENT_DATE
+// (payRest). A ledger refusal or a missing rate rolls the whole PATCH back.
 func updateBill(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID, b BillUpdate) (BillOut, error) {
 	q := billsdb.New(tx)
 	cur, err := lock(ctx, q, id)
 	if err != nil {
 		return BillOut{}, err
 	}
-	if cur.Status != "DRAFT" && cur.Status != "OPEN" {
+	target := b.Status.Or(cur.Status)
+	if cur.Status != "DRAFT" && cur.Status != "OPEN" && (cur.Status != "PARTIAL" || target != "PAID") {
 		return BillOut{}, refuse("bill_not_editable", "bill is %s and cannot be edited", cur.Status)
 	}
-	target := b.Status.Or(cur.Status)
-	switch target {
-	case "PARTIAL", "PAID":
+	if target == "PARTIAL" {
 		return BillOut{}, refuse("bill_status_not_settable", "%s comes from recording a payment", target)
 	}
-	// VOID goes through voidBill once the other fields are written.
+	// VOID goes through voidBill and PAID through payRest once the other
+	// fields are written; PAID opens a DRAFT first.
 	status := target
-	if target == "VOID" {
+	switch target {
+	case "VOID":
 		status = cur.Status
+	case "PAID":
+		status = cur.Status
+		if status == "DRAFT" {
+			status = "OPEN"
+		}
 	}
 	f := b.BillFields
 	reposts := b.LineItems != nil || f.DiscountType.Set || f.DiscountValue.Set || b.Currency.Set || f.IssueDate.Set
@@ -232,8 +242,8 @@ func updateBill(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID, b Bil
 		}
 	}
 	opening := cur.Status == "DRAFT" && status == "OPEN"
-	editing := cur.Status == "OPEN" && status == "OPEN" && reposts
-	if opening || editing {
+	editing := cur.Status != "DRAFT" && status == cur.Status && reposts
+	if opening {
 		balance = amount
 	}
 
@@ -247,29 +257,99 @@ func updateBill(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID, b Bil
 	if err != nil {
 		return BillOut{}, mapWriteError(err)
 	}
+	if target == "VOID" {
+		return voidBill(ctx, tx, id, "status set to VOID via update")
+	}
+	row, err := q.GetBill(ctx, id)
+	if err != nil {
+		return BillOut{}, err
+	}
 
 	switch {
-	case target == "VOID":
-		return voidBill(ctx, tx, id, "status set to VOID via update")
 	case cur.Status == "OPEN" && status == "DRAFT":
-		if err := unpostBill(ctx, tx, id, "Bill "+id.String()+" returned to draft"); err != nil {
+		if err := hasActivePayments(ctx, q, id, "cannot return a bill with payments to draft — reverse them first"); err != nil {
 			return BillOut{}, err
 		}
-	case opening || editing:
-		if editing {
-			if err := unpostBill(ctx, tx, id, "Edit of bill "+id.String()); err != nil {
-				return BillOut{}, err
-			}
-		}
-		row, err := q.GetBill(ctx, id)
-		if err != nil {
+		if err := unpostBill(ctx, tx, id, "Bill "+billLabel(row)+" returned to draft"); err != nil {
 			return BillOut{}, err
 		}
+	case opening:
 		if err := openBill(ctx, tx, base, row); err != nil {
+			return BillOut{}, err
+		}
+	case editing:
+		if err := repost(ctx, tx, base, cur, row); err != nil {
+			return BillOut{}, err
+		}
+	}
+	if target == "PAID" {
+		if err := payRest(ctx, tx, base, id); err != nil {
 			return BillOut{}, err
 		}
 	}
 	return get(ctx, q, id)
+}
+
+// repost is an edit of a posted bill (cur before it, row after it, both
+// locked): when its issue entry would change (postingChanged), the entry is
+// reversed, the balance re-baselined to the amount and the bill posted
+// again; refused while it has payments not reversed.
+func repost(ctx context.Context, tx pgx.Tx, base string, cur, row billsdb.Bill) error {
+	changed, err := postingChanged(ctx, tx, cur, row)
+	if err != nil || !changed {
+		return err
+	}
+	q := billsdb.New(tx)
+	if err := hasActivePayments(ctx, q, row.BillID, "cannot re-post a bill with payments — reverse them first"); err != nil {
+		return err
+	}
+	if err := unpostBill(ctx, tx, row.BillID, "Edit of bill "+billLabel(row)); err != nil {
+		return err
+	}
+	if err := q.SetBillBalance(ctx, billsdb.SetBillBalanceParams{BillID: row.BillID, BalanceDue: row.Amount, Status: row.Status}); err != nil {
+		return err
+	}
+	return openBill(ctx, tx, base, row)
+}
+
+// postingChanged reports whether an edit of a posted bill changes what its
+// issue entry would be: the amount, the currency, the issue day (issueDay)
+// or the expense split (ExpenseShares against the active entry's shares).
+// A bill with no active entry (opened before bills posted) always re-posts.
+func postingChanged(ctx context.Context, tx pgx.Tx, cur, row billsdb.Bill) (bool, error) {
+	if !cur.Amount.Equal(row.Amount) || cur.Currency != row.Currency || !issueDay(cur).Equal(issueDay(row)) {
+		return true, nil
+	}
+	posted, ok, err := ledger.IssuedShares(ctx, tx, ledger.SourceBill, row.BillID)
+	if err != nil || !ok {
+		return !ok, err
+	}
+	shares, err := ExpenseShares(ctx, tx, row)
+	if err != nil {
+		return false, err
+	}
+	return !sameShares(posted, shares), nil
+}
+
+// sameShares reports whether a and b book the same amount to each account.
+func sameShares(a, b []ledger.Share) bool {
+	sum := func(ss []ledger.Share) map[int32]decimal.Decimal {
+		m := map[int32]decimal.Decimal{}
+		for _, s := range ss {
+			m[s.AccountID] = m[s.AccountID].Add(s.Amount)
+		}
+		return m
+	}
+	ma, mb := sum(a), sum(b)
+	if len(ma) != len(mb) {
+		return false
+	}
+	for k, v := range ma {
+		if w, ok := mb[k]; !ok || !w.Equal(v) {
+			return false
+		}
+	}
+	return true
 }
 
 func decOf(d *platform.Dec4) *decimal.Decimal {

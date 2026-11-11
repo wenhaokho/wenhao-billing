@@ -13,6 +13,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/bills/billsdb"
@@ -21,14 +22,14 @@ import (
 )
 
 // BillPaymentRequest is the body of a bill payment, Python's
-// RecordPaymentRequest (schemas/payment.py:50-56). Only the amount is used:
-// no payment row is stored and nothing is posted (port note 8).
+// RecordPaymentRequest (schemas/payment.py:50-56). Go stores it as a bill
+// payment and posts it (PORT-NOTES 165); Python kept only the amount.
 type BillPaymentRequest struct {
 	Amount         paymentAmount             `json:"amount" doc:"Above 0, at most 4 decimal places, at most the balance due."`
-	PaymentDate    platform.Date             `json:"payment_date" doc:"Required, but not stored."`
-	PayerName      platform.Optional[string] `json:"payer_name" doc:"Not stored."`
-	PayerReference platform.Optional[string] `json:"payer_reference" doc:"Not stored."`
-	Notes          platform.Optional[string] `json:"notes" doc:"Not stored."`
+	PaymentDate    platform.Date             `json:"payment_date" doc:"Required. The FX date of the posting."`
+	PayerName      platform.Optional[string] `json:"payer_name" maxLength:"255"`
+	PayerReference platform.Optional[string] `json:"payer_reference" maxLength:"255" doc:"Stored as the payment's reference."`
+	Notes          platform.Optional[string] `json:"notes"`
 }
 
 // VoidBillRequest is the body of a bill void, Python's untyped `payload:
@@ -52,15 +53,16 @@ func (r routes) registerPayments(api huma.API, prefix string, tags []string) {
 	huma.Register(api, platform.Admin(huma.Operation{
 		OperationID: "bills-record-payment", Method: http.MethodPost, Path: prefix + "/{bill_id}/record-payment", Tags: tags,
 		Summary:     "Record an outgoing payment against an OPEN or PARTIAL bill",
-		Description: "The balance falls by the amount: to 0 is PAID, otherwise PARTIAL. More than the balance is refused. Nothing is posted to the ledger and no payment row is kept.",
+		Description: "The payment is stored (GET /payments lists it) and posted: Dr accounts payable at the bill's issue basis / Cr bank at the payment date's rate, the difference booked as realised FX gain or loss. The balance falls by the amount: to 0 is PAID, otherwise PARTIAL. More than the balance is refused.",
 		Errors:      []int{http.StatusBadRequest, http.StatusNotFound},
 	}), r.recordPayment)
 	huma.Register(api, platform.Admin(huma.Operation{
 		OperationID: "bills-void", Method: http.MethodPost, Path: prefix + "/{bill_id}/void", Tags: tags,
 		Summary:     "Void a DRAFT, OPEN or PARTIAL bill",
-		Description: "Nothing is left due, \"[voided] <reason>\" is appended to the notes on a new line, and the bill's ledger entry is reversed. An OPEN or PARTIAL bill with no ledger entry (opened before bills posted) is refused until the back-post has run.",
+		Description: "Nothing is left due, \"[voided] <reason>\" is appended to the notes on a new line, and the bill's ledger entry is reversed. A bill with payments that are not reversed is refused (reverse them first). An OPEN or PARTIAL bill with no ledger entry (opened before bills posted) is refused until the back-post has run.",
 		Errors:      []int{http.StatusBadRequest, http.StatusNotFound},
 	}), r.void)
+	r.registerBillPayments(api, prefix, tags)
 }
 
 // notPositiveSentence is the 422 of Python's gt=0 constraint.
@@ -71,8 +73,13 @@ func (r routes) recordPayment(ctx context.Context, in *paymentIn) (*billBody, er
 	if amount.Sign() <= 0 {
 		return nil, platform.FieldError("amount", notPositiveSentence)
 	}
+	p := newPayment{
+		amount: amount, date: pgtype.Date{Time: in.Body.PaymentDate.Time, Valid: true},
+		payerName: in.Body.PayerName.Merge(nil), ref: in.Body.PayerReference.Merge(nil), notes: in.Body.Notes.Merge(nil),
+		source: sourceManual,
+	}
 	printed := in.Body.Amount.python()
-	return r.inTx(ctx, func(tx pgx.Tx) (BillOut, error) { return recordPayment(ctx, tx, in.BillID, amount, printed) })
+	return r.inTx(ctx, func(tx pgx.Tx) (BillOut, error) { return recordPayment(ctx, tx, r.base, in.BillID, p, printed) })
 }
 
 // paymentAmount is the payment's Dec4 and the JSON text it was sent as,
@@ -114,8 +121,9 @@ func (a paymentAmount) python() string {
 // with the bill read FOR UPDATE: two payments at once see each other's
 // balance (Python lost an update). A DRAFT, VOID or PAID bill is refused,
 // and so is more than the balance; the refusal prints the amount as
-// printed (paymentAmount.python).
-func recordPayment(ctx context.Context, tx pgx.Tx, id uuid.UUID, amount decimal.Decimal, printed string) (BillOut, error) {
+// printed (paymentAmount.python). Go's own (PORT-NOTES 165): the payment is
+// then stored and posted (payBill).
+func recordPayment(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID, p newPayment, printed string) (BillOut, error) {
 	q := billsdb.New(tx)
 	cur, err := lock(ctx, q, id)
 	if err != nil {
@@ -125,15 +133,11 @@ func recordPayment(ctx context.Context, tx pgx.Tx, id uuid.UUID, amount decimal.
 	case "DRAFT", "VOID", "PAID":
 		return BillOut{}, refuse("bill_not_payable", "cannot record payment on %s bill", cur.Status)
 	}
-	if amount.GreaterThan(cur.BalanceDue) {
+	if p.amount.GreaterThan(cur.BalanceDue) {
 		return BillOut{}, refuse("payment_exceeds_balance", "amount %s exceeds balance due %s",
 			printed, cur.BalanceDue.StringFixed(4))
 	}
-	balance, status := cur.BalanceDue.Sub(amount), "PARTIAL"
-	if balance.Sign() <= 0 {
-		balance, status = decimal.Zero, "PAID"
-	}
-	if err := q.SetBillBalance(ctx, billsdb.SetBillBalanceParams{BillID: id, BalanceDue: balance, Status: status}); err != nil {
+	if err := payBill(ctx, tx, base, cur, p); err != nil {
 		return BillOut{}, err
 	}
 	return get(ctx, q, id)
@@ -155,10 +159,12 @@ func (r routes) void(ctx context.Context, in *voidIn) (*billBody, error) {
 // VOID with nothing due and the reason appended to its notes on a new line
 // (so null notes start with the newline).
 //
-// Go's own (PORT-NOTES 164), under the row lock: the issue entry is reversed
-// (memo "Void of bill <id>"). An OPEN or PARTIAL bill with an amount but no
-// issue entry (opened before the change) is refused until the back-post has
-// run; a DRAFT or a bill of 0 has nothing to reverse.
+// Go's own (PORT-NOTES 164, 165), under the row lock: a bill with payments
+// not reversed is refused (400 bill_has_payments); the issue entry is
+// reversed (memo "Void of bill <number, else id>"). An OPEN or PARTIAL bill
+// with an amount but no issue entry (opened before the change) is refused
+// until the back-post has run; a DRAFT or a bill of 0 has nothing to
+// reverse.
 func voidBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, reason string) (BillOut, error) {
 	q := billsdb.New(tx)
 	cur, err := lock(ctx, q, id)
@@ -168,7 +174,10 @@ func voidBill(ctx context.Context, tx pgx.Tx, id uuid.UUID, reason string) (Bill
 	if cur.Status == "PAID" || cur.Status == "VOID" {
 		return BillOut{}, refuse("bill_not_voidable", "bill is %s and cannot be voided", cur.Status)
 	}
-	reversed, err := ledger.ReverseIssued(ctx, tx, ledger.SourceBill, id, "Void of bill "+id.String())
+	if err := hasActivePayments(ctx, q, id, "cannot void a bill with payments — reverse them first"); err != nil {
+		return BillOut{}, err
+	}
+	reversed, err := ledger.ReverseIssued(ctx, tx, ledger.SourceBill, id, "Void of bill "+billLabel(cur))
 	if err != nil {
 		return BillOut{}, err
 	}

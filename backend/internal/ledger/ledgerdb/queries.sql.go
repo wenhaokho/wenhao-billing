@@ -114,6 +114,33 @@ func (q *Queries) ActiveEntryFor(ctx context.Context, arg ActiveEntryForParams) 
 	return entry_id, err
 }
 
+const billAPBasis = `-- name: BillAPBasis :one
+SELECT COALESCE(SUM(l.credit - l.debit), 0)::numeric AS face,
+       COALESCE(SUM(l.base_amount_credit - l.base_amount_debit), 0)::numeric AS base
+  FROM journal_lines l
+  JOIN journal_entries e ON e.entry_id = l.entry_id
+  JOIN chart_of_accounts a ON a.account_id = l.account_id
+ WHERE a.code = '2000'
+   AND ((e.source_type = 'BILL' AND e.source_id = $1::uuid)
+     OR (e.source_type = 'BILL_PAYMENT' AND e.source_id IN (SELECT p.bill_payment_id FROM bill_payments p WHERE p.bill_id = $1::uuid)))
+`
+
+type BillAPBasisRow struct {
+	Face decimal.Decimal
+	Base decimal.Decimal
+}
+
+// The bill's payable on the ledger: the 2000 lines of its BILL entries and of
+// the BILL_PAYMENT entries of every bill payment pointing at it, reversals
+// included. face is in the bill's currency (credit − debit), base in the
+// base currency.
+func (q *Queries) BillAPBasis(ctx context.Context, billID uuid.UUID) (BillAPBasisRow, error) {
+	row := q.db.QueryRow(ctx, billAPBasis, billID)
+	var i BillAPBasisRow
+	err := row.Scan(&i.Face, &i.Base)
+	return i, err
+}
+
 const entryLines = `-- name: EntryLines :many
 SELECT account_id, debit, credit, currency, base_amount_debit, base_amount_credit, fx_rate
   FROM journal_lines

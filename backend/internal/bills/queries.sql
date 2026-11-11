@@ -80,3 +80,32 @@ SELECT l.amount, l.expense_account_id AS line_account_id, i.expense_account_id A
   LEFT JOIN items i ON i.item_id = l.item_id
  WHERE l.bill_id = $1
  ORDER BY l.position, l.line_item_id;
+
+-- name: InsertBillPayment :one
+-- A bill payment (PORT-NOTES 165), CLEARED, in the bill's currency.
+INSERT INTO bill_payments (bill_payment_id, bill_id, amount, currency, payment_date, payer_name, reference, notes, source)
+VALUES (@bill_payment_id, @bill_id, @amount, @currency, @payment_date, @payer_name, @reference, @notes, @source)
+RETURNING *;
+
+-- name: ListBillPayments :many
+-- A bill's payments, oldest first, the id breaking ties.
+SELECT * FROM bill_payments WHERE bill_id = $1 ORDER BY created_at, bill_payment_id;
+
+-- name: GetBillPaymentForUpdate :one
+-- The bill payment to reverse, locked before its bill (lock order: bill
+-- payment → bill → entry).
+SELECT * FROM bill_payments WHERE bill_payment_id = @bill_payment_id AND bill_id = @bill_id FOR UPDATE;
+
+-- name: ReverseBillPayment :one
+UPDATE bill_payments SET status = 'REVERSED', reversed_at = CURRENT_TIMESTAMP, reversal_reason = @reason
+WHERE bill_payment_id = @bill_payment_id
+RETURNING *;
+
+-- name: CountActiveBillPayments :one
+-- The bill's payments not reversed: a bill with any is neither voided nor
+-- re-posted.
+SELECT count(*) FROM bill_payments WHERE bill_id = $1 AND status = 'CLEARED';
+
+-- name: CurrentDate :one
+-- The database's date: a PATCH to PAID dates its payment CURRENT_DATE.
+SELECT CURRENT_DATE::date AS today;

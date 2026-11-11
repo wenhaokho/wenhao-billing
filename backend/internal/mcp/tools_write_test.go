@@ -771,6 +771,34 @@ WHERE e.source_type = 'BILL' AND e.source_id = $1::uuid AND e.reversed_by_entry_
 	}
 }
 
+// update_bill(status="PAID") records a payment of the balance dated today,
+// as PATCH /bills does (PORT-NOTES 165); a DRAFT is opened first.
+func TestMCPUpdateBillPaidRecordsPayment(t *testing.T) {
+	t.Parallel()
+	h := newWriteHarness(t)
+	h.exec(t, `INSERT INTO fx_rates (from_currency, to_currency, rate, as_of_date, source) VALUES ('USD', 'IDR', 16000, '2026-01-01', 'TEST')`)
+	created := h.done(t, "create_bill", map[string]any{
+		"vendor_id": h.vendor(t, "Acme Vendor Pte Ltd").String(), "currency": "USD",
+		"issue_date": "2026-01-10", "line_items": lines("AWS", "1", "200"),
+	})
+	id := created["bill_id"]
+	out := h.done(t, "update_bill", map[string]any{"bill_id": id, "changes": map[string]any{"status": "PAID"}})
+	if out["status"] != "PAID" || out["balance_due"] != "0.0000" {
+		t.Fatalf("bill %v", out)
+	}
+	if got := h.cell(t, `SELECT amount::text || ' ' || source || ' ' || (payment_date = CURRENT_DATE)::text || ' ' || notes
+FROM bill_payments WHERE bill_id = $1::uuid`, id); got != "200.0000 STATUS_UPDATE true status set to PAID via update" {
+		t.Errorf("payment %v", got)
+	}
+	if n := h.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'BILL_PAYMENT'
+AND source_id IN (SELECT bill_payment_id FROM bill_payments WHERE bill_id = $1::uuid)`, id); n != 1 {
+		t.Errorf("%d bill payment entries, want 1", n)
+	}
+	if n := h.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'BILL' AND source_id = $1::uuid`, id); n != 1 {
+		t.Errorf("%d bill entries, want 1 (opened first)", n)
+	}
+}
+
 func TestUpdateBillNotFoundReturnsError(t *testing.T) {
 	t.Parallel()
 	h := newWriteHarness(t)

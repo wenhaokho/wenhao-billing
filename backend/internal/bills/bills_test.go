@@ -393,11 +393,11 @@ func TestPatchStatusOpensBill(t *testing.T) {
 		t.Errorf("status %q", got.Status)
 	}
 	wantDec4(t, "balance_due", p4(got.BalanceDue), "1000")
-	// An OPEN bill is still editable; PAID comes only from a payment
-	// (PORT-NOTES 164), where Python set it as any other field.
-	wantProblem(t, a.Do(t, http.MethodPatch, billPath(out.BillID), map[string]any{"status": "PAID"}),
-		http.StatusBadRequest, "bill_status_not_settable", "PAID comes from recording a payment", "", "")
-	setStatus(t, a, out.BillID, "PAID")
+	// PAID records a payment of the balance (PORT-NOTES 165), where Python
+	// set it as any other field.
+	if got := patch(t, a, out.BillID, map[string]any{"status": "PAID"}); got.Status != "PAID" || got.BalanceDue.Decimal().Sign() != 0 {
+		t.Errorf("status %q balance %s", got.Status, got.BalanceDue.Decimal())
+	}
 	wantProblem(t, a.Do(t, http.MethodPatch, billPath(out.BillID), map[string]any{"status": "OPEN"}),
 		http.StatusBadRequest, "bill_not_editable", "bill is PAID and cannot be edited", "", "")
 	wantFieldError(t, a.Do(t, http.MethodPatch, billPath(out.BillID), map[string]any{"status": "BOGUS"}),

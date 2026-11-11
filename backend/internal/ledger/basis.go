@@ -45,11 +45,13 @@ func InvoiceBasis(ctx context.Context, tx pgx.Tx, invoiceID uuid.UUID) (Basis, e
 // Face). A receivable at or below 0 (already over-relieved) has no basis
 // left: the whole relief is converted. A face above 0 with a base at or
 // below 0 is not a receivable the ledger can have booked: refused, rather
-// than relieved at a zero or negative rate.
-func reliefBase(invoiceID uuid.UUID, b Basis, relief decimal.Decimal, convertExcess func(decimal.Decimal) (decimal.Decimal, error)) (decimal.Decimal, error) {
+// than relieved at a zero or negative rate. what names it in the refusal
+// ("invoice <id> receivable", "bill <id> payable"); a bill's payable is
+// relieved the same way (PORT-NOTES 165).
+func reliefBase(what string, b Basis, relief decimal.Decimal, convertExcess func(decimal.Decimal) (decimal.Decimal, error)) (decimal.Decimal, error) {
 	if b.Face.IsPositive() && !b.Base.IsPositive() {
-		return decimal.Decimal{}, refuse("invoice %s receivable basis is inconsistent (face %s, base %s)",
-			invoiceID, b.Face.StringFixed(4), b.Base.StringFixed(4))
+		return decimal.Decimal{}, refuse("%s basis is inconsistent (face %s, base %s)",
+			what, b.Face.StringFixed(4), b.Base.StringFixed(4))
 	}
 	if !b.Face.IsPositive() {
 		return convertExcess(relief)

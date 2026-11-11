@@ -63,3 +63,17 @@ SELECT COALESCE(SUM(l.debit - l.credit), 0)::numeric AS face,
  WHERE a.code = '1100'
    AND ((e.source_type = 'INVOICE' AND e.source_id = sqlc.arg(invoice_id)::uuid)
      OR (e.source_type = 'PAYMENT' AND e.source_id IN (SELECT p.payment_id FROM payments p WHERE p.invoice_id = sqlc.arg(invoice_id)::uuid)));
+
+-- name: BillAPBasis :one
+-- The bill's payable on the ledger: the 2000 lines of its BILL entries and of
+-- the BILL_PAYMENT entries of every bill payment pointing at it, reversals
+-- included. face is in the bill's currency (credit − debit), base in the
+-- base currency.
+SELECT COALESCE(SUM(l.credit - l.debit), 0)::numeric AS face,
+       COALESCE(SUM(l.base_amount_credit - l.base_amount_debit), 0)::numeric AS base
+  FROM journal_lines l
+  JOIN journal_entries e ON e.entry_id = l.entry_id
+  JOIN chart_of_accounts a ON a.account_id = l.account_id
+ WHERE a.code = '2000'
+   AND ((e.source_type = 'BILL' AND e.source_id = sqlc.arg(bill_id)::uuid)
+     OR (e.source_type = 'BILL_PAYMENT' AND e.source_id IN (SELECT p.bill_payment_id FROM bill_payments p WHERE p.bill_id = sqlc.arg(bill_id)::uuid)));

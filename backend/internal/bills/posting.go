@@ -119,13 +119,9 @@ func openBill(ctx context.Context, tx pgx.Tx, base string, bill billsdb.Bill) er
 		return err
 	}
 	on := issueDay(bill)
-	who := bill.BillID.String()
-	if bill.BillNumber != nil && *bill.BillNumber != "" {
-		who = *bill.BillNumber
-	}
 	_, err = ledger.PostIssued(ctx, tx, base, ledger.Document{
 		SourceType: ledger.SourceBill, ID: bill.BillID, Currency: bill.Currency, Amount: bill.Amount,
-		RateDate: on, IssueDate: on, Memo: "Bill " + who + " opened", Shares: shares,
+		RateDate: on, IssueDate: on, Memo: "Bill " + billLabel(bill) + " opened", Shares: shares,
 	})
 	return err
 }

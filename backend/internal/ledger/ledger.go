@@ -184,7 +184,7 @@ func postPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 		return Entry{}, refuse("cross-currency settlement of invoice %s would relieve %s %s but the ledger receivable is %s %s; correct balance_due first",
 			inv.ID, relief.StringFixed(4), inv.Currency, basis.Face.StringFixed(4), inv.Currency)
 	}
-	arBase, err := reliefBase(inv.ID, basis, relief, func(x decimal.Decimal) (decimal.Decimal, error) {
+	arBase, err := reliefBase("invoice "+inv.ID.String()+" receivable", basis, relief, func(x decimal.Decimal) (decimal.Decimal, error) {
 		c, err := fx.Convert(ctx, fq, x, inv.Currency, p.Date, baseCurrency)
 		return c.BaseAmount, err
 	})

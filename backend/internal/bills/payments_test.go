@@ -253,9 +253,10 @@ func TestRecordPaymentConcurrentNeverOverpays(t *testing.T) {
 	}
 }
 
-// A bill payment posts nothing: no payment row, and no journal beyond the
-// bill's issue entry (port note 8; the issue entry is note 164's).
-func TestRecordPaymentWritesNoJournal(t *testing.T) {
+// Each bill payment is a row and an entry (PORT-NOTES 165; Python kept
+// neither, port note 8): the issue entry and two payment entries of two
+// lines each. No invoice payment row is written.
+func TestRecordPaymentPostsEachPayment(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
 	b := openBill(t, a, "OPEN", nil)
@@ -264,7 +265,7 @@ func TestRecordPaymentWritesNoJournal(t *testing.T) {
 	for _, c := range []struct {
 		table string
 		want  int
-	}{{"journal_entries", 1}, {"journal_lines", 2}, {"payments", 0}} {
+	}{{"journal_entries", 3}, {"journal_lines", 6}, {"bill_payments", 2}, {"payments", 0}} {
 		if n := countRows(t, a, c.table); n != c.want {
 			t.Errorf("%d rows in %s, want %d", n, c.table, c.want)
 		}

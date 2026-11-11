@@ -47,7 +47,8 @@ var ErrNotFound = errNotFound
 
 // clientError is err as the client reads it: a refusal is a 400 with
 // Python's sentence, a ledger refusal 400 ledger_refused and a missing rate
-// 400 fx_rate_missing (PORT-NOTES 161, 164), an unknown bill the 404;
+// 400 fx_rate_missing (PORT-NOTES 161, 164), an unknown bill or bill
+// payment the 404;
 // anything else is unchanged.
 func clientError(err error) error {
 	var e billingError
@@ -60,6 +61,8 @@ func clientError(err error) error {
 		return platform.Err(http.StatusBadRequest, "fx_rate_missing", err.Error())
 	case errors.Is(err, errNotFound):
 		return notFound()
+	case errors.Is(err, errPaymentNotFound):
+		return platform.Err(http.StatusNotFound, "bill_payment_not_found", "bill payment not found")
 	}
 	return err
 }
@@ -110,7 +113,7 @@ type BillCreate struct {
 type BillUpdate struct {
 	VendorID platform.NotNull[uuid.UUID] `json:"vendor_id" doc:"It must exist."`
 	Currency platform.NotNull[string]    `json:"currency" minLength:"3" maxLength:"3" doc:"Upper-cased."`
-	Status   platform.NotNull[string]    `json:"status" enum:"DRAFT,OPEN,PARTIAL,PAID,VOID" doc:"OPEN opens a DRAFT bill and posts it to the ledger (the only way to open one); DRAFT takes an OPEN bill back and reverses its entry; VOID voids as POST /void does. PARTIAL and PAID are refused: they come from recording a payment."`
+	Status   platform.NotNull[string]    `json:"status" enum:"DRAFT,OPEN,PARTIAL,PAID,VOID" doc:"OPEN opens a DRAFT bill and posts it to the ledger (the only way to open one); DRAFT takes an OPEN bill back and reverses its entry; VOID voids as POST /void does. PAID (from DRAFT, OPEN or PARTIAL) opens a DRAFT first, then records a payment of the whole balance dated today, as record-payment does. PARTIAL is refused: it comes from recording a payment."`
 	BillFields
 	// A pointer, not Optional, for the reason BillCreate.LineItems is a slice.
 	LineItems *[]BillLineItemIn `json:"line_items" doc:"A list replaces every line and reprices the bill (an empty one leaves none); null or left out keeps the lines and the totals."`
