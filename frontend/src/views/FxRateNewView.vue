@@ -11,6 +11,7 @@ import InputNumber from "primevue/inputnumber";
 import DatePicker from "primevue/datepicker";
 import Message from "primevue/message";
 import { api } from "@/api/client";
+import { toLocalIsoDate } from "@/utils/date";
 
 const router = useRouter();
 const queryClient = useQueryClient();
@@ -44,7 +45,7 @@ const createRate = useMutation({
       from_currency: form.value.from_currency,
       to_currency: form.value.to_currency,
       rate: form.value.rate,
-      as_of_date: form.value.as_of_date.toISOString().slice(0, 10),
+      as_of_date: toLocalIsoDate(form.value.as_of_date),
       source: form.value.source || "MANUAL",
     };
     return api.post("/accounting/fx-rates", payload);

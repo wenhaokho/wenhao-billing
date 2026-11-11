@@ -11,6 +11,7 @@ import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import Checkbox from "primevue/checkbox";
 import { formatAmount } from "@/utils/money";
+import { toLocalIsoDate } from "@/utils/date";
 import { useAuthStore } from "@/stores/auth";
 
 interface Props {
@@ -121,7 +122,7 @@ function close() {
 
 function submit() {
   if (!canSubmit.value || !paymentDate.value) return;
-  const iso = paymentDate.value.toISOString().slice(0, 10);
+  const iso = toLocalIsoDate(paymentDate.value);
   emit("submit", {
     amount: Number(amount.value ?? 0),
     wht_amount: whtNum.value,
