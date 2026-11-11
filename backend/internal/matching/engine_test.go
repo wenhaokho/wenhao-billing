@@ -1,6 +1,7 @@
 package matching
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -438,5 +439,127 @@ func TestWithholdingClampsExpectedCashAtZero(t *testing.T) {
 	c := candidate(func(c *Candidate) { c.BalanceDue, c.WhtOutstanding = dec("100"), dec("150") })
 	if !IsExactMatch(incoming(func(p *Incoming) { p.Amount = dec("0") }), c) {
 		t.Fatal("expected cash is clamped at zero")
+	}
+}
+
+func TestAliasMatchReasonOnHeld(t *testing.T) {
+	t.Parallel()
+	c := candidate(func(c *Candidate) {
+		c.CustomerName = "Totally Different Name Ltd"
+		c.Aliases = []string{"Acme Corp"}
+	})
+	r := match(incoming(func(p *Incoming) { p.Amount = dec("999.9000") }), c)
+	if r.Status != StatusPending || len(r.Reasons) == 0 {
+		t.Fatalf("got %s: %v", r.Status, r.Reasons)
+	}
+	if got, want := r.Reasons[len(r.Reasons)-1], "alias match: 'Acme Corp' (1.0)"; got != want {
+		t.Fatalf("last reason %q, want %q", got, want)
+	}
+}
+
+func TestAliasMatchUsesAliasAsStored(t *testing.T) {
+	t.Parallel()
+	c := candidate(func(c *Candidate) {
+		c.CustomerName = "Totally Different Name Ltd"
+		c.Aliases = []string{"  ACME corp "}
+	})
+	r := match(incoming(func(p *Incoming) { p.Amount = dec("999.9000") }), c)
+	if got, want := r.Reasons[len(r.Reasons)-1], "alias match: '  ACME corp ' (1.0)"; got != want {
+		t.Fatalf("last reason %q, want %q", got, want)
+	}
+}
+
+func TestAliasMatchNotOnCleared(t *testing.T) {
+	t.Parallel()
+	c := candidate(func(c *Candidate) {
+		c.CustomerName = "Acme Corporation Limited"
+		c.Aliases = []string{"Acme Corp"}
+	})
+	r := match(incoming(nil), c)
+	want := []string{"exact amount+currency, high payer+date confidence"}
+	if r.Status != StatusCleared || len(r.Reasons) != 1 || r.Reasons[0] != want[0] {
+		t.Fatalf("got %s: %v", r.Status, r.Reasons)
+	}
+}
+
+func TestAliasMatchNotWhenNameWins(t *testing.T) {
+	t.Parallel()
+	c := candidate(func(c *Candidate) { c.Aliases = []string{"Acme Corp"} }) // ties the name: not strictly better
+	r := match(incoming(func(p *Incoming) { p.Amount = dec("999.9000") }), c)
+	for _, reason := range r.Reasons {
+		if strings.HasPrefix(reason, "alias match:") {
+			t.Fatalf("unexpected %q", reason)
+		}
+	}
+}
+
+// Aliases only add a trailing reason. Each case runs Match twice: once with a
+// candidate whose payer matches through an alias (the customer name is
+// unrelated), and once with a baseline candidate that has no aliases and
+// carries the alias as its name, so both score the same. The decision must be
+// identical and the reasons must differ only by the trailing alias reason.
+func TestAliasReasonLeavesDecisionUnchanged(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		alias   string
+		payment func(*Incoming)
+		cand    func(*Candidate)
+	}{
+		{name: "exact match clears", alias: "Acme Corp"},
+		{name: "within epsilon over", alias: "Acme Corp", payment: func(p *Incoming) { p.Amount = dec("1000.0001") }},
+		{name: "small underpayment", alias: "Acme Corp", payment: func(p *Incoming) { p.Amount = dec("999.9000") }},
+		{name: "partial payment", alias: "Acme Corp", payment: func(p *Incoming) { p.Amount = dec("500.0000") }},
+		{name: "overpayment", alias: "Acme Corp", payment: func(p *Incoming) { p.Amount = dec("1500.0000") }},
+		{name: "currency mismatch", alias: "Acme Corp", payment: func(p *Incoming) { p.Currency = "EUR" }},
+		{name: "low confidence exact amount", alias: "Acme Corp", cand: func(c *Candidate) {
+			c.IssueDate, c.DueDate = day(2026, 1, 1), day(2026, 1, 15)
+		}},
+		{name: "partial alias similarity", alias: "Acme Co"},
+		{name: "partial alias similarity mismatch", alias: "Acme Co", payment: func(p *Incoming) { p.Amount = dec("750.0000") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := incoming(tc.payment)
+			withAlias := candidate(func(c *Candidate) {
+				if tc.cand != nil {
+					tc.cand(c)
+				}
+				c.CustomerName = "Totally Different Name Ltd"
+				c.Aliases = []string{tc.alias}
+			})
+			baseline := withAlias
+			baseline.CustomerName = tc.alias
+			baseline.Aliases = nil
+			if a, b := Score(p, withAlias), Score(p, baseline); !a.Equal(b) {
+				t.Fatalf("setup: alias score %s != baseline score %s", a, b)
+			}
+
+			got, want := match(p, withAlias), match(p, baseline)
+			if got.Status != want.Status || !got.Confidence.Equal(want.Confidence) ||
+				got.AdjustmentType != want.AdjustmentType ||
+				got.CurrencyMismatch != want.CurrencyMismatch || got.AmountMismatch != want.AmountMismatch {
+				t.Fatalf("decision differs:\n alias    %s %s %s cur=%v amt=%v\n baseline %s %s %s cur=%v amt=%v",
+					got.Status, got.Confidence, got.AdjustmentType, got.CurrencyMismatch, got.AmountMismatch,
+					want.Status, want.Confidence, want.AdjustmentType, want.CurrencyMismatch, want.AmountMismatch)
+			}
+			for _, r := range want.Reasons {
+				if strings.HasPrefix(r, "alias match:") {
+					t.Fatalf("baseline has an alias reason: %v", want.Reasons)
+				}
+			}
+			reasons := got.Reasons
+			if got.Status == StatusPending {
+				n := len(reasons)
+				if n == 0 || !strings.HasPrefix(reasons[n-1], "alias match: '"+tc.alias+"'") {
+					t.Fatalf("held without trailing alias reason: %v", reasons)
+				}
+				reasons = reasons[:n-1]
+			}
+			if !slices.Equal(reasons, want.Reasons) {
+				t.Fatalf("reasons minus alias %v, baseline %v", reasons, want.Reasons)
+			}
+		})
 	}
 }

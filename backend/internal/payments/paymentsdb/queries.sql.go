@@ -15,7 +15,7 @@ import (
 )
 
 const auditLog = `-- name: AuditLog :many
-SELECT l.log_id, l.payment_id, l.action, l.reasons, l.actor_user_id, l.created_at,
+SELECT l.log_id, l.payment_id, l.action, l.reasons, l.reason_codes, l.actor_user_id, l.created_at,
        p.payer_name, p.amount, p.currency, p.invoice_id, p.intake_source,
        u.email AS actor_email
   FROM reconciliation_log l
@@ -42,6 +42,7 @@ type AuditLogRow struct {
 	PaymentID    uuid.UUID
 	Action       string
 	Reasons      []string
+	ReasonCodes  []string
 	ActorUserID  pgtype.UUID
 	CreatedAt    *time.Time
 	PayerName    *string
@@ -75,6 +76,7 @@ func (q *Queries) AuditLog(ctx context.Context, arg AuditLogParams) ([]AuditLogR
 			&i.PaymentID,
 			&i.Action,
 			&i.Reasons,
+			&i.ReasonCodes,
 			&i.ActorUserID,
 			&i.CreatedAt,
 			&i.PayerName,
@@ -252,8 +254,8 @@ func (q *Queries) InsertPayment(ctx context.Context, arg InsertPaymentParams) (P
 }
 
 const insertReconLog = `-- name: InsertReconLog :exec
-INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, actor_user_id)
-VALUES ($1, $2, $3, $5::text[], $4)
+INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, reason_codes, actor_user_id)
+VALUES ($1, $2, $3, $5::text[], $6::text[], $4)
 `
 
 type InsertReconLogParams struct {
@@ -262,6 +264,7 @@ type InsertReconLogParams struct {
 	Action      string
 	ActorUserID pgtype.UUID
 	Reasons     []string
+	ReasonCodes []string
 }
 
 // created_at is the column's default (CURRENT_TIMESTAMP).
@@ -272,6 +275,7 @@ func (q *Queries) InsertReconLog(ctx context.Context, arg InsertReconLogParams) 
 		arg.Action,
 		arg.ActorUserID,
 		arg.Reasons,
+		arg.ReasonCodes,
 	)
 	return err
 }
@@ -551,7 +555,7 @@ func (q *Queries) OpenCandidates(ctx context.Context, currency string) ([]OpenCa
 }
 
 const paymentLog = `-- name: PaymentLog :many
-SELECT log_id, payment_id, action, reasons, actor_user_id, created_at FROM reconciliation_log
+SELECT log_id, payment_id, action, reasons, actor_user_id, created_at, reason_codes FROM reconciliation_log
  WHERE payment_id = $1
  ORDER BY created_at ASC, log_id ASC
 `
@@ -572,6 +576,7 @@ func (q *Queries) PaymentLog(ctx context.Context, paymentID uuid.UUID) ([]Reconc
 			&i.Reasons,
 			&i.ActorUserID,
 			&i.CreatedAt,
+			&i.ReasonCodes,
 		); err != nil {
 			return nil, err
 		}

@@ -67,3 +67,32 @@ export function statusLabel(status: string): string {
   const words = c.toLowerCase().replace(/_/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
+
+// Reconciliation-log reason codes (backend payments.ReasonCode). Their own
+// map: AMBIGUOUS or OTHER mean something else as an invoice status.
+const REASON_TONES: Record<string, StatusTone> = {
+  // why it was held
+  NO_CANDIDATE: "red",
+  CURRENCY_MISMATCH: "red",
+  AMOUNT_MISMATCH: "red",
+  AMBIGUOUS: "red",
+  CLEAR_FAILED: "red",
+  LOW_CONFIDENCE: "amber",
+  // evidence for the match
+  ALIAS_MATCH: "green",
+  EXACT_MATCH: "green",
+  // a person's action or free text
+  MANUAL_ENTRY: "neutral",
+  MANUAL_APPROVAL: "neutral",
+  OTHER: "neutral",
+};
+
+/** Tone of a reason code; an unknown code is neutral. */
+export function reasonTone(reasonCode: string): StatusTone {
+  return REASON_TONES[code(reasonCode)] ?? "neutral";
+}
+
+/** Sentence-case label of a reason code ("Amount mismatch"). */
+export function reasonLabel(reasonCode: string): string {
+  return statusLabel(reasonCode);
+}

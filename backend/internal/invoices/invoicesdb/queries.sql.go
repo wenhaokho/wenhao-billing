@@ -694,24 +694,41 @@ WHERE is_template = false
   AND ($1::text[] IS NULL OR status = ANY ($1::text[]))
   AND ($2::uuid IS NULL OR customer_id = $2::uuid)
   AND ($3::text IS NULL OR invoice_type = $3::text)
+  AND ($4::text IS NULL OR upper(currency) = $4::text)
+  AND ($5::text IS NULL
+       OR invoice_number ILIKE '%' || $5::text || '%' ESCAPE '\'
+       OR customer_id IN (SELECT c.customer_id FROM customers c
+                          WHERE c.name ILIKE '%' || $5::text || '%' ESCAPE '\'))
+  AND (NOT $6::boolean
+       OR (status IN ('OPEN', 'SENT', 'PARTIAL') AND balance_due > 0))
 ORDER BY created_at DESC, invoice_id DESC
-LIMIT $4
+LIMIT $7
 `
 
 type ListInvoicesParams struct {
 	Statuses    []string
 	CustomerID  pgtype.UUID
 	InvoiceType *string
+	Currency    *string
+	Search      *string
+	OpenOnly    bool
 	RowLimit    int32
 }
 
 // GET /invoices (invoices.py:426-450): never templates; each filter applies
-// when given; newest first, the id breaking ties.
+// when given; newest first, the id breaking ties. search is an already
+// LIKE-escaped substring of the number or the customer's name; currency is
+// an upper-case code compared with the stored one upper-cased (it is stored
+// as sent, in any case); open_only is the open-AR rule (templates are
+// excluded above).
 func (q *Queries) ListInvoices(ctx context.Context, arg ListInvoicesParams) ([]Invoice, error) {
 	rows, err := q.db.Query(ctx, listInvoices,
 		arg.Statuses,
 		arg.CustomerID,
 		arg.InvoiceType,
+		arg.Currency,
+		arg.Search,
+		arg.OpenOnly,
 		arg.RowLimit,
 	)
 	if err != nil {

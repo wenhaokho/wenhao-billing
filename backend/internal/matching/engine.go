@@ -109,16 +109,19 @@ func normalize(s string) string {
 }
 
 // payerSimilarity is the best difflib ratio over the customer name and its
-// aliases, as the shortest-repr decimal Python's Decimal(str(float)) makes.
-func payerSimilarity(payer string, c Candidate) decimal.Decimal {
+// aliases, as the shortest-repr decimal Python's Decimal(str(float)) makes. The
+// alias, as stored, is returned when one scored strictly above the name.
+func payerSimilarity(payer string, c Candidate) (decimal.Decimal, *string) {
 	p := normalize(payer)
 	best := Ratio(p, normalize(c.CustomerName))
-	for _, alias := range c.Aliases {
+	var winner *string
+	for i, alias := range c.Aliases {
 		if r := Ratio(p, normalize(alias)); r > best {
 			best = r
+			winner = &c.Aliases[i]
 		}
 	}
-	return decimal.RequireFromString(platform.PyFloatRepr(best))
+	return decimal.RequireFromString(platform.PyFloatRepr(best)), winner
 }
 
 // dayDiff is the absolute difference in calendar days.
@@ -162,7 +165,8 @@ func Score(p Incoming, c Candidate) decimal.Decimal {
 	if sameCurrency(p.Currency, c.Currency) {
 		total = total.Add(weightCurrency)
 	}
-	total = total.Add(payerSimilarity(p.PayerName, c).Mul(weightPayer))
+	similarity, _ := payerSimilarity(p.PayerName, c)
+	total = total.Add(similarity.Mul(weightPayer))
 	total = total.Add(dateProximity(p.PaymentDate, c).Mul(weightDate))
 	return platform.RoundHalfEven4(total)
 }
@@ -255,6 +259,9 @@ func Match(p Incoming, cands []Candidate) Result {
 			adjustment = AdjPartialPay
 		case p.Amount.GreaterThan(expected):
 			adjustment = AdjCreditOnAccount
+		}
+		if ratio, alias := payerSimilarity(p.PayerName, best); alias != nil {
+			reasons = append(reasons, fmt.Sprintf("alias match: '%s' (%s)", *alias, platform.PyDecimalStr(ratio)))
 		}
 		return Result{
 			Status:           StatusPending,

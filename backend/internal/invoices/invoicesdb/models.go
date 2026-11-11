@@ -368,6 +368,7 @@ type ReconciliationLog struct {
 	Reasons     []string
 	ActorUserID pgtype.UUID
 	CreatedAt   *time.Time
+	ReasonCodes []string
 }
 
 type ScheduledJobRun struct {

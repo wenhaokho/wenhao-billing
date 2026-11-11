@@ -839,7 +839,7 @@ func (q *Queries) OverdueOldest(ctx context.Context, arg OverdueOldestParams) ([
 }
 
 const recentActivity = `-- name: RecentActivity :many
-SELECT l.log_id, l.payment_id, l.action, l.reasons, l.actor_user_id, l.created_at,
+SELECT l.log_id, l.payment_id, l.action, l.reasons, l.reason_codes, l.actor_user_id, l.created_at,
        p.payer_name, p.amount, p.currency, p.payment_date, p.payer_reference, p.wht_amount,
        p.confidence_score, p.intake_source, p.invoice_id,
        i.invoice_number, c.name AS customer_name,
@@ -858,6 +858,7 @@ type RecentActivityRow struct {
 	PaymentID        uuid.UUID
 	Action           string
 	Reasons          []string
+	ReasonCodes      []string
 	ActorUserID      pgtype.UUID
 	CreatedAt        *time.Time
 	PayerName        *string
@@ -891,6 +892,7 @@ func (q *Queries) RecentActivity(ctx context.Context) ([]RecentActivityRow, erro
 			&i.PaymentID,
 			&i.Action,
 			&i.Reasons,
+			&i.ReasonCodes,
 			&i.ActorUserID,
 			&i.CreatedAt,
 			&i.PayerName,

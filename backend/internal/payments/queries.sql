@@ -28,8 +28,8 @@ UPDATE payments SET wht_amount = $2 WHERE payment_id = $1;
 
 -- name: InsertReconLog :exec
 -- created_at is the column's default (CURRENT_TIMESTAMP).
-INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, actor_user_id)
-VALUES ($1, $2, $3, sqlc.arg(reasons)::text[], $4);
+INSERT INTO reconciliation_log (log_id, payment_id, action, reasons, reason_codes, actor_user_id)
+VALUES ($1, $2, $3, sqlc.arg(reasons)::text[], sqlc.arg(reason_codes)::text[], $4);
 
 -- name: LockInvoice :one
 -- The invoice a payment settles, locked until the transaction ends so its
@@ -123,7 +123,7 @@ SELECT * FROM reconciliation_log
 -- The log joined to its payment and actor. payer is a substring already
 -- escaped for LIKE (\, % and _ with a backslash). from_date starts at its
 -- midnight and to_date runs to the end of its day. Python had no tie-break.
-SELECT l.log_id, l.payment_id, l.action, l.reasons, l.actor_user_id, l.created_at,
+SELECT l.log_id, l.payment_id, l.action, l.reasons, l.reason_codes, l.actor_user_id, l.created_at,
        p.payer_name, p.amount, p.currency, p.invoice_id, p.intake_source,
        u.email AS actor_email
   FROM reconciliation_log l

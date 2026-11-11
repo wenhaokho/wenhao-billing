@@ -7,7 +7,8 @@ import { computed, defineAsyncComponent, ref, watch } from "vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { formatAmount } from "@/utils/money";
 import { currencySlot, withAlpha, type ChartColors } from "@/theme/chartColors";
-import { decIsZero, decSub, decSum, formatCompact, formatShare, monthLong, monthShort } from "./format";
+import { formatCompact, formatShare, monthLong, monthShort } from "./format";
+import { decIsZero, decSub, decSum } from "@/utils/decimal";
 import type { MonthlyRevenueResponse } from "./types";
 
 const Chart = defineAsyncComponent(() => import("primevue/chart"));
