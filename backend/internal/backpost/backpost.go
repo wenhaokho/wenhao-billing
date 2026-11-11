@@ -7,7 +7,7 @@
 //
 // It runs in one transaction: a dry run (the default) rolls back, --apply
 // commits. A missing FX rate, a share account of the wrong type, a payment
-// whose entries do not net, a posting the ledger refuses, or a restated
+// whose entries do not net or that has several active entries, a posting the ledger refuses, or a restated
 // invoice whose ledger receivable would not be its balance due anywhere
 // refuses the whole run: everything is listed and nothing is written. A
 // second run finds no candidates (every document it posted has an active
@@ -427,6 +427,16 @@ func (r *runner) checkInvoice(d *invoiceDoc) error {
 		r.rep.Inconsistent = append(r.rep.Inconsistent, fmt.Sprintf(
 			"PAYMENT %s of %s (%s): its entries relieve %s %s net but should relieve %s (its reversals do not pair)",
 			n.PaymentID, who, n.Status, n.TotalFace.StringFixed(4), inv.Currency, expectedNet(n).StringFixed(4)))
+	}
+
+	multi, err := r.q.ListMultiEntryPayments(r.ctx, inv.InvoiceID)
+	if err != nil {
+		return err
+	}
+	for _, m := range multi {
+		r.rep.Inconsistent = append(r.rep.Inconsistent, fmt.Sprintf(
+			"payment %s (invoice %s) has %d active ledger entries; Python reversed a reversal — fix by hand before back-posting",
+			m.PaymentID, d.label, m.ActiveEntries))
 	}
 
 	pays, err := r.q.ListClearedPayments(r.ctx, inv.InvoiceID)

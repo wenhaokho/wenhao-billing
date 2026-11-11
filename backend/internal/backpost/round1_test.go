@@ -298,3 +298,34 @@ func TestBackpostRestatesWhatPythonRelieved(t *testing.T) {
 	eq(t, "AR base", b.Base, "4500000")
 	e.trialBalanced(t)
 }
+
+// Round 2: a payment with several active entries whose lines still net to
+// the same total passes the net check; the refusal names the cause.
+func TestBackpostRefusesPaymentWithSeveralActiveEntries(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.fixtures(t)
+	inv := e.invoice(t, doc{number: "INV-THREE", currency: "IDR", status: "PAID", amount: "300", balance: "0", issue: paid2026})
+	p := e.rawPayment(t, inv, "IDR", "300", paid2026, "CLEARED")
+	at := paid2026.Add(10 * time.Hour)
+	for i := 0; i < 3; i++ { // three active entries, each relieving 100
+		e.rawEntry(t, p, at.Add(time.Duration(i)*time.Hour),
+			jl{code: "1000", ccy: "IDR", dr: "100", bdr: "100"}, jl{code: "1100", ccy: "IDR", cr: "100", bcr: "100"})
+	}
+	before := e.rows(t)
+
+	rep, out, err := e.run(t, true)
+	if !errors.Is(err, ErrRefused) {
+		t.Fatalf("err = %v, want ErrRefused\n%s", err, out)
+	}
+	want := "payment " + p.String() + " (invoice INV-THREE) has 3 active ledger entries; Python reversed a reversal — fix by hand before back-posting"
+	if len(rep.Inconsistent) != 1 || rep.Inconsistent[0] != want {
+		t.Errorf("inconsistent = %q, want [%q]", rep.Inconsistent, want)
+	}
+	if !strings.Contains(out, want) {
+		t.Errorf("output lacks %q:\n%s", want, out)
+	}
+	if after := e.rows(t); after != before {
+		t.Errorf("rows = %v, want %v", after, before)
+	}
+}

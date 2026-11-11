@@ -230,6 +230,46 @@ func (q *Queries) ListInvoiceCandidates(ctx context.Context) ([]uuid.UUID, error
 	return items, nil
 }
 
+const listMultiEntryPayments = `-- name: ListMultiEntryPayments :many
+SELECT p.payment_id, COUNT(*)::int AS active_entries
+  FROM payments p
+  JOIN journal_entries e ON e.source_type = 'PAYMENT' AND e.source_id = p.payment_id
+ WHERE p.invoice_id = $1::uuid
+   AND e.reversed_by_entry_id IS NULL
+   AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id)
+ GROUP BY p.payment_id
+HAVING COUNT(*) > 1
+ ORDER BY p.payment_id
+`
+
+type ListMultiEntryPaymentsRow struct {
+	PaymentID     uuid.UUID
+	ActiveEntries int32
+}
+
+// Every payment of the invoice (any status) with more than one active
+// PAYMENT entry (Python reversed a reversal): ListClearedPayments restates
+// only the newest, so the run refuses them by name.
+func (q *Queries) ListMultiEntryPayments(ctx context.Context, invoiceID uuid.UUID) ([]ListMultiEntryPaymentsRow, error) {
+	rows, err := q.db.Query(ctx, listMultiEntryPayments, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMultiEntryPaymentsRow
+	for rows.Next() {
+		var i ListMultiEntryPaymentsRow
+		if err := rows.Scan(&i.PaymentID, &i.ActiveEntries); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPaymentNets = `-- name: ListPaymentNets :many
 SELECT p.payment_id, p.status, p.currency,
        COALESCE(SUM(l.credit - l.debit), 0)::numeric AS total_face,

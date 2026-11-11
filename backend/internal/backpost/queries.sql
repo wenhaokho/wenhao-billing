@@ -78,6 +78,20 @@ HAVING COALESCE(SUM(l.credit - l.debit), 0) <> CASE WHEN p.status = 'CLEARED' TH
              AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id)), 0) ELSE 0 END
  ORDER BY p.payment_id;
 
+-- name: ListMultiEntryPayments :many
+-- Every payment of the invoice (any status) with more than one active
+-- PAYMENT entry (Python reversed a reversal): ListClearedPayments restates
+-- only the newest, so the run refuses them by name.
+SELECT p.payment_id, COUNT(*)::int AS active_entries
+  FROM payments p
+  JOIN journal_entries e ON e.source_type = 'PAYMENT' AND e.source_id = p.payment_id
+ WHERE p.invoice_id = sqlc.arg(invoice_id)::uuid
+   AND e.reversed_by_entry_id IS NULL
+   AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id)
+ GROUP BY p.payment_id
+HAVING COUNT(*) > 1
+ ORDER BY p.payment_id;
+
 -- name: ListUnpostedInvoicePayments :many
 -- The owner's decisions: CLEARED payments on invoices the back-post never
 -- posts (VOID, DRAFT or any other status, templates, amount 0 or less;
