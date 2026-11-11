@@ -55,6 +55,39 @@ type WriteStep struct {
 	Body    any               `yaml:"body"`
 	Extract map[string]string `yaml:"extract"`
 	Sign    bool              `yaml:"sign"`
+	// ExpectStatus, when set, is the status each backend must answer with (a
+	// single int for both, or {python: N, go: N}); the run continues past a
+	// non-2xx answer that matches it. Note names the PORT-NOTES note and is
+	// required whenever the two expected statuses differ.
+	ExpectStatus *ExpectStatus `yaml:"expect_status"`
+	Note         string        `yaml:"note"`
+}
+
+// ExpectStatus is the status each backend is expected to answer a step with.
+type ExpectStatus struct {
+	Python int
+	Go     int
+}
+
+// UnmarshalYAML accepts a single int (both backends) or a {python, go} map
+// with both keys present.
+func (e *ExpectStatus) UnmarshalYAML(unmarshal func(any) error) error {
+	var both int
+	if err := unmarshal(&both); err == nil {
+		e.Python, e.Go = both, both
+		return nil
+	}
+	var m map[string]int
+	if err := unmarshal(&m); err != nil {
+		return errors.New("expect_status must be an int or {python: N, go: N}")
+	}
+	py, okPy := m["python"]
+	gv, okGo := m["go"]
+	if !okPy || !okGo || len(m) != 2 {
+		return errors.New("expect_status as a map needs exactly the keys python and go")
+	}
+	e.Python, e.Go = py, gv
+	return nil
 }
 
 // WritesReport is one `compare writes` run's result. It never holds a DSN or a
@@ -90,6 +123,10 @@ type WritesStepResult struct {
 	Python      int          `json:"python_status"`
 	Go          int          `json:"go_status"`
 	Differences []Difference `json:"differences,omitempty"`
+	// ExpectedStatusDiff is the step's note (a PN) when the two backends were
+	// expected to answer with different statuses and did. The bodies are not
+	// compared then, and it does not count as a difference.
+	ExpectedStatusDiff string `json:"expected_status_diff,omitempty"`
 }
 
 // WritesOptions is one write run's inputs. The DSNs arrive as arguments and
@@ -124,6 +161,26 @@ type WritesOptions struct {
 type idPair struct {
 	python string
 	goID   string
+	// pyVal and goVal are the extracted values with their JSON type (a
+	// json.Number stays a number); nil means use the string id.
+	pyVal, goVal any
+	// pyMissing and goMissing mark a side the value was not taken from,
+	// because that side's step answer was not 2xx.
+	pyMissing, goMissing bool
+}
+
+// side is the pair's id, typed value and presence for one backend.
+func (p idPair) side(goSide bool) (string, any, bool) {
+	if goSide {
+		if p.goVal != nil {
+			return p.goID, p.goVal, !p.goMissing
+		}
+		return p.goID, p.goID, !p.goMissing
+	}
+	if p.pyVal != nil {
+		return p.python, p.pyVal, !p.pyMissing
+	}
+	return p.python, p.python, !p.pyMissing
 }
 
 // stepAnswers is one sent step's two answers, kept for the comparison after
@@ -132,13 +189,17 @@ type stepAnswers struct {
 	scenario, step int
 	route          string
 	py, gov        Response
+	// statusDiffers marks a step expected to answer differently per backend
+	// (and did): its bodies are not compared.
+	statusDiffers bool
 }
 
 // RunWrites runs the write scenarios against both backends, then compares the
 // rows they touched and every step's answers. It refuses to run unless both
 // database hosts and both backend URLs are local and the runner's own
-// environment has no RESEND_API_KEY. A non-2xx answer is a hard failure: the
-// run stops there, so later steps never run against a broken flow.
+// environment has no RESEND_API_KEY. A non-2xx answer is a hard failure unless the
+// step declares expect_status and both statuses match it: the run stops at a
+// failure, so later steps never run against a broken flow.
 //
 // Before the first step it snapshots every touched table on both databases,
 // so only rows the run created, changed or deleted are compared. Each
@@ -247,6 +308,9 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 	allowed.PythonHost = hostOf(o.PythonURL)
 	allowed.GoHost = hostOf(o.GoURL)
 	for _, a := range r.answers {
+		if a.statusDiffers {
+			continue
+		}
 		py := Response{Status: a.py.Status, Header: a.py.Header, Body: c.normalizeBody(a.py.Body, true)}
 		gov := Response{Status: a.gov.Status, Header: a.gov.Header, Body: c.normalizeBody(a.gov.Body, false)}
 		d := Diff(a.route, py, gov, allowed)
@@ -315,37 +379,61 @@ func (r *writesRun) scenario(ctx context.Context, index int, sc WritesScenario) 
 		if err != nil {
 			return result, fail("go: %w", redactErr(err, o.GoURL))
 		}
-		result.Steps = append(result.Steps, WritesStepResult{
+		stepResult := WritesStepResult{
 			ID: step.ID, Method: step.Method, Path: step.Path,
 			Python: pyResp.Status, Go: goResp.Status,
-		})
+		}
+		differs := false
+		if e := step.ExpectStatus; e != nil {
+			if pyResp.Status != e.Python || goResp.Status != e.Go {
+				result.Steps = append(result.Steps, stepResult)
+				return result, fail("status python %d go %d, expected python %d go %d", pyResp.Status, goResp.Status, e.Python, e.Go)
+			}
+			if e.Python != e.Go {
+				differs = true
+				stepResult.ExpectedStatusDiff = step.Note
+			}
+		}
+		result.Steps = append(result.Steps, stepResult)
 		r.answers = append(r.answers, stepAnswers{
 			scenario: index, step: len(result.Steps) - 1,
 			route: strings.ToUpper(step.Method) + " " + step.Path, py: pyResp, gov: goResp,
+			statusDiffers: differs,
 		})
-		if pyResp.Status < 200 || pyResp.Status >= 300 {
-			return result, fail("python status %d", pyResp.Status)
+		if step.ExpectStatus == nil {
+			if pyResp.Status < 200 || pyResp.Status >= 300 {
+				return result, fail("python status %d", pyResp.Status)
+			}
+			if goResp.Status < 200 || goResp.Status >= 300 {
+				return result, fail("go status %d", goResp.Status)
+			}
 		}
-		if goResp.Status < 200 || goResp.Status >= 300 {
-			return result, fail("go status %d", goResp.Status)
-		}
+		pyOK := pyResp.Status >= 200 && pyResp.Status < 300
+		goOK := goResp.Status >= 200 && goResp.Status < 300
 		for _, name := range sortedExtracts(step.Extract) {
 			path := step.Extract[name]
 			table, ok := r.schema.EntityForKey(lastKey(path))
 			if !ok {
 				return result, fail("extract %s: %q names no single table's id", name, path)
 			}
-			pyID, err := extractID(pyResp.Body, path)
-			if err != nil {
-				return result, fail("python %s: %w", name, err)
+			pair := idPair{pyMissing: !pyOK, goMissing: !goOK}
+			if pyOK {
+				pair.python, pair.pyVal, err = extractValue(pyResp.Body, path)
+				if err != nil {
+					return result, fail("python %s: %w", name, err)
+				}
 			}
-			goID, err := extractID(goResp.Body, path)
-			if err != nil {
-				return result, fail("go %s: %w", name, err)
+			if goOK {
+				pair.goID, pair.goVal, err = extractValue(goResp.Body, path)
+				if err != nil {
+					return result, fail("go %s: %w", name, err)
+				}
 			}
-			r.extracted[name] = idPair{python: pyID, goID: goID}
-			if err := r.maps.Set(table, pyID, goID); err != nil {
-				return result, fail("extract %s: %w", name, err)
+			r.extracted[name] = pair
+			if pyOK && goOK {
+				if err := r.maps.Set(table, pair.python, pair.goID); err != nil {
+					return result, fail("extract %s: %w", name, err)
+				}
 			}
 		}
 	}
@@ -426,11 +514,11 @@ func expandPath(path string, extracted map[string]idPair, goSide bool) (string, 
 		if !ok {
 			return "", fmt.Errorf("path %q: no {%s} extracted yet", path, name)
 		}
-		if goSide {
-			out.WriteString(pair.goID)
-		} else {
-			out.WriteString(pair.python)
+		id, _, present := pair.side(goSide)
+		if !present {
+			return "", fmt.Errorf("path %q: {%s} was not extracted on this backend (its step answered non-2xx)", path, name)
 		}
+		out.WriteString(id)
 		last = m[1]
 	}
 	out.WriteString(path[last:])
@@ -485,11 +573,28 @@ func replacePlaceholders(v any, extracted map[string]idPair, goSide bool) (any, 
 		}
 		return out, nil
 	case string:
+		// A value that is exactly one placeholder keeps the extracted value's
+		// JSON type (a number stays a number); a placeholder inside a longer
+		// string is string interpolation.
+		if m := wholePlaceholder.FindStringSubmatch(x); m != nil {
+			pair, ok := extracted[m[1]]
+			if !ok {
+				return nil, fmt.Errorf("body %q: no {%s} extracted yet", x, m[1])
+			}
+			_, val, present := pair.side(goSide)
+			if !present {
+				return nil, fmt.Errorf("body %q: {%s} was not extracted on this backend (its step answered non-2xx)", x, m[1])
+			}
+			return val, nil
+		}
 		return expandString(x, extracted, goSide)
 	default:
 		return v, nil
 	}
 }
+
+// wholePlaceholder matches a string that is exactly one {name}.
+var wholePlaceholder = regexp.MustCompile(`^\{([A-Za-z0-9_]+)\}$`)
 
 // expandString replaces each {name} in a string with the backend's id.
 func expandString(s string, extracted map[string]idPair, goSide bool) (string, error) {
@@ -502,11 +607,11 @@ func expandString(s string, extracted map[string]idPair, goSide bool) (string, e
 		if !ok {
 			return "", fmt.Errorf("body %q: no {%s} extracted yet", s, name)
 		}
-		if goSide {
-			out.WriteString(pair.goID)
-		} else {
-			out.WriteString(pair.python)
+		id, _, present := pair.side(goSide)
+		if !present {
+			return "", fmt.Errorf("body %q: {%s} was not extracted on this backend (its step answered non-2xx)", s, name)
 		}
+		out.WriteString(id)
 		last = m[1]
 	}
 	out.WriteString(s[last:])
@@ -531,6 +636,24 @@ func extractID(body []byte, path string) (string, error) {
 		return "", fmt.Errorf("path %q has no id", path)
 	}
 	return id, nil
+}
+
+// extractValue is extractID that also returns the value with its JSON type: a
+// json.Number for a number, the string otherwise.
+func extractValue(body []byte, path string) (string, any, error) {
+	id, err := extractID(body, path)
+	if err != nil {
+		return "", nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var v any
+	_ = dec.Decode(&v)
+	got, _ := jsonPath(v, path)
+	if n, ok := got.(json.Number); ok {
+		return id, n, nil
+	}
+	return id, id, nil
 }
 
 // jsonPath walks a simple JSONPath: $, .key, and [index].
@@ -741,6 +864,16 @@ func (w WritesScenarios) validate() error {
 			}
 			if !strings.HasPrefix(step.Path, "/") {
 				return fmt.Errorf("compare writes: %s: path %q has no leading slash", stepWhere, step.Path)
+			}
+			if e := step.ExpectStatus; e != nil {
+				for side, code := range map[string]int{"python": e.Python, "go": e.Go} {
+					if code < 100 || code > 599 {
+						return fmt.Errorf("compare writes: %s: expect_status %s %d is not an HTTP status", stepWhere, side, code)
+					}
+				}
+				if e.Python != e.Go && strings.TrimSpace(step.Note) == "" {
+					return fmt.Errorf("compare writes: %s: expect_status differs per backend (python %d, go %d) and needs a note naming its PN", stepWhere, e.Python, e.Go)
+				}
 			}
 			for _, name := range placeholders(step.Path) {
 				if !extracted[name] {

@@ -40,8 +40,15 @@
 #
 # The webhook body is signed with the shared local WEBHOOK_HMAC_SECRET in the
 # X-Signature header. The webhook pays the invoice-lifecycle invoice's amount;
-# after reverse-payment that invoice is OPEN again, and approve-intake applies
-# the intake payment to it.
+# approve-intake applies the intake payment to it. The payment reversal runs
+# last (reverse-manual-payment), because Go and Python answer it differently.
+#
+# A step may declare `expect_status: N` (both backends) or
+# `expect_status: {python: N, go: N}`. The run continues past a non-2xx answer
+# that matches it; a step whose expected statuses differ needs a `note: "PN n"`
+# and its bodies are not compared. Extracts are not taken from a non-2xx side.
+# A body value that is exactly one placeholder ("{account_id}") keeps the
+# extracted value's JSON type; a placeholder inside a longer string is text.
 #
 # None of these steps has run against the real backends yet (plan 11 Task 4
 # fix round 1): the first real run may still find a body field to adjust.
@@ -173,8 +180,8 @@ scenarios:
         path: /api/v1/accounting/fx-rates/{rate_id}
 
   # --- invoice lifecycle --------------------------------------------------
-  # record-payment posts a journal entry on Go only (PN 161); reverse-payment
-  # is commented out below. webhook-intake pays the invoice.
+  # record-payment posts a journal entry on Go only (PN 161). webhook-intake
+  # pays the invoice. The payment is reversed in the last scenario of the file.
   - id: invoice-lifecycle
     tables:
       - invoices
@@ -212,12 +219,6 @@ scenarios:
       - id: list-payments
         method: GET
         path: /api/v1/invoices/{invoice_id}/payments
-      # Go 200 FLAGGED / Python 400 no_active_entry (PN 161); restore when the
-      # runner supports per-step expect_status.
-      # - id: reverse-payment
-      #   method: POST
-      #   path: /api/v1/payments/{payment_id}/reverse
-      #   body: {reason: "compare"}
 
   # --- recurring template -------------------------------------------------
   - id: recurring-template
@@ -281,6 +282,9 @@ scenarios:
   # --- bill ---------------------------------------------------------------
   # The expense account is the kept, active account_id (code 9900). A bill
   # payment has no table of its own: it only updates the bill row.
+  # expense_account_id is a numeric field: "{account_id}" is the whole value,
+  # so the runner sends the extracted number as a JSON number on both backends
+  # (typed placeholder substitution). item_id is not set on the bill line.
   - id: bill
     tables:
       - bills
@@ -316,8 +320,8 @@ scenarios:
   # --- webhook intake, approve and reverse --------------------------------
   # The intake payment goes to manual review (the payer name is not the
   # customer's, so the confidence stays under 95); approve-intake applies it to
-  # the invoice-lifecycle invoice, {invoice_id}, which reverse-payment left
-  # OPEN. {intake_payment_id} never overwrites {payment_id}.
+  # the invoice-lifecycle invoice, {invoice_id}. {intake_payment_id} never
+  # overwrites {payment_id}.
   - id: webhook-intake
     classify: PN 6
     tables:
@@ -348,3 +352,27 @@ scenarios:
         method: POST
         path: /api/v1/payments/{intake_payment_id}/reverse
         body: {reason: "compare"}
+
+  # --- reverse a manual payment (PN 161) ------------------------------------
+  # Go posts manual payments to the ledger and can reverse them (200, the
+  # payment becomes FLAGGED and the invoice balance is restored); Python
+  # refuses with 400 no_active_entry. After this step the two sides differ in
+  # state on {invoice_id} and {payment_id} (rows are reported as row
+  # differences, classified by this scenario), so it is the LAST scenario:
+  # nothing after it can depend on the invoice being payable again, and
+  # webhook-intake above has already applied its payment.
+  - id: reverse-manual-payment
+    classify: PN 161
+    tables:
+      - invoices
+      - payments
+      - reconciliation_log
+      - journal_entries
+      - journal_lines
+    steps:
+      - id: reverse-payment
+        method: POST
+        path: /api/v1/payments/{payment_id}/reverse
+        body: {reason: "compare"}
+        expect_status: {python: 400, go: 200}
+        note: "PN 161"
