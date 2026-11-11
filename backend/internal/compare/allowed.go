@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v2"
@@ -46,6 +47,12 @@ var knownRules = map[string]bool{
 // A status entry names the exact pair (Python, Go). A detail-shape entry
 // names the Go status (GoCode) and/or a regexp on the Go detail
 // (DetailPattern); at least one is required.
+//
+// An unordered entry may name TieKey: the element field (or several, comma
+// separated, in sort order) Python sorts the array by. The key values must
+// then come in the same order on both sides, and only each run of elements
+// with equal keys compares as a multiset, so a different sort order is still
+// reported and only the order Python left to the database is forgiven.
 type AllowedEntry struct {
 	Route         string `yaml:"route"`
 	Path          string `yaml:"path"`
@@ -55,7 +62,23 @@ type AllowedEntry struct {
 	Go            int    `yaml:"go"`
 	GoCode        int    `yaml:"go_code"`
 	DetailPattern string `yaml:"detail_pattern"`
+	TieKey        string `yaml:"tie_key"`
 }
+
+// tieKeys is the entry's TieKey fields, in order; none when it has no TieKey.
+func (e AllowedEntry) tieKeys() []string {
+	if strings.TrimSpace(e.TieKey) == "" {
+		return nil
+	}
+	var keys []string
+	for _, k := range strings.Split(e.TieKey, ",") {
+		keys = append(keys, strings.TrimSpace(k))
+	}
+	return keys
+}
+
+// fieldName is one tie key: a plain JSON field name.
+var fieldName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Allowed is the loaded allowed-diffs.yaml.
 type Allowed struct {
@@ -67,6 +90,9 @@ type Allowed struct {
 	// only between the backends themselves.
 	PythonHost string `yaml:"-"`
 	GoHost     string `yaml:"-"`
+	// usage records which entries one run reached and matched. A runner sets
+	// it (TrackUsage); every copy of the Allowed shares it. nil records nothing.
+	usage *allowedUsage
 }
 
 // ParseAllowed reads the entries of an allowed-diffs.yaml document. Every
@@ -98,6 +124,83 @@ func LoadAllowedFile(path string) (Allowed, error) {
 	return ParseAllowed(data)
 }
 
+// productionCopyMarker is the comment line that marks an allowed file for the
+// production-copy run only (port/allowed-diffs-prodcopy.yaml).
+const productionCopyMarker = "# compare-run: production-copy"
+
+// IsProductionCopyFile reports whether the allowed file at path carries the
+// production-copy marker line. `compare reads` loads such a file only with
+// --ledger-matches-aging.
+func IsProductionCopyFile(path string) (bool, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // path is a caller argument (the --allowed flag)
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == productionCopyMarker {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// LoadAllowedFiles reads the entries of every path, in order, and merges them
+// into one Allowed (the --allowed flag may be repeated: the shipped
+// allowed-diffs.yaml, then an overlay such as allowed-diffs-prodcopy.yaml used
+// for one kind of run only). An error names the file it came from.
+//
+// Every entry of every file applies; none overrides another. The warnings name
+// each later-file entry that overlaps an earlier file's (overlapWarnings), so
+// an overlay never changes the shipped file's meaning unseen.
+func LoadAllowedFiles(paths ...string) (Allowed, []string, error) {
+	var merged []AllowedEntry
+	var warnings []string
+	for _, path := range paths {
+		a, err := LoadAllowedFile(path)
+		if err != nil {
+			return Allowed{}, nil, fmt.Errorf("%s: %w", path, err)
+		}
+		warnings = append(warnings, overlapWarnings(path, merged, a.Entries)...)
+		merged = append(merged, a.Entries...)
+	}
+	all, err := newAllowed(merged)
+	if err != nil {
+		return Allowed{}, nil, err
+	}
+	return all, warnings, nil
+}
+
+// overlapWarnings compares a later file's entries with the earlier files'.
+// On the same route, a path equal to, inside or above an earlier entry's is a
+// repeat (same rule) or a conflict (another rule: an ignore hides the path
+// whatever the other entry says). A literal route that an earlier {param}
+// route matches shadows that pattern for the literal's requests: a literal
+// route is preferred, so the earlier pattern entries stop applying to it.
+func overlapWarnings(path string, earlier, later []AllowedEntry) []string {
+	var out []string
+	for _, l := range later {
+		shadowed := map[string]bool{}
+		for _, e := range earlier {
+			if e.Route == l.Route && (pathCovers(e.Path, l.Path) || pathCovers(l.Path, e.Path)) {
+				kind := "repeats"
+				if e.Rule != l.Rule {
+					kind = "conflicts with"
+				}
+				out = append(out, fmt.Sprintf("%s: %s %s (%s, %s) %s an earlier entry %s %s (%s, %s)",
+					path, l.Route, l.Path, l.Rule, l.Note, kind, e.Route, e.Path, e.Rule, e.Note))
+				continue
+			}
+			_, lp := splitRoute(l.Route)
+			if !strings.Contains(lp, "{") && strings.Contains(e.Route, "{") && routeMatches(e.Route, l.Route) && !shadowed[e.Route] {
+				shadowed[e.Route] = true
+				out = append(out, fmt.Sprintf("%s: the literal route %s shadows the earlier pattern %s: its entries stop applying to %s",
+					path, l.Route, e.Route, l.Route))
+			}
+		}
+	}
+	return out
+}
+
 // newAllowed validates the entries and returns them.
 func newAllowed(entries []AllowedEntry) (Allowed, error) {
 	for i, e := range entries {
@@ -123,6 +226,9 @@ func validateEntry(i int, e AllowedEntry) error {
 	}
 	if strings.TrimSpace(e.Note) == "" {
 		return fmt.Errorf("allowed diffs: %s has no note", where)
+	}
+	if e.TieKey != "" && e.Rule != RuleUnordered {
+		return fmt.Errorf("allowed diffs: %s: tie_key is for an unordered entry", where)
 	}
 	if !strings.HasPrefix(e.Path, "$") && !strings.HasPrefix(e.Path, "@") {
 		return fmt.Errorf("allowed diffs: %s: path must start with $ or @", where)
@@ -158,8 +264,92 @@ func validateEntry(i int, e AllowedEntry) error {
 		if e.Path == "$" {
 			return fmt.Errorf("allowed diffs: %s: an unordered path must not be $", where)
 		}
+		for _, k := range e.tieKeys() {
+			if !fieldName.MatchString(k) {
+				return fmt.Errorf("allowed diffs: %s: tie_key %q is not a field name", where, k)
+			}
+		}
 	}
 	return nil
+}
+
+// UnusedAllowed is one allowed entry a run never needed, as the report lists
+// it.
+type UnusedAllowed struct {
+	Route string `json:"route"`
+	Path  string `json:"path"`
+	Rule  string `json:"rule"`
+	Note  string `json:"note"`
+}
+
+// allowedUsage is one run's record of the entries a request's route reached
+// (exercised) and the entries that applied to a path or a status pair of an
+// answer (matched). An entry is keyed by its value, so a repeated identical
+// entry counts once.
+type allowedUsage struct {
+	mu        sync.Mutex
+	exercised map[AllowedEntry]bool
+	matched   map[AllowedEntry]bool
+}
+
+// TrackUsage returns a copy of a that records, from now on, which entries the
+// diffs it is used for reach and match; Unused reads the record. A runner
+// calls it once per run, so each run starts with an empty record.
+func (a Allowed) TrackUsage() Allowed {
+	a.usage = &allowedUsage{exercised: map[AllowedEntry]bool{}, matched: map[AllowedEntry]bool{}}
+	return a
+}
+
+// exercise records that a request's route reached the entries.
+func (u *allowedUsage) exercise(entries []AllowedEntry) {
+	if u == nil {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for _, e := range entries {
+		u.exercised[e] = true
+	}
+}
+
+// match records that the entry applied to an answer.
+func (u *allowedUsage) match(e AllowedEntry) {
+	if u == nil {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.matched[e] = true
+}
+
+// documentaryRules never change the comparison (decimals and instants compare
+// by value anyway, see allowed-diffs.yaml). Such an entry is used when an
+// answer has its path, so one naming a wrong field is still listed by Unused.
+var documentaryRules = map[string]bool{RuleDecimalEqual: true, RuleInstantEqual: true}
+
+// Unused is the entries, in file order, whose route the run requested but that
+// never applied to anything: a path that no answer had (an ignore, unordered
+// number-equal, decimal-equal or instant-equal entry), a status pair that
+// never occurred, or a detail that never differed. Such an entry is dead or
+// names the wrong field, as the PN 40 `$.open_invoices` entry did. An entry
+// whose route was never requested is not listed (the run did not exercise
+// it). It is a warning only; without TrackUsage it is always empty.
+func (a Allowed) Unused() []UnusedAllowed {
+	out := []UnusedAllowed{}
+	if a.usage == nil {
+		return out
+	}
+	a.usage.mu.Lock()
+	defer a.usage.mu.Unlock()
+	seen := map[AllowedEntry]bool{}
+	for _, e := range a.Entries {
+		if seen[e] || !a.usage.exercised[e] || a.usage.matched[e] {
+			continue
+		}
+		seen[e] = true
+		out = append(out, UnusedAllowed{Route: e.Route, Path: e.Path, Rule: e.Rule, Note: e.Note})
+	}
+	return out
 }
 
 // isWholeBodyPath reports whether a path names the whole response: $, or $

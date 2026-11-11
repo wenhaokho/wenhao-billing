@@ -24,6 +24,10 @@ type Report struct {
 	Cases       []CaseResult `json:"cases"`
 	Differences int          `json:"differences"`
 	Summary     Summary      `json:"summary"`
+	// UnusedAllowed is the allowed entries whose route the run requested but
+	// that never applied to an answer (Allowed.Unused): a warning, never a
+	// failure, so a dead or misnamed entry is seen.
+	UnusedAllowed []UnusedAllowed `json:"unused_allowed"`
 }
 
 // Summary counts the run's skipped request variants. A skip is one variant that
@@ -71,6 +75,10 @@ type ReadOptions struct {
 	Client   *http.Client
 	// Now is the run's clock, for {today} and the report's timestamp.
 	Now func() time.Time
+	// LedgerMatchesAging adds the cross-check of Go's trial balance (its PN 166
+	// case) against Go's AR and AP aging: run it where Go's ledger holds every
+	// document (the production copy after the back-post), never before.
+	LedgerMatchesAging bool
 }
 
 // RunReads signs in to Python (a single POST /auth/login, or nothing when a
@@ -88,12 +96,12 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 		now = time.Now
 	}
 	client := readClient(o)
-	allowed := o.Allowed
+	allowed := o.Allowed.TrackUsage()
 	allowed.PythonTZ = o.PythonTZ
 	allowed.PythonHost = hostOf(o.PythonURL)
 	allowed.GoHost = hostOf(o.GoURL)
 
-	report := Report{Python: redactURL(o.PythonURL), Go: redactURL(o.GoURL), StartedAt: now().UTC()}
+	report := Report{Python: redactURL(o.PythonURL), Go: redactURL(o.GoURL), StartedAt: now().UTC(), UnusedAllowed: []UnusedAllowed{}}
 
 	session, err := pythonSignIn(ctx, client, o)
 	if err != nil {
@@ -108,6 +116,9 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 	today := now().UTC().Format("2006-01-02")
 
 	discovered := map[string][]string{}
+	// The Go answers the aging cross-check reads: the first trial balance of
+	// a PN 166 case (and its report index), and the first AR and AP aging.
+	ledger := ledgerAnswers{tbCase: -1}
 	for _, cs := range o.Corpus.Cases {
 		route := "GET " + routePath(cs.Route)
 		targets, skips := expandCase(cs, discovered, today)
@@ -125,6 +136,12 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 				discoverIDs(discovered, gov.Body, d)
 			}
 			diffs := Diff(route, py, gov, allowed)
+			if strings.HasPrefix(cs.Classify, ledgerClassify) {
+				// Go's ledger report cannot be compared with Python's here; it
+				// is checked against itself, and a failure is a difference.
+				diffs = append(diffs, withClassify(selfCheck(routePath(cs.Route), gov), cs.Classify)...)
+			}
+			ledger.record(routePath(cs.Route), cs.Classify, gov, len(report.Cases))
 			report.Cases = append(report.Cases, CaseResult{
 				ID: cs.ID, Request: "GET " + target, Classify: cs.Classify,
 				Python: py.Status, Go: gov.Status, Differences: diffs,
@@ -141,7 +158,44 @@ func RunReads(ctx context.Context, o ReadOptions) (Report, error) {
 			report.Summary.Skipped++
 		}
 	}
+	if o.LedgerMatchesAging {
+		if ledger.tbCase < 0 {
+			return report, fmt.Errorf("the ledger-vs-aging check needs a %s trial-balance case in the corpus", ledgerClassify)
+		}
+		tb := &report.Cases[ledger.tbCase]
+		d := withClassify(agingCheck(ledger.tb, ledger.ar, ledger.ap, ledger.haveAR, ledger.haveAP), tb.Classify)
+		tb.Differences = append(tb.Differences, d...)
+		report.Differences += len(d)
+	}
+	report.UnusedAllowed = allowed.Unused()
 	return report, nil
+}
+
+// ledgerAnswers keeps the Go answers the aging cross-check needs.
+type ledgerAnswers struct {
+	tb, ar, ap     Response
+	tbCase         int
+	haveAR, haveAP bool
+}
+
+// record keeps the first answer of each report the cross-check reads.
+func (l *ledgerAnswers) record(path, classify string, gov Response, index int) {
+	switch {
+	case path == trialBalanceRoute && strings.HasPrefix(classify, ledgerClassify) && l.tbCase < 0:
+		l.tb, l.tbCase = gov, index
+	case path == arAgingRoute && !l.haveAR:
+		l.ar, l.haveAR = gov, true
+	case path == apAgingRoute && !l.haveAP:
+		l.ap, l.haveAP = gov, true
+	}
+}
+
+// withClassify tags self-check differences with the case's note.
+func withClassify(diffs []Difference, note string) []Difference {
+	for i := range diffs {
+		diffs[i].Classify = note
+	}
+	return diffs
 }
 
 // signInCheck asks a backend GET /api/v1/auth/me and refuses the run unless it

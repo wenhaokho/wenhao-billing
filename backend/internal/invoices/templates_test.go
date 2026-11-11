@@ -794,3 +794,30 @@ func TestPatchTemplateWhoseRefIsNotAnObject(t *testing.T) {
 		}
 	}
 }
+
+// TestRowsOrder pins the rows view's order (ListTemplateRows): newest template
+// created_at first, then invoice_id descending for templates created at the
+// same instant (PN 47; Python orders by created_at DESC only,
+// invoices.py:215-228).
+func TestRowsOrder(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	sched := map[string]any{"frequency": "MONTHLY", "start_date": "2026-01-15"}
+	oldest, tieA, tieB := mkTemplate(t, a, sched).InvoiceID, mkTemplate(t, a, sched).InvoiceID, mkTemplate(t, a, sched).InvoiceID
+	for id, created := range map[uuid.UUID]string{oldest: "2026-01-01 10:00:00", tieA: "2026-02-01 10:00:00", tieB: "2026-02-01 10:00:00"} {
+		if _, err := a.Pool.Exec(t.Context(), `UPDATE invoices SET created_at = $2::timestamp WHERE invoice_id = $1`, id, created); err != nil {
+			t.Fatal(err)
+		}
+	}
+	higher, lower := tieA, tieB
+	if tieB.String() > tieA.String() {
+		higher, lower = tieB, tieA
+	}
+	var got []uuid.UUID
+	for _, r := range rows(t, a) {
+		got = append(got, r.TemplateID)
+	}
+	if want := []uuid.UUID{higher, lower, oldest}; len(got) != 3 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("rows order = %v, want %v (created_at DESC, then invoice_id DESC)", got, want)
+	}
+}

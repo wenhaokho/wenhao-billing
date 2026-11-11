@@ -217,3 +217,42 @@ func TestListByProject(t *testing.T) {
 		t.Errorf("no match = %#v, want an empty non-nil list", out)
 	}
 }
+
+// TestListLinesOfInvoicesOrder pins ListLinesOfInvoices (queries.sql), the one
+// query every invoice list loads its lines with (list in core.go): each
+// invoice's lines by position, then line_item_id, whatever order they were
+// inserted in (PN 44). Lines are inserted at positions 1, 0, then 0 with a
+// smaller id; a second invoice's lines must not mix in.
+func TestListLinesOfInvoicesOrder(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	ctx := t.Context()
+	inv, other := insertInvoice(t, a.Pool, nil), insertInvoice(t, a.Pool, nil)
+	small, large := uuid.MustParse("00000000-0000-0000-0000-000000000001"), uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	last := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	for _, l := range []struct {
+		invoice, id uuid.UUID
+		pos         int
+	}{{inv, last, 1}, {inv, large, 0}, {other, uuid.New(), 0}, {inv, small, 0}} {
+		if _, err := a.Pool.Exec(ctx, `INSERT INTO invoice_line_items (line_item_id, invoice_id, position, description, quantity, unit_price, amount)
+VALUES ($1, $2, $3, 'line', 1, 1, 1)`, l.id, l.invoice, l.pos); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := apitest.Decode[[]InvoiceOut](t, a.Do(t, http.MethodGet, invoicesPath, nil), http.StatusOK)
+	var got []uuid.UUID
+	for _, out := range list {
+		if out.InvoiceID == other && len(out.LineItems) != 1 {
+			t.Errorf("the other invoice's lines = %+v, want its one", out.LineItems)
+		}
+		if out.InvoiceID != inv {
+			continue
+		}
+		for _, l := range out.LineItems {
+			got = append(got, l.LineItemID)
+		}
+	}
+	if want := []uuid.UUID{small, large, last}; !slices.Equal(got, want) {
+		t.Fatalf("line order = %v, want %v (position, then line_item_id)", got, want)
+	}
+}
