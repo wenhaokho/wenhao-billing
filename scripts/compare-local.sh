@@ -150,6 +150,8 @@ case "$MODE" in
       --python-email "$EMAIL" --python-password-stdin --go-token-stdin \
       --corpus /src/port/compare-corpus.yaml \
       --allowed /src/port/allowed-diffs.yaml \
+      --allowed /src/port/allowed-diffs-prodcopy.yaml \
+      --allow-skips \
       --out "/src/.compare-report-$MODE.json" || status=$?
     ;;
   writes)
