@@ -35,9 +35,11 @@ type Invoice struct {
 // payment date, created_at, payment id), and stops after upTo. A payment in
 // the invoice's currency relieves it by amount + wht_amount, never below 0; a
 // payment in another currency settles the whole balance (0); a balance within
-// matching.AmountEpsilon of 0 is 0 (auto-clear settles such a residue). That
-// is the rule of payments.Service.clear and of recordManual
-// (internal/payments): change one, change this. Payments that are not CLEARED
+// matching.AmountEpsilon of 0 is 0 (payments.Service.clear does not round such
+// a residue, so only older receipts, which are replayed, show it as 0; the newest
+// receipt uses the stored balance). Otherwise this is the rule of
+// payments.Service.clear and of recordManual (internal/payments): change one,
+// change this. Payments that are not CLEARED
 // (a reversal leaves the payment FLAGGED) relieve nothing and are skipped.
 //
 // The newest CLEARED payment (and an upTo that is not among them) gets the

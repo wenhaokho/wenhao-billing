@@ -77,8 +77,9 @@ func LoadQuotation(ctx context.Context, q DBTX, id uuid.UUID) (QuotationData, er
 }
 
 // LoadReceipt reads a payment, its invoice, the invoice's customer and the
-// business profile, and the invoice's balance after the payment (BalanceAfter). A missing payment or invoice is pgx.ErrNoRows; a payment
-// with no invoice is ErrNoInvoice.
+// business profile, and the invoice's balance after the payment (BalanceAfter).
+// A missing payment or invoice is pgx.ErrNoRows; a payment with no invoice is
+// ErrNoInvoice.
 func LoadReceipt(ctx context.Context, q DBTX, paymentID uuid.UUID) (ReceiptData, error) {
 	pay, err := paymentsdb.New(q).GetPayment(ctx, paymentID)
 	if err != nil {
