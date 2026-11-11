@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Picks the open invoice a held payment is approved against. Searches
 // GET /invoices?open=true&q= (invoice number or customer name) as the user
-// types; lists the payment's currency unless "All currencies" is on. Warns,
+// types; the server lists only the payment's currency (&currency=) unless
+// "All currencies" is on. Warns,
 // never blocks: a currency mismatch or a payment above the balance due is
 // still the reviewer's call, and the server's manual-review rules decide.
 import { computed, ref, watch } from "vue";
@@ -11,7 +12,7 @@ import Checkbox from "primevue/checkbox";
 import Message from "primevue/message";
 import { api } from "@/api/client";
 import { formatMoney } from "@/utils/money";
-import { decIsZero, decSub } from "@/components/dashboard/format";
+import { decIsZero, decSub } from "@/utils/decimal";
 
 interface OpenInvoice {
   invoice_id: string;
@@ -31,7 +32,7 @@ interface Customer {
 const props = defineProps<{ currency: string; amount: string }>();
 const invoiceId = defineModel<string>({ required: true });
 
-// Enough rows for a typed search; the currency filter runs on this page.
+// Enough rows for a typed search.
 const LIMIT = 100;
 
 const { data: customers } = useQuery<Customer[]>({
@@ -46,23 +47,39 @@ const customerName = computed(() => {
 
 const allCurrencies = ref(false);
 const results = ref<OpenInvoice[]>([]);
+const searchFailed = ref(false);
 // The AutoComplete's model: the typed text, or the invoice once one is chosen.
 const chosen = ref<OpenInvoice | string | null>(null);
 let seq = 0;
-
-const suggestions = computed(() =>
-  allCurrencies.value ? results.value : results.value.filter((i) => i.currency === props.currency),
-);
 
 async function search(e: AutoCompleteCompleteEvent) {
   const mine = ++seq;
   const params = new URLSearchParams({ open: "true", limit: String(LIMIT) });
   const q = e.query.trim();
   if (q) params.set("q", q);
-  const rows = (await api.get<OpenInvoice[]>(`/invoices?${params}`)).data;
-  // A slower, older search must not replace a newer one's rows.
-  if (mine === seq) results.value = rows;
+  if (!allCurrencies.value) params.set("currency", props.currency);
+  try {
+    const rows = (await api.get<OpenInvoice[]>(`/invoices?${params}`)).data;
+    // A slower, older search must not replace a newer one's rows.
+    if (mine === seq) {
+      results.value = rows;
+      searchFailed.value = false;
+    }
+  } catch {
+    // New suggestions stop the AutoComplete's loader; the message says why.
+    if (mine === seq) {
+      results.value = [];
+      searchFailed.value = true;
+    }
+  }
 }
+// The listed rows were fetched for the other setting: drop them; the next
+// search (typing or the dropdown button) fetches the right ones.
+watch(allCurrencies, () => {
+  seq++;
+  results.value = [];
+  searchFailed.value = false;
+});
 
 const selected = computed(() => (chosen.value && typeof chosen.value === "object" ? chosen.value : null));
 watch(selected, (inv) => {
@@ -98,12 +115,13 @@ const overBalance = computed(() => {
     </label>
     <AutoComplete
       v-model="chosen"
-      :suggestions="suggestions"
+      :suggestions="results"
       :option-label="invoiceLabel"
       :delay="250"
       dropdown
       fluid
       input-id="review-invoice"
+      aria-label="Invoice"
       placeholder="Invoice number or customer"
       :empty-search-message="allCurrencies ? 'No open invoice matches' : `No open ${currency} invoice matches`"
       @complete="search"
@@ -117,7 +135,7 @@ const overBalance = computed(() => {
         </div>
       </template>
     </AutoComplete>
-
+    <small v-if="searchFailed" class="search-error" role="alert" data-testid="search-error">Search failed — try again</small>
 
     <div v-if="selected" class="picked" data-testid="picked-invoice">
       <strong>{{ selected.invoice_number ?? 'Draft' }}</strong> · balance due <strong class="num">{{ formatMoney(selected.balance_due, selected.currency) }}</strong>
@@ -151,5 +169,6 @@ const overBalance = computed(() => {
 .all-ccy { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--wb-muted); cursor: pointer; }
 .ccy-hint { color: var(--wb-muted-soft); }
 .picked { font-size: 13px; color: var(--wb-muted); }
+.search-error { font-size: 13px; color: var(--wb-red-fg); }
 .picked strong { color: var(--wb-ink); font-weight: 500; }
 </style>

@@ -18,7 +18,8 @@ import InputText from "primevue/inputtext";
 import Message from "primevue/message";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
-import { decIsZero, decSub, timeAgo } from "./format";
+import { timeAgo } from "./format";
+import { decIsZero, decSub } from "@/utils/decimal";
 import type { AttentionRow, Reminder } from "./types";
 
 const props = defineProps<{ visible: boolean; row: AttentionRow | null }>();

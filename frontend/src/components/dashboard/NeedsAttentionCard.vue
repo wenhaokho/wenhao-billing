@@ -13,7 +13,8 @@ import Tag from "primevue/tag";
 import { onBeforeUnmount, ref } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
 import { formatAmount } from "@/utils/money";
-import { decSub, decIsZero, timeAgo } from "./format";
+import { timeAgo } from "./format";
+import { decSub, decIsZero } from "@/utils/decimal";
 import type { AttentionRow, ReceivablesResponse, Reminder } from "./types";
 
 defineProps<{ rows: AttentionRow[] }>();

@@ -1,40 +1,9 @@
 // Display helpers for the dashboard. Money stays a decimal string: sums go
-// through exact fixed-point (BigInt at 4 places), and Number() is used only to
+// through exact fixed-point (@/utils/decimal), and Number() is used only to
 // scale a value for display (compact "71.8M", bar heights, percentages).
 
+import { decIsZero } from "@/utils/decimal";
 import type { KpiDelta } from "./types";
-
-const SCALE = 10_000n;
-
-function toUnits(v: string | null | undefined): bigint {
-  const s = (v ?? "").trim();
-  if (!s) return 0n;
-  const neg = s.startsWith("-");
-  const [int, frac = ""] = (neg || s.startsWith("+") ? s.slice(1) : s).split(".");
-  const units = BigInt(int || "0") * SCALE + BigInt((frac + "0000").slice(0, 4));
-  return neg ? -units : units;
-}
-
-function fromUnits(u: bigint): string {
-  const neg = u < 0n;
-  const a = neg ? -u : u;
-  const frac = (a % SCALE).toString().padStart(4, "0");
-  return `${neg ? "-" : ""}${a / SCALE}.${frac}`;
-}
-
-/** Exact sum of decimal strings. */
-export function decSum(values: (string | null | undefined)[]): string {
-  return fromUnits(values.reduce((acc, v) => acc + toUnits(v), 0n));
-}
-
-/** Exact a − b of decimal strings. */
-export function decSub(a: string | null | undefined, b: string | null | undefined): string {
-  return fromUnits(toUnits(a) - toUnits(b));
-}
-
-export function decIsZero(v: string | null | undefined): boolean {
-  return toUnits(v) === 0n;
-}
 
 /** "71.8M", "1.2B", "940K", "512": one decimal, a trailing ".0" dropped. */
 export function formatCompact(v: string | number | null | undefined): string {

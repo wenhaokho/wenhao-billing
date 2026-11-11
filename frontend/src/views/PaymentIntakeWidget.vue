@@ -30,7 +30,8 @@ import {
   type ReceivablesResponse,
   type CurrencyAmount,
 } from "@/components/dashboard/types";
-import { decIsZero, deltaOf, formatCompact, formatShare } from "@/components/dashboard/format";
+import { deltaOf, formatCompact, formatShare } from "@/components/dashboard/format";
+import { decIsZero } from "@/utils/decimal";
 
 interface UpcomingInvoiceItem {
   invoice_id: string;

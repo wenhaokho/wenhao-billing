@@ -5,7 +5,8 @@
 import { computed, ref } from "vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { formatAmount } from "@/utils/money";
-import { decIsZero, formatShare } from "./format";
+import { formatShare } from "./format";
+import { decIsZero } from "@/utils/decimal";
 import type { AgingKey, CurrencyAmount, DaysToPay, ReceivablesResponse } from "./types";
 
 const props = defineProps<{

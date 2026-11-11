@@ -6,7 +6,8 @@
 import { computed, ref } from "vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { formatAmount } from "@/utils/money";
-import { decIsZero, decSum, formatCompact } from "./format";
+import { formatCompact } from "./format";
+import { decIsZero, decSum } from "@/utils/decimal";
 import type { CashInKey, ReceivablesResponse } from "./types";
 
 const props = defineProps<{ data: ReceivablesResponse }>();

@@ -165,10 +165,21 @@ test("held payment: via and reason tags, invoice picker with warnings, approve",
     await expect(low.locator('[data-status="LOW_CONFIDENCE"]')).toHaveAttribute("data-tone", "amber");
 
     // Search by customer name: the IDR invoices are listed, the SGD one only
-    // with "All currencies".
-    const input = detail.locator("#review-invoice");
+    // with "All currencies". The server filters the currency (&currency=).
+    const input = detail.getByRole("combobox", { name: "Invoice" });
     const listbox = page.getByRole("listbox");
+    const isSearch = (u: URL) => u.pathname === "/api/v1/invoices" && u.searchParams.has("q");
+
+    // A failed search says so and stops loading; the next one recovers.
+    await page.route(isSearch, (r) => r.abort(), { times: 1 });
     await input.fill(name);
+    await expect(detail.getByTestId("search-error")).toHaveText("Search failed — try again");
+    await input.fill("");
+
+    const idrSearch = page.waitForRequest((r) => isSearch(new URL(r.url())));
+    await input.fill(name);
+    expect(new URL((await idrSearch).url()).searchParams.get("currency")).toBe("IDR");
+    await expect(detail.getByTestId("search-error")).toHaveCount(0);
     await expect(listbox.locator(`[data-invoice="${invoiceA}"]`)).toBeVisible();
     await expect(listbox.locator(`[data-invoice="${invoiceC}"]`)).toBeVisible();
     await expect(listbox.locator(`[data-invoice="${invoiceB}"]`)).toHaveCount(0);
@@ -178,7 +189,9 @@ test("held payment: via and reason tags, invoice picker with warnings, approve",
     await expect(listbox).toBeHidden();
     await detail.getByText("All currencies").click();
     await input.fill("");
+    const allSearch = page.waitForRequest((r) => isSearch(new URL(r.url())));
     await input.fill(name);
+    expect(new URL((await allSearch).url()).searchParams.has("currency")).toBe(false);
     await listbox.locator(`[data-invoice="${invoiceB}"]`).click();
     await expect(detail.getByTestId("warn-currency")).toContainText("SGD");
     await expect(detail.getByTestId("warn-over-balance")).toHaveCount(0);
