@@ -50,3 +50,16 @@ SELECT e.entry_id
    AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversed_by_entry_id = e.entry_id)
  ORDER BY e.posted_at DESC, e.entry_id DESC
  LIMIT 1;
+
+-- name: InvoiceARBasis :one
+-- The invoice's receivable on the ledger: the 1100 lines of its INVOICE
+-- entries and of the PAYMENT entries of every payment pointing at it,
+-- reversals included. face is in the invoice's currency, base in the base.
+SELECT COALESCE(SUM(l.debit - l.credit), 0)::numeric AS face,
+       COALESCE(SUM(l.base_amount_debit - l.base_amount_credit), 0)::numeric AS base
+  FROM journal_lines l
+  JOIN journal_entries e ON e.entry_id = l.entry_id
+  JOIN chart_of_accounts a ON a.account_id = l.account_id
+ WHERE a.code = '1100'
+   AND ((e.source_type = 'INVOICE' AND e.source_id = sqlc.arg(invoice_id)::uuid)
+     OR (e.source_type = 'PAYMENT' AND e.source_id IN (SELECT p.payment_id FROM payments p WHERE p.invoice_id = sqlc.arg(invoice_id)::uuid)));

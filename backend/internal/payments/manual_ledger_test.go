@@ -104,9 +104,9 @@ func TestManualWithholdingOnlyPaymentPosts(t *testing.T) {
 
 // Manual payments are always in the invoice currency. An invoice issued at
 // one rate and paid when the rate has moved is posted exactly as an approved
-// payment of the same money on the same day: every line at the payment
-// date's rate. Neither path books a realised FX gain or loss in one currency
-// (invoices post no receivable at issue), so this proves both book none.
+// payment of the same money on the same day: bank and Prepaid Tax at the
+// payment date's rate, the receivable at its issue basis, and the same
+// realised FX gain (PORT-NOTES 163; before, both booked none).
 func TestManualPaymentCrossRateMatchesApprovedPosting(t *testing.T) {
 	t.Parallel()
 	a := newAPI(t, NoHosting{})
@@ -140,14 +140,17 @@ func TestManualPaymentCrossRateMatchesApprovedPosting(t *testing.T) {
 			!ml.baseDebit.Equal(al.baseDebit) || !ml.baseCredit.Equal(al.baseCredit) || !ml.rate.Equal(al.rate) {
 			t.Errorf("line %d: manual %+v, approved %+v", i, ml, al)
 		}
-		if !ml.rate.Equal(dec("16500")) {
-			t.Errorf("line %s at rate %s, want the payment date's 16500", ml.code, ml.rate)
+		want := map[string]string{"1000": "16500", "1300": "16500", "1100": "16000", "4900": "1"}[ml.code]
+		if !ml.rate.Equal(dec(want)) {
+			t.Errorf("line %s at rate %s, want %s", ml.code, ml.rate, want)
 		}
 	}
-	for _, fx := range []string{"4900", "5900"} {
-		if m.line(fx) != nil || ap.line(fx) != nil {
-			t.Errorf("FX line %s: manual %v, approved %v; want none", fx, m.line(fx), ap.line(fx))
-		}
+	// 1000 + 20 at 16500 less the 1020 issued at 16000.
+	if g := m.line("4900"); g == nil || !g.baseCredit.Equal(dec("510000")) {
+		t.Errorf("FX gain %+v, want 510000", g)
+	}
+	if m.line("5900") != nil {
+		t.Errorf("FX loss %+v, want none", m.line("5900"))
 	}
 	checkInvoice(t, a.env, manualInv, "0", "20", "PAID")
 	checkInvoice(t, a.env, approvedInv, "0", "20", "PAID")
@@ -220,8 +223,13 @@ func TestManualPaymentPostingFailureLeavesNothing(t *testing.T) {
 	t.Parallel()
 	nothing := func(t *testing.T, a *api) {
 		t.Helper()
-		for _, table := range []string{"payments", "reconciliation_log", "journal_entries", "journal_lines"} {
-			if n := a.count(t, `SELECT count(*) FROM `+table); n != 0 {
+		for table, q := range map[string]string{
+			"payments": `SELECT count(*) FROM payments`, "reconciliation_log": `SELECT count(*) FROM reconciliation_log`,
+			// The invoice's own issue entry stays.
+			"payment journal_entries": `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`,
+			"payment journal_lines":   `SELECT count(*) FROM journal_lines l JOIN journal_entries j ON j.entry_id = l.entry_id WHERE j.source_type = 'PAYMENT'`,
+		} {
+			if n := a.count(t, q); n != 0 {
 				t.Errorf("%d rows in %s, want 0", n, table)
 			}
 		}

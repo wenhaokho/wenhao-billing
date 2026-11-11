@@ -16,6 +16,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger/ledgertest"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments/paymentsdb"
 )
@@ -901,6 +902,9 @@ func TestUpdateInvoiceEchoesNotes(t *testing.T) {
 // ---- reconciliation (safe-stop) ----
 
 // recon inserts an invoice and a payment for resolve_reconciliation_match.
+// The invoice gets its issue entry (PORT-NOTES 163) when the test stored a
+// rate to issue it at; without one, a refusal comes before the posting (or
+// the payment's own rate is missing first).
 func (h *writeHarness) recon(t *testing.T, payCurrency, payAmount, status, invCurrency, invAmount string) (payment, invoice uuid.UUID) {
 	t.Helper()
 	c := h.customer(t, "Acme Pte Ltd")
@@ -909,6 +913,17 @@ func (h *writeHarness) recon(t *testing.T, payCurrency, payAmount, status, invCu
 VALUES ($1, $2, 'MILESTONE', 'INV-' || $5::text, $3, $4::text::numeric, $4::text::numeric, 'SENT', '2026-06-01', '2026-06-15')`, invoice, c, invCurrency, invAmount, invoice.String()[:8])
 	h.exec(t, `INSERT INTO payments (payment_id, amount, currency, payer_name, payment_date, intake_source, status)
 VALUES ($1, $2::text::numeric, $3, 'Ambiguous LLC', '2026-06-05', 'EMAIL', $4)`, payment, payAmount, payCurrency, status)
+	if h.count(t, `SELECT count(*) FROM fx_rates WHERE from_currency = $1 AND to_currency = 'IDR' AND as_of_date <= '2026-06-01'`, invCurrency) > 0 {
+		tx, err := h.pool.Begin(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(t.Context()) }()
+		ledgertest.IssueFixture(t, tx, invoice)
+		if err := tx.Commit(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return payment, invoice
 }
 

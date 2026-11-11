@@ -37,7 +37,8 @@ func ModeRevenueCode(invoiceType string) string {
 // invoice whose lines sum to 0 (none, as a milestone) puts its whole amount
 // on the mode account. A group left with 0 is dropped.
 //
-// An account that is not INCOME is refused (ledger.ErrLedger). Exported for
+// An account that is not INCOME, or is inactive, is refused
+// (ledger.ErrLedger). Exported for
 // the back-post (plan 12 Task 7).
 func RevenueShares(ctx context.Context, tx pgx.Tx, inv invoicesdb.Invoice) ([]ledger.Share, error) {
 	lines, err := invoicesdb.New(tx).ListInvoiceLineAccounts(ctx, inv.InvoiceID)
@@ -84,6 +85,9 @@ func RevenueShares(ctx context.Context, tx pgx.Tx, inv invoicesdb.Invoice) ([]le
 		}
 		if a.Type != "INCOME" {
 			return nil, ledger.Refuse("account %s (%s) cannot take revenue; set the item's revenue account to an INCOME account", a.Code, a.Type)
+		}
+		if !a.Active {
+			return nil, ledger.Refuse("account %s is inactive and cannot take revenue; reactivate it or choose another revenue account", a.Code)
 		}
 	}
 

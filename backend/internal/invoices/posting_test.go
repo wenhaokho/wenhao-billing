@@ -394,6 +394,56 @@ func TestFinalizeRefusesNonIncomeAccount(t *testing.T) {
 	wantNoJournal(t, a.Pool)
 }
 
+// An inactive revenue account (the item's, or the billing mode's) is refused
+// before anything posts.
+func TestFinalizeRefusesInactiveAccount(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ name, code string }{{"item account", ledger.SupportCode}, {"mode account", ledger.FixedFeeCode}} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			a := newApp(t)
+			cust := insertCustomer(t, a.Pool, "NONE", "", false)
+			line := lineBody("100")
+			if c.code == ledger.SupportCode {
+				line = itemLine(insertItem(t, a.Pool, c.code), "100")
+			}
+			inv := post(t, a, map[string]any{"customer_id": cust, "currency": "IDR", "invoice_type": "MILESTONE", "line_items": []any{line}})
+			if _, err := a.Pool.Exec(t.Context(), `UPDATE chart_of_accounts SET active = false WHERE code = $1`, c.code); err != nil {
+				t.Fatal(err)
+			}
+			wantProblem(t, a.Do(t, http.MethodPost, actionPath(inv.InvoiceID, "finalize"), nil), http.StatusBadRequest, "ledger_refused",
+				"account "+c.code+" is inactive and cannot take revenue; reactivate it or choose another revenue account", "", "")
+			if got := get(t, a, inv.InvoiceID); got.Status != "DRAFT" {
+				t.Errorf("status = %s after a refusal", got.Status)
+			}
+			wantNoJournal(t, a.Pool)
+		})
+	}
+}
+
+// A DRAFT whose balance_due is not its amount is refused rather than issued
+// with a receivable that disagrees with the balance (or settled to PAID).
+func TestFinalizeRefusesBalanceNotAmount(t *testing.T) {
+	t.Parallel()
+	for _, balance := range []string{"40", "0"} {
+		t.Run(balance, func(t *testing.T) {
+			t.Parallel()
+			a := newApp(t)
+			c := insertCustomer(t, a.Pool, "NONE", "", false)
+			inv := post(t, a, createBody(c, "100", nil))
+			if _, err := a.Pool.Exec(t.Context(), `UPDATE invoices SET balance_due = $2::numeric WHERE invoice_id = $1`, inv.InvoiceID, balance); err != nil {
+				t.Fatal(err)
+			}
+			wantProblem(t, a.Do(t, http.MethodPost, actionPath(inv.InvoiceID, "finalize"), nil), http.StatusBadRequest, "ledger_refused",
+				"invoice "+inv.InvoiceID.String()+" balance_due "+balance+".0000 is not its amount 100.0000; cannot issue it", "", "")
+			if got := get(t, a, inv.InvoiceID); got.Status != "DRAFT" {
+				t.Errorf("status = %s after a refusal", got.Status)
+			}
+			wantNoJournal(t, a.Pool)
+		})
+	}
+}
+
 func TestFinalizeMissingRateLeavesDraft(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)

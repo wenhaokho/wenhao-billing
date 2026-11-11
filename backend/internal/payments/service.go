@@ -313,7 +313,8 @@ func (s Service) ApproveManual(ctx context.Context, tx pgx.Tx, paymentID, invoic
 // newest that is neither reversed nor a reversal) with memo
 // "Reversal: <reason>", flags the payment, and re-opens its invoice: the
 // balance grows by amount + wht_amount, wht_booked shrinks by wht_amount,
-// and the status is OPEN. The hosting restore is not undone. A REVERSED log
+// and the status is OPEN. Go's own: a VOID invoice keeps its status and
+// balance (only wht_booked shrinks). The hosting restore is not undone. A REVERSED log
 // row holds the reason. Locks: the payment, then the invoice, then (in the
 // ledger) the entry.
 //
@@ -353,14 +354,18 @@ func (s Service) Reverse(ctx context.Context, tx pgx.Tx, paymentID uuid.UUID, ac
 		return paymentsdb.Payment{}, fmt.Errorf("payments: flag payment: %w", err)
 	}
 	if found {
-		inv.BalanceDue = inv.BalanceDue.Add(p.Amount).Add(p.WhtAmount)
 		inv.WhtBooked = inv.WhtBooked.Sub(p.WhtAmount)
 		if inv.WhtBooked.IsNegative() {
 			return paymentsdb.Payment{}, fmt.Errorf("invoice %s wht_booked went negative on reversal of payment %s — withholding bookkeeping invariant violated",
 				inv.InvoiceID, p.PaymentID)
 		}
-		// Re-open as OPEN: whether the invoice was emailed is not stored.
-		inv.Status = invoiceOpen
+		// A VOID invoice (Python voided PARTIAL ones, leaving their CLEARED
+		// payments) stays VOID with nothing owing; any other re-opens as
+		// OPEN: whether the invoice was emailed is not stored.
+		if inv.Status != invoiceVoid {
+			inv.BalanceDue = inv.BalanceDue.Add(p.Amount).Add(p.WhtAmount)
+			inv.Status = invoiceOpen
+		}
 		if err := saveInvoice(ctx, q, inv); err != nil {
 			return paymentsdb.Payment{}, err
 		}

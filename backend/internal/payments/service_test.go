@@ -20,6 +20,7 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/apitest"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/ledger/ledgertest"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments/paymentsdb"
 )
 
@@ -86,12 +87,26 @@ func (e *env) customer(t *testing.T, name string, aliases ...string) uuid.UUID {
 	return id
 }
 
-// inv is an invoice to insert; zero dates are NULL.
+// inv is an invoice to insert; zero dates are NULL. An OPEN, SENT or
+// PARTIAL one gets its issue entry (PORT-NOTES 163) unless unissued.
 type inv struct {
 	customer         uuid.UUID
 	currency, status string
 	balance, wht     string
 	issue, due       time.Time
+	unissued         bool
+}
+
+// issue posts the issue entry of invoice id, inserted by SQL.
+func (e *env) issue(t *testing.T, id uuid.UUID) {
+	t.Helper()
+	_, err := inTx(t, e, func(tx pgx.Tx) (struct{}, error) {
+		ledgertest.IssueFixture(t, tx, id)
+		return struct{}{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (e *env) invoice(t *testing.T, v inv) uuid.UUID {
@@ -115,6 +130,9 @@ func (e *env) invoice(t *testing.T, v inv) uuid.UUID {
 issue_date, due_date, wht_type, wht_amount, wht_booked)
 VALUES ($1, $2, 'MILESTONE', $3, $4, $4, $5, $6, $7, $8, $9, 0)`,
 		id, v.customer, v.currency, dec(v.balance), v.status, date(v.issue), date(v.due), whtType, dec(wht))
+	if !v.unissued && (v.status == invoiceOpen || v.status == invoiceSent || v.status == invoicePartial) {
+		e.issue(t, id)
+	}
 	return id
 }
 
@@ -583,10 +601,10 @@ func TestHeldPaymentLeavesInvoiceAndLedger(t *testing.T) {
 	if !p.ConfidenceScore.Valid || !p.ConfidenceScore.Decimal.Equal(dec("46.43")) {
 		t.Errorf("confidence %v, want 46.43", p.ConfidenceScore)
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`); n != 0 {
 		t.Errorf("%d journal entries, want 0", n)
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_lines`); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM journal_lines l JOIN journal_entries j ON j.entry_id = l.entry_id WHERE j.source_type = 'PAYMENT'`); n != 0 {
 		t.Errorf("%d journal lines, want 0", n)
 	}
 	checkInvoice(t, e, invID, "1000.0000", "0", "SENT")
@@ -601,13 +619,15 @@ func TestHeldPaymentLeavesInvoiceAndLedger(t *testing.T) {
 }
 
 // rateless is an invoice dated before apitest's first USD rate (2026-01-01),
-// with withheld tax wht ("0" for none) of its balance.
+// with withheld tax wht ("0" for none) of its balance. It has no rate to
+// issue at, so it has no issue entry: the payment's own rate is missing
+// first.
 func (e *env) rateless(t *testing.T, balance, wht string) uuid.UUID {
 	t.Helper()
 	c := e.customer(t, "Acme Corp")
 	return e.invoice(t, inv{
 		customer: c, currency: "USD", status: "SENT", balance: balance, wht: wht,
-		issue: day(2025, 11, 28), due: day(2025, 12, 12),
+		issue: day(2025, 11, 28), due: day(2025, 12, 12), unissued: true,
 	})
 }
 
@@ -624,7 +644,7 @@ func TestIncomingClearWithoutRateIsHeld(t *testing.T) {
 	if p.Status != "PENDING_MANUAL_REVIEW" || !p.WhtAmount.IsZero() || !p.InvoiceID.Valid || p.InvoiceID.Bytes != invID {
 		t.Errorf("payment %s wht %s invoice %v", p.Status, p.WhtAmount, p.InvoiceID)
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`); n != 0 {
 		t.Errorf("%d journal entries, want 0", n)
 	}
 	checkInvoice(t, e, invID, "1020.41", "0", "SENT")
@@ -672,7 +692,7 @@ func TestApproveDraftOrVoidInvoiceIs400(t *testing.T) {
 	if got := e.payment(t, p.PaymentID); got.Status != "PENDING_MANUAL_REVIEW" || got.InvoiceID.Valid {
 		t.Errorf("payment %s invoice %v, want untouched", got.Status, got.InvoiceID)
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`); n != 0 {
 		t.Errorf("%d journal entries, want 0", n)
 	}
 }
@@ -816,7 +836,7 @@ func TestIncomingConcurrentSameInvoiceClearsOnce(t *testing.T) {
 	if second.Status != "PENDING_MANUAL_REVIEW" {
 		t.Errorf("second payment %s, want held", second.Status)
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 1 {
+	if n := e.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`); n != 1 {
 		t.Errorf("%d journal entries, want 1", n)
 	}
 	checkInvoice(t, e, invID, "0", "0", "PAID")
@@ -1083,7 +1103,7 @@ func TestIncomingAmbiguousIsHeld(t *testing.T) {
 	for _, id := range ids {
 		checkInvoice(t, e, id, "1000.0000", "0", "SENT")
 	}
-	if n := e.count(t, `SELECT count(*) FROM journal_entries`); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM journal_entries WHERE source_type = 'PAYMENT'`); n != 0 {
 		t.Errorf("%d journal entries, want 0", n)
 	}
 	if got := rec.got(); len(got) != 0 {
