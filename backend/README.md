@@ -59,11 +59,13 @@ The FX settings are optional: `BASE_CURRENCY` (default `IDR`; set but blank is r
 `FX_PROVIDER_TIMEOUT_SECONDS` (default `15`) and `FX_SYNC_CURRENCIES` (default `USD,SGD`;
 3-letter codes, comma separated).
 
-- `api` (no subcommand) serves. It refuses a database Alembic still owns, then applies
-  the Go (goose) migrations.
+- `api` (no subcommand) serves. A database with `alembic_version` and no
+  `goose_db_version` is adopted first (as `api adopt-baseline` does, with all its checks;
+  on drift it stops with the differences and writes nothing), then the Go (goose)
+  migrations are applied (PORT-NOTES 170).
 - `api adopt-baseline` hands an Alembic-managed database to goose. It first checks that
   the Alembic head is the frozen one and that the schema matches the baseline exactly,
-  and refuses otherwise.
+  and refuses otherwise. Serve does this itself; the command remains for checking a copy.
 - `api set-password <email>` sets a user's password (read from stdin) and bumps their
   session epoch, signing out existing sessions.
 - `api issue-session <email>` prints a session cookie value for an admin, for scripted
