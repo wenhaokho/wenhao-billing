@@ -699,7 +699,7 @@ func TestWriteSamples(t *testing.T) {
 			// IDR, no withholding.
 			d := fullInvoice(func(i *invoicesdb.Invoice) {
 				i.Currency = "IDR"
-				i.Subtotal, i.Amount, i.BalanceDue = nd("9900000"), dec("9900000"), dec("9900000")
+				i.Subtotal, i.Amount, i.BalanceDue = nd("9900000"), dec("9405000"), dec("9405000")
 			})
 			d.Lines[0].UnitPrice, d.Lines[0].Amount = dec("2500000"), dec("2500000")
 			d.Lines[1].UnitPrice, d.Lines[1].Amount = dec("185000"), dec("7400000")
