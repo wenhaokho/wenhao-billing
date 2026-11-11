@@ -862,9 +862,9 @@ func TestListSearchAndOpenFilters(t *testing.T) {
 	byNumber := mk(other, "WH2026-0001", "OPEN", "2026-01-01 10:00:00")
 	byName := mk(citra, "INV-77", "SENT", "2026-01-02 10:00:00")
 	partial := mk(other, "INV-88", "PARTIAL", "2026-01-03 10:00:00")
-	paid := mk(citra, "INV-99", "PAID", "2026-01-04 10:00:00")
-	draft := mk(citra, "INV-DR", "DRAFT", "2026-01-05 10:00:00")
-	void := mk(citra, "INV-VD", "VOID", "2026-01-06 10:00:00")
+	mk(citra, "INV-99", "PAID", "2026-01-04 10:00:00")
+	mk(citra, "INV-DR", "DRAFT", "2026-01-05 10:00:00")
+	mk(citra, "INV-VD", "VOID", "2026-01-06 10:00:00")
 	zero := mk(citra, "INV-00", "OPEN", "2026-01-07 10:00:00")
 	template := mk(citra, "INV-TP", "OPEN", "2026-01-08 10:00:00")
 	exec := func(q string, id uuid.UUID) {
@@ -874,7 +874,7 @@ func TestListSearchAndOpenFilters(t *testing.T) {
 	}
 	exec(`UPDATE invoices SET balance_due = 0 WHERE invoice_id = $1`, zero)
 	exec(`UPDATE invoices SET is_template = true WHERE invoice_id = $1`, template)
-	_ = []uuid.UUID{paid, draft, void}
+	exec(`UPDATE invoices SET currency = 'USD' WHERE invoice_id = $1`, partial)
 
 	t.Run("number", func(t *testing.T) {
 		t.Parallel()
@@ -906,5 +906,23 @@ func TestListSearchAndOpenFilters(t *testing.T) {
 		wantIDs(t, "underscore literal", listIDs(t, a, "?q=0%25_"), partial, byNumber)
 		wantIDs(t, "lone percent", listIDs(t, a, "?q=%25"), partial, byNumber)
 		wantIDs(t, "backslash", listIDs(t, a, "?q=%5C"))
+	})
+	t.Run("q is trimmed", func(t *testing.T) {
+		t.Parallel()
+		wantIDs(t, "padded", listIDs(t, a, "?q=%20%20wh2026%20"), byNumber)
+		if n := len(listIDs(t, a, "?q=%20%20")); n != 7 {
+			t.Errorf("blank q: len = %d, want 7 (no filter)", n)
+		}
+	})
+	t.Run("currency", func(t *testing.T) {
+		t.Parallel()
+		wantIDs(t, "USD", listIDs(t, a, "?currency=USD"), partial)
+		wantIDs(t, "usd is upper-cased", listIDs(t, a, "?currency=usd"), partial)
+		wantIDs(t, "open+IDR", listIDs(t, a, "?open=true&currency=IDR"), byName, byNumber)
+		wantIDs(t, "currency+q", listIDs(t, a, "?currency=USD&q=citra"))
+		wantIDs(t, "EUR", listIDs(t, a, "?currency=EUR"))
+		if n := len(listIDs(t, a, "?currency=")); n != 7 {
+			t.Errorf("empty currency: len = %d, want 7 (no filter)", n)
+		}
 	})
 }

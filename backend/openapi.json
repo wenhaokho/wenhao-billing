@@ -9722,12 +9722,23 @@
             }
           },
           {
-            "description": "Case-insensitive substring of the invoice number or the customer's name. Empty is no filter.",
+            "description": "Case-insensitive substring of the invoice number or the customer's name, surrounding spaces trimmed. Empty is no filter.",
             "explode": false,
             "in": "query",
             "name": "q",
             "schema": {
-              "description": "Case-insensitive substring of the invoice number or the customer's name. Empty is no filter.",
+              "description": "Case-insensitive substring of the invoice number or the customer's name, surrounding spaces trimmed. Empty is no filter.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Three-letter currency code, any case; only invoices in that currency. Empty is no filter.",
+            "explode": false,
+            "in": "query",
+            "name": "currency",
+            "schema": {
+              "description": "Three-letter currency code, any case; only invoices in that currency. Empty is no filter.",
+              "maxLength": 3,
               "type": "string"
             }
           },

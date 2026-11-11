@@ -184,7 +184,8 @@ type listIn struct {
 	Status      []string                          `query:"status,explode" doc:"Repeat for several (status=SENT&status=PARTIAL)."`
 	CustomerID  platform.OptionalParam[uuid.UUID] `query:"customer_id"`
 	InvoiceType string                            `query:"invoice_type" doc:"Empty lists every type."`
-	Q           string                            `query:"q" doc:"Case-insensitive substring of the invoice number or the customer's name. Empty is no filter."`
+	Q           string                            `query:"q" doc:"Case-insensitive substring of the invoice number or the customer's name, surrounding spaces trimmed. Empty is no filter."`
+	Currency    string                            `query:"currency" maxLength:"3" doc:"Three-letter currency code, any case; only invoices in that currency. Empty is no filter."`
 	Open        bool                              `query:"open" doc:"Only open receivables: status OPEN, SENT or PARTIAL with a balance due."`
 	Limit       int32                             `query:"limit" default:"200" minimum:"1" maximum:"500"`
 }
@@ -206,13 +207,18 @@ func (r routes) list(ctx context.Context, in *listIn) (*listOut, error) {
 		invoiceType = &in.InvoiceType
 	}
 	var search *string
-	if in.Q != "" {
-		s := likeEscaper.Replace(in.Q)
+	if q := strings.TrimSpace(in.Q); q != "" {
+		s := likeEscaper.Replace(q)
 		search = &s
+	}
+	var currency *string
+	if c := strings.TrimSpace(in.Currency); c != "" {
+		c = strings.ToUpper(c)
+		currency = &c
 	}
 	invs, err := r.q.ListInvoices(ctx, invoicesdb.ListInvoicesParams{
 		Statuses: statuses, CustomerID: pgUUID(in.CustomerID.Ptr()), InvoiceType: invoiceType,
-		Search: search, OpenOnly: in.Open, RowLimit: in.Limit,
+		Search: search, Currency: currency, OpenOnly: in.Open, RowLimit: in.Limit,
 	})
 	if err != nil {
 		return nil, err
