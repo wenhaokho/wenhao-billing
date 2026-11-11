@@ -175,7 +175,16 @@ func postPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 	if !basis.Issued {
 		return Entry{}, refuse("invoice %s has no issue entry — run api backpost-ledger", inv.ID)
 	}
-	arBase, err := reliefBase(basis, relief, func(x decimal.Decimal) (decimal.Decimal, error) {
+	// Go's own (PORT-NOTES 7): across currencies the relief is balance_due,
+	// which a reversal under Python's arithmetic can leave above what the
+	// ledger still holds. Relieving more than the remaining face would book
+	// the excess as a false FX loss; refused instead (safe-stop: intake holds
+	// the payment for manual review, approval answers 400).
+	if !sameCurrency && relief.GreaterThan(basis.Face) {
+		return Entry{}, refuse("cross-currency settlement of invoice %s would relieve %s %s but the ledger receivable is %s %s; correct balance_due first",
+			inv.ID, relief.StringFixed(4), inv.Currency, basis.Face.StringFixed(4), inv.Currency)
+	}
+	arBase, err := reliefBase(inv.ID, basis, relief, func(x decimal.Decimal) (decimal.Decimal, error) {
 		c, err := fx.Convert(ctx, fq, x, inv.Currency, p.Date, baseCurrency)
 		return c.BaseAmount, err
 	})

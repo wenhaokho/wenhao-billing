@@ -314,3 +314,40 @@ func TestPostPaymentClearedAt(t *testing.T) {
 		t.Errorf("posted_at %s, want %s", postedAt, at)
 	}
 }
+
+// A receivable with a face above 0 but a base at or below 0 cannot have been
+// booked by the ledger: a payment against it is refused, never relieved at a
+// zero or negative rate.
+func TestInconsistentBasisRefused(t *testing.T) {
+	t.Parallel()
+	for _, b := range []string{"0", "-1"} {
+		t.Run(b, func(t *testing.T) {
+			t.Parallel()
+			pool := newPool(t)
+			ctx := context.Background()
+			tx := begin(t, pool)
+			inv := invoice("USD", "100")
+			issue := issueIn(t, tx, inv, payDay)
+			if _, err := tx.Exec(ctx, `UPDATE journal_lines SET base_amount_debit = $2::numeric WHERE entry_id = $1 AND debit > 0`, issue.ID, b); err != nil {
+				t.Fatal(err)
+			}
+			_, err := PostPaymentCleared(ctx, tx, base, cleared("100", "USD"), inv, dec("0"))
+			refused(t, tx, err, "invoice "+inv.ID.String()+" receivable basis is inconsistent (face 100.0000, base "+dec(b).StringFixed(4)+")")
+		})
+	}
+}
+
+// Across currencies the relief is balance_due; one above what the ledger
+// still holds (PORT-NOTES 7: a reversal under Python's arithmetic) is
+// refused rather than relieved, so no false FX loss is booked.
+func TestCrossCurrencyReliefBeyondFaceRefused(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	tx := begin(t, pool)
+	inv := invoice("USD", "100")
+	issueIn(t, tx, inv, payDay)
+	inv.BalanceDue = dec("100.0001")
+	_, err := PostPaymentCleared(context.Background(), tx, base, cleared("1600000", "IDR"), inv, dec("0"))
+	refused(t, tx, err, "cross-currency settlement of invoice "+inv.ID.String()+
+		" would relieve 100.0001 USD but the ledger receivable is 100.0000 USD; correct balance_due first")
+}

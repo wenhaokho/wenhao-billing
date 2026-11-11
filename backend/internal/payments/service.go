@@ -314,7 +314,8 @@ func (s Service) ApproveManual(ctx context.Context, tx pgx.Tx, paymentID, invoic
 // "Reversal: <reason>", flags the payment, and re-opens its invoice: the
 // balance grows by amount + wht_amount, wht_booked shrinks by wht_amount,
 // and the status is OPEN. Go's own: a VOID invoice keeps its status and
-// balance (only wht_booked shrinks). The hosting restore is not undone. A REVERSED log
+// balance (only wht_booked shrinks: it tracks the Prepaid Tax
+// bookings, which the reversal entry takes back; PORT-NOTES 163). The hosting restore is not undone. A REVERSED log
 // row holds the reason. Locks: the payment, then the invoice, then (in the
 // ledger) the entry.
 //

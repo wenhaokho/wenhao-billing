@@ -425,17 +425,20 @@ func TestFinalizeRefusesInactiveAccount(t *testing.T) {
 // with a receivable that disagrees with the balance (or settled to PAID).
 func TestFinalizeRefusesBalanceNotAmount(t *testing.T) {
 	t.Parallel()
-	for _, balance := range []string{"40", "0"} {
-		t.Run(balance, func(t *testing.T) {
+	// Amount 0 with a balance above 0 would be OPEN with a receivable the
+	// ledger never booked.
+	for _, c := range []struct{ amount, balance string }{{"100", "40"}, {"100", "0"}, {"0", "40"}} {
+		t.Run(c.amount+"/"+c.balance, func(t *testing.T) {
 			t.Parallel()
 			a := newApp(t)
-			c := insertCustomer(t, a.Pool, "NONE", "", false)
-			inv := post(t, a, createBody(c, "100", nil))
-			if _, err := a.Pool.Exec(t.Context(), `UPDATE invoices SET balance_due = $2::numeric WHERE invoice_id = $1`, inv.InvoiceID, balance); err != nil {
+			cust := insertCustomer(t, a.Pool, "NONE", "", false)
+			inv := post(t, a, createBody(cust, "100", nil))
+			if _, err := a.Pool.Exec(t.Context(), `UPDATE invoices SET amount = $2::numeric, balance_due = $3::numeric WHERE invoice_id = $1`,
+				inv.InvoiceID, c.amount, c.balance); err != nil {
 				t.Fatal(err)
 			}
 			wantProblem(t, a.Do(t, http.MethodPost, actionPath(inv.InvoiceID, "finalize"), nil), http.StatusBadRequest, "ledger_refused",
-				"invoice "+inv.InvoiceID.String()+" balance_due "+balance+".0000 is not its amount 100.0000; cannot issue it", "", "")
+				"invoice "+inv.InvoiceID.String()+" balance_due "+c.balance+".0000 is not its amount "+c.amount+".0000; cannot issue it", "", "")
 			if got := get(t, a, inv.InvoiceID); got.Status != "DRAFT" {
 				t.Errorf("status = %s after a refusal", got.Status)
 			}

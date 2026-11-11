@@ -54,8 +54,10 @@ func finalizeInvoice(ctx context.Context, tx pgx.Tx, base string, id uuid.UUID) 
 	}
 	// Go's own: the receivable posted is the amount, so a balance that is
 	// not the amount (never written by Go's DRAFT paths) is refused rather
-	// than issued, or settled to PAID, out of step with the ledger.
-	if inv.Amount.IsPositive() && !inv.BalanceDue.Equal(inv.Amount) {
+	// than issued, or settled to PAID, out of step with the ledger. An
+	// amount of 0 with a balance above 0 is refused too: it would be OPEN
+	// with a receivable the ledger never booked.
+	if !inv.BalanceDue.Equal(inv.Amount) {
 		return InvoiceOut{}, ledger.Refuse("invoice %s balance_due %s is not its amount %s; cannot issue it",
 			id, inv.BalanceDue.StringFixed(4), inv.Amount.StringFixed(4))
 	}
