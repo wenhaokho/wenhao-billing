@@ -18,6 +18,8 @@ const AlembicHead = "0028_business_npwp"
 
 // ErrNotAdopted stops the server on the production database before goose
 // would try to run the baseline over the Alembic schema.
+// serve adopts a database with alembic_version and no goose_db_version itself
+// (AutoAdopt), so this is left for a goose table that lacks the baseline.
 var ErrNotAdopted = errors.New("database has the Alembic schema but no goose history: run `api adopt-baseline`")
 
 // gooseLockID is goose's lock.DefaultLockID, the key db.Migrate's session
@@ -84,41 +86,68 @@ func CheckAdopted(ctx context.Context, pool *pgxpool.Pool) error {
 // (testdata/schema-snapshot.sql against testdata/alembic-0028.schema.txt). It
 // runs in one transaction under goose's lock key, so a refusal writes nothing.
 func Adopt(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := adopt(ctx, pool, false)
+	return err
+}
+
+// AutoAdopt is serve's startup adoption: it runs Adopt, with every one of its
+// checks, only when alembic_version exists and goose_db_version does not, and
+// reports whether it adopted. Any other database (fresh, or with a goose table)
+// is left as it is for CheckAdopted and db.Migrate to handle. The state is read
+// under goose's lock key inside the adopt transaction, so of two replicas
+// starting together one adopts and the other, once the lock is free, finds the
+// goose table and does nothing. A refusal (schema drift, wrong Alembic head)
+// writes nothing.
+func AutoAdopt(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+	return adopt(ctx, pool, true)
+}
+
+func adopt(ctx context.Context, pool *pgxpool.Pool, auto bool) (bool, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("adopt: begin: %w", err)
+		return false, fmt.Errorf("adopt: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, gooseLockID); err != nil {
-		return fmt.Errorf("adopt: lock: %w", err)
+		return false, fmt.Errorf("adopt: lock: %w", err)
+	}
+	if auto {
+		var goose, alembic bool
+		if err := tx.QueryRow(ctx, `SELECT to_regclass('goose_db_version') IS NOT NULL,
+				to_regclass('alembic_version') IS NOT NULL`).Scan(&goose, &alembic); err != nil {
+			return false, fmt.Errorf("adopt: %w", err)
+		}
+		if goose || !alembic {
+			return false, nil
+		}
 	}
 	gooseExists, err := checkNoGooseHistory(ctx, tx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := checkAlembicHead(ctx, tx); err != nil {
-		return err
+		return false, err
 	}
 	if err := checkSchema(ctx, tx); err != nil {
-		return err
+		return false, err
 	}
 	if !gooseExists {
 		if _, err := tx.Exec(ctx, gooseTable); err != nil {
-			return fmt.Errorf("adopt: create goose_db_version: %w", err)
+			return false, fmt.Errorf("adopt: create goose_db_version: %w", err)
 		}
 	}
 	// Version 0 is the row goose writes when it creates the table; version 1
 	// is the baseline, already present as Alembic's schema.
 	for _, v := range []int64{0, 1} {
 		if _, err := tx.Exec(ctx, `INSERT INTO goose_db_version (version_id, is_applied) VALUES ($1, $2)`, v, true); err != nil {
-			return fmt.Errorf("adopt: record version %d: %w", v, err)
+			return false, fmt.Errorf("adopt: record version %d: %w", v, err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("adopt: commit: %w", err)
+		return false, fmt.Errorf("adopt: commit: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // checkNoGooseHistory refuses a database goose already has rows for, and

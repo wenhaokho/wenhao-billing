@@ -1,11 +1,21 @@
 # Production deployment for Coolify — two containers on one domain:
 #   wenhao-billing-web  nginx serving the built SPA; it is the only public service
-#                       and proxies /api, /mcp, /oauth, /.well-known and /docs to
-#                       the API, so the browser sees a single origin.
-#   wenhao-billing-api  FastAPI only (no public domain of its own).
+#                       and proxies /api, /mcp, /oauth, /.well-known, /docs,
+#                       /redoc and /openapi.json to the API, so the browser sees
+#                       a single origin.
+#   wenhao-billing-api  the Go API (backend/; no public domain of its own). It
+#                       replaced the Python API (backend-python/, no longer
+#                       deployed) on 2026-11-11, keeping the service name so
+#                       nginx's upstream and depends_on are unchanged.
 # Uses a SHARED Postgres (managed separately in Coolify); this stack only ships
-# the app. Periodic jobs (recurring invoices, hosting enforcement, FX sync) run
-# on an in-process scheduler inside the API — there is no worker or Redis.
+# the app. Periodic jobs (recurring invoices, usage lock, hosting enforcement,
+# FX sync) run on an in-process scheduler inside the API — there is no worker
+# or Redis. It is off until GO_SCHEDULER_ENABLED=true (see
+# docs/runbooks/go-cutover.md).
+#
+# At start-up the API adopts a database the Python backend built (Alembic at
+# 0028_business_npwp, no goose history) and then applies its own migrations;
+# on any schema drift it refuses to start and writes nothing (PORT-NOTES 170).
 #
 # In Coolify: New Resource -> Docker Compose (Build Pack), point it at this file.
 # Coolify auto-fills the SERVICE_* "magic" variables: it provisions the public
@@ -18,14 +28,21 @@
 # resource so the API can reach it by hostname.
 
 services:
+  # Every variable has the value the Python service had, so sessions, MCP
+  # tokens and the database line up. ENVIRONMENT is deliberately unset: Go
+  # defaults to production, so the session cookie is Secure and a blank or
+  # default intake secret is refused.
   wenhao-billing-api:
     build:
-      context: ./backend-python
-      dockerfile: Dockerfile.prod
-    image: wenhao-billing-api:coolify
+      context: ./backend
+      dockerfile: Dockerfile
+    # The Go image: ENTRYPOINT /api (serve; adopts, then migrates), and it
+    # also ships /compare.
+    image: wenhao-billing-api:coolify-go
     environment:
-      # Shared Postgres — full connection string you provide. The DB URL MUST
-      # use the postgresql+psycopg:// driver prefix (SQLAlchemy).
+      # Shared Postgres — full connection string you provide. The
+      # postgresql+psycopg:// form Coolify holds is accepted: Go rewrites the
+      # driver prefix for pgx.
       DATABASE_URL: ${DATABASE_URL}
       # Secrets — Coolify generates 64-char values once and persists them.
       SESSION_SECRET: ${SERVICE_BASE64_64_SESSION}
@@ -42,8 +59,8 @@ services:
       MCP_ACCESS_TOKEN_TTL_SECONDS: ${MCP_ACCESS_TOKEN_TTL_SECONDS:-3600}
       MCP_REFRESH_TOKEN_TTL_SECONDS: ${MCP_REFRESH_TOKEN_TTL_SECONDS:-2592000}
       # Resend email (native API). Set RESEND_API_KEY in the Coolify UI to enable;
-      # when empty, outgoing mail falls back to logging (no SMTP configured here).
-      # Takes precedence over SMTP. The sender domain must be verified in Resend.
+      # when empty, outgoing mail is logged, not sent. The sender domain must
+      # be verified in Resend.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-noreply@wenhao.id}
       RESEND_FROM_NAME: ${RESEND_FROM_NAME:-Wenhao Dev Billing}
@@ -53,25 +70,17 @@ services:
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+      # The scheduled jobs stay off at the deploy; the owner turns them on
+      # (GO_SCHEDULER_ENABLED=true in Coolify, then restart) after the ledger
+      # back-post (docs/runbooks/go-cutover.md).
+      SCHEDULER_ENABLED: ${GO_SCHEDULER_ENABLED:-false}
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs', timeout=2).read()",
-        ]
+      # The image is distroless (no shell or curl): the binary probes itself.
+      test: ["CMD", "/api", "healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 30s
-    # Apply migrations, then serve (production uvicorn — no --reload).
-    command:
-      [
-        "sh",
-        "-c",
-        "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000",
-      ]
 
   wenhao-billing-web:
     build:
@@ -87,7 +96,9 @@ services:
       # Presence of this key tells Coolify to generate the public FQDN for this
       # service on container port 80 and wire up the Traefik route + TLS.
       SERVICE_FQDN_WEB_80: ${SERVICE_FQDN_WEB_80:-billing.wenhao.id}
-      # Where nginx proxies the API paths (compose service name + port).
+      # Where nginx proxies the API paths (compose service name + port). nginx
+      # resolves it per request through Docker's DNS, so a recreated API
+      # container's new address is picked up within 10 s.
       BACKEND_UPSTREAM: wenhao-billing-api:8000
     depends_on:
       wenhao-billing-api:

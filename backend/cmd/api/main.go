@@ -1,9 +1,10 @@
 // Command api serves the HTTP API.
 //
-//	api                 serve (migrations run first, under a lock; refuses a
-//	                    database that still has only Alembic's history)
+//	api                 serve (a database with only Alembic's history is
+//	                    adopted first, refusing on schema drift; then
+//	                    migrations run, under a lock)
 //	api adopt-baseline  hand the Alembic-built database to goose without
-//	                    running the baseline (once, before the first serve)
+//	                    running the baseline (serve now does this itself)
 //	api healthcheck  exit 0 when the local server answers /health (for the image)
 //	api openapi      print the OpenAPI document (for the frontend's types)
 //	api set-password <email>
@@ -260,7 +261,7 @@ func serve() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := prepareDatabase(ctx, cfg.DatabaseURL); err != nil {
+	if err := prepareDatabase(ctx, cfg.DatabaseURL, logger); err != nil {
 		return err
 	}
 	pool, err := db.Open(ctx, db.PoolConfig{URL: cfg.DatabaseURL, StatementTimeout: 30 * time.Second})
@@ -348,21 +349,74 @@ var scheduledJobs = func(pool *pgxpool.Pool, cfg platform.Config, logger *slog.L
 	}
 }
 
-// prepareDatabase is serve's database step: refuse a database goose does not
-// own yet (migrations.CheckAdopted), then migrate. The check uses its own
+// prepareDatabase is serve's database step. A database the Python backend
+// built (alembic_version, no goose_db_version) is adopted first
+// (migrations.AutoAdopt, with Adopt's full schema check; on drift serve stops
+// and nothing is written). Then it refuses a database goose does not own
+// (migrations.CheckAdopted), and migrates. The adopt and check use their own
 // short-lived pool, closed before goose runs, so the server's pool is opened
 // on the migrated schema and the check never shares a connection with goose.
-func prepareDatabase(ctx context.Context, url string) error {
+// Adopt and goose take the same lock key, so replicas starting together
+// adopt once and migrate once.
+func prepareDatabase(ctx context.Context, url string, logger *slog.Logger) error {
 	pool, err := db.Open(ctx, db.PoolConfig{URL: url})
 	if err != nil {
 		return err
 	}
-	err = migrations.CheckAdopted(ctx, pool)
-	pool.Close()
+	defer pool.Close()
+	adopted, err := migrations.AutoAdopt(ctx, pool)
+	if err != nil {
+		return fmt.Errorf("auto-adopt failed, nothing was written: %w", err)
+	}
+	if adopted {
+		logger.Info("adopt: the Alembic database is now owned by goose at the baseline", "alembic_head", migrations.AlembicHead)
+	}
+	if err := migrations.CheckAdopted(ctx, pool); err != nil {
+		return err
+	}
+	before, err := gooseVersion(ctx, pool)
 	if err != nil {
 		return err
 	}
-	return db.Migrate(ctx, url, migrations.FS)
+	pool.Close()
+	if err := db.Migrate(ctx, url, migrations.FS); err != nil {
+		return err
+	}
+	after, err := migrationVersion(ctx, url)
+	if err != nil {
+		return err
+	}
+	logger.Info("migrations: database is up to date", "from_version", before, "to_version", after)
+	return nil
+}
+
+// gooseVersion is the highest applied goose version, 0 when goose has no
+// table yet (a fresh database).
+func gooseVersion(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	// Two statements: a reference to a missing table fails at parse time,
+	// whatever branch would run.
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('goose_db_version') IS NOT NULL`).Scan(&exists); err != nil {
+		return 0, fmt.Errorf("goose version: %w", err)
+	}
+	if !exists {
+		return 0, nil
+	}
+	var v int64
+	if err := pool.QueryRow(ctx, `SELECT coalesce(max(version_id), 0) FROM goose_db_version WHERE is_applied`).Scan(&v); err != nil {
+		return 0, fmt.Errorf("goose version: %w", err)
+	}
+	return v, nil
+}
+
+// migrationVersion is gooseVersion on a pool of its own.
+func migrationVersion(ctx context.Context, url string) (int64, error) {
+	pool, err := db.Open(ctx, db.PoolConfig{URL: url})
+	if err != nil {
+		return 0, err
+	}
+	defer pool.Close()
+	return gooseVersion(ctx, pool)
 }
 
 // adoptBaseline runs migrations.Adopt against DATABASE_URL. It never migrates:
