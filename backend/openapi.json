@@ -11993,6 +11993,92 @@
         ]
       }
     },
+    "/api/v1/payments/audit-log.csv": {
+      "get": {
+        "description": "The same filters as the list, without limit; at most 50000 rows. A cell that starts with =, +, -, @, tab or CR in a text column is prefixed with a single quote so a spreadsheet does not run it as a formula.",
+        "operationId": "payments-audit-log-csv",
+        "parameters": [
+          {
+            "description": "Exact action; empty is no filter.",
+            "explode": false,
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "description": "Exact action; empty is no filter.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Substring of the payer name; empty is no filter.",
+            "explode": false,
+            "in": "query",
+            "name": "payer",
+            "schema": {
+              "description": "Substring of the payer name; empty is no filter.",
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "from_date",
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "to_date",
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "contentMediaType": "application/octet-stream",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The CSV",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The audit log as a CSV download, newest first",
+        "tags": [
+          "payments"
+        ]
+      }
+    },
     "/api/v1/payments/awaiting-review": {
       "get": {
         "operationId": "payments-awaiting-review",

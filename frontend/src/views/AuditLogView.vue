@@ -56,6 +56,13 @@ const params = computed(() => {
   return p;
 });
 
+// The download is a plain link: the browser sends the session cookie and the
+// server names the file. Same filters as the list, no limit.
+const exportHref = computed(() => {
+  const qs = new URLSearchParams(params.value).toString();
+  return `/api/v1/payments/audit-log.csv${qs ? `?${qs}` : ""}`;
+});
+
 const { data, isLoading, refetch } = useQuery<AuditRow[]>({
   queryKey: ["audit-log", params],
   queryFn: async () =>
@@ -90,6 +97,16 @@ function openPayment(row: AuditRow) {
   <section class="audit">
     <PageHeader eyebrow="06 / Admin" title="Audit Log">
       <template #lede>Reconciliation engine decisions and manual actions on payments.</template>
+      <Button
+        as="a"
+        :href="exportHref"
+        label="Export CSV"
+        severity="secondary"
+        outlined
+        data-testid="export-csv"
+      >
+        <template #icon><AppIcon name="file-down" /></template>
+      </Button>
       <Button label="Refresh" severity="secondary" outlined @click="refetch()">
         <template #icon><AppIcon name="refresh-cw" /></template>
       </Button>

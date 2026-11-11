@@ -134,3 +134,21 @@ for (const d of DETAILS) {
     expect(errors()).toEqual([]);
   });
 }
+
+test("audit log Export CSV link returns the filtered CSV", async ({ page }) => {
+  await page.goto("/audit-log");
+  await expect(mainHeading(page)).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  const link = page.getByTestId("export-csv");
+  await expect(link).toHaveAttribute("href", "/api/v1/payments/audit-log.csv");
+  // The link carries the current filters.
+  await page.getByPlaceholder("Search payer name…").fill("acme");
+  await expect(link).toHaveAttribute("href", "/api/v1/payments/audit-log.csv?payer=acme");
+  const res = await page.request.get((await link.getAttribute("href")) as string);
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toContain("text/csv");
+  expect(res.headers()["content-disposition"]).toMatch(/^attachment; filename="audit-log-\d{4}-\d{2}-\d{2}\.csv"$/);
+  expect((await res.text()).split("\n")[0]).toBe(
+    "created_at,action,reason_codes,reasons,payer_name,amount,currency,payment_date,invoice_number,customer_name,actor_name,intake_source,confidence_score",
+  );
+});
