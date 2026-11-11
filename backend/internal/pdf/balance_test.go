@@ -19,9 +19,11 @@ func bp(day int, amount, wht, currency, status string) paymentsdb.Payment {
 	}
 }
 
+// balanceAfter is the replay after ps[upTo]; the stored balance is a sentinel
+// so that a result that leans on it shows.
 func balanceAfter(t *testing.T, inv string, ps []paymentsdb.Payment, upTo int) string {
 	t.Helper()
-	return BalanceAfter(dec(inv), "IDR", ps, ps[upTo].PaymentID).String()
+	return Replay(Invoice{Amount: dec(inv), Currency: "IDR", BalanceDue: dec("-1")}, ps, ps[upTo].PaymentID).String()
 }
 
 func TestBalanceAfter(t *testing.T) {
@@ -68,17 +70,40 @@ func TestBalanceAfter(t *testing.T) {
 		t1 := t0.Add(time.Minute)
 		a.CreatedAt, b.CreatedAt = &t1, &t0 // b was created first
 		ps := []paymentsdb.Payment{a, b}
-		eq(t, "after b", BalanceAfter(dec("1000"), "IDR", ps, b.PaymentID).String(), "400")
-		eq(t, "after a", BalanceAfter(dec("1000"), "IDR", ps, a.PaymentID).String(), "0")
+		eq(t, "after b", Replay(Invoice{Amount: dec("1000"), Currency: "IDR"}, ps, b.PaymentID).String(), "400")
+		eq(t, "after a", Replay(Invoice{Amount: dec("1000"), Currency: "IDR"}, ps, a.PaymentID).String(), "0")
 	})
 	t.Run("unknown upTo is the balance after every cleared payment", func(t *testing.T) {
 		t.Parallel()
 		ps := []paymentsdb.Payment{bp(1, "400", "0", "IDR", "CLEARED"), bp(2, "100", "0", "IDR", "FLAGGED")}
-		got := BalanceAfter(dec("1000"), "IDR", ps, uuid.New())
+		got := BalanceAfter(Invoice{Amount: dec("1000"), Currency: "IDR", BalanceDue: dec("600")}, ps, uuid.New())
 		eq(t, "balance", got.String(), "600")
 	})
 	t.Run("no payments is the invoice amount", func(t *testing.T) {
 		t.Parallel()
-		eq(t, "balance", BalanceAfter(dec("1000"), "IDR", nil, uuid.New()).Equal(decimal.NewFromInt(1000)), true)
+		eq(t, "balance", BalanceAfter(Invoice{Amount: dec("1000"), Currency: "IDR"}, nil, uuid.New()).Equal(decimal.NewFromInt(1000)), true)
+	})
+	t.Run("newest cleared payment returns the stored balance", func(t *testing.T) {
+		t.Parallel()
+		ps := []paymentsdb.Payment{bp(1, "400", "0", "IDR", "CLEARED"), bp(2, "100", "0", "USD", "CLEARED")}
+		// The ledger says 400 (a reversal re-derived it); the replay would say 0.
+		inv := Invoice{Amount: dec("1000"), Currency: "IDR", BalanceDue: dec("400")}
+		eq(t, "newest", BalanceAfter(inv, ps, ps[1].PaymentID).String(), "400")
+		eq(t, "older", BalanceAfter(inv, ps, ps[0].PaymentID).String(), "600")
+	})
+	t.Run("a residue within epsilon is paid in full", func(t *testing.T) {
+		t.Parallel()
+		ps := []paymentsdb.Payment{bp(1, "999.9999", "0", "IDR", "CLEARED"), bp(2, "0.0001", "0", "IDR", "CLEARED")}
+		eq(t, "after first", balanceAfter(t, "1000", ps, 0), "0")
+	})
+	t.Run("clearing order beats payment date", func(t *testing.T) {
+		t.Parallel()
+		a, b := bp(1, "700", "0", "IDR", "CLEARED"), bp(3, "400", "0", "IDR", "CLEARED")
+		// b was cleared first although it is dated later.
+		t0 := time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)
+		inv := Invoice{Amount: dec("1000"), Currency: "IDR", ClearedAt: map[uuid.UUID]time.Time{b.PaymentID: t0, a.PaymentID: t0.Add(time.Hour)}}
+		ps := []paymentsdb.Payment{a, b}
+		eq(t, "after b", Replay(inv, ps, b.PaymentID).String(), "600")
+		eq(t, "after a", Replay(inv, ps, a.PaymentID).String(), "0")
 	})
 }

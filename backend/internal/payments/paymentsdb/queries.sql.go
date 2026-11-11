@@ -332,6 +332,43 @@ func (q *Queries) ListAwaitingReview(ctx context.Context, rowLimit *int32) ([]Pa
 	return items, nil
 }
 
+const listInvoiceClearTimes = `-- name: ListInvoiceClearTimes :many
+SELECT l.payment_id, MAX(l.created_at)::timestamp AS cleared_at
+  FROM reconciliation_log l
+  JOIN payments p ON p.payment_id = l.payment_id
+ WHERE p.invoice_id = $1 AND l.action IN ('CLEARED', 'OVERRIDDEN')
+ GROUP BY l.payment_id
+`
+
+type ListInvoiceClearTimesRow struct {
+	PaymentID uuid.UUID
+	ClearedAt time.Time
+}
+
+// When each payment of an invoice was last cleared: its newest CLEARED
+// (auto-clear, manual entry) or OVERRIDDEN (manual approval) log row. The
+// log's created_at is the transaction's start, and relief is applied in the
+// order payments clear, which payment_date does not give (pdf.BalanceAfter).
+func (q *Queries) ListInvoiceClearTimes(ctx context.Context, invoiceID pgtype.UUID) ([]ListInvoiceClearTimesRow, error) {
+	rows, err := q.db.Query(ctx, listInvoiceClearTimes, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListInvoiceClearTimesRow
+	for rows.Next() {
+		var i ListInvoiceClearTimesRow
+		if err := rows.Scan(&i.PaymentID, &i.ClearedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInvoicePayments = `-- name: ListInvoicePayments :many
 SELECT payment_id, invoice_id, customer_id, amount, currency, payer_name, payer_reference, payment_date, intake_source, external_ref, status, adjustment_type, confidence_score, created_at, wht_amount FROM payments
  WHERE invoice_id = $1 AND status = 'CLEARED'

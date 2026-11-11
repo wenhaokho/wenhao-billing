@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -103,7 +104,15 @@ func LoadReceipt(ctx context.Context, q DBTX, paymentID uuid.UUID) (ReceiptData,
 	if err != nil {
 		return ReceiptData{}, err
 	}
-	after := BalanceAfter(inv.Amount, inv.Currency, siblings, pay.PaymentID)
+	times, err := paymentsdb.New(q).ListInvoiceClearTimes(ctx, pay.InvoiceID)
+	if err != nil {
+		return ReceiptData{}, err
+	}
+	clearedAt := make(map[uuid.UUID]time.Time, len(times))
+	for _, t := range times {
+		clearedAt[t.PaymentID] = t.ClearedAt
+	}
+	after := BalanceAfter(Invoice{Amount: inv.Amount, Currency: inv.Currency, BalanceDue: inv.BalanceDue, ClearedAt: clearedAt}, siblings, pay.PaymentID)
 	return ReceiptData{Payment: pay, Invoice: inv, Customer: cust, Business: biz, BalanceAfter: after}, nil
 }
 

@@ -104,7 +104,7 @@ func (r routes) sendReceipt(ctx context.Context, in *sendReceiptIn) (*sentToBody
 	if err != nil {
 		return nil, err
 	}
-	balance := loaded.BalanceAfter
+	balance := loaded.BalanceAfter // also the renderer's BalanceDue
 	ref := ReceiptReference(pay.PaymentID)
 	receiptPDF, err := r.receipts.Renderer.RenderReceipt(ctx, ReceiptData{
 		Payment: PaymentOutFrom(pay), Reference: ref, InvoiceNumber: number, Currency: inv.Currency,

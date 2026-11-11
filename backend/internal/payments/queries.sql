@@ -92,6 +92,17 @@ SELECT * FROM payments
  WHERE invoice_id = $1 AND status = 'CLEARED'
  ORDER BY payment_date DESC, created_at DESC, payment_id DESC;
 
+-- name: ListInvoiceClearTimes :many
+-- When each payment of an invoice was last cleared: its newest CLEARED
+-- (auto-clear, manual entry) or OVERRIDDEN (manual approval) log row. The
+-- log's created_at is the transaction's start, and relief is applied in the
+-- order payments clear, which payment_date does not give (pdf.BalanceAfter).
+SELECT l.payment_id, MAX(l.created_at)::timestamp AS cleared_at
+  FROM reconciliation_log l
+  JOIN payments p ON p.payment_id = l.payment_id
+ WHERE p.invoice_id = $1 AND l.action IN ('CLEARED', 'OVERRIDDEN')
+ GROUP BY l.payment_id;
+
 -- name: ListAwaitingReview :many
 -- Python ordered by created_at DESC only; the key breaks a tie. A null
 -- row_limit lists them all (the route); the MCP queue tool caps it.

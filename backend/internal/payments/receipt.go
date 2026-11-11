@@ -15,7 +15,8 @@ import (
 )
 
 // ReceiptData is what a receipt renderer is given: the payment, its invoice's
-// number, currency and remaining balance, and the names Python's
+// number, currency and remaining balance as of this payment (BalanceDue,
+// from pdf.BalanceAfter, not the invoice's live balance), and the names Python's
 // render_receipt_pdf printed. CustomerName and BusinessName are nil when the
 // invoice has no customer or no business name is set.
 type ReceiptData struct {
@@ -62,7 +63,6 @@ func (r PDFReceiptRenderer) RenderReceipt(ctx context.Context, d ReceiptData) ([
 			return nil, err
 		}
 		data.Invoice.Amount = full.Invoice.Amount
-		data.BalanceAfter = full.BalanceAfter
 		data.Customer = full.Customer
 		data.Business = full.Business
 	}
@@ -90,7 +90,7 @@ func receiptPDFData(d ReceiptData) pdf.ReceiptData {
 			Currency:   d.Currency,
 			BalanceDue: d.BalanceDue,
 		},
-		// With no DB the live balance is all there is.
+		// BalanceDue is already the balance as of this payment (sendReceipt).
 		BalanceAfter: d.BalanceDue,
 	}
 	if p.InvoiceID != nil {
