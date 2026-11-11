@@ -280,3 +280,133 @@ func TestWritesExpectDetail(t *testing.T) {
 		})
 	}
 }
+
+// TestWritesGoOnlyStep pins go_only: the step is sent to Go alone (a route
+// Python never had, such as a bill payment's reversal, PN 165), its extract is
+// taken from Go with no table and no id pair, its answer is not compared, and
+// the step result carries the note. A non-2xx Go answer is a hard failure.
+func TestWritesGoOnlyStep(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		goStatus int
+		wantErr  string
+	}{
+		{"ok", http.StatusOK, ""},
+		{"go refuses", http.StatusBadRequest, "go status 400"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			pyDB, goDB := openTestDB(t), openTestDB(t)
+			py := &recorder{handle: func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/auth/login":
+					loginHandler(w, r)
+				case "/api/v1/auth/me":
+					jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
+				default:
+					jsonBody(w, http.StatusOK, `{"bill_id":"b-py"}`)
+				}
+			}}
+			gov := &recorder{handle: func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/auth/me":
+					jsonBody(w, http.StatusOK, `{"user_id":"u"}`)
+				case "/api/v1/bills/b-go/payments":
+					jsonBody(w, tc.goStatus, `[{"bill_payment_ref":"bp-go"}]`)
+				default:
+					jsonBody(w, http.StatusOK, `{"bill_id":"b-go"}`)
+				}
+			}}
+			pySrv, goSrv := py.start(t), gov.start(t)
+			scenarios := WritesScenarios{Scenarios: []WritesScenario{{
+				ID: "bill",
+				Steps: []WriteStep{
+					{ID: "create", Method: http.MethodPost, Path: "/api/v1/bills", Extract: map[string]string{"bill_id": "$.bill_id"}},
+					{
+						ID: "list", Method: http.MethodGet, Path: "/api/v1/bills/{bill_id}/payments", GoOnly: true, Note: "PN 165",
+						Extract: map[string]string{"bp": "$[0].bill_payment_ref"},
+					},
+					{ID: "reverse", Method: http.MethodPost, Path: "/api/v1/bills/{bill_id}/payments/{bp}/reverse", GoOnly: true, Note: "PN 165"},
+				},
+			}}}
+			report, err := RunWrites(context.Background(), writeOptions(t, pySrv, goSrv, pyDB, goDB, scenarios))
+			pyBills := 0
+			for _, c := range py.seen() {
+				if strings.HasPrefix(c.target, "/api/v1/bills") {
+					pyBills++
+				}
+			}
+			if pyBills != 1 {
+				t.Fatalf("python got %d bill requests, want only the create", pyBills)
+			}
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) || !strings.Contains(err.Error(), "list") {
+					t.Fatalf("error %v, want %q naming the step", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("RunWrites: %v", err)
+			}
+			var reversed bool
+			for _, c := range gov.seen() {
+				if c.method == http.MethodPost && c.target == "/api/v1/bills/b-go/payments/bp-go/reverse" {
+					reversed = true
+				}
+			}
+			if !reversed {
+				t.Fatalf("go requests %+v, want the reversal with Go's own ids", gov.seen())
+			}
+			steps := report.Scenarios[0].Steps
+			if len(steps) != 3 || steps[1].GoOnly != "PN 165" || steps[2].GoOnly != "PN 165" || steps[1].Python != 0 {
+				t.Fatalf("steps %+v, want both go_only steps with the note and no Python status", steps)
+			}
+			if report.Differences != 0 {
+				t.Fatalf("differences %d, want 0: a go_only answer is not compared", report.Differences)
+			}
+		})
+	}
+}
+
+// TestWritesParseGoOnly pins the go_only validation: a note is required,
+// expect_status and expect_detail do not apply, and a step sent to both
+// backends never uses a value only Go answered with.
+func TestWritesParseGoOnly(t *testing.T) {
+	t.Parallel()
+	head := "scenarios:\n  - id: x\n    steps:\n      - {id: a, method: POST, path: /a, extract: {bill_id: \"$.bill_id\"}}\n"
+	cases := []struct {
+		name, steps, wantErr string
+	}{
+		{"with note", `      - {id: g, method: GET, path: "/a/{bill_id}", go_only: true, note: "PN 165", extract: {bp: "$[0].bp"}}
+      - {id: h, method: POST, path: "/a/{bp}", go_only: true, note: "PN 165"}
+`, ""},
+		{"no note", `      - {id: g, method: GET, path: /g, go_only: true}
+`, "needs a note"},
+		{"expect_status", `      - {id: g, method: GET, path: /g, go_only: true, note: "PN 165", expect_status: 200}
+`, "go_only"},
+		{"expect_detail", `      - {id: g, method: GET, path: /g, go_only: true, note: "PN 165", expect_detail: "x"}
+`, "go_only"},
+		{"used in a path by both", `      - {id: g, method: GET, path: /g, go_only: true, note: "PN 165", extract: {bp: "$[0].bp"}}
+      - {id: h, method: POST, path: "/a/{bp}"}
+`, "only Go answered"},
+		{"used in a body by both", `      - {id: g, method: GET, path: /g, go_only: true, note: "PN 165", extract: {bp: "$[0].bp"}}
+      - {id: h, method: POST, path: /h, body: {bp: "{bp}"}}
+`, "only Go answered"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseWrites([]byte(head + tc.steps))
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ParseWrites: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}

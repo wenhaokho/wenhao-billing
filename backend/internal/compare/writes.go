@@ -64,6 +64,11 @@ type WriteStep struct {
 	// ExpectDetail, when set, is a substring every non-2xx answer of the step
 	// must contain in its body; a miss is a hard failure.
 	ExpectDetail string `yaml:"expect_detail"`
+	// GoOnly sends the step to Go alone: a route Python never had (a bill
+	// payment's list or reversal, PN 165). Note is required. Its answer must
+	// be 2xx and is not compared; its extracts are Go's alone, so no step
+	// sent to both backends may use them.
+	GoOnly bool `yaml:"go_only"`
 }
 
 // ExpectStatus is the status each backend is expected to answer a step with.
@@ -104,6 +109,16 @@ type WritesReport struct {
 	Scenarios   []WritesScenarioResult `json:"scenarios"`
 	RowDiffs    []RowDiff              `json:"row_diffs,omitempty"`
 	Differences int                    `json:"differences"`
+	// Unclassified is the differences no PORT-NOTES rule names: every step
+	// answer difference and every row difference without a Classify. It is
+	// part of Differences, never subtracted from it.
+	Unclassified int `json:"unclassified"`
+}
+
+// WritesSummary is the report's one-line count: "N differences, M
+// unclassified".
+func WritesSummary(r WritesReport) string {
+	return fmt.Sprintf("%d differences, %d unclassified", r.Differences, r.Unclassified)
 }
 
 // WritesScenarioResult is one scenario's steps. Classify names the note the
@@ -130,6 +145,9 @@ type WritesStepResult struct {
 	// expected to answer with different statuses and did. The bodies are not
 	// compared then, and it does not count as a difference.
 	ExpectedStatusDiff string `json:"expected_status_diff,omitempty"`
+	// GoOnly is the step's note when it was sent to Go alone; Python is then
+	// 0 and nothing is compared.
+	GoOnly string `json:"go_only,omitempty"`
 }
 
 // WritesOptions is one write run's inputs. The DSNs arrive as arguments and
@@ -305,6 +323,11 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 	}
 	report.RowDiffs = diffs
 	report.Differences = len(diffs)
+	for _, d := range diffs {
+		if d.Classify == "" {
+			report.Unclassified++
+		}
+	}
 
 	c := newRowComparer(schema, r.maps)
 	allowed := o.Allowed
@@ -319,6 +342,7 @@ func RunWrites(ctx context.Context, o WritesOptions) (WritesReport, error) {
 		d := Diff(a.route, py, gov, allowed)
 		report.Scenarios[a.scenario].Steps[a.step].Differences = d
 		report.Differences += len(d)
+		report.Unclassified += len(d)
 	}
 	return report, nil
 }
@@ -356,6 +380,16 @@ func (r *writesRun) scenario(ctx context.Context, index int, sc WritesScenario) 
 	for _, step := range sc.Steps {
 		fail := func(format string, args ...any) error {
 			return fmt.Errorf("scenario %s: step %s: "+format, append([]any{sc.ID, step.ID}, args...)...)
+		}
+		if step.GoOnly {
+			stepResult, err := r.goOnly(ctx, step)
+			if stepResult.ID != "" {
+				result.Steps = append(result.Steps, stepResult)
+			}
+			if err != nil {
+				return result, fail("%w", err)
+			}
+			continue
 		}
 		pyPath, err := expandPath(step.Path, r.extracted, false)
 		if err != nil {
@@ -453,6 +487,37 @@ func (r *writesRun) scenario(ctx context.Context, index int, sc WritesScenario) 
 				}
 			}
 		}
+	}
+	return result, nil
+}
+
+// goOnly sends a go_only step to Go alone. A non-2xx answer is a hard
+// failure. Its extracts are stored as Go's alone (Python marked missing), with
+// no table and no id pair: Python has no such row to map. The answer is not
+// kept for comparison. The result's ID is empty when nothing was sent.
+func (r *writesRun) goOnly(ctx context.Context, step WriteStep) (WritesStepResult, error) {
+	path, err := expandPath(step.Path, r.extracted, true)
+	if err != nil {
+		return WritesStepResult{}, err
+	}
+	body, err := buildBody(step.Body, r.extracted, true)
+	if err != nil {
+		return WritesStepResult{}, err
+	}
+	resp, err := send(ctx, r.client, r.o, r.o.GoURL, step.Method, path, body, r.o.GoToken, step.Sign)
+	if err != nil {
+		return WritesStepResult{}, fmt.Errorf("go: %w", redactErr(err, r.o.GoURL))
+	}
+	result := WritesStepResult{ID: step.ID, Method: step.Method, Path: step.Path, Go: resp.Status, GoOnly: step.Note}
+	if resp.Status < 200 || resp.Status >= 300 {
+		return result, fmt.Errorf("go status %d", resp.Status)
+	}
+	for _, name := range sortedExtracts(step.Extract) {
+		pair := idPair{pyMissing: true}
+		if pair.goID, pair.goVal, err = extractValue(resp.Body, step.Extract[name]); err != nil {
+			return result, fmt.Errorf("go %s: %w", name, err)
+		}
+		r.extracted[name] = pair
 	}
 	return result, nil
 }
@@ -823,7 +888,9 @@ func LoadWritesFile(path string) (WritesScenarios, error) {
 // validate refuses a scenario set that cannot run: no scenarios, a duplicate
 // id, a step without a method or a path, a placeholder that no earlier step
 // extracted, a placeholder extracted twice, a placeholder used after a DELETE
-// on it, a Go-only table, or a table name that is not a plain identifier.
+// on it, a Go-only table, a table name that is not a plain identifier, a
+// go_only step without a note or with expect_status/expect_detail, or a step
+// sent to both backends that uses a placeholder a go_only step extracted.
 func (w WritesScenarios) validate() error {
 	if len(w.Scenarios) == 0 {
 		return errors.New("compare writes: no scenarios")
@@ -833,6 +900,8 @@ func (w WritesScenarios) validate() error {
 	// can create an id the next scenario uses (master data, then invoices).
 	extracted := map[string]bool{}
 	deleted := map[string]string{}
+	// goOnlyBy is each placeholder a go_only step extracted, and that step.
+	goOnlyBy := map[string]string{}
 	for i, sc := range w.Scenarios {
 		where := fmt.Sprintf("scenario %d", i+1)
 		if strings.TrimSpace(sc.ID) == "" {
@@ -867,6 +936,20 @@ func (w WritesScenarios) validate() error {
 			}
 			if !strings.HasPrefix(step.Path, "/") {
 				return fmt.Errorf("compare writes: %s: path %q has no leading slash", stepWhere, step.Path)
+			}
+			if step.GoOnly {
+				if strings.TrimSpace(step.Note) == "" {
+					return fmt.Errorf("compare writes: %s: a go_only step needs a note naming its PN", stepWhere)
+				}
+				if step.ExpectStatus != nil || step.ExpectDetail != "" {
+					return fmt.Errorf("compare writes: %s: a go_only step takes no expect_status or expect_detail (its Go answer must be 2xx)", stepWhere)
+				}
+			} else {
+				for _, name := range append(placeholders(step.Path), placeholders(step.BodyString())...) {
+					if by, ok := goOnlyBy[name]; ok {
+						return fmt.Errorf("compare writes: %s: {%s} was extracted by go_only step %s; only Go answered with it", stepWhere, name, by)
+					}
+				}
 			}
 			if e := step.ExpectStatus; e != nil {
 				for side, code := range map[string]int{"python": e.Python, "go": e.Go} {
@@ -915,6 +998,9 @@ func (w WritesScenarios) validate() error {
 					return fmt.Errorf("compare writes: %s: {%s} is extracted twice; give each extract its own name", stepWhere, name)
 				}
 				extracted[name] = true
+				if step.GoOnly {
+					goOnlyBy[name] = step.ID
+				}
 			}
 		}
 	}

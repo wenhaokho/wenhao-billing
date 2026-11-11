@@ -866,6 +866,52 @@ func TestWritesFileLoads(t *testing.T) {
 	if extractedBy != "create-invoice" {
 		t.Fatalf("{invoice_id} is extracted by %q, want create-invoice", extractedBy)
 	}
+
+	// Plan 12 Task 8: each invoice is finalized (PN 162) before it is paid,
+	// and the bill lifecycle opens, pays part, reverses (Go only, PN 165),
+	// pays again and is refused a void while PAID on both backends.
+	steps := map[string][]WriteStep{}
+	tables := map[string][]string{}
+	for _, sc := range scenarios.Scenarios {
+		steps[sc.ID] = sc.Steps
+		tables[sc.ID] = sc.Tables
+	}
+	order := func(scenario string) string {
+		ids := make([]string, 0, len(steps[scenario]))
+		for _, s := range steps[scenario] {
+			ids = append(ids, s.ID)
+		}
+		return strings.Join(ids, ",")
+	}
+	if got := order("invoice-lifecycle"); !strings.HasPrefix(got, "create-invoice,finalize-invoice,record-payment") {
+		t.Fatalf("invoice-lifecycle steps %s, want finalize before the payment", got)
+	}
+	if got := order("webhook-intake"); !strings.Contains(got, "finalize-intake-invoice,intake-webhook") {
+		t.Fatalf("webhook-intake steps %s, want finalize before the webhook", got)
+	}
+	const lifecycle = "create-lifecycle-bill,open-lifecycle-bill,pay-part,list-bill-payments,reverse-bill-payment,pay-part-again,pay-rest,void-paid-bill"
+	if got := order("bill-lifecycle"); got != lifecycle {
+		t.Fatalf("bill-lifecycle steps %s, want %s", got, lifecycle)
+	}
+	if got := strings.Join(tables["bill-lifecycle"], ","); got != "bills,bill_line_items,journal_entries,journal_lines" {
+		t.Fatalf("bill-lifecycle tables %s", got)
+	}
+	for _, s := range steps["bill-lifecycle"] {
+		switch s.ID {
+		case "list-bill-payments", "reverse-bill-payment", "pay-part-again":
+			if !s.GoOnly || s.Note != "PN 165" {
+				t.Fatalf("step %s %+v, want go_only with PN 165", s.ID, s)
+			}
+		case "void-paid-bill":
+			if s.ExpectStatus == nil || *s.ExpectStatus != (ExpectStatus{400, 400}) || s.ExpectDetail != "is PAID and cannot be voided" {
+				t.Fatalf("void-paid-bill %+v, want 400 on both with the PAID detail", s)
+			}
+		default:
+			if s.GoOnly {
+				t.Fatalf("step %s is go_only", s.ID)
+			}
+		}
+	}
 }
 
 // TestWritesRejectsUnknownPlaceholder pins the placeholder validation: a path

@@ -9,8 +9,8 @@
 # created, changed or deleted: a pre-existing row is paired by its primary key,
 # which is only the same row on both sides when both came from the same dump.
 # The scenarios create rows with fixed codes and numbers (account codes 9900
-# and 9901, project codes CMP and CMP-DEL, quotation Q-CMP-1, bill B-CMP-1,
-# webhook external_ref compare-webhook), so restore both databases again before
+# and 9901, project codes CMP and CMP-DEL, quotation Q-CMP-1, bills B-CMP-1 to
+# B-CMP-3, webhook external_ref compare-webhook), so restore both databases again before
 # a second run.
 #
 # Both databases must be local: the runner refuses a database or a backend URL
@@ -38,11 +38,26 @@
 # belongs to. It never hides a difference: PN 6 (two identical open invoices)
 # is classified by scenario id, not by an allowance.
 #
+# Row differences are also classified one by one (compare/rows.go
+# classifyRowDiff): a journal entry Go posts and Python never does is named by
+# its source_type (INVOICE PN 162, BILL PN 164, BILL_PAYMENT PN 165), a
+# PAYMENT entry's lines that differ only in base amounts, rate and 4900/5900
+# lines are PN 163, and a bill voided by PATCH is PN 164. Every classified
+# difference is still counted and listed; the report prints
+# "N differences, M unclassified" and the exit code is unchanged. A Go-only
+# PAYMENT entry (a manual payment, PN 161) is not one of these rules and is
+# reported unclassified.
+#
 # The webhook body is signed with the shared local WEBHOOK_HMAC_SECRET in the
-# X-Signature header. The webhook pays the invoice-lifecycle invoice's amount;
-# approve-intake applies the intake payment to it. The payment reversal runs
-# last, on an invoice of its own (reverse-manual-payment), because Go and Python
-# answer it differently.
+# X-Signature header. The webhook pays an invoice of its own
+# ({intake_invoice_id}); approve-intake applies the intake payment to it. The
+# payment reversal runs last, on an invoice of its own
+# (reverse-manual-payment), because Go and Python answer it differently.
+#
+# A step with `go_only: true` (and a `note: "PN n"`) is sent to Go alone: a
+# route Python never had, such as a bill payment's list or reversal. Its Go
+# answer must be 2xx and is not compared; its extracts are Go's alone, and no
+# step sent to both backends may use them.
 #
 # A step may declare `expect_status: N` (both backends) or
 # `expect_status: {python: N, go: N}`. The run continues past a non-2xx answer
@@ -182,8 +197,11 @@ scenarios:
         path: /api/v1/accounting/fx-rates/{rate_id}
 
   # --- invoice lifecycle --------------------------------------------------
-  # record-payment posts a journal entry on Go only (PN 161). webhook-intake
-  # pays the invoice. The payment is reversed in the last scenario of the file.
+  # finalize-invoice posts the issue entry (Dr AR / Cr revenue) on Go only
+  # (PN 162). record-payment posts a payment entry on Go only (PN 161; Python
+  # posts no manual payment), relieving AR at the invoice's issue basis
+  # (PN 163). The manual payment's reversal is in the last scenario of the
+  # file, on an invoice of its own.
   - id: invoice-lifecycle
     tables:
       - invoices
@@ -281,16 +299,28 @@ scenarios:
         body: {}
         extract: {quote_invoice_id: "$.invoice_id"}
 
-  # --- bill ---------------------------------------------------------------
-  # The expense account is the kept, active account_id (code 9900). A bill
-  # payment has no table of its own: it only updates the bill row.
+  # --- bill open and void -------------------------------------------------
+  # The expense account is the kept, active account_id (code 9900).
   # expense_account_id is a numeric field: "{account_id}" is the whole value,
   # so the runner sends the extracted number as a JSON number on both backends
   # (typed placeholder substitution). item_id is not set on the bill line.
+  #
+  # B-CMP-1 is opened and voided with no payment: Go posts the open entry and
+  # reverses it on void (both BILL, PN 164); the bill rows agree. Go refuses
+  # to void a bill with payments (PN 165), so no payment is recorded here; the
+  # payments are bill-lifecycle's.
+  #
+  # B-CMP-3 is voided by PATCH status VOID: Python only sets the status (the
+  # balance stays due, no note); Go voids it (balance 0, a "[voided] status
+  # set to VOID via update" line, the open entry reversed). The bills row is
+  # classified PN 164; the PATCH answers differ in balance_due and notes and
+  # are reported unclassified (step answers are never classified).
   - id: bill
     tables:
       - bills
       - bill_line_items
+      - journal_entries
+      - journal_lines
     steps:
       - id: create-bill
         method: POST
@@ -310,14 +340,100 @@ scenarios:
         method: PATCH
         path: /api/v1/bills/{bill_id}
         body: {status: "OPEN"}
-      - id: record-bill-payment
-        method: POST
-        path: /api/v1/bills/{bill_id}/record-payment
-        body: {amount: "500.0000", payment_date: "2026-01-02", payer_reference: "compare-bill", notes: "compare"}
       - id: void-bill
         method: POST
         path: /api/v1/bills/{bill_id}/void
         body: {reason: "compare"}
+      - id: create-patch-void-bill
+        method: POST
+        path: /api/v1/bills
+        body:
+          vendor_id: "{vendor_id}"
+          project_id: "{project_id}"
+          bill_number: "B-CMP-3"
+          currency: "IDR"
+          issue_date: "2026-01-01"
+          due_date: "2026-02-01"
+          payment_terms: "Net 30"
+          line_items:
+            - {expense_account_id: "{account_id}", description: "Compare bill voided by PATCH", quantity: "1.0000", unit_price: "1000.0000", position: 1}
+        extract: {patch_void_bill_id: "$.bill_id"}
+      - id: open-patch-void-bill
+        method: PATCH
+        path: /api/v1/bills/{patch_void_bill_id}
+        body: {status: "OPEN"}
+      - id: patch-void-bill
+        method: PATCH
+        path: /api/v1/bills/{patch_void_bill_id}
+        body: {status: "VOID"}
+
+  # --- bill lifecycle (PN 164, PN 165) -------------------------------------
+  # B-CMP-2: open, pay part, reverse that payment, pay the same part again,
+  # pay the rest, and a void refused while PAID. Go posts the open entry
+  # (BILL, PN 164) and each bill payment and its reversal (BILL_PAYMENT,
+  # PN 165) and stores bill_payments rows (Go-only, not compared). Python has
+  # no bill payment list or reversal route, so those steps are go_only; the
+  # payment is recorded again on Go alone so that both backends hold the same
+  # PARTIAL balance (600) before pay-rest, and the bill rows agree from there:
+  # both end PAID with nothing due, and both refuse the void with the same
+  # status and sentence.
+  - id: bill-lifecycle
+    tables:
+      - bills
+      - bill_line_items
+      - journal_entries
+      - journal_lines
+    steps:
+      - id: create-lifecycle-bill
+        method: POST
+        path: /api/v1/bills
+        body:
+          vendor_id: "{vendor_id}"
+          project_id: "{project_id}"
+          bill_number: "B-CMP-2"
+          currency: "IDR"
+          issue_date: "2026-01-01"
+          due_date: "2026-02-01"
+          payment_terms: "Net 30"
+          line_items:
+            - {expense_account_id: "{account_id}", description: "Compare bill lifecycle", quantity: "1.0000", unit_price: "1000.0000", position: 1}
+        extract: {lc_bill_id: "$.bill_id"}
+      - id: open-lifecycle-bill
+        method: PATCH
+        path: /api/v1/bills/{lc_bill_id}
+        body: {status: "OPEN"}
+      - id: pay-part
+        method: POST
+        path: /api/v1/bills/{lc_bill_id}/record-payment
+        body: {amount: "400.0000", payment_date: "2026-01-02", payer_reference: "compare-bill-1", notes: "compare"}
+      - id: list-bill-payments
+        method: GET
+        path: /api/v1/bills/{lc_bill_id}/payments
+        go_only: true
+        note: "PN 165"
+        extract: {lc_bill_payment_id: "$[0].bill_payment_id"}
+      - id: reverse-bill-payment
+        method: POST
+        path: /api/v1/bills/{lc_bill_id}/payments/{lc_bill_payment_id}/reverse
+        body: {reason: "compare"}
+        go_only: true
+        note: "PN 165"
+      - id: pay-part-again
+        method: POST
+        path: /api/v1/bills/{lc_bill_id}/record-payment
+        body: {amount: "400.0000", payment_date: "2026-01-02", payer_reference: "compare-bill-1", notes: "compare"}
+        go_only: true
+        note: "PN 165"
+      - id: pay-rest
+        method: POST
+        path: /api/v1/bills/{lc_bill_id}/record-payment
+        body: {amount: "600.0000", payment_date: "2026-01-03", payer_reference: "compare-bill-2", notes: "compare"}
+      - id: void-paid-bill
+        method: POST
+        path: /api/v1/bills/{lc_bill_id}/void
+        body: {reason: "compare"}
+        expect_status: 400
+        expect_detail: "is PAID and cannot be voided"
 
   # --- webhook intake, approve and reverse --------------------------------
   # The intake payment goes to manual review (the payer name is not the
