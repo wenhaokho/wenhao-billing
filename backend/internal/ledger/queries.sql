@@ -1,12 +1,17 @@
--- name: AccountIDsByCode :many
--- The ids of the chart-of-accounts codes the ledger posts to; a code with no
--- row is absent from the result.
-SELECT code, account_id FROM chart_of_accounts WHERE code = ANY(sqlc.arg(codes)::text[]);
+-- name: AccountsByCode :many
+-- The chart-of-accounts rows with the codes; a code with no row is absent.
+SELECT code, account_id, type, active FROM chart_of_accounts WHERE code = ANY(sqlc.arg(codes)::text[]);
+
+-- name: AccountsByID :many
+-- The chart-of-accounts rows with the ids; an id with no row is absent.
+SELECT code, account_id, type, active FROM chart_of_accounts WHERE account_id = ANY(sqlc.arg(ids)::int[]);
 
 -- name: InsertEntry :exec
--- posted_at is the column's default (Python's server_default).
-INSERT INTO journal_entries (entry_id, source_type, source_id, memo)
-VALUES ($1, $2, $3, $4);
+-- posted_at is the given time, or now when it is null, and never later than
+-- now: an issue entry is posted at its issue date, a future one at now.
+INSERT INTO journal_entries (entry_id, source_type, source_id, memo, posted_at)
+VALUES (sqlc.arg(entry_id), sqlc.arg(source_type), sqlc.arg(source_id), sqlc.narg(memo),
+        LEAST(COALESCE(sqlc.narg(posted_at)::timestamp, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP));
 
 -- name: InsertLine :exec
 INSERT INTO journal_lines (line_id, entry_id, account_id, debit, credit, currency,

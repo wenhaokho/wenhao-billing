@@ -7,32 +7,76 @@ package ledgerdb
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
-const accountIDsByCode = `-- name: AccountIDsByCode :many
-SELECT code, account_id FROM chart_of_accounts WHERE code = ANY($1::text[])
+const accountsByCode = `-- name: AccountsByCode :many
+SELECT code, account_id, type, active FROM chart_of_accounts WHERE code = ANY($1::text[])
 `
 
-type AccountIDsByCodeRow struct {
+type AccountsByCodeRow struct {
 	Code      string
 	AccountID int32
+	Type      string
+	Active    bool
 }
 
-// The ids of the chart-of-accounts codes the ledger posts to; a code with no
-// row is absent from the result.
-func (q *Queries) AccountIDsByCode(ctx context.Context, codes []string) ([]AccountIDsByCodeRow, error) {
-	rows, err := q.db.Query(ctx, accountIDsByCode, codes)
+// The chart-of-accounts rows with the codes; a code with no row is absent.
+func (q *Queries) AccountsByCode(ctx context.Context, codes []string) ([]AccountsByCodeRow, error) {
+	rows, err := q.db.Query(ctx, accountsByCode, codes)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []AccountIDsByCodeRow
+	var items []AccountsByCodeRow
 	for rows.Next() {
-		var i AccountIDsByCodeRow
-		if err := rows.Scan(&i.Code, &i.AccountID); err != nil {
+		var i AccountsByCodeRow
+		if err := rows.Scan(
+			&i.Code,
+			&i.AccountID,
+			&i.Type,
+			&i.Active,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const accountsByID = `-- name: AccountsByID :many
+SELECT code, account_id, type, active FROM chart_of_accounts WHERE account_id = ANY($1::int[])
+`
+
+type AccountsByIDRow struct {
+	Code      string
+	AccountID int32
+	Type      string
+	Active    bool
+}
+
+// The chart-of-accounts rows with the ids; an id with no row is absent.
+func (q *Queries) AccountsByID(ctx context.Context, ids []int32) ([]AccountsByIDRow, error) {
+	rows, err := q.db.Query(ctx, accountsByID, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AccountsByIDRow
+	for rows.Next() {
+		var i AccountsByIDRow
+		if err := rows.Scan(
+			&i.Code,
+			&i.AccountID,
+			&i.Type,
+			&i.Active,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -117,8 +161,9 @@ func (q *Queries) EntryLines(ctx context.Context, entryID uuid.UUID) ([]EntryLin
 }
 
 const insertEntry = `-- name: InsertEntry :exec
-INSERT INTO journal_entries (entry_id, source_type, source_id, memo)
-VALUES ($1, $2, $3, $4)
+INSERT INTO journal_entries (entry_id, source_type, source_id, memo, posted_at)
+VALUES ($1, $2, $3, $4,
+        LEAST(COALESCE($5::timestamp, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP))
 `
 
 type InsertEntryParams struct {
@@ -126,15 +171,18 @@ type InsertEntryParams struct {
 	SourceType string
 	SourceID   uuid.UUID
 	Memo       *string
+	PostedAt   *time.Time
 }
 
-// posted_at is the column's default (Python's server_default).
+// posted_at is the given time, or now when it is null, and never later than
+// now: an issue entry is posted at its issue date, a future one at now.
 func (q *Queries) InsertEntry(ctx context.Context, arg InsertEntryParams) error {
 	_, err := q.db.Exec(ctx, insertEntry,
 		arg.EntryID,
 		arg.SourceType,
 		arg.SourceID,
 		arg.Memo,
+		arg.PostedAt,
 	)
 	return err
 }

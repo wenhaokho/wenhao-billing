@@ -30,6 +30,10 @@ const (
 	BankCode       = "1000" // Operating Bank
 	ReceivableCode = "1100" // Accounts Receivable
 	PrepaidTaxCode = "1300" // Prepaid Income Tax (PPh withheld by the customer)
+	PayableCode    = "2000" // Accounts Payable
+	FixedFeeCode   = "4000" // Fixed-Fee Revenue
+	SupportCode    = "4100" // Support/Maintenance Revenue
+	UsageCode      = "4200" // Usage-Based Revenue (AI Tokens)
 	FXGainCode     = "4900" // FX Gain (Realised)
 	FXLossCode     = "5900" // FX Loss (Realised)
 )
@@ -116,7 +120,7 @@ func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 		return Entry{}, fmt.Errorf("ledger: payment %s amount must be > 0 (got %s)", p.ID, platform.PyDecimalStr(p.Amount))
 	}
 	q := ledgerdb.New(tx)
-	b, err := newBuilder(ctx, q, fxdb.New(tx), baseCurrency, p.Date)
+	b, err := newBuilder(ctx, q, fxdb.New(tx), baseCurrency, p.Date, BankCode, ReceivableCode, PrepaidTaxCode, FXGainCode, FXLossCode)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -184,7 +188,7 @@ func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 	if err := checkBalanced(e.Lines); err != nil {
 		return Entry{}, err
 	}
-	if err := insert(ctx, q, e); err != nil {
+	if err := insert(ctx, q, e, nil); err != nil {
 		return Entry{}, err
 	}
 	return e, nil
@@ -196,8 +200,19 @@ func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 // points the original's reversed_by_entry_id at it. The original is locked
 // until the caller's transaction ends, so a concurrent reversal of it waits
 // and is then refused. The reversal copies the original's base amounts, so
-// baseCurrency is not used; it keeps the two posting calls alike.
+// baseCurrency is not used; it keeps the two posting calls alike. The
+// reversal is posted at now.
 func PostReversal(ctx context.Context, tx pgx.Tx, _ string, originalID uuid.UUID, memo *string) (Entry, error) {
+	return postReversal(ctx, tx, originalID, memo, nil)
+}
+
+// PostReversalAt is PostReversal posted at postedAt (never later than now):
+// a back-post restatement keeps the original entry's posted_at.
+func PostReversalAt(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *string, postedAt time.Time) (Entry, error) {
+	return postReversal(ctx, tx, originalID, memo, &postedAt)
+}
+
+func postReversal(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *string, postedAt *time.Time) (Entry, error) {
 	q := ledgerdb.New(tx)
 	orig, err := q.LockEntry(ctx, originalID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -228,7 +243,7 @@ func PostReversal(ctx context.Context, tx pgx.Tx, _ string, originalID uuid.UUID
 	if err := checkBalanced(e.Lines); err != nil {
 		return Entry{}, err
 	}
-	if err := insert(ctx, q, e); err != nil {
+	if err := insert(ctx, q, e, postedAt); err != nil {
 		return Entry{}, err
 	}
 	if err := q.SetReversedBy(ctx, ledgerdb.SetReversedByParams{ReversedBy: e.ID, EntryID: originalID}); err != nil {
@@ -246,8 +261,9 @@ type builder struct {
 	accounts map[string]int32
 }
 
-func newBuilder(ctx context.Context, q *ledgerdb.Queries, fq *fxdb.Queries, base string, on time.Time) (*builder, error) {
-	rows, err := q.AccountIDsByCode(ctx, []string{BankCode, ReceivableCode, PrepaidTaxCode, FXGainCode, FXLossCode})
+// newBuilder is a builder for lines on the accounts with codes.
+func newBuilder(ctx context.Context, q *ledgerdb.Queries, fq *fxdb.Queries, base string, on time.Time, codes ...string) (*builder, error) {
+	rows, err := q.AccountsByCode(ctx, codes)
 	if err != nil {
 		return nil, fmt.Errorf("ledger: account ids: %w", err)
 	}
@@ -320,9 +336,10 @@ func checkBalanced(lines []Line) error {
 	return nil
 }
 
-func insert(ctx context.Context, q *ledgerdb.Queries, e Entry) error {
+// insert writes e, posted at postedAt (nil = now; never later than now).
+func insert(ctx context.Context, q *ledgerdb.Queries, e Entry, postedAt *time.Time) error {
 	if err := q.InsertEntry(ctx, ledgerdb.InsertEntryParams{
-		EntryID: e.ID, SourceType: e.SourceType, SourceID: e.SourceID, Memo: e.Memo,
+		EntryID: e.ID, SourceType: e.SourceType, SourceID: e.SourceID, Memo: e.Memo, PostedAt: postedAt,
 	}); err != nil {
 		return fmt.Errorf("ledger: insert entry: %w", err)
 	}
@@ -353,4 +370,40 @@ func ActiveEntryFor(ctx context.Context, tx pgx.Tx, sourceType string, sourceID 
 		return uuid.Nil, false, fmt.Errorf("ledger: active entry: %w", err)
 	}
 	return id, true, nil
+}
+
+// Account is a chart-of-accounts row, for callers that check an account's
+// type or that it is active before posting to it.
+type Account struct {
+	ID         int32
+	Code, Type string
+	Active     bool
+}
+
+// AccountsByID are the accounts with the ids, by id; an id with no account is
+// absent.
+func AccountsByID(ctx context.Context, tx pgx.Tx, ids []int32) (map[int32]Account, error) {
+	rows, err := ledgerdb.New(tx).AccountsByID(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: accounts by id: %w", err)
+	}
+	out := make(map[int32]Account, len(rows))
+	for _, r := range rows {
+		out[r.AccountID] = Account{ID: r.AccountID, Code: r.Code, Type: r.Type, Active: r.Active}
+	}
+	return out, nil
+}
+
+// AccountsByCode are the accounts with the codes, by code; a code with no
+// account is absent.
+func AccountsByCode(ctx context.Context, tx pgx.Tx, codes []string) (map[string]Account, error) {
+	rows, err := ledgerdb.New(tx).AccountsByCode(ctx, codes)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: accounts by code: %w", err)
+	}
+	out := make(map[string]Account, len(rows))
+	for _, r := range rows {
+		out[r.Code] = Account{ID: r.AccountID, Code: r.Code, Type: r.Type, Active: r.Active}
+	}
+	return out, nil
 }
