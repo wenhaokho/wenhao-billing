@@ -178,3 +178,98 @@ func deref(s *string) string {
 	}
 	return *s
 }
+
+// rowNumber is an item row's printed number, 1-based and zero-padded to two
+// digits: "01", "02", … "10", "100".
+func rowNumber(i int) string { return fmt.Sprintf("%02d", i) }
+
+var (
+	ones = []string{
+		"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+		"eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+	}
+	tens   = []string{"", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"}
+	scales = []string{"", "thousand", "million", "billion", "trillion", "quadrillion"}
+)
+
+// currencyWords is a currency's name in words: singular, plural.
+var currencyWords = map[string][2]string{
+	"IDR": {"rupiah", "rupiah"},
+	"SGD": {"Singapore dollar", "Singapore dollars"},
+	"USD": {"US dollar", "US dollars"},
+	"MYR": {"Malaysian ringgit", "Malaysian ringgit"},
+}
+
+// AmountInWords is the amount in English words for the receipt: the first
+// word capitalised, the currency's name after the whole part, and any cents
+// as "and NN/100" ("One thousand two hundred thirty-four US dollars and
+// 56/100"). The amount is first rounded half-even to the currency's places,
+// exactly as FmtNum prints it, so the words spell the printed figure: a
+// zero-decimal currency (IDR) never has cents. A currency without a name
+// prints its code.
+func AmountInWords(amount decimal.Decimal, currency string) string {
+	a := amount.RoundBank(CurrencyDecimals(currency)).Abs() // as group() rounds the printed figure
+	whole := a.Truncate(0)
+	cents := a.Sub(whole).Shift(2).IntPart()
+	name := currency
+	if n, ok := currencyWords[strings.ToUpper(currency)]; ok {
+		name = n[1]
+		if whole.Equal(decimal.NewFromInt(1)) {
+			name = n[0]
+		}
+	}
+	s := wholeWords(whole) + " " + name
+	if cents != 0 {
+		s += fmt.Sprintf(" and %02d/100", cents)
+	}
+	if amount.IsNegative() && !a.IsZero() {
+		s = "minus " + s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// wholeWords is a whole number in words: "two million five hundred
+// thousand".
+func wholeWords(n decimal.Decimal) string {
+	if n.IsZero() {
+		return ones[0]
+	}
+	thousand := decimal.NewFromInt(1000)
+	var groups []int64 // least significant first
+	for n.IsPositive() {
+		q := n.Div(thousand).Truncate(0)
+		groups = append(groups, n.Sub(q.Mul(thousand)).IntPart())
+		n = q
+	}
+	var words []string
+	for i := len(groups) - 1; i >= 0; i-- {
+		if groups[i] == 0 {
+			continue
+		}
+		w := hundredsWords(groups[i])
+		if i < len(scales) && scales[i] != "" {
+			w += " " + scales[i]
+		}
+		words = append(words, w)
+	}
+	return strings.Join(words, " ")
+}
+
+// hundredsWords is 1 to 999 in words: "two hundred thirty-four".
+func hundredsWords(n int64) string {
+	var w []string
+	if n >= 100 {
+		w = append(w, ones[n/100]+" hundred")
+		n %= 100
+	}
+	switch {
+	case n == 0:
+	case n < 20:
+		w = append(w, ones[n])
+	case n%10 == 0:
+		w = append(w, tens[n/10])
+	default:
+		w = append(w, tens[n/10]+"-"+ones[n%10])
+	}
+	return strings.Join(w, " ")
+}

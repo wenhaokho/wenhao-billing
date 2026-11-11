@@ -255,3 +255,20 @@ func TestSendReceiptBodyExact(t *testing.T) {
 		t.Errorf("subject %q text %q", m.Subject, m.Text)
 	}
 }
+
+// The email says what the receipt's PDF says: the balance right after this
+// payment, not the live one.
+func TestSendReceiptEmailShowsBalanceAsOfThatPayment(t *testing.T) {
+	t.Parallel()
+	r := newReceiptAPI(t, false)
+	invoice, _, first := r.seed(t) // 400 of 1000
+	r.mustRecord(t, invoice, map[string]any{"amount": "600", "payment_date": "2026-08-08"})
+
+	if code := r.send(t, invoice, first.PaymentID, map[string]any{"to_email": "acme@example.com"}); code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	m := r.mail.Messages()[0]
+	if !strings.Contains(m.Text, "Remaining balance: 600.00 USD.") || strings.Contains(m.Text, "paid in full") {
+		t.Errorf("first payment's email body: %q", m.Text)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -76,8 +77,9 @@ func LoadQuotation(ctx context.Context, q DBTX, id uuid.UUID) (QuotationData, er
 }
 
 // LoadReceipt reads a payment, its invoice, the invoice's customer and the
-// business profile. A missing payment or invoice is pgx.ErrNoRows; a payment
-// with no invoice is ErrNoInvoice.
+// business profile, and the invoice's balance after the payment (BalanceAfter).
+// A missing payment or invoice is pgx.ErrNoRows; a payment with no invoice is
+// ErrNoInvoice.
 func LoadReceipt(ctx context.Context, q DBTX, paymentID uuid.UUID) (ReceiptData, error) {
 	pay, err := paymentsdb.New(q).GetPayment(ctx, paymentID)
 	if err != nil {
@@ -98,7 +100,25 @@ func LoadReceipt(ctx context.Context, q DBTX, paymentID uuid.UUID) (ReceiptData,
 	if err != nil {
 		return ReceiptData{}, err
 	}
-	return ReceiptData{Payment: pay, Invoice: inv, Customer: cust, Business: biz}, nil
+	// The invoice's balance right after this payment, not the live one.
+	siblings, err := paymentsdb.New(q).ListInvoicePayments(ctx, pay.InvoiceID)
+	if err != nil {
+		return ReceiptData{}, err
+	}
+	times, err := paymentsdb.New(q).ListInvoiceClearTimes(ctx, pay.InvoiceID)
+	if err != nil {
+		return ReceiptData{}, err
+	}
+	clearedAt := make(map[uuid.UUID]time.Time, len(times))
+	for _, t := range times {
+		clearedAt[t.PaymentID] = t.ClearedAt
+	}
+	bi := Invoice{Amount: inv.Amount, Currency: inv.Currency, BalanceDue: inv.BalanceDue, ClearedAt: clearedAt}
+	return ReceiptData{
+		Payment: pay, Invoice: inv, Customer: cust, Business: biz,
+		BalanceBefore: BalanceBefore(bi, siblings, pay.PaymentID),
+		BalanceAfter:  BalanceAfter(bi, siblings, pay.PaymentID),
+	}, nil
 }
 
 // loadCustomer is nil for no customer id or a missing row.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/email"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/matching"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/pdf"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
@@ -96,10 +97,18 @@ func (r routes) sendReceipt(ctx context.Context, in *sendReceiptIn) (*sentToBody
 	if inv.InvoiceNumber != nil {
 		number = *inv.InvoiceNumber
 	}
+	// The balance right after this payment, not the live one: the email and
+	// the attached PDF must agree, and an old partial payment's receipt must
+	// not say "paid in full" (pdf.BalanceAfter).
+	loaded, err := pdf.LoadReceipt(ctx, r.pool, pay.PaymentID)
+	if err != nil {
+		return nil, err
+	}
+	balance := loaded.BalanceAfter // also the renderer's BalanceDue
 	ref := ReceiptReference(pay.PaymentID)
-	pdf, err := r.receipts.Renderer.RenderReceipt(ctx, ReceiptData{
+	receiptPDF, err := r.receipts.Renderer.RenderReceipt(ctx, ReceiptData{
 		Payment: PaymentOutFrom(pay), Reference: ref, InvoiceNumber: number, Currency: inv.Currency,
-		BalanceDue: inv.BalanceDue, CustomerName: inv.CustomerName, BusinessName: business,
+		BalanceDue: balance, CustomerName: inv.CustomerName, BusinessName: business,
 	})
 	if err != nil {
 		return nil, err
@@ -116,12 +125,12 @@ func (r routes) sendReceipt(ctx context.Context, in *sendReceiptIn) (*sentToBody
 	text := "Hi " + greeting + ",\n\n" +
 		"We have received your payment of " + FormatAmount(pay.Amount, pay.Currency) + " against " + invRef +
 		" on " + pay.PaymentDate.Time.Format("2006-01-02") + ".\n" +
-		BalanceNote(inv.BalanceDue, inv.Currency) + "\n\n" +
+		BalanceNote(balance, inv.Currency) + "\n\n" +
 		"A PDF receipt is attached for your records.\n\n" +
 		"Thank you."
 	msg := email.Message{
 		To: to, Subject: subject, Text: text,
-		Attachments: []email.Attachment{{Filename: "receipt-" + ref + ".pdf", ContentType: "application/pdf", Content: pdf}},
+		Attachments: []email.Attachment{{Filename: "receipt-" + ref + ".pdf", ContentType: "application/pdf", Content: receiptPDF}},
 	}
 	if cc != nil {
 		msg.Cc = strings.Split(*cc, ", ")

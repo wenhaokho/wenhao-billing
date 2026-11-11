@@ -294,3 +294,40 @@ func TestNPWPLine(t *testing.T) {
 		}
 	}
 }
+
+func TestRowNumber(t *testing.T) {
+	t.Parallel()
+	for i, want := range map[int]string{1: "01", 2: "02", 9: "09", 10: "10", 99: "99", 100: "100"} {
+		eq(t, "rowNumber", rowNumber(i), want)
+	}
+}
+
+func TestAmountInWords(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ amount, currency, want string }{
+		{"3600000", "IDR", "Three million six hundred thousand rupiah"},
+		{"2000", "SGD", "Two thousand Singapore dollars"},
+		{"1234.56", "USD", "One thousand two hundred thirty-four US dollars and 56/100"},
+		{"0.5", "USD", "Zero US dollars and 50/100"},
+		{"1", "IDR", "One rupiah"},
+		{"1", "USD", "One US dollar"},
+		{"14400000.0000", "IDR", "Fourteen million four hundred thousand rupiah"},
+		{"1000000000", "IDR", "One billion rupiah"},
+		{"2500000000000", "IDR", "Two trillion five hundred billion rupiah"},
+		{"115", "MYR", "One hundred fifteen Malaysian ringgit"},
+		{"40.07", "EUR", "Forty EUR and 07/100"},
+		{"19.995", "SGD", "Twenty Singapore dollars"}, // rounds half-even to cents first
+		// IDR prints no decimals: the words spell the printed figure, rounded
+		// half-even as FmtNum rounds it ("4,523,078"), never cents.
+		{"4523077.5", "IDR", "Four million five hundred twenty-three thousand seventy-eight rupiah"},
+		{"4523078.5", "IDR", "Four million five hundred twenty-three thousand seventy-eight rupiah"},
+		{"0.4", "IDR", "Zero rupiah"},
+		{"1001", "USD", "One thousand one US dollars"},
+		{"90", "USD", "Ninety US dollars"},
+	} {
+		t.Run(c.amount+" "+c.currency, func(t *testing.T) {
+			t.Parallel()
+			eq(t, "AmountInWords", AmountInWords(dec(c.amount), c.currency), c.want)
+		})
+	}
+}

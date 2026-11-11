@@ -35,9 +35,9 @@ func init() {
 // Google Fonts' OFL releases (licences beside them in fonts/). Maroto has a
 // normal and a bold style per family, so each family maps two weights.
 const (
-	fontBody    = "inter"         // Inter 400 / 600
-	fontDisplay = "manrope"       // Manrope 700 / 800
-	fontMono    = "jetbrainsmono" // JetBrains Mono 400 / 600
+	fontBody    = "dmsans"  // DM Sans 400 / 500
+	fontDisplay = "manrope" // Manrope 500 / 700
+	fontMono    = "mono"    // JetBrains Mono 400 / 600
 )
 
 //go:embed fonts/*.ttf
@@ -51,10 +51,12 @@ var fontFiles = []struct {
 	style  fontstyle.Type
 	file   string
 }{
-	{fontBody, fontstyle.Normal, "Inter-Regular.ttf"},
-	{fontBody, fontstyle.Bold, "Inter-SemiBold.ttf"},
-	{fontDisplay, fontstyle.Normal, "Manrope-Bold.ttf"},
-	{fontDisplay, fontstyle.Bold, "Manrope-ExtraBold.ttf"},
+	{fontBody, fontstyle.Normal, "DMSans-Regular.ttf"},
+	{fontBody, fontstyle.Bold, "DMSans-Medium.ttf"},
+	// Manrope-Medium.ttf is a static instance (wght 500) of Google Fonts'
+	// variable Manrope, cut with fontTools' instancer.
+	{fontDisplay, fontstyle.Normal, "Manrope-Medium.ttf"},
+	{fontDisplay, fontstyle.Bold, "Manrope-Bold.ttf"},
 	{fontMono, fontstyle.Normal, "JetBrainsMono-Regular.ttf"},
 	{fontMono, fontstyle.Bold, "JetBrainsMono-SemiBold.ttf"},
 }
@@ -109,7 +111,7 @@ func render(ctx context.Context, d Document, logos *LogoResolver) ([]byte, error
 		WithLeftMargin(0).WithTopMargin(0).WithRightMargin(0).WithBottomMargin(0).
 		WithMaxGridSize(gridSize).
 		WithCustomFonts(fonts).
-		WithDefaultFont(&props.Font{Family: fontBody, Size: 10, Color: colInk}).
+		WithDefaultFont(&props.Font{Family: fontBody, Size: 10, Color: cInk}).
 		// The template's "{{ doc_title|title }} {{ ref }}".
 		WithTitle(pyTitle(d.DocTitle)+" "+d.Ref, true).
 		WithCompression(true).

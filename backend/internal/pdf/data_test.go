@@ -90,7 +90,7 @@ func eq[T any](t *testing.T, name string, got, want T) {
 func TestInvoiceDocumentDiscountAndPaid(t *testing.T) {
 	t.Parallel()
 	d := InvoiceDocument(inv())
-	eq(t, "DocTitle", d.DocTitle, "INVOICE")
+	eq(t, "DocTitle", d.DocTitle, "Invoice")
 	eq(t, "Ref", d.Ref, "WD-2026-0042")
 	eq(t, "StatusClass", d.StatusClass, "partial")
 	got := map[string]string{}
@@ -203,7 +203,7 @@ func quote() QuotationData {
 func TestQuotationDocumentTotalHero(t *testing.T) {
 	t.Parallel()
 	d := QuotationDocument(quote())
-	eq(t, "DocTitle", d.DocTitle, "QUOTATION")
+	eq(t, "DocTitle", d.DocTitle, "Quotation")
 	eq(t, "HeroLabel", d.HeroLabel, "Total")
 	eq(t, "HeroAmount", d.HeroAmount, "5,000.00")
 	eq(t, "Meta[2]", d.Meta[2], MetaCell{"Valid Until", "06 Aug 2026"})
@@ -333,29 +333,38 @@ func TestReceiptSummaryLabelsOwnCurrency(t *testing.T) {
 	t.Parallel()
 	pid := uuid.MustParse("1a2b3c4d-0000-0000-0000-000000000000")
 	in := inv(func(i *invoicesdb.Invoice) {
-		i.Currency, i.Amount, i.BalanceDue = "IDR", dec("16000000"), dec("6400000")
+		i.Currency, i.Amount, i.BalanceDue = "IDR", dec("16000000"), dec("0")
 	})
-	// A USD payment on an IDR invoice (a cross-currency manual approval).
+	// A USD payment on an IDR invoice (a cross-currency manual approval): it
+	// settles the 6,400,000 left, so the balance after it is 0.
 	d := ReceiptDocument(ReceiptData{
 		Payment: paymentsdb.Payment{
 			PaymentID: pid, Amount: dec("600.5"), Currency: "USD", PayerName: "Acme",
 			PayerReference: sp("INV-1"), PaymentDate: date(2026, 8, 7), IntakeSource: "EMAIL_PARSER",
 		},
-		Invoice: in.Invoice, Customer: cust(), Business: biz(),
+		Invoice: in.Invoice, Customer: cust(), Business: biz(), BalanceAfter: dec("0"), BalanceBefore: dec("6400000"),
 	})
 	eq(t, "Summary", d.Summary, []SummaryRow{
-		{"Invoice total", "16,000,000 IDR", "subtotal"},
-		{"Remaining balance", "6,400,000 IDR", "total"},
+		{"Balance before this payment", "6,400,000 IDR", "subtotal"},
+		{"Amount received", "600.50 USD", "total"},
+		{"Received in USD, settles the balance", "", "note"},
 	})
 	eq(t, "Currency", d.Currency, "USD")
 	eq(t, "HeroAmount", d.HeroAmount, "600.50")
-	eq(t, "HeroLabel", d.HeroLabel, "Amount Received")
-	eq(t, "Items", d.Items, []Item{{Desc: "Payment for invoice WD-2026-0042", Sub: "Email Parser · Ref: INV-1", Amount: "600.50"}})
+	eq(t, "HeroLabel", d.HeroLabel, "Amount received")
+	eq(t, "Items", d.Items, []Item(nil))
+	eq(t, "Receipt", *d.Receipt, ReceiptBody{
+		Payment:    []MetaCell{{"Method", "Email Parser"}, {"Bank ref.", "INV-1"}, {"Received", "07 Aug 2026"}},
+		Words:      "Six hundred US dollars and 50/100",
+		PaidInFull: true,
+		Invoice:    "WD-2026-0042", Issued: "23 Jul 2026",
+		InvoiceCurrency: "IDR", InvoiceTotal: "16,000,000", ThisPayment: "600.50",
+		BalanceDue: "IDR 0",
+	})
 	eq(t, "Ref", d.Ref, "RCT-1A2B3C4D")
-	eq(t, "Meta", d.Meta, []MetaCell{{"Receipt No.", "RCT-1A2B3C4D"}, {"Payment Date", "07 Aug 2026"}, {"Invoice No.", "WD-2026-0042"}})
-	eq(t, "labels", []string{d.DocTitle, d.StatusLabel, d.StatusClass, d.FromLabel, d.ToLabel}, []string{"RECEIPT", "Received", "paid", "Received By", "Received From"})
-	eq(t, "Simple", d.Simple, true)
-	eq(t, "Notes", d.Notes, "Remaining balance: 6,400,000 IDR.\nThank you for your payment.")
+	eq(t, "Meta", d.Meta, []MetaCell{{"Receipt No.", "RCT-1A2B3C4D"}, {"Payment Date", "07 Aug 2026"}})
+	eq(t, "labels", []string{d.DocTitle, d.StatusLabel, d.StatusClass, d.FromLabel, d.ToLabel}, []string{"Payment Receipt", "Received", "paid", "Issued by", "Received from"})
+	eq(t, "Notes", d.Notes, "Thank you for your payment.") // the pill says paid in full
 	eq(t, "Terms", d.Terms+d.PaymentInstructions+d.NPWP, "")
 }
 
@@ -366,9 +375,11 @@ func TestReceiptDocumentNamesAndFallbacks(t *testing.T) {
 	d := ReceiptDocument(ReceiptData{Payment: pay, Invoice: i})
 	eq(t, "ToName", d.ToName, "Payer Co") // no customer: the payer
 	eq(t, "FromName", d.FromName, "—")
-	eq(t, "Items", d.Items, []Item{{Desc: "Payment received", Sub: "Manual entry", Amount: "1.00"}})
-	eq(t, "Meta[1:]", d.Meta[1:], []MetaCell{{"Payment Date", "—"}, {"Invoice No.", "—"}})
-	eq(t, "Notes", d.Notes, "This invoice is now paid in full.\nThank you for your payment.")
+	eq(t, "Payment", d.Receipt.Payment, []MetaCell{{"Method", "Manual entry"}, {"Received", "—"}})
+	eq(t, "Invoice", d.Receipt.Invoice, "—")
+	eq(t, "PaidInFull", d.Receipt.PaidInFull, true)
+	eq(t, "Meta[1:]", d.Meta[1:], []MetaCell{{"Payment Date", "—"}})
+	eq(t, "Notes", d.Notes, "Thank you for your payment.") // the pill says paid in full
 	pay.PayerName = ""
 	eq(t, "ToName", ReceiptDocument(ReceiptData{Payment: pay, Invoice: i}).ToName, "—")
 }
@@ -398,7 +409,7 @@ func TestDocumentWithoutCustomerOrBusiness(t *testing.T) {
 	in := inv()
 	in.Customer, in.Business, in.Accounts = nil, nil, nil
 	d := InvoiceDocument(in)
-	eq(t, "From/To", []string{d.FromName, d.ToName, d.FootName, d.DocTitle, d.Notes}, []string{"—", "—", "", "INVOICE", ""})
+	eq(t, "From/To", []string{d.FromName, d.ToName, d.FootName, d.DocTitle, d.Notes}, []string{"—", "—", "", "Invoice", ""})
 	eq(t, "lines", [][]string{d.FromLines, d.ToLines, d.FootMeta}, [][]string{nil, nil, nil})
 }
 
@@ -414,4 +425,36 @@ func TestCustomerAndBusinessLines(t *testing.T) {
 	eq(t, "free text", customerLines(&customersdb.Customer{BillingAddress: sp("L1\n\nL3\r\nL4\n")}), []string{"L1", "", "L3", "L4"})
 	eq(t, "city only", customerLines(&customersdb.Customer{BillingCity: sp("Bali")}), []string{"Bali"})
 	eq(t, "business", businessLines(&businessdb.BusinessProfile{Address: sp(" a \n\n  \nb\n"), ContactEmail: sp("e@x")}), []string{" a ", "b", "e@x"})
+}
+
+// The gold location line in the header is the last non-empty line of the
+// business's free-text address; nothing else stands in for it.
+func TestLocationLineIsLastAddressLine(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		addr *string
+		want string
+	}{
+		"last line":         {sp("Jl. Raya 1\nBatam · Indonesia\n"), "Batam · Indonesia"},
+		"blank lines after": {sp("Jl. Raya 1\r\nBatam · Indonesia\n  \n"), "Batam · Indonesia"},
+		"one line":          {sp("  Singapore  "), "Singapore"},
+		"empty":             {sp(""), ""},
+		"nil":               {nil, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			in := inv()
+			in.Business.Address = c.addr
+			eq(t, "invoice Location", InvoiceDocument(in).Location, c.want)
+			q := quote()
+			q.Business.Address = c.addr
+			eq(t, "quotation Location", QuotationDocument(q).Location, c.want)
+		})
+	}
+	t.Run("no business", func(t *testing.T) {
+		t.Parallel()
+		in := inv()
+		in.Business = nil
+		eq(t, "Location", InvoiceDocument(in).Location, "")
+	})
 }

@@ -25,6 +25,8 @@ import (
 // balance), then wht_booked grows by it and the balance drops: by amount +
 // withheld clamped at 0 in the same currency, to 0 across currencies.
 //
+// pdf.BalanceAfter replays this relief for receipts: change both together.
+//
 // A ledger refusal or a missing rate comes back unchanged (errors.Is
 // ledger.ErrLedger or fx.ErrRateMissing), with the payment's wht_amount
 // already written: the caller rolls back.

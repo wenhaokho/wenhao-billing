@@ -13,27 +13,33 @@ import (
 	"github.com/wenhaokho/wenhao-billing/backend/internal/customers/customersdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/invoices/invoicesdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/payments/paymentsdb"
-	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/quotations/quotationsdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/withholding"
 )
 
-// MetaCell is one cell of the meta strip under the header.
+// MetaCell is one key and value about the document: its number, dates and
+// PO/SO (the layout prints the number and dates in the header band, the rest
+// in the Reference column).
 type MetaCell struct{ Key, Value string }
 
 // SummaryRow is one row of the summary box. Class picks its colour: subtotal,
 // discount, grossup, total, wht or paid.
 type SummaryRow struct{ Label, Value, Class string }
 
-// Item is one row of the items table. Qty and Rate are empty on a simple
-// (receipt) table; Sub is the grey line under the description.
+// Item is one row of the items table; Sub is the grey line under the
+// description.
 type Item struct{ Desc, Sub, Qty, Rate, Amount string }
 
 // Document is everything a renderer prints, for an invoice, a quotation or a
 // receipt (Python's context dict of pdf/context.py). Every text value is
 // final: formatted, never to be parsed again. "" is Python's None.
 type Document struct {
-	DocTitle    string
+	// DocTitle prints as typed: "Invoice" (or the business's own title),
+	// "Quotation", "Payment Receipt".
+	DocTitle string
+	// Location is the header's line under the business name: the last
+	// non-empty line of the business address, "" when there is none.
+	Location    string
 	Ref         string
 	StatusLabel string
 	StatusClass string
@@ -46,8 +52,6 @@ type Document struct {
 	ToName    string
 	ToLines   []string
 
-	// Simple is a table of description and amount only (the receipt).
-	Simple   bool
 	Items    []Item
 	Currency string
 
@@ -71,6 +75,35 @@ type Document struct {
 	// a receipt). The zero value prints a fixed epoch, so the same
 	// document always renders to the same bytes.
 	Date time.Time
+
+	// Receipt is what only a payment receipt prints; nil on an invoice or
+	// a quotation. A receipt has no items table: its hero is the amount
+	// received, and its summary box ends in the balance due.
+	Receipt *ReceiptBody
+}
+
+// ReceiptBody is a receipt's own part. Every figure is a stored value in its
+// own currency, never converted (spec "Receipt amounts").
+type ReceiptBody struct {
+	// Payment is the parties band's Payment column: Method, Bank ref. (only
+	// when the payment stores one), Received.
+	Payment []MetaCell
+	// Words is the amount received in words.
+	Words string
+	// PaidInFull is the balance after this payment being zero or less.
+	PaidInFull bool
+	// The "Applied to" row: the invoice, its issue date, its total in the
+	// invoice's currency, and this payment (cash plus the withholding it
+	// settles) in the payment's.
+	Invoice, Issued               string
+	InvoiceCurrency, InvoiceTotal string
+	ThisPayment                   string
+	// WithholdingLabel heads the bukti potong note ("PPh 23"); both are ""
+	// when the payment carries no withholding.
+	WithholdingLabel, WithholdingNote string
+	// BalanceDue is the bar's amount: the invoice's balance after this
+	// payment, with its currency ("IDR 0").
+	BalanceDue string
 }
 
 // InvoiceData is an invoice with what its document shows. Customer and
@@ -100,6 +133,12 @@ type ReceiptData struct {
 	Invoice  invoicesdb.Invoice
 	Customer *customersdb.Customer
 	Business *businessdb.BusinessProfile
+	// BalanceAfter is the invoice balance right after Payment (BalanceAfter), not
+	// the live balance: the receipt of an old partial payment must not read paid.
+	BalanceAfter decimal.Decimal
+	// BalanceBefore is the invoice balance right before Payment
+	// (BalanceBefore): the invoice's Amount for its first payment.
+	BalanceBefore decimal.Decimal
 }
 
 // ReceiptReference is the receipt's number: RCT- and the first 8 hex
@@ -229,6 +268,21 @@ func businessLines(b *businessdb.BusinessProfile) []string {
 	return lines
 }
 
+// location is the last non-empty line of the business's free-text address,
+// trimmed (there are no city or country fields).
+func location(b *businessdb.BusinessProfile) string {
+	if b == nil || b.Address == nil {
+		return ""
+	}
+	lines := splitLines(*b.Address)
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(lines[i]); l != "" {
+			return l
+		}
+	}
+	return ""
+}
+
 func orDash(s *string) string {
 	if s == nil || *s == "" {
 		return Dash
@@ -278,8 +332,9 @@ func common(status, currency string, notes, terms *string, c *customersdb.Custom
 	d := Document{
 		StatusLabel: StatusLabel(status),
 		StatusClass: StatusBadgeClass(status),
-		FromLabel:   "Bill From",
-		ToLabel:     "Bill To",
+		Location:    location(b),
+		FromLabel:   "From",
+		ToLabel:     "Bill to",
 		FromName:    orDash(businessName(b)),
 		FromLines:   businessLines(b),
 		ToName:      orDash(customerName(c)),
@@ -374,9 +429,9 @@ func InvoiceDocument(in InvoiceData) Document {
 			SummaryRow{"Paid", Minus + FmtNum(paid, cur), "paid"})
 	}
 
-	d.DocTitle = "INVOICE"
+	d.DocTitle = "Invoice"
 	if b := in.Business; b != nil && deref(b.InvoiceTitle) != "" {
-		d.DocTitle = platform.PyUpper(*b.InvoiceTitle)
+		d.DocTitle = *b.InvoiceTitle
 	}
 	// "Net N" drives the due date, not a customer-facing term.
 	d.Terms = ""
@@ -411,7 +466,7 @@ func QuotationDocument(in QuotationData) Document {
 	if r, ok := discountRow(q.DiscountType, q.DiscountValue, q.Subtotal, cur); ok {
 		d.Summary = append(d.Summary, r)
 	}
-	d.DocTitle = "QUOTATION"
+	d.DocTitle = "Quotation"
 	d.Ref = orDash(q.QuotationNumber)
 	d.Meta = meta([]MetaCell{
 		{"Quote No.", d.Ref},
@@ -424,50 +479,80 @@ func QuotationDocument(in QuotationData) Document {
 	return d
 }
 
-// ReceiptDocument is Python's build_receipt_context. The summary values carry
-// their own currency code (Go change 4): the invoice's, which can differ from
-// the payment's that heads the table and the hero.
+// ReceiptDocument is Python's build_receipt_context in the brand layout. The
+// summary values carry their own currency code (Go change 4): the invoice's,
+// which can differ from the payment's that the amount received is in.
 func ReceiptDocument(in ReceiptData) Document {
 	pay, inv := in.Payment, in.Invoice
 	cur := pay.Currency
-	desc := "Payment received"
-	if n := deref(inv.InvoiceNumber); n != "" {
-		desc = "Payment for invoice " + n
-	}
-	sub := MethodLabel(pay.IntakeSource)
-	if ref := deref(pay.PayerReference); ref != "" {
-		sub += " · Ref: " + ref
-	}
 	ref := ReceiptReference(pay.PaymentID)
+	payment := []MetaCell{{"Method", MethodLabel(pay.IntakeSource)}}
+	if r := deref(pay.PayerReference); r != "" {
+		payment = append(payment, MetaCell{bankRefKey, r})
+	}
+	payment = append(payment, MetaCell{"Received", FmtDate(pay.PaymentDate)})
+	body := &ReceiptBody{
+		Payment:         payment,
+		Words:           AmountInWords(pay.Amount, cur),
+		PaidInFull:      !in.BalanceAfter.IsPositive(),
+		Invoice:         orDash(inv.InvoiceNumber),
+		Issued:          FmtDate(inv.IssueDate),
+		InvoiceCurrency: inv.Currency,
+		InvoiceTotal:    FmtNum(inv.Amount, inv.Currency),
+		ThisPayment:     FmtNum(pay.Amount.Add(pay.WhtAmount), cur),
+		BalanceDue:      inv.Currency + " " + FmtNum(in.BalanceAfter, inv.Currency),
+	}
+	var whtRow *SummaryRow
+	if pay.WhtAmount.IsPositive() {
+		typ := withholding.Labels[inv.WhtType]
+		if typ == "" {
+			typ = "PPh"
+		}
+		label := typ
+		if inv.WhtRate.Valid && !inv.WhtRate.Decimal.IsZero() {
+			label += " (" + FmtPct(inv.WhtRate) + "%)"
+		}
+		withheld := FmtAmount(pay.WhtAmount, cur)
+		whtRow = &SummaryRow{"of which " + label + " withheld", withheld, "wht"}
+		to := ""
+		if b := in.Business; b != nil && deref(b.ContactEmail) != "" {
+			to = " to " + *b.ContactEmail
+		}
+		body.WithholdingLabel = typ
+		body.WithholdingNote = fmt.Sprintf("%s of %s was withheld by the payer and credited against the invoice "+
+			"total. Please send the bukti potong%s if not yet provided.", label, withheld, to)
+	}
+	summary := receiptSummary(in, whtRow)
+	// "Paid in full" prints once: the pill, else the balance note.
+	notes := "Thank you for your payment."
+	if !body.PaidInFull {
+		notes = BalanceNote(in.BalanceAfter, inv.Currency) + "\n" + notes
+	}
 	d := Document{
-		DocTitle:    "RECEIPT",
+		DocTitle:    "Payment Receipt",
 		Ref:         ref,
 		StatusLabel: "Received",
 		StatusClass: "paid",
-		FromLabel:   "Received By",
-		ToLabel:     "Received From",
+		Location:    location(in.Business),
+		FromLabel:   "Issued by",
+		ToLabel:     "Received from",
 		FromName:    orDash(businessName(in.Business)),
 		FromLines:   businessLines(in.Business),
 		ToName:      Dash,
 		ToLines:     customerLines(in.Customer),
-		Simple:      true,
-		Items:       []Item{{Desc: desc, Sub: sub, Amount: FmtNum(pay.Amount, cur)}},
 		Currency:    cur,
 		Meta: []MetaCell{
 			{"Receipt No.", ref},
 			{"Payment Date", FmtDate(pay.PaymentDate)},
-			{"Invoice No.", orDash(inv.InvoiceNumber)},
 		},
-		Summary: []SummaryRow{
-			{"Invoice total", FmtAmount(inv.Amount, inv.Currency), "subtotal"},
-			{"Remaining balance", FmtAmount(inv.BalanceDue, inv.Currency), "total"},
-		},
-		HeroLabel:  "Amount Received",
+		Summary:    summary,
+		HeroLabel:  "Amount received",
 		HeroAmount: FmtNum(pay.Amount, cur),
-		Notes:      BalanceNote(inv.BalanceDue, inv.Currency) + "\nThank you for your payment.",
+		Notes:      notes,
 		FootName:   deref(businessName(in.Business)),
 		FootMeta:   footMeta(in.Business),
 		Date:       dateOf(pay.PaymentDate),
+		Receipt:    body,
 	}
 	d.ToName = firstNonEmpty(deref(customerName(in.Customer)), pay.PayerName, Dash)
 	if in.Business != nil {
@@ -475,3 +560,37 @@ func ReceiptDocument(in ReceiptData) Document {
 	}
 	return d
 }
+
+// receiptSummary is the receipt's box rows; the bar is the balance due.
+// In one currency they reconcile: Invoice total − Previously paid (omitted
+// when nothing was) − This payment (cash plus the withholding it settles) =
+// Balance due, the withholding shown as part of this payment. Across
+// currencies nothing is converted: the balance before this payment in the
+// invoice's currency, the amount received in the payment's, and a note that
+// it settles the balance.
+func receiptSummary(in ReceiptData, whtRow *SummaryRow) []SummaryRow {
+	pay, inv := in.Payment, in.Invoice
+	var rows []SummaryRow
+	if pay.Currency != inv.Currency {
+		rows = append(rows,
+			SummaryRow{"Balance before this payment", FmtAmount(in.BalanceBefore, inv.Currency), "subtotal"},
+			SummaryRow{"Amount received", FmtAmount(pay.Amount, pay.Currency), "total"})
+		if whtRow != nil {
+			rows = append(rows, *whtRow)
+		}
+		return append(rows, SummaryRow{"Received in " + pay.Currency + ", settles the balance", "", "note"})
+	}
+	rows = append(rows, SummaryRow{"Invoice total", FmtAmount(inv.Amount, inv.Currency), "subtotal"})
+	if prev := inv.Amount.Sub(in.BalanceBefore); prev.IsPositive() {
+		rows = append(rows, SummaryRow{"Previously paid", Minus + FmtAmount(prev, inv.Currency), "paid"})
+	}
+	rows = append(rows, SummaryRow{"This payment", Minus + FmtAmount(pay.Amount.Add(pay.WhtAmount), pay.Currency), "paid"})
+	if whtRow != nil {
+		rows = append(rows, *whtRow)
+	}
+	return rows
+}
+
+// bankRefKey is the Payment column's key for the payer's bank reference,
+// which prints in the monospace.
+const bankRefKey = "Bank ref."

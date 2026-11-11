@@ -218,6 +218,7 @@ func (s Service) recordManual(ctx context.Context, tx pgx.Tx, m manualPayment) (
 		return paymentsdb.Payment{}, err
 	}
 
+	// pdf.BalanceAfter replays this relief (amount + wht) for receipts.
 	inv.BalanceDue = inv.BalanceDue.Sub(settled)
 	inv.WhtBooked = inv.WhtBooked.Add(wht)
 	paid := !inv.BalanceDue.IsPositive()

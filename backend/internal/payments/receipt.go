@@ -15,7 +15,8 @@ import (
 )
 
 // ReceiptData is what a receipt renderer is given: the payment, its invoice's
-// number, currency and remaining balance, and the names Python's
+// number, currency and remaining balance as of this payment (BalanceDue,
+// from pdf.BalanceAfter, not the invoice's live balance), and the names Python's
 // render_receipt_pdf printed. CustomerName and BusinessName are nil when the
 // invoice has no customer or no business name is set.
 type ReceiptData struct {
@@ -46,7 +47,8 @@ func (StubRenderer) RenderReceipt(context.Context, ReceiptData) ([]byte, error) 
 // PDFReceiptRenderer renders the receipt with the documents' renderer
 // (pdf.RenderReceipt). pdf never imports payments, so the ReceiptData is
 // mapped here field by field. What ReceiptData does not carry and the
-// receipt prints (the invoice total, the customer's address and contacts,
+// receipt prints (the invoice's total, issue date and withholding, the
+// balance before this payment, the customer's address and contacts,
 // the business's address, contacts and logo) is read through DB with
 // pdf.LoadReceipt; with no DB those print as unknown (tests).
 type PDFReceiptRenderer struct {
@@ -61,7 +63,10 @@ func (r PDFReceiptRenderer) RenderReceipt(ctx context.Context, d ReceiptData) ([
 		if err != nil {
 			return nil, err
 		}
-		data.Invoice.Amount = full.Invoice.Amount
+		// The whole invoice: its total, issue date and withholding type and
+		// rate (the PPh row's label) print on the receipt.
+		data.Invoice = full.Invoice
+		data.BalanceBefore = full.BalanceBefore
 		data.Customer = full.Customer
 		data.Business = full.Business
 	}
@@ -89,6 +94,8 @@ func receiptPDFData(d ReceiptData) pdf.ReceiptData {
 			Currency:   d.Currency,
 			BalanceDue: d.BalanceDue,
 		},
+		// BalanceDue is already the balance as of this payment (sendReceipt).
+		BalanceAfter: d.BalanceDue,
 	}
 	if p.InvoiceID != nil {
 		out.Payment.InvoiceID = pgtype.UUID{Bytes: *p.InvoiceID, Valid: true}
