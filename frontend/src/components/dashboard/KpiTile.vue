@@ -3,6 +3,7 @@
 // unit, then a delta/share in its tone and a muted sub line. With `series` a
 // faint sparkline sits behind the cell; hovering a bar names it top-right.
 import { computed, ref } from "vue";
+import { useRouter } from "vue-router";
 import Sparkline from "./Sparkline.vue";
 import { formatCompact } from "./format";
 import type { KpiDelta, SeriesPoint } from "./types";
@@ -21,9 +22,16 @@ const props = withDefaults(
     valueTone?: "neutral" | "bad";
     /** Full-precision value, shown as a native tooltip on the compact one. */
     valueTitle?: string;
+    /** Route the tile opens on click / Enter / Space. */
+    to?: string;
   }>(),
-  { delta: undefined, sub: "", series: undefined, sparkColor: "var(--wb-red)", valueTone: "neutral", valueTitle: undefined },
+  { delta: undefined, sub: "", series: undefined, sparkColor: "var(--wb-red)", valueTone: "neutral", valueTitle: undefined, to: undefined },
 );
+
+const router = useRouter();
+function open() {
+  if (props.to) router.push(props.to);
+}
 
 const hovered = ref<number | null>(null);
 const tip = computed(() => {
@@ -33,7 +41,15 @@ const tip = computed(() => {
 </script>
 
 <template>
-  <div class="kpi" data-testid="kpi-tile">
+  <div
+    class="kpi"
+    :class="{ link: !!to }"
+    data-testid="kpi-tile"
+    :role="to ? 'link' : undefined"
+    :tabindex="to ? 0 : undefined"
+    @click="open"
+    @keydown.enter.space.prevent="open"
+  >
     <Sparkline v-if="series && series.length" :series="series" :color="sparkColor" @hover="hovered = $event" />
     <div class="kpi-tip" :class="{ on: !!tip }" aria-hidden="true">{{ tip }}</div>
     <div class="kpi-label">{{ label }}</div>
@@ -58,6 +74,8 @@ const tip = computed(() => {
   transition: background 0.15s;
 }
 .kpi:hover { background: var(--wb-surface-2); }
+.kpi.link { cursor: pointer; }
+.kpi.link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .kpi > :not(.spark):not(.kpi-tip) { position: relative; z-index: 1; }
 .kpi-tip {
   position: absolute;

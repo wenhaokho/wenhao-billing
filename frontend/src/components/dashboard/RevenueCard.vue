@@ -316,7 +316,7 @@ const footer = computed(() => props.data.footer);
       <div>
         <div class="foot-label">FX exposure</div>
         <div class="foot-value num">
-          {{ formatCompact(footer.fx_exposure) }} <span class="foot-aside">open in foreign ccy</span>
+          {{ formatCompact(footer.fx_exposure) }} <span class="foot-aside">{{ base }} eq. open in foreign currency</span>
         </div>
       </div>
     </div>

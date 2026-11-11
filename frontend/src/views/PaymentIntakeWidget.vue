@@ -134,6 +134,7 @@ interface Tile {
   series?: { label: string; amount: string }[];
   sparkColor?: string;
   valueTone?: "neutral" | "bad";
+  to?: string;
 }
 
 // The KPI row (mockup): every figure converted to the base currency.
@@ -201,6 +202,7 @@ const kpiTiles = computed<Tile[]>(() => {
       valueTitle: full(ar.amount),
       unit,
       sub: arSub,
+      to: "/invoices",
     },
     {
       key: "overdue",
@@ -211,6 +213,7 @@ const kpiTiles = computed<Tile[]>(() => {
       delta: overdueDelta,
       sub: od.share_of_open_ar === null ? "nothing open" : "of open AR",
       valueTone: !decIsZero(od.amount) ? "bad" : "neutral",
+      to: "/invoices",
     },
     {
       key: "mrr",
@@ -220,7 +223,20 @@ const kpiTiles = computed<Tile[]>(() => {
       unit,
       delta: mrrDelta,
       sub: mrrSub,
+      to: "/invoices/recurring",
     },
+  ];
+});
+
+// Work queues from the old KPI strip, kept as a slim row of links. A zero count
+// stays visible (muted) so the row never jumps.
+const queueLinks = computed(() => {
+  const s = stats.value;
+  if (!s) return [];
+  return [
+    { key: "review", to: "/review", count: s.awaiting_review_count, text: "held for review", alert: true },
+    { key: "drafts", to: "/queue", count: s.draft_count, text: s.draft_count === 1 ? "draft awaiting finalization" : "drafts awaiting finalization", alert: false },
+    { key: "quotations", to: "/quotations", count: s.open_quotation_count, text: s.open_quotation_count === 1 ? "open quotation" : "open quotations", alert: false },
   ];
 });
 
@@ -238,6 +254,7 @@ function colorForCurrency(ccy: string): string {
   return colors.value.series[currencySlot(ccy)];
 }
 
+// Short month names for formatDate (upcoming invoices, payment dates).
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 function cssToken(name: string): string {
@@ -379,7 +396,24 @@ function timeAgo(iso: string) {
       </Button>
     </PageHeader>
 
+    <!-- Work queues (from the old KPI strip): links with counts, muted at zero. -->
+    <nav v-if="stats" class="queues" aria-label="Work queues" data-testid="queue-links">
+      <RouterLink
+        v-for="q in queueLinks"
+        :key="q.key"
+        :to="q.to"
+        class="queue"
+        :class="{ zero: q.count === 0, alert: q.alert && q.count > 0 }"
+        :data-queue="q.key"
+      ><span class="queue-n num">{{ q.count }}</span> {{ q.text }}</RouterLink>
+    </nav>
+
     <!-- KPI row: one bordered strip, cells split by hairlines. -->
+    <!-- A failed refetch (e.g. after a period switch) keeps the last figures, so say so. -->
+    <div v-if="overviewError && overview" class="kpi-stale" role="alert">
+      Couldn't load the figures for this period; showing the last ones loaded.
+      <Button label="Retry" text size="small" @click="refetchOverview()" />
+    </div>
     <div v-if="overviewError && !overview" class="card card-pad error">
       Failed to load the KPI figures.
       <Button label="Retry" text @click="refetchOverview()" />
@@ -402,6 +436,7 @@ function timeAgo(iso: string) {
           :series="t.series"
           :spark-color="t.sparkColor"
           :value-tone="t.valueTone"
+          :to="t.to"
         />
       </div>
       <p v-if="overview.unconverted?.length" class="dash-note">
@@ -566,6 +601,29 @@ function timeAgo(iso: string) {
 @media (max-width: 640px) { .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .kpi-loading { display: grid; place-items: center; min-height: 148px; }
 .dash-note { margin: 8px 0 0; color: var(--wb-muted-soft); font-size: 12px; }
+.kpi-stale {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: -12px;
+  color: var(--wb-red-fg);
+  font-size: 13px;
+}
+
+/* ---------- work queues ---------- */
+.queues { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: -16px; }
+.queue {
+  font-size: 13px;
+  color: var(--wb-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.queue:hover { color: var(--wb-ink); text-decoration: underline; }
+.queue-n { font-weight: 500; color: var(--wb-ink); }
+.queue.alert .queue-n { color: var(--wb-red); }
+.queue.zero,
+.queue.zero .queue-n { color: var(--wb-muted-soft); }
 
 /* ---------- cards ---------- */
 .chart-row {
