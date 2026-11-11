@@ -171,10 +171,9 @@ test.describe("in UTC", () => {
 
 test.describe("in Asia/Jakarta", () => {
   test.use({ timezoneId: "Asia/Jakarta" });
-  // Pre-existing app bug: FxRateNewView sends as_of_date as
-  // as_of_date.toISOString().slice(0, 10), the UTC day, so a date picked east
-  // of UTC saves as the day before (2026-11-30 here).
-  test.fixme("fx rate saves the picked day", async ({ page }) => {
+  // A date picked east of UTC is local midnight; it must save as that day,
+  // not the previous UTC day.
+  test("fx rate saves the picked day", async ({ page }) => {
     await fxRateSaves(page, "USD", "SGD");
   });
 });

@@ -14,6 +14,7 @@ import EmptyState from "@/components/EmptyState.vue";
 import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
+import { toLocalIsoDate } from "@/utils/date";
 
 interface AuditRow {
   log_id: string;
@@ -50,8 +51,8 @@ const params = computed(() => {
   const p: Record<string, string> = {};
   if (action.value) p.action = action.value;
   if (payer.value.trim()) p.payer = payer.value.trim();
-  if (fromDate.value) p.from_date = fromDate.value.toISOString().slice(0, 10);
-  if (toDate.value) p.to_date = toDate.value.toISOString().slice(0, 10);
+  if (fromDate.value) p.from_date = toLocalIsoDate(fromDate.value);
+  if (toDate.value) p.to_date = toLocalIsoDate(toDate.value);
   return p;
 });
 

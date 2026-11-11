@@ -15,6 +15,7 @@ import PageHeader from "@/components/PageHeader.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
+import { toLocalIsoDate } from "@/utils/date";
 
 interface TrialBalanceRow {
   account_id: number;
@@ -104,7 +105,7 @@ interface AgingReport {
 }
 
 const asOf = ref<Date>(new Date());
-const asOfStr = computed(() => asOf.value.toISOString().slice(0, 10));
+const asOfStr = computed(() => toLocalIsoDate(asOf.value));
 
 const trialBalance = useQuery<TrialBalanceReport>({
   queryKey: ["trial-balance", asOfStr],
