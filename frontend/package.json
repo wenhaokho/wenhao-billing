@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@primeuix/themes": "^3.1.0",
+    "@primeuix/themes": "^2.0.3",
     "@sentry/vue": "^11.9.0",
     "@tanstack/vue-query": "^5.51.0",
     "axios": "^1.7.2",
