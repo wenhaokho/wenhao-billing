@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/johnfercher/go-tree/node"
 	"github.com/johnfercher/maroto/v2/pkg/components/col"
@@ -53,7 +54,6 @@ var (
 	cLine      = hexColor("e1d7c8")
 	cMuted     = hexColor("75665f")
 	cMutedSoft = hexColor("9d8a6e")
-	cSurface2  = hexColor("f6f2ea") //nolint:unused // the receipt's tinted panels (Task 4)
 	cPaidFg    = hexColor("2f6b4f") // paid pill
 	cPaidBg    = hexColor("e4efe7")
 	colWhite   = hexColor("ffffff")
@@ -148,12 +148,65 @@ var measureMu sync.Mutex
 func textWidth(t props.Text, s string) float64 {
 	f, err := measurer()
 	if err != nil {
+		// Unreachable: render's customFonts loads the same embedded files
+		// first and returns their error, so no document reaches layout
+		// (nor this) with fonts that fail to load. Panicking beats
+		// measuring every string as 0 wide.
 		panic(fmt.Sprintf("pdf: fonts: %v", err))
 	}
 	measureMu.Lock()
 	defer measureMu.Unlock()
 	f.SetFont(t.Family, string(t.Style), t.Size)
 	return f.GetStringWidth(s)
+}
+
+// wrapText is one paragraph's printed lines in width: it breaks at spaces,
+// as Maroto does, and breaks a word wider than the whole line (a long email
+// or reference) between characters, so nothing runs past its column. A
+// blank paragraph is one empty line.
+func wrapText(t props.Text, s string, width float64) []string {
+	if strings.TrimSpace(s) == "" || width <= 0 || textWidth(t, s) <= width {
+		return []string{s}
+	}
+	var lines []string
+	cur := ""
+	for _, w := range strings.Split(s, " ") {
+		if w == "" {
+			continue
+		}
+		if cur != "" && textWidth(t, cur+" "+w) <= width {
+			cur += " " + w
+			continue
+		}
+		if cur != "" {
+			lines = append(lines, cur)
+		}
+		for textWidth(t, w) > width {
+			n := fitPrefix(t, w, width)
+			lines = append(lines, w[:n])
+			w = w[n:]
+		}
+		cur = w
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return lines
+}
+
+// fitPrefix is the byte length of w's longest leading run of characters
+// that fits width: at least one character, so a column narrower than a
+// letter still moves on.
+func fitPrefix(t props.Text, w string, width float64) int {
+	n := 0
+	for i, r := range w {
+		end := i + utf8.RuneLen(r)
+		if n > 0 && textWidth(t, w[:end]) > width {
+			break
+		}
+		n = end
+	}
+	return n
 }
 
 // --- custom components -----------------------------------------------------
@@ -187,30 +240,32 @@ func fontHeight(p core.Provider, t *props.Text) float64 {
 	return p.GetFontHeight(&props.Font{Family: t.Family, Style: t.Style, Size: t.Size, Color: t.Color})
 }
 
-// lineCount is the printed lines of one paragraph: at least one.
-func lineCount(p core.Provider, t *props.Text, line string, width float64) int {
-	if strings.TrimSpace(line) == "" {
-		return 1
+// printLines prints one paragraph wrapped in the cell's width less t's
+// insets, from top, a line every fh*(1+leading); it returns the height the
+// lines take. Each printed line fits, so Maroto never wraps (or overruns)
+// one itself.
+func printLines(p core.Provider, cell *entity.Cell, t props.Text, s string, top float64, draw bool) float64 {
+	step := fontHeight(p, &t) * (1 + leading)
+	lines := wrapText(t, s, cell.Width-t.Left-t.Right)
+	if draw {
+		for i, l := range lines {
+			if strings.TrimSpace(l) == "" {
+				continue
+			}
+			lp := t
+			lp.Top = top + float64(i)*step
+			p.AddText(l, cell, &lp)
+		}
 	}
-	return max(p.GetLinesQuantity(line, t, width), 1)
+	return float64(len(lines)) * step
 }
 
 func (s *stack) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
 	y := s.top
 	for _, b := range s.blocks {
-		prop := b.prop
-		fh := fontHeight(p, &prop)
-		prop.VerticalPadding = fh * leading
-		width := cell.Width - prop.Left - prop.Right
 		y += b.prop.Top
 		for _, line := range b.lines {
-			n := lineCount(p, &prop, line, width)
-			if draw && strings.TrimSpace(line) != "" {
-				lp := prop
-				lp.Top = y
-				p.AddText(line, cell, &lp)
-			}
-			y += float64(n) * (fh + prop.VerticalPadding)
+			y += printLines(p, cell, b.prop, line, y, draw)
 		}
 		y += b.after
 	}
@@ -287,6 +342,9 @@ type kv struct {
 	kp, vp props.Text
 	gap    float64 // between the columns
 	rowGap float64 // between the lines
+	// mono is the key whose value is a reference, printed in the
+	// monospace ("" for none).
+	mono string
 }
 
 func (k *kv) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
@@ -294,22 +352,22 @@ func (k *kv) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
 	for _, r := range k.rows {
 		keyW = max(keyW, textWidth(k.kp, r.Key))
 	}
-	kp, vp := k.kp, k.vp
-	vp.Left = keyW + k.gap
-	kh, vh := fontHeight(p, &kp), fontHeight(p, &vp)
-	kp.VerticalPadding, vp.VerticalPadding = kh*leading, vh*leading
+	kp := k.kp
 	y := 0.0
 	for i, r := range k.rows {
 		if i > 0 {
 			y += k.rowGap
 		}
-		n := lineCount(p, &vp, r.Value, cell.Width-vp.Left)
-		if draw {
-			kp.Top, vp.Top = y, y
-			p.AddText(r.Key, cell, &kp)
-			p.AddText(r.Value, cell, &vp)
+		vp := k.vp
+		if k.mono != "" && r.Key == k.mono {
+			vp.Family = fontMono
 		}
-		y += float64(n) * (vh + vp.VerticalPadding)
+		vp.Left = keyW + k.gap
+		if draw {
+			kp.Top = y
+			p.AddText(r.Key, cell, &kp)
+		}
+		y += printLines(p, cell, vp, r.Value, y, draw)
 	}
 	return y
 }
@@ -455,11 +513,16 @@ func layout(m core.Maroto, cfg *entity.Config, d Document, logo []byte) error {
 		p.footH += p.height(r)
 	}
 
-	p.add(headerBand(d, logo), partiesBand(documentParties(d)), spacer(sectionGap))
-	items(p, d)
-	p.add(spacer(sectionGap))
-	p.keep(summaryBox(d, paymentPanel(d)))
-	notes(p, d)
+	p.add(headerBand(d, logo), partiesBand(documentParties(d)))
+	if d.Receipt != nil {
+		receiptBody(p, d)
+	} else {
+		p.add(spacer(sectionGap))
+		items(p, d)
+		p.add(spacer(sectionGap))
+		p.keep(summaryBox(d, paymentPanel(d)))
+		notes(p, d)
+	}
 	pages.total = p.pages
 	return nil
 }
@@ -723,10 +786,10 @@ func documentParties(d Document) [3]partyCol {
 	}
 	from := partyCol{Label: d.FromLabel, Name: name(d.FromName), Lines: d.FromLines}
 	to := partyCol{Label: d.ToLabel, Name: name(d.ToName), Lines: d.ToLines}
-	if d.Simple {
-		// The receipt still prints its labels in capitals; its own band
-		// replaces this one.
-		from.Label, to.Label = upper(from.Label), upper(to.Label)
+	if d.Receipt != nil {
+		// The receipt's third column is the payment: method, bank
+		// reference, date received.
+		return [3]partyCol{from, to, {Label: "Payment", Pairs: d.Receipt.Payment}}
 	}
 	ref := partyCol{Label: "Reference", Pairs: []MetaCell{{"Currency", d.Currency}}}
 	if len(d.Meta) > 3 {
@@ -769,7 +832,7 @@ func partyComponent(c partyCol) core.Component {
 	if len(c.Pairs) > 0 {
 		s = append(s, gap(1), &kv{
 			rows: c.Pairs, kp: style(fontBody, false, 8, cBandLabel), vp: style(fontBody, false, 8, colWhite),
-			gap: 4, rowGap: 0.3,
+			gap: 4, rowGap: 0.3, mono: bankRefKey,
 		})
 	}
 	return append(s, gap(7))
@@ -785,12 +848,7 @@ const (
 	colAmount = 30
 )
 
-func descWidth(d Document) int {
-	if d.Simple {
-		return contentW - colNo - colAmount
-	}
-	return contentW - colNo - colQty - colRate - colAmount
-}
+const colDesc = contentW - colNo - colQty - colRate - colAmount
 
 // tableHeader is the items table's header row; it repeats on every page the
 // table runs onto.
@@ -801,17 +859,16 @@ func tableHeader(d Document) core.Row {
 		p.Align = a
 		return col.New(w).WithStyle(rule).Add(newStack(0, 2.5, block{lines: []string{upper(label)}, prop: p}))
 	}
-	cols := []core.Col{cell(colNo, "#", align.Left), cell(descWidth(d), "Description", align.Left)}
-	if !d.Simple {
-		cols = append(cols, cell(colQty, "Qty", align.Right), cell(colRate, "Rate", align.Right))
-	}
-	cols = append(cols, cell(colAmount, "Amount · "+d.Currency, align.Right))
-	return band(nil, cols...)
+	return band(nil,
+		cell(colNo, "#", align.Left), cell(colDesc, "Description", align.Left),
+		cell(colQty, "Qty", align.Right), cell(colRate, "Rate", align.Right),
+		cell(colAmount, "Amount · "+d.Currency, align.Right),
+	)
 }
 
 // itemRow is one row of the items table; it is one Maroto row, so it never
 // splits across pages.
-func itemRow(d Document, i int, it Item) core.Row {
+func itemRow(i int, it Item) core.Row {
 	rule := &props.Cell{BorderType: border.Bottom, BorderColor: cLine, BorderThickness: hair}
 	// The last line's leading already sits under it, so the bottom pad is
 	// the mockup's 2.2 mm less that.
@@ -832,15 +889,11 @@ func itemRow(d Document, i int, it Item) core.Row {
 	if it.Sub != "" {
 		blocks = append(blocks, block{lines: []string{it.Sub}, prop: sub})
 	}
-	cols := []core.Col{
+	return band(nil,
 		one(colNo, rowNumber(i+1), no),
-		col.New(descWidth(d)).WithStyle(rule).Add(newStack(top, bottom, blocks...)),
-	}
-	if !d.Simple {
-		cols = append(cols, one(colQty, it.Qty, fig), one(colRate, it.Rate, fig))
-	}
-	cols = append(cols, one(colAmount, it.Amount, fig))
-	return band(nil, cols...)
+		col.New(colDesc).WithStyle(rule).Add(newStack(top, bottom, blocks...)),
+		one(colQty, it.Qty, fig), one(colRate, it.Rate, fig), one(colAmount, it.Amount, fig),
+	)
 }
 
 // items is the items table; its header row starts every page it runs onto.
@@ -851,7 +904,7 @@ func items(p *pager, d Document) {
 		return
 	}
 	for i, it := range d.Items {
-		r := itemRow(d, i, it)
+		r := itemRow(i, it)
 		if i == 0 {
 			p.keep(head, r)
 			continue
@@ -898,11 +951,28 @@ func summaryBox(d Document, left core.Component) core.Row {
 	if left != nil {
 		lc.Add(left)
 	}
-	return band(nil, lc, pad(lowerGap), col.New(summaryW).Add(&sumBox{d: d}))
+	return band(nil, lc, pad(lowerGap), col.New(summaryW).Add(newSumBox(d)))
 }
 
 // sumBox draws the summary: label/value rows in a ruled box, then the bar.
-type sumBox struct{ d Document }
+type sumBox struct {
+	rows          []SummaryRow
+	label, amount string
+}
+
+// newSumBox is d's summary box. Its bar is the hero in capitals with
+// "Currency HeroAmount"; on a receipt it is the balance due after the
+// payment, its label as typed like the receipt's other labels.
+func newSumBox(d Document) *sumBox {
+	if d.Receipt != nil {
+		return &sumBox{rows: d.Summary, label: "Balance due", amount: d.Receipt.BalanceDue}
+	}
+	amount := d.HeroAmount
+	if d.Currency != "" {
+		amount = d.Currency + " " + amount
+	}
+	return &sumBox{rows: d.Summary, label: upper(d.HeroLabel), amount: amount}
+}
 
 const sumPadX, sumPadY, sumRowGap, barPadY = 6, 4, 2, 4
 
@@ -928,9 +998,9 @@ func (s *sumBox) barProps() (lp, vp props.Text) {
 
 func (s *sumBox) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
 	y := 0.0
-	if len(s.d.Summary) > 0 {
+	if len(s.rows) > 0 {
 		y = sumPadY
-		for i, r := range s.d.Summary {
+		for i, r := range s.rows {
 			if i > 0 {
 				y += sumRowGap
 			}
@@ -957,12 +1027,8 @@ func (s *sumBox) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
 		bar := entity.Cell{X: cell.X, Y: cell.Y + y, Width: cell.Width, Height: barH}
 		vp.Top = barPadY
 		lp.Top = barPadY + vh - lh // one baseline
-		p.AddText(upper(s.d.HeroLabel), &bar, &lp)
-		amount := s.d.HeroAmount
-		if s.d.Currency != "" {
-			amount = s.d.Currency + " " + amount
-		}
-		p.AddText(amount, &bar, &vp)
+		p.AddText(s.label, &bar, &lp)
+		p.AddText(s.amount, &bar, &vp)
 	}
 	return y + barH
 }
@@ -1025,6 +1091,196 @@ func notes(p *pager, d Document) {
 	}
 }
 
+// --- receipt ---------------------------------------------------------------
+
+// receiptBody is the receipt under its bands: the amount received, the
+// invoice it is applied to, and the summary box ending in the balance due,
+// with the withholding and balance notes beside it. The receipt's labels
+// print as typed.
+func receiptBody(p *pager, d Document) {
+	p.add(spacer(8), band(nil, col.New(contentW).Add(&received{d: d})), spacer(6))
+	p.keep(appliedHeader(d), appliedRow(d))
+	p.add(spacer(8))
+	p.keep(summaryBox(d, receiptNotes(d)))
+}
+
+// received is the receipt's hero: "Amount received", the amount in the
+// payment's currency, the amount in words, and at the right the green
+// "Paid in full" pill when the invoice's balance after this payment is zero;
+// an ink rule under it all.
+type received struct{ d Document }
+
+const (
+	receivedBottom = 5 // under the words, over the rule
+	pillPadX       = 4
+	pillPadY       = 2
+	pillDot        = 1.8
+	pillGap        = 2
+	pillSpace      = 8 // between the words and the pill
+)
+
+func (rc *received) text() *stack {
+	label := style(fontBody, true, 7.5, cRed)
+	amount := style(fontDisplay, false, 30, cInk)
+	amount.Top = 1.5
+	words := style(fontBody, false, 9, cMuted)
+	words.Top = 1
+	return newStack(0, receivedBottom,
+		block{lines: []string{rc.d.HeroLabel}, prop: label},
+		block{lines: []string{strings.TrimSpace(rc.d.Currency + " " + rc.d.HeroAmount)}, prop: amount},
+		block{lines: []string{rc.d.Receipt.Words}, prop: words},
+	)
+}
+
+func pillProp() props.Text { return style(fontBody, true, 8, cPaidFg) }
+
+const pillLabel = "Paid in full"
+
+// pill is the pill's size, zero when the invoice is not paid in full.
+func (rc *received) pill(p core.Provider) (w, h float64) {
+	if !rc.d.Receipt.PaidInFull {
+		return 0, 0
+	}
+	t := pillProp()
+	return pillPadX + pillDot + pillGap + textWidth(t, pillLabel) + pillPadX, fontHeight(p, &t) + 2*pillPadY
+}
+
+func (rc *received) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
+	pw, ph := rc.pill(p)
+	sub := *cell
+	if pw > 0 {
+		sub.Width -= pw + pillSpace
+	}
+	t := rc.text()
+	h := max(t.GetHeight(p, &sub), ph+receivedBottom)
+	if draw {
+		t.Render(p, &sub)
+		if pw > 0 {
+			// Bottom-aligned with the words.
+			x, y := cell.X+cell.Width-pw, cell.Y+h-receivedBottom-ph
+			fillRect(p, x, y, pw, ph, cPaidBg)
+			fillRect(p, x+pillPadX, y+(ph-pillDot)/2, pillDot, pillDot, cPaidFg)
+			lp := pillProp()
+			lp.Left, lp.Top = pillPadX+pillDot+pillGap, pillPadY
+			p.AddText(pillLabel, &entity.Cell{X: x, Y: y, Width: pw, Height: ph}, &lp)
+		}
+		line(p, cell.X, cell.Y+h, cell.Width, orientation.Horizontal, hair, cInk)
+	}
+	return h
+}
+
+func (rc *received) GetHeight(p core.Provider, cell *entity.Cell) float64 {
+	return rc.walk(p, cell, false)
+}
+func (rc *received) Render(p core.Provider, cell *entity.Cell) { rc.walk(p, cell, true) }
+func (rc *received) SetConfig(*entity.Config)                  {}
+func (rc *received) GetStructure() *node.Node[core.Structure] {
+	return node.New(core.Structure{Type: "received", Value: rc.d.HeroAmount})
+}
+
+// Column widths of the "Applied to" table, in mm.
+const (
+	colIssued   = 30
+	colAppTotal = 36
+	colAppPay   = 36
+	colApplied  = contentW - colIssued - colAppTotal - colAppPay
+)
+
+// appliedHeader is the "Applied to" table's header; the two amount columns
+// name their currencies, which differ on a cross-currency payment.
+func appliedHeader(d Document) core.Row {
+	rule := &props.Cell{BorderType: border.Bottom, BorderColor: cLine, BorderThickness: hair}
+	cell := func(w int, label string, a align.Type) core.Col {
+		p := style(fontBody, true, 7.5, cMutedSoft)
+		p.Align = a
+		return col.New(w).WithStyle(rule).Add(newStack(0, 2.5, block{lines: []string{label}, prop: p}))
+	}
+	return band(nil,
+		cell(colApplied, "Applied to", align.Left),
+		cell(colIssued, "Issued", align.Left),
+		cell(colAppTotal, "Invoice total · "+d.Receipt.InvoiceCurrency, align.Right),
+		cell(colAppPay, "This payment · "+d.Currency, align.Right),
+	)
+}
+
+// appliedRow is the invoice the payment is applied to: its number, issue
+// date and total, and this payment (cash plus the withholding it settles).
+func appliedRow(d Document) core.Row {
+	rule := &props.Cell{BorderType: border.Bottom, BorderColor: cLine, BorderThickness: hair}
+	const top, bottom = 4, 2.6
+	fig := style(fontDisplay, false, 9.5, cInk)
+	fig.Align = align.Right
+	date := style(fontBody, false, 9.5, cMuted)
+	one := func(w int, s string, p props.Text) core.Col {
+		return col.New(w).WithStyle(rule).Add(newStack(top, bottom, block{lines: []string{s}, prop: p}))
+	}
+	return band(nil,
+		col.New(colApplied).WithStyle(rule).Add(&refLine{prefix: "Invoice", ref: d.Receipt.Invoice, top: top, bottom: bottom}),
+		one(colIssued, d.Receipt.Issued, date),
+		one(colAppTotal, d.Receipt.InvoiceTotal, fig),
+		one(colAppPay, d.Receipt.ThisPayment, fig),
+	)
+}
+
+// refLine is a word and a reference after it in the monospace: "Invoice
+// INV-0100". The reference wraps in what the word leaves.
+type refLine struct {
+	prefix, ref string
+	top, bottom float64
+}
+
+func (r *refLine) props() (word, ref props.Text) {
+	word = style(fontBody, true, 9.5, cInk)
+	ref = style(fontMono, false, 9, cInk)
+	ref.Left = textWidth(word, r.prefix+" ")
+	ref.Right = 4
+	return word, ref
+}
+
+func (r *refLine) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
+	word, ref := r.props()
+	wh, rh := fontHeight(p, &word), fontHeight(p, &ref)
+	ref.Top = r.top + wh - rh // one baseline
+	if draw {
+		word.Top = r.top
+		p.AddText(r.prefix, cell, &word)
+	}
+	h := printLines(p, cell, ref, r.ref, ref.Top, draw)
+	return max(ref.Top+h, r.top+wh*(1+leading)) + r.bottom
+}
+
+func (r *refLine) GetHeight(p core.Provider, cell *entity.Cell) float64 {
+	return r.walk(p, cell, false)
+}
+func (r *refLine) Render(p core.Provider, cell *entity.Cell) { r.walk(p, cell, true) }
+func (r *refLine) SetConfig(*entity.Config)                  {}
+func (r *refLine) GetStructure() *node.Node[core.Structure] {
+	return node.New(core.Structure{Type: "refLine", Value: r.prefix + " " + r.ref})
+}
+
+// receiptNotes is the left of the receipt's summary: the withholding note
+// asking for the bukti potong (only when the payment carries withholding),
+// then the balance note and the thanks.
+func receiptNotes(d Document) core.Component {
+	label := style(fontBody, true, 7.5, cRed)
+	text := style(fontBody, false, 9, cMuted)
+	text.Top = 1.5
+	var s seq
+	if r := d.Receipt; r.WithholdingNote != "" {
+		s = append(s, newStack(0, 5,
+			block{lines: []string{"Withholding tax (" + r.WithholdingLabel + ")"}, prop: label},
+			block{lines: []string{r.WithholdingNote}, prop: text},
+		))
+	}
+	if lines := splitLines(d.Notes); len(lines) > 0 {
+		s = append(s, newStack(0, 0, block{lines: []string{"Note"}, prop: label}, block{lines: lines, prop: text}))
+	}
+	if len(s) == 0 {
+		return nil
+	}
+	return s
+}
+
 // --- footer ----------------------------------------------------------------
 
 // pageCount is the document's page count, known once the pager has laid out
@@ -1062,27 +1318,34 @@ func (f *foot) lineProps() (l, r props.Text) {
 	return l, r
 }
 
+// right is the footer line's right side for page n of total.
+func (f *foot) right(n, total int) string {
+	return strings.TrimSpace(f.d.DocTitle+" "+f.d.Ref) + " · " + fmt.Sprintf("Page %d of %d", n, total)
+}
+
+// walk lays the footer out. The contact line on the left wraps in the room
+// the right side leaves at its widest ("Page 999 of 999"), so the footer is
+// as tall on every page as when Maroto registered it, and a long business
+// name or contact line takes more lines instead of running off the page.
 func (f *foot) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
 	t := f.text()
 	y := t.GetHeight(p, cell)
 	l, r := f.lineProps()
-	h := fontHeight(p, &l)
+	l.Right = padX + textWidth(r, f.right(999, 999)) + 6
+	left := strings.Join(append([]string{f.d.FootName}, f.d.FootMeta...), " · ")
+	if f.d.FootName == "" {
+		left = strings.Join(f.d.FootMeta, " · ")
+	}
 	if draw {
 		t.Render(p, cell)
 		line(p, cell.X, cell.Y+y, cell.Width, orientation.Horizontal, hair, cLine)
 		f.pages.current++
-		left := strings.Join(append([]string{f.d.FootName}, f.d.FootMeta...), " · ")
-		if f.d.FootName == "" {
-			left = strings.Join(f.d.FootMeta, " · ")
-		}
-		right := strings.TrimSpace(f.d.DocTitle+" "+f.d.Ref) + " · " + fmt.Sprintf("Page %d of %d", f.pages.current, f.pages.total)
-		l.Top, r.Top = y+footPadY, y+footPadY
-		// Keep the right text clear of the left.
-		l.Right = padX + textWidth(r, right) + 6
-		p.AddText(left, cell, &l)
-		p.AddText(right, cell, &r)
+		r.Top = y + footPadY
+		p.AddText(f.right(f.pages.current, f.pages.total), cell, &r)
 	}
-	return y + footPadY + h + footPadY
+	// The last line's leading is the bottom padding's business.
+	lines := printLines(p, cell, l, left, y+footPadY, draw) - fontHeight(p, &l)*leading
+	return y + footPadY + lines + footPadY
 }
 
 func (f *foot) GetHeight(p core.Provider, cell *entity.Cell) float64 { return f.walk(p, cell, false) }

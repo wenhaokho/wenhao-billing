@@ -328,9 +328,9 @@ func TestRenderQuotationPDFEscapesXMLSpecialCharsInFreeText(t *testing.T) {
 func TestRenderReceiptPDFReturnsPDFBytes(t *testing.T) {
 	t.Parallel()
 	r := renderPDF(t, RenderReceipt, ReceiptDocument(receipt("600.0000")))
-	r.has(t, "RECEIPT", "RCT-1A2B3C4D", "Payment for invoice INV-0100", "Manual entry · Ref: TRF-991", "400.00",
-		"AMOUNT RECEIVED", "1,000.00 USD", "600.00 USD", "Remaining balance: 600.00 USD.", "Thank you for your payment.",
-		"RECEIVED FROM", "RECEIVED BY")
+	r.has(t, "Payment Receipt", "RCT-1A2B3C4D", "Invoice", "INV-0100", "Manual entry", "TRF-991", "400.00",
+		"Amount received", "1,000.00 USD", "600.00 USD", "Remaining balance: 600.00 USD.", "Thank you for your payment.",
+		"Received from", "Issued by")
 }
 
 func TestRenderReceiptPDFWithoutCustomer(t *testing.T) {
@@ -385,7 +385,7 @@ func TestPdfTitleMetadata(t *testing.T) {
 	tax.Business.InvoiceTitle = sp("tax invoice")
 	eq(t, "titled invoice", renderPDF(t, RenderInvoice, InvoiceDocument(tax)).title, "Tax Invoice INV-2026-0042")
 	eq(t, "quotation", renderPDF(t, RenderQuotation, QuotationDocument(quotation())).title, "Quotation QUO-0042")
-	eq(t, "receipt", renderPDF(t, RenderReceipt, ReceiptDocument(receipt("0"))).title, "Receipt RCT-1A2B3C4D")
+	eq(t, "receipt", renderPDF(t, RenderReceipt, ReceiptDocument(receipt("0"))).title, "Payment Receipt RCT-1A2B3C4D")
 }
 
 // longInvoice has n lines whose descriptions run to three lines each.
@@ -654,7 +654,19 @@ func TestWriteSamples(t *testing.T) {
 		"invoice.pdf":   func() ([]byte, error) { return RenderInvoice(t.Context(), InvoiceDocument(in)) },
 		"quotation.pdf": func() ([]byte, error) { return RenderQuotation(t.Context(), QuotationDocument(q)) },
 		"receipt.pdf":   func() ([]byte, error) { return RenderReceipt(t.Context(), ReceiptDocument(rc)) },
-		"long.pdf":      func() ([]byte, error) { return RenderInvoice(t.Context(), InvoiceDocument(longInvoice(40))) },
+		"receipt-idr-pph.pdf": func() ([]byte, error) {
+			r := idrReceipt("0")
+			r.Business.Address = sp("Lily Garden Residence, Bromelia No. 22\nBatam · Indonesia")
+			return RenderReceipt(t.Context(), ReceiptDocument(r))
+		},
+		"receipt-partial.pdf": func() ([]byte, error) { return RenderReceipt(t.Context(), ReceiptDocument(idrReceipt("5588697"))) },
+		"receipt-cross.pdf": func() ([]byte, error) {
+			r := idrReceipt("1600000")
+			r.Invoice.Amount, r.Invoice.WhtType, r.Invoice.WhtAmount = dec("3600000"), "NONE", dec("0")
+			r.Payment.Amount, r.Payment.Currency, r.Payment.WhtAmount = dec("2000"), "SGD", dec("0")
+			return RenderReceipt(t.Context(), ReceiptDocument(r))
+		},
+		"long.pdf": func() ([]byte, error) { return RenderInvoice(t.Context(), InvoiceDocument(longInvoice(40))) },
 		"invoice-sgd.pdf": func() ([]byte, error) {
 			return RenderInvoice(t.Context(), InvoiceDocument(fullInvoice(func(i *invoicesdb.Invoice) { i.Footer = sp("Registered in Singapore") })))
 		},
@@ -721,6 +733,10 @@ func TestLocationLinePrintsUnderBusinessName(t *testing.T) {
 
 func TestLongNamesWrapInsideColumns(t *testing.T) {
 	t.Parallel()
+	t.Run("unbroken token", func(t *testing.T) {
+		t.Parallel()
+		longUnbrokenTokenBreaksInsideItsColumn(t)
+	})
 	var name, addr []string
 	for i := range 12 {
 		name = append(name, fmt.Sprintf("Name%02dwxyz", i)) // 12 x 10 + 11 spaces = 131 chars
@@ -741,17 +757,225 @@ func TestLongNamesWrapInsideColumns(t *testing.T) {
 // The header's status chip takes its colours from the status's class.
 func TestStatusChipUsesItsClassColours(t *testing.T) {
 	t.Parallel()
+	check := func(t *testing.T, d Document, status, class string) {
+		t.Helper()
+		c := statusChip(d)
+		fg, bg := chipColours(class)
+		eq(t, "fg", c.fg, fg)
+		eq(t, "bg", c.bg, bg)
+		eq(t, "label", c.label, strings.ToUpper(StatusLabel(status)))
+	}
 	for status, class := range map[string]string{
-		"PAID": "paid", "SENT": "sent", "PARTIALLY_PAID": "partial", "OVERDUE": "overdue", "DRAFT": "draft", "VOID": "draft",
+		"DRAFT": "draft", "OPEN": "sent", "SENT": "sent", "PAID": "paid", "PARTIALLY_PAID": "partial",
+		"PARTIAL": "partial", "AWAITING_FINALIZATION": "partial", "OVERDUE": "overdue", "VOID": "draft",
 	} {
-		t.Run(status, func(t *testing.T) {
+		t.Run("invoice "+status, func(t *testing.T) {
 			t.Parallel()
-			d := InvoiceDocument(fullInvoice(func(i *invoicesdb.Invoice) { i.Status = status }))
-			c := statusChip(d)
-			fg, bg := chipColours(class)
-			eq(t, "fg", c.fg, fg)
-			eq(t, "bg", c.bg, bg)
-			eq(t, "label", c.label, strings.ToUpper(StatusLabel(status)))
+			check(t, InvoiceDocument(fullInvoice(func(i *invoicesdb.Invoice) { i.Status = status })), status, class)
 		})
 	}
+	for status, class := range map[string]string{
+		"DRAFT": "draft", "SENT": "sent", "ACCEPTED": "paid", "DECLINED": "overdue", "EXPIRED": "overdue",
+		"INVOICED": "sent", "VOID": "draft",
+	} {
+		t.Run("quotation "+status, func(t *testing.T) {
+			t.Parallel()
+			q := quotation()
+			q.Quotation.Status = status
+			check(t, QuotationDocument(q), status, class)
+		})
+	}
+	t.Run("receipt", func(t *testing.T) {
+		t.Parallel()
+		check(t, ReceiptDocument(receipt("0")), "RECEIVED", "paid")
+	})
+}
+
+// --- receipt ---------------------------------------------------------------
+
+// idrReceipt is an IDR 4,523,077 payment on the grossed-up PPh 23 invoice
+// (IDR 10,204,082), the payer withholding 92,308.
+func idrReceipt(balance string) ReceiptData {
+	in := inv(grossUp(func(i *invoicesdb.Invoice) {
+		i.InvoiceNumber, i.BalanceDue, i.Status = sp("WH20260042"), dec(balance), "PARTIALLY_PAID"
+	})...)
+	return ReceiptData{
+		Payment: paymentsdb.Payment{
+			PaymentID: uuid.MustParse("5e6f7a8b-0000-4000-8000-000000000000"), Amount: dec("4523077"), Currency: "IDR",
+			PayerName: "PT Citra Beton", PayerReference: sp("BCA 8520198131"), PaymentDate: date(2026, 11, 9),
+			IntakeSource: "MANUAL", Status: "CLEARED", WhtAmount: dec("92308"),
+		},
+		Invoice: in.Invoice, Customer: cust(), Business: biz(), BalanceAfter: dec(balance),
+	}
+}
+
+func TestReceiptLayout(t *testing.T) {
+	t.Parallel()
+	d := ReceiptDocument(receipt("600.0000"))
+	eq(t, "chip", statusChip(d).label, "RECEIVED")
+	eq(t, "chip fg", statusChip(d).fg, cPaidFg)
+	r := renderPDF(t, RenderReceipt, d)
+	r.has(t, "Payment Receipt", "RCT-1A2B3C4D", "RECEIVED", "Amount received", "USD 400.00",
+		"Four hundred US dollars", "Applied to", "INV-0100", "Balance due", "Issued by", "Received from",
+		"Method", "Manual entry", "Bank ref.", "TRF-991")
+	r.hasNot(t, "RECEIPT ", "Description")
+}
+
+// The bank reference is printed only when the payment stores one.
+func TestReceiptBankReferenceOnlyWhenStored(t *testing.T) {
+	t.Parallel()
+	rc := receipt("600.0000")
+	rc.Payment.PayerReference = nil
+	renderPDF(t, RenderReceipt, ReceiptDocument(rc)).hasNot(t, "Bank ref.")
+}
+
+func TestReceiptShowsWithholdingOnlyWhenPaymentHasIt(t *testing.T) {
+	t.Parallel()
+	r := renderPDF(t, RenderReceipt, ReceiptDocument(idrReceipt("5588697")))
+	r.has(t, "PPh 23 withheld (2%)", Minus+"92,308", "bukti potong", "accounts@wenhao.dev",
+		"IDR 4,523,077", "Four million five hundred twenty-three thousand seventy-seven rupiah",
+		// This payment is the cash and the withholding it settles.
+		"4,615,385")
+
+	none := idrReceipt("5588697")
+	none.Payment.WhtAmount = dec("0")
+	r = renderPDF(t, RenderReceipt, ReceiptDocument(none))
+	r.hasNot(t, "withheld", Minus+"92,308", "bukti potong", "4,615,385")
+	r.has(t, "4,523,077")
+}
+
+func TestReceiptPaidPillOnlyAtZeroBalance(t *testing.T) {
+	t.Parallel()
+	paid := renderPDF(t, RenderReceipt, ReceiptDocument(receipt("0")))
+	paid.has(t, "Paid in full", "USD 0.00")
+	paid.hasNot(t, "Remaining balance")
+
+	open := renderPDF(t, RenderReceipt, ReceiptDocument(receipt("600.0000")))
+	open.hasNot(t, "Paid in full")
+	open.has(t, "Remaining balance: 600.00 USD.", "USD 600.00")
+}
+
+func TestCrossCurrencyReceiptShowsBothCurrencies(t *testing.T) {
+	t.Parallel()
+	rc := idrReceipt("1600000")
+	rc.Invoice.Amount, rc.Invoice.WhtType, rc.Invoice.WhtAmount = dec("3600000"), "NONE", dec("0")
+	rc.Payment.Amount, rc.Payment.Currency, rc.Payment.WhtAmount = dec("2000"), "SGD", dec("0")
+	r := renderPDF(t, RenderReceipt, ReceiptDocument(rc))
+	r.has(t, "SGD 2,000.00", "Two thousand Singapore dollars", "3,600,000 IDR", "IDR 1,600,000",
+		"Invoice total · IDR", "This payment · SGD")
+	// Nothing converted: no SGD figure in IDR, no IDR figure in SGD.
+	r.hasNot(t, "2,000 IDR", "IDR 2,000", "3,600,000.00", "SGD 3,600,000", "SGD 1,600,000")
+}
+
+// The footer's contact line wraps inside the space the footer reserves:
+// nothing prints below the page, and every word of it is printed.
+func TestLongFooterContactsStayOnThePage(t *testing.T) {
+	t.Parallel()
+	in := fullInvoice()
+	in.Business.Name = sp("Wenhao Development and Consulting Services International Holdings Pte Ltd")
+	in.Business.ContactEmail = sp("accounts.receivable.department@wenhao-development-consulting.example")
+	in.Business.ContactPhone = sp("+65 6123 4567 ext 8910 / +62 821 2155 2288 / +60 12 345 6789")
+	b, err := RenderInvoice(t.Context(), InvoiceDocument(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := extract(t, b)
+	r.has(t, "+60 12 345 6789", "Page 1 of 1")
+	lowest := lowestText(t, b)
+	// A4 is 841.89 pt tall; y counts up from the page's bottom edge.
+	if lowest < 2 {
+		t.Errorf("text prints %.1f pt from the page bottom: off the page", lowest)
+	}
+}
+
+// lowestText is the smallest baseline y, in pt from the bottom, of any text
+// on any page.
+func lowestText(t *testing.T, b []byte) float64 {
+	t.Helper()
+	r, err := lpdf.NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	low := 1e9
+	for i := 1; i <= r.NumPage(); i++ {
+		for _, tx := range r.Page(i).Content().Text {
+			low = min(low, tx.Y)
+		}
+	}
+	return low
+}
+
+// textRun is one line of text as the PDF draws it: where it starts, in pt
+// (x from the left, y up from the bottom), and its characters.
+type textRun struct {
+	x, y float64
+	s    string
+}
+
+// textRuns is page's lines of text. The reader gives each character the
+// position of its line, so consecutive characters at one position are one
+// line.
+func textRuns(t *testing.T, b []byte, page int) []textRun {
+	t.Helper()
+	r, err := lpdf.NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []textRun
+	for _, tx := range r.Page(page).Content().Text {
+		if n := len(out); n > 0 && out[n-1].x == tx.X && out[n-1].y == tx.Y {
+			out[n-1].s += tx.S
+			continue
+		}
+		out = append(out, textRun{tx.X, tx.Y, tx.S})
+	}
+	return out
+}
+
+const ptPerMM = 72 / 25.4
+
+// A word too long for its column (an email, a reference) breaks inside the
+// column instead of running past it (TestLongNamesWrapInsideColumns).
+func longUnbrokenTokenBreaksInsideItsColumn(t *testing.T) {
+	t.Helper()
+	po := "PO-" + strings.Repeat("0123456789", 6)[:57] // 60 characters, no space
+	email := "accounts.payable.department.of.acme@very-long-subsidiary.example"
+	in := fullInvoice(func(i *invoicesdb.Invoice) { i.PoSoNumber = sp(po) })
+	in.Customer.ContactEmail = sp(email)
+	if len(po) != 60 || len(email) < 60 {
+		t.Fatalf("fixture: %d, %d", len(po), len(email))
+	}
+	b, err := RenderInvoice(t.Context(), InvoiceDocument(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := textRuns(t, b, 1)
+	// The PO number is in the Reference column, the last: it ends at the
+	// content's right edge. Its pieces are printed in DM Sans 8 pt.
+	edge := float64(padX+contentW) * ptPerMM
+	var pieces string
+	for _, r := range runs {
+		if len(r.s) < 4 || !strings.Contains(po, r.s) {
+			continue
+		}
+		pieces += r.s
+		if right := r.x + textWidth(style(fontBody, false, 8, nil), r.s)*ptPerMM; right > edge+0.5 {
+			t.Errorf("%q ends at %.1f pt, past the column edge %.1f pt", r.s, right, edge)
+		}
+	}
+	eq(t, "PO pieces", pieces, po)
+	// The email in Bill to (the middle column) breaks too, and every
+	// character is printed.
+	mid := float64(padX+53+8+52) * ptPerMM
+	var mail string
+	for _, r := range runs {
+		if len(r.s) < 4 || !strings.Contains(email, r.s) {
+			continue
+		}
+		mail += r.s
+		if right := r.x + textWidth(style(fontBody, false, 8, nil), r.s)*ptPerMM; right > mid+0.5 {
+			t.Errorf("%q ends at %.1f pt, past the column edge %.1f pt", r.s, right, mid)
+		}
+	}
+	eq(t, "email pieces", mail, email)
 }

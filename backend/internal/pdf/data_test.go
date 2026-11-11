@@ -345,16 +345,22 @@ func TestReceiptSummaryLabelsOwnCurrency(t *testing.T) {
 	})
 	eq(t, "Summary", d.Summary, []SummaryRow{
 		{"Invoice total", "16,000,000 IDR", "subtotal"},
-		{"Remaining balance", "6,400,000 IDR", "total"},
+		{"Amount received", "600.50 USD", "total"},
 	})
 	eq(t, "Currency", d.Currency, "USD")
 	eq(t, "HeroAmount", d.HeroAmount, "600.50")
-	eq(t, "HeroLabel", d.HeroLabel, "Amount Received")
-	eq(t, "Items", d.Items, []Item{{Desc: "Payment for invoice WD-2026-0042", Sub: "Email Parser · Ref: INV-1", Amount: "600.50"}})
+	eq(t, "HeroLabel", d.HeroLabel, "Amount received")
+	eq(t, "Items", d.Items, []Item(nil))
+	eq(t, "Receipt", *d.Receipt, ReceiptBody{
+		Payment: []MetaCell{{"Method", "Email Parser"}, {"Bank ref.", "INV-1"}, {"Received", "07 Aug 2026"}},
+		Words:   "Six hundred US dollars and 50/100",
+		Invoice: "WD-2026-0042", Issued: "23 Jul 2026",
+		InvoiceCurrency: "IDR", InvoiceTotal: "16,000,000", ThisPayment: "600.50",
+		BalanceDue: "IDR 6,400,000",
+	})
 	eq(t, "Ref", d.Ref, "RCT-1A2B3C4D")
-	eq(t, "Meta", d.Meta, []MetaCell{{"Receipt No.", "RCT-1A2B3C4D"}, {"Payment Date", "07 Aug 2026"}, {"Invoice No.", "WD-2026-0042"}})
-	eq(t, "labels", []string{d.DocTitle, d.StatusLabel, d.StatusClass, d.FromLabel, d.ToLabel}, []string{"RECEIPT", "Received", "paid", "Received By", "Received From"})
-	eq(t, "Simple", d.Simple, true)
+	eq(t, "Meta", d.Meta, []MetaCell{{"Receipt No.", "RCT-1A2B3C4D"}, {"Payment Date", "07 Aug 2026"}})
+	eq(t, "labels", []string{d.DocTitle, d.StatusLabel, d.StatusClass, d.FromLabel, d.ToLabel}, []string{"Payment Receipt", "Received", "paid", "Issued by", "Received from"})
 	eq(t, "Notes", d.Notes, "Remaining balance: 6,400,000 IDR.\nThank you for your payment.")
 	eq(t, "Terms", d.Terms+d.PaymentInstructions+d.NPWP, "")
 }
@@ -366,8 +372,10 @@ func TestReceiptDocumentNamesAndFallbacks(t *testing.T) {
 	d := ReceiptDocument(ReceiptData{Payment: pay, Invoice: i})
 	eq(t, "ToName", d.ToName, "Payer Co") // no customer: the payer
 	eq(t, "FromName", d.FromName, "—")
-	eq(t, "Items", d.Items, []Item{{Desc: "Payment received", Sub: "Manual entry", Amount: "1.00"}})
-	eq(t, "Meta[1:]", d.Meta[1:], []MetaCell{{"Payment Date", "—"}, {"Invoice No.", "—"}})
+	eq(t, "Payment", d.Receipt.Payment, []MetaCell{{"Method", "Manual entry"}, {"Received", "—"}})
+	eq(t, "Invoice", d.Receipt.Invoice, "—")
+	eq(t, "PaidInFull", d.Receipt.PaidInFull, true)
+	eq(t, "Meta[1:]", d.Meta[1:], []MetaCell{{"Payment Date", "—"}})
 	eq(t, "Notes", d.Notes, "This invoice is now paid in full.\nThank you for your payment.")
 	pay.PayerName = ""
 	eq(t, "ToName", ReceiptDocument(ReceiptData{Payment: pay, Invoice: i}).ToName, "—")

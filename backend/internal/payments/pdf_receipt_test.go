@@ -55,8 +55,8 @@ func TestPDFReceiptRendererMapsReceiptData(t *testing.T) {
 	}
 	text := pdfText(t, b)
 	for _, w := range []string{
-		"RECEIPT", "RCT-1A2B3C4D", "07 Aug 2026", "INV-0100", "Payment for invoice INV-0100",
-		"Manual entry · Ref: TRF-991", "400.00", "600.00 USD", "Remaining balance: 600.00 USD.", "Acme Pte Ltd", "Wenhao Development",
+		"Payment Receipt", "RCT-1A2B3C4D", "07 Aug 2026", "INV-0100", "Applied to",
+		"Manual entry", "TRF-991", "400.00", "600.00 USD", "Remaining balance: 600.00 USD.", "Acme Pte Ltd", "Wenhao Development",
 	} {
 		if !strings.Contains(text, w) {
 			t.Errorf("receipt has no %q:\n%s", w, text)
