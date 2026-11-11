@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -187,16 +188,94 @@ func checkSchema(ctx context.Context, tx pgx.Tx) error {
 	// Function lines hold newlines, so both sides are compared as text and
 	// then split the same way for the report.
 	live := strings.Join(got, "\n")
-	if live == strings.TrimSuffix(string(ref), "\n") {
+	refText := strings.TrimSuffix(string(ref), "\n")
+	if live == refText {
 		return nil
 	}
-	got = strings.Split(live, "\n")
-	want := strings.Split(strings.TrimSuffix(string(ref), "\n"), "\n")
+	// pg_dump writes each CHECK as pg_get_constraintdef text and pg_restore
+	// parses it again, which can deparse differently (ck_items_type goes from
+	// `= ANY ((ARRAY[...])::text[])` to `= ANY (ARRAY[(...)::text, ...])`).
+	// So the two sides are compared again with every CHECK passed through
+	// this server's parser and deparser; a CHECK that means something else
+	// still differs.
+	nLive, err := normalizeChecks(ctx, tx, strings.Split(live, "\n"))
+	if err != nil {
+		return err
+	}
+	nRef, err := normalizeChecks(ctx, tx, strings.Split(refText, "\n"))
+	if err != nil {
+		return err
+	}
+	if strings.Join(nLive, "\n") == strings.Join(nRef, "\n") {
+		return nil
+	}
+	got, want := nLive, nRef
 	var b strings.Builder
 	b.WriteString("adopt: the schema differs from Alembic " + AlembicHead + " as the baseline describes it")
 	onlyIn(&b, "only in this database", got, want)
 	onlyIn(&b, "missing from this database", want, got)
 	return errors.New(b.String())
+}
+
+// checkLine matches a snapshot line for a CHECK constraint (see
+// testdata/schema-snapshot.sql).
+var checkLine = regexp.MustCompile(`^constraint (\S+) (\S+) (CHECK \(.*\)(?: NO INHERIT)?(?: NOT VALID)?) (deferrable=\w+ deferred=\w+)$`)
+
+// normalizeChecks returns lines with each CHECK constraint line's definition
+// replaced by what this server deparses it to after parsing it. Other lines
+// are kept as they are.
+func normalizeChecks(ctx context.Context, tx pgx.Tx, lines []string) ([]string, error) {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		m := checkLine.FindStringSubmatch(l)
+		if m == nil {
+			out[i] = l
+			continue
+		}
+		table, name, def, tail := m[1], m[2], m[3], m[4]
+		norm, err := deparseCheck(ctx, tx, table, name, def)
+		if err != nil {
+			// The definition cannot be re-parsed here (for example the live table
+			// lacks a column it uses): keep the line as it is, so the comparison
+			// fails and the report shows what differs.
+			out[i] = l
+			continue
+		}
+		out[i] = "constraint " + table + " " + name + " " + norm + " " + tail
+	}
+	return out, nil
+}
+
+// deparseCheck adds def as constraint name to a temp table shaped like
+// public.table and reads it back with pg_get_constraintdef. All of it runs
+// inside a savepoint that is rolled back, so the temp table never exists
+// outside this call and the adopt transaction keeps nothing of it.
+func deparseCheck(ctx context.Context, tx pgx.Tx, table, name, def string) (string, error) {
+	if _, err := tx.Exec(ctx, `SAVEPOINT adopt_norm`); err != nil {
+		return "", err
+	}
+	tmp := pgx.Identifier{"pg_temp", "adopt_norm"}.Sanitize()
+	var norm string
+	err := func() error {
+		if _, err := tx.Exec(ctx, `CREATE TEMP TABLE adopt_norm (LIKE `+pgx.Identifier{"public", table}.Sanitize()+`)`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `ALTER TABLE `+tmp+` ADD CONSTRAINT `+pgx.Identifier{name}.Sanitize()+` `+def); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint
+			WHERE conrelid = $1::regclass AND conname = $2`, tmp, name).Scan(&norm)
+	}()
+	if _, rbErr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT adopt_norm`); rbErr != nil && err == nil {
+		err = rbErr
+	}
+	if err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `RELEASE SAVEPOINT adopt_norm`); err != nil {
+		return "", err
+	}
+	return norm, nil
 }
 
 // onlyIn writes up to 10 lines of from that other lacks.

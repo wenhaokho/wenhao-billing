@@ -418,16 +418,6 @@ func TestRecordPaymentFiveDecimalsIs422(t *testing.T) {
 	}
 }
 
-func TestRecordPaymentWritesNoJournal(t *testing.T) {
-	t.Parallel()
-	a := newAPI(t, NoHosting{})
-	id := a.whtInvoice(t)
-	a.mustRecord(t, id, map[string]any{"amount": net, "wht_amount": wht})
-	if n := a.count(t, `SELECT count(*) FROM journal_entries`); n != 0 {
-		t.Errorf("%d journal entries", n)
-	}
-}
-
 func TestRecordPaymentPaidTellsHosting(t *testing.T) {
 	t.Parallel()
 	rec := &recorder{}

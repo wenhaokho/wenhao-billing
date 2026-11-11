@@ -462,8 +462,14 @@ func TestReverseOverRest(t *testing.T) {
 	wantProblem(t, a.reverseOver(t, p.PaymentID, map[string]any{"reason": "again"}), http.StatusBadRequest, "payment_not_reversible", "only CLEARED payments can be reversed (got FLAGGED)")
 	unknown := uuid.New()
 	wantProblem(t, a.reverseOver(t, unknown, map[string]any{"reason": "x"}), http.StatusBadRequest, "payment_not_found", "payment "+unknown.String()+" not found")
+	// A manual payment posts its entry (PORT-NOTES 161) and reverses; one
+	// recorded without an entry (by Python) is refused.
 	manual := a.mustRecord(t, invID, map[string]any{"amount": "100"})
-	wantProblem(t, a.reverseOver(t, manual.PaymentID, map[string]any{"reason": "x"}), http.StatusBadRequest, "no_active_entry", "no active journal entry to reverse for payment "+manual.PaymentID.String())
+	apitest.Decode[PaymentOut](t, a.reverseOver(t, manual.PaymentID, map[string]any{"reason": "x"}), http.StatusOK)
+	legacy := uuid.New()
+	a.exec(t, `INSERT INTO payments (payment_id, invoice_id, amount, currency, payer_name, payment_date, intake_source,
+external_ref, status) VALUES ($1, $2, 100, 'USD', '(manual entry)', '2026-04-15', 'MANUAL', 'manual-0123456789ab', 'CLEARED')`, legacy, invID)
+	wantProblem(t, a.reverseOver(t, legacy, map[string]any{"reason": "x"}), http.StatusBadRequest, "no_active_entry", "no active journal entry to reverse for payment "+legacy.String())
 
 	// reason is required and may be empty.
 	again := a.incoming(t, payload(amount("600"), payer("Nobody")))

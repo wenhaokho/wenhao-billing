@@ -91,6 +91,11 @@ type Entry struct {
 // withheld − receivable) is booked to FX Loss (below zero) or FX Gain (above),
 // in baseCurrency.
 //
+// An amount of 0 is posted only with withheld above 0 in the invoice's
+// currency (a manual withholding-only payment): Prepaid Tax against the
+// receivable, no bank line. Any other amount that is not positive is a plain
+// error.
+//
 // Nothing is written unless the entry balances. A missing rate returns the
 // error fx returns (errors.Is fx.ErrRateMissing).
 func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p Payment, inv Invoice, withheld decimal.Decimal) (Entry, error) {
@@ -100,10 +105,14 @@ func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 	if withheld.IsNegative() {
 		return Entry{}, refuse("withheld tax cannot be negative (got %s)", platform.PyDecimalStr(withheld))
 	}
-	// A payment that is not positive never reaches here from the API
-	// (validated gt=0); Python crashes on one. A programming error, not a
-	// refusal: a plain error, so it is never routed to manual review.
-	if !p.Amount.IsPositive() {
+	// A payment that is not positive never reaches here from intake or
+	// approval (validated gt=0); Python crashes on one. A programming error,
+	// not a refusal: a plain error, so it is never routed to manual review.
+	// The one exception is Go's: a manual invoice payment of withholding only
+	// (amount 0, withheld above 0, the invoice's currency) posts DR Prepaid
+	// Tax / CR receivable with no bank line (PORT-NOTES 161).
+	withholdingOnly := p.Amount.IsZero() && withheld.IsPositive() && p.Currency == inv.Currency
+	if !p.Amount.IsPositive() && !withholdingOnly {
 		return Entry{}, fmt.Errorf("ledger: payment %s amount must be > 0 (got %s)", p.ID, platform.PyDecimalStr(p.Amount))
 	}
 	q := ledgerdb.New(tx)
@@ -112,11 +121,14 @@ func PostPaymentCleared(ctx context.Context, tx pgx.Tx, baseCurrency string, p P
 		return Entry{}, err
 	}
 
-	bank, err := b.line(BankCode, p.Amount, decimal.Zero, p.Currency)
-	if err != nil {
-		return Entry{}, err
+	var bank Line
+	var lines []Line
+	if !withholdingOnly {
+		if bank, err = b.line(BankCode, p.Amount, decimal.Zero, p.Currency); err != nil {
+			return Entry{}, err
+		}
+		lines = append(lines, bank)
 	}
-	lines := []Line{bank}
 	withheldBase := decimal.Zero
 	if withheld.IsPositive() {
 		wht, err := b.line(PrepaidTaxCode, withheld, decimal.Zero, inv.Currency)

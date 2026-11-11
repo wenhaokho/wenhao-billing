@@ -174,10 +174,10 @@ scenarios:
 
   # --- invoice lifecycle --------------------------------------------------
   # The invoice (2000) ends PARTIAL with 1000 due after a manual payment of
-  # 1000; webhook-intake pays the rest. A manual payment posts no journal
-  # entry, so POST /payments/{id}/reverse refuses it on both backends (400,
-  # "no active journal entry to reverse"); reversal is exercised on the intake
-  # payment instead (webhook-intake, reverse-intake).
+  # 1000; webhook-intake pays the rest. record-payment posts a journal entry
+  # on Go only (PN 161), so reversing the manual payment succeeds on Go and is
+  # refused on Python; that step is commented out below. Reversal is exercised
+  # on the intake payment (webhook-intake, reverse-intake).
   - id: invoice-lifecycle
     tables:
       - invoices
@@ -215,17 +215,15 @@ scenarios:
       - id: list-payments
         method: GET
         path: /api/v1/invoices/{invoice_id}/payments
-      # Refusal parity, NOT ACTIVE: reversing the manual payment is a 400 on
-      # both backends ("no active journal entry to reverse") and changes
-      # nothing — seen in the first local run (plan 11 Task 5). The runner
-      # aborts the whole run on any non-2xx answer and has no per-step
-      # expected status, so the step cannot run yet. Follow-up (runner code):
-      # an `expect_status: 400` field; then uncomment:
-      # - id: reverse-manual-payment-refused
+      # NOT ACTIVE: reversing the manual payment is Go 200 (FLAGGED) and
+      # Python 400 no_active_entry (PN 161). The runner aborts the whole run on
+      # any non-2xx answer and has no per-step expected status, so the step
+      # cannot run yet. Follow-up (runner code): a per-step `expect_status`
+      # (per backend); then uncomment and classify the difference under PN 161:
+      # - id: reverse-payment
       #   method: POST
       #   path: /api/v1/payments/{payment_id}/reverse
       #   body: {reason: "compare"}
-      #   expect_status: 400
 
   # --- recurring template -------------------------------------------------
   - id: recurring-template

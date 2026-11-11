@@ -309,3 +309,100 @@ func TestMigrationsAdditive(t *testing.T) {
 		}
 	}
 }
+
+// pgRestoredItemsType is ck_items_type as a database that went through
+// pg_dump -Fc | pg_restore holds it (Postgres 16): the restore parses the
+// dumped pg_get_constraintdef text again and deparses it differently from the
+// form Alembic's original DDL gave. Captured from a real dump and restore of
+// the baseline schema.
+const pgRestoredItemsType = `CHECK (((item_type)::text = ANY (ARRAY[('SERVICE'::character varying)::text, ('USAGE'::character varying)::text, ('FIXED_FEE'::character varying)::text])))`
+
+func itemsTypeDef(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	return scalar[string](t, pool, `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_items_type'`)
+}
+
+// restoreRewrite does to ck_items_type what pg_restore does: the constraint
+// is dropped and added again from the text pg_dump wrote for it, which is
+// pg_get_constraintdef's output. It returns the definition before and after.
+// A CHECK rewritten this way means the same thing; only its text changed.
+func restoreRewrite(t *testing.T, url string) (before, after string) {
+	t.Helper()
+	pool := openPool(t, url)
+	before = itemsTypeDef(t, pool)
+	exec(t, url, `ALTER TABLE items DROP CONSTRAINT ck_items_type;
+		ALTER TABLE items ADD CONSTRAINT ck_items_type `+before)
+	return before, itemsTypeDef(t, pool)
+}
+
+// TestAdoptAcceptsRestoredCopy: a database dumped with pg_dump -Fc and loaded
+// with pg_restore has the same schema as the Alembic one but not the same
+// constraint text. The tests run in the Go image, which has no pg_dump, so the
+// restore's one effect on the schema is reproduced the way pg_restore does it
+// (see restoreRewrite); the real round trip was run against the db-test
+// container and gave exactly pgRestoredItemsType, which the test asserts.
+func TestAdoptAcceptsRestoredCopy(t *testing.T) {
+	t.Parallel()
+	url := legacyDB(t)
+	before, after := restoreRewrite(t, url)
+	if before == after || after != pgRestoredItemsType {
+		t.Fatalf("the rewrite did not reproduce pg_restore's text:\n before %s\n after  %s\n want   %s", before, after, pgRestoredItemsType)
+	}
+	pool := openPool(t, url)
+	if err := migrations.Adopt(context.Background(), pool); err != nil {
+		t.Fatalf("Adopt refused a restored copy: %v", err)
+	}
+	if !gooseTableExists(t, pool) {
+		t.Error("Adopt returned nil but wrote no goose_db_version")
+	}
+	// The normalisation ran in a savepoint: nothing of it is left behind.
+	if n := scalar[int](t, pool, `SELECT count(*) FROM pg_class WHERE relname = 'adopt_norm'`); n != 0 {
+		t.Errorf("%d adopt_norm relations left behind", n)
+	}
+}
+
+// TestAdoptStillRefusesRealCheckDrift: comparing CHECKs by meaning must not
+// hide a CHECK that means something else, whether its text is the original
+// one or the restored one.
+func TestAdoptStillRefusesRealCheckDrift(t *testing.T) {
+	t.Parallel()
+	for name, def := range map[string]string{
+		"original text": `CHECK (item_type IN ('SERVICE', 'USAGE'))`,
+		"restored text": `CHECK (((item_type)::text = ANY (ARRAY[('SERVICE'::character varying)::text, ('USAGE'::character varying)::text])))`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			url := legacyDB(t)
+			exec(t, url, `ALTER TABLE items DROP CONSTRAINT ck_items_type;
+				ALTER TABLE items ADD CONSTRAINT ck_items_type `+def)
+			pool := openPool(t, url)
+			err := migrations.Adopt(context.Background(), pool)
+			if err == nil {
+				t.Fatal("Adopt accepted ck_items_type without FIXED_FEE")
+			}
+			if !strings.Contains(err.Error(), "schema differs") || !strings.Contains(err.Error(), "ck_items_type") {
+				t.Errorf("error %q is not a schema-differs report naming the drifted constraint", err)
+			}
+			if gooseTableExists(t, pool) {
+				t.Error("goose_db_version was written although Adopt refused")
+			}
+		})
+	}
+}
+
+// A CHECK that cannot be re-parsed against the live table (here its column is
+// gone) is not an error of its own: Adopt refuses with the schema-differs
+// report.
+func TestAdoptCheckThatCannotBeReparsedGivesDriftReport(t *testing.T) {
+	t.Parallel()
+	url := legacyDB(t)
+	exec(t, url, `ALTER TABLE items DROP COLUMN item_type CASCADE`)
+	pool := openPool(t, url)
+	err := migrations.Adopt(context.Background(), pool)
+	if err == nil {
+		t.Fatal("Adopt accepted an items table without item_type")
+	}
+	if !strings.Contains(err.Error(), "schema differs") || !strings.Contains(err.Error(), "items.item_type") {
+		t.Errorf("error %q is not the schema-differs report", err)
+	}
+}
