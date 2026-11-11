@@ -440,3 +440,87 @@ func TestWithholdingClampsExpectedCashAtZero(t *testing.T) {
 		t.Fatal("expected cash is clamped at zero")
 	}
 }
+
+func TestAliasMatchReasonOnHeld(t *testing.T) {
+	t.Parallel()
+	c := candidate(func(c *Candidate) {
+		c.CustomerName = "Totally Different Name Ltd"
+		c.Aliases = []string{"Acme Corp"}
+	})
+	r := match(incoming(func(p *Incoming) { p.Amount = dec("999.9000") }), c)
+	if r.Status != StatusPending || len(r.Reasons) == 0 {
+		t.Fatalf("got %s: %v", r.Status, r.Reasons)
+	}
+	if got, want := r.Reasons[len(r.Reasons)-1], "alias match: 'Acme Corp' (1.0)"; got != want {
+		t.Fatalf("last reason %q, want %q", got, want)
+	}
+}
+
+func TestAliasMatchUsesAliasAsStored(t *testing.T) {
+	t.Parallel()
+	c := candidate(func(c *Candidate) {
+		c.CustomerName = "Totally Different Name Ltd"
+		c.Aliases = []string{"  ACME corp "}
+	})
+	r := match(incoming(func(p *Incoming) { p.Amount = dec("999.9000") }), c)
+	if got, want := r.Reasons[len(r.Reasons)-1], "alias match: '  ACME corp ' (1.0)"; got != want {
+		t.Fatalf("last reason %q, want %q", got, want)
+	}
+}
+
+func TestAliasMatchNotOnCleared(t *testing.T) {
+	t.Parallel()
+	c := candidate(func(c *Candidate) {
+		c.CustomerName = "Acme Corporation Limited"
+		c.Aliases = []string{"Acme Corp"}
+	})
+	r := match(incoming(nil), c)
+	want := []string{"exact amount+currency, high payer+date confidence"}
+	if r.Status != StatusCleared || len(r.Reasons) != 1 || r.Reasons[0] != want[0] {
+		t.Fatalf("got %s: %v", r.Status, r.Reasons)
+	}
+}
+
+func TestAliasMatchNotWhenNameWins(t *testing.T) {
+	t.Parallel()
+	c := candidate(func(c *Candidate) { c.Aliases = []string{"Acme Corp"} }) // ties the name: not strictly better
+	r := match(incoming(func(p *Incoming) { p.Amount = dec("999.9000") }), c)
+	for _, reason := range r.Reasons {
+		if strings.HasPrefix(reason, "alias match:") {
+			t.Fatalf("unexpected %q", reason)
+		}
+	}
+}
+
+// Aliases only add a trailing reason: status, confidence, adjustment and the
+// other reasons equal those of the same candidate without aliases' influence.
+func TestAliasReasonLeavesDecisionUnchanged(t *testing.T) {
+	t.Parallel()
+	amounts := []string{"1000.0000", "999.9000", "1500.0000"}
+	for _, amt := range amounts {
+		t.Run(amt, func(t *testing.T) {
+			t.Parallel()
+			p := incoming(func(p *Incoming) { p.Amount = dec(amt) })
+			c := candidate(func(c *Candidate) {
+				c.CustomerName = "Totally Different Name Ltd"
+				c.Aliases = []string{"Acme Corp"}
+			})
+			r := match(p, c)
+			if !r.Confidence.Equal(Score(p, c)) {
+				t.Fatalf("confidence %s != Score %s", r.Confidence, Score(p, c))
+			}
+			base := r.Reasons
+			if n := len(base); n > 0 && strings.HasPrefix(base[n-1], "alias match:") {
+				base = base[:n-1]
+			}
+			if r.Status == StatusCleared && len(r.Reasons) != 1 {
+				t.Fatalf("cleared reasons %v", r.Reasons)
+			}
+			for _, reason := range base {
+				if strings.HasPrefix(reason, "alias match:") {
+					t.Fatalf("alias reason not last: %v", r.Reasons)
+				}
+			}
+		})
+	}
+}
