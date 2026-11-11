@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppIcon from "@/components/AppIcon.vue";
-import { ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
@@ -10,11 +10,12 @@ import PageHeader from "@/components/PageHeader.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
-import InputText from "primevue/inputtext";
 import Textarea from "primevue/textarea";
 import Message from "primevue/message";
 import { api } from "@/api/client";
 import { formatAmount, formatMoney } from "@/utils/money";
+import InvoicePicker from "@/components/review/InvoicePicker.vue";
+import { reasonLabel, reasonTone } from "@/theme/status";
 
 interface Payment {
   payment_id: string;
@@ -28,14 +29,26 @@ interface Payment {
   status: string;
   adjustment_type: string;
   confidence_score: string | null;
+  intake_source: string;
   created_at: string;
 }
 
 interface LogEntry {
   log_id: string;
   action: string;
-  reasons: string[];
+  reasons: string[] | null;
+  reason_codes: string[];
   created_at: string;
+}
+
+// How the payment arrived (payments.intake_source).
+const VIA: Record<string, string> = {
+  WEBHOOK: "Bank webhook",
+  EMAIL_PARSER: "Email",
+  MANUAL: "Manual",
+};
+function viaLabel(source: string): string {
+  return VIA[source] ?? source;
 }
 
 // confidence_score is on the matching engine's 0–100 scale; 95 is its
@@ -65,6 +78,17 @@ const { data: log } = useQuery<LogEntry[]>({
   queryFn: async () =>
     (await api.get<LogEntry[]>(`/payments/${selected.value!.payment_id}/log`)).data,
   enabled: () => !!selected.value,
+});
+
+// The log is oldest first: the reasons are the latest HELD row's, each with
+// its code (same order) for the tag.
+const heldReasons = computed(() => {
+  const held = [...(log.value ?? [])].reverse().find((e) => e.action === "HELD");
+  return (held?.reasons ?? []).map((text, i) => ({ text, code: held?.reason_codes[i] ?? "OTHER" }));
+});
+
+watch(selected, () => {
+  invoiceId.value = "";
 });
 
 const approve = useMutation({
@@ -145,6 +169,11 @@ const reverse = useMutation({
           </Column>
           <Column field="currency" header="Ccy" body-class="cell-nowrap cell-muted" />
           <Column field="payment_date" header="Date" body-class="cell-nowrap cell-muted" />
+          <Column header="Via" body-class="cell-nowrap">
+            <template #body="{ data: r }">
+              <StatusTag :status="r.intake_source" tone="neutral" :label="viaLabel(r.intake_source)" />
+            </template>
+          </Column>
           <Column header="Score" body-class="cell-nowrap" :body-style="{ textAlign: 'right' }" :header-style="{ textAlign: 'right' }">
             <template #body="{ data: r }">
               <span v-if="r.confidence_score != null" class="num score" :class="scoreTone(r.confidence_score)">{{ r.confidence_score }}</span>
@@ -168,6 +197,12 @@ const reverse = useMutation({
         <div class="detail-amount num">{{ formatMoney(selected.amount, selected.currency) }}</div>
         <div class="detail-sub">
           Received {{ selected.payment_date }} · payment <code>{{ selected.payment_id.slice(0, 8) }}…</code>
+          · via <StatusTag
+            class="via-tag"
+            data-testid="via-tag"
+            :status="selected.intake_source"
+            tone="neutral"
+            :label="viaLabel(selected.intake_source)" />
         </div>
 
         <div v-if="selected.confidence_score != null" class="confidence">
@@ -195,16 +230,23 @@ const reverse = useMutation({
 
         <div class="section">
           <h3>Reasons</h3>
-          <ul v-if="(log?.[0]?.reasons ?? []).length" class="reasons">
-            <li v-for="(r, i) in (log?.[0]?.reasons ?? [])" :key="i">{{ r }}</li>
+          <ul v-if="heldReasons.length" class="reasons" data-testid="held-reasons">
+            <li v-for="(r, i) in heldReasons" :key="i" :data-reason="r.code">
+              <StatusTag :status="r.code" :tone="reasonTone(r.code)" :label="reasonLabel(r.code)" />
+              <span class="reason-text">{{ r.text }}</span>
+            </li>
           </ul>
           <p v-else class="muted">No reasons logged.</p>
         </div>
 
         <div class="section">
           <h3>Approve against invoice</h3>
+          <InvoicePicker
+            :key="selected.payment_id"
+            v-model="invoiceId"
+            :currency="selected.currency"
+            :amount="selected.amount" />
           <div class="approve-row">
-            <InputText v-model="invoiceId" placeholder="invoice UUID" />
             <Button
               label="Approve & Post"
               :disabled="!invoiceId"
@@ -325,19 +367,28 @@ dd.num { font-variant-numeric: tabular-nums; font-weight: 500; }
   text-transform: uppercase;
   letter-spacing: 1.2px;
 }
-/* Each logged reason as its own bordered row (mockup). */
+/* Each logged reason as its own bordered row: its tag, then the sentence (mockup). */
 .reasons { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
 .reasons li {
-  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px;
   border: 1px solid var(--wb-line);
-  border-left: 3px solid var(--wb-amber-fg);
   color: var(--wb-muted);
   font-size: 14px;
   line-height: 1.5;
 }
+.reasons li :deep(.status-tag) { margin-top: 1px; white-space: nowrap; }
+.reason-text { min-width: 0; overflow-wrap: anywhere; }
+.via-tag { vertical-align: middle; }
+@media (max-width: 480px) {
+  .reasons li { grid-template-columns: 1fr; gap: 8px; }
+  .reasons li :deep(.status-tag) { justify-self: start; }
+}
 .muted { color: var(--wb-muted); font-size: 14px; margin: 0; }
-.approve-row { display: flex; gap: 10px; flex-wrap: wrap; }
-.approve-row .p-inputtext { flex: 1 1 220px; }
+.approve-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
 .w-full { width: 100%; }
 .placeholder {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
