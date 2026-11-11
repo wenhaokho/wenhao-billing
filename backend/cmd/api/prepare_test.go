@@ -127,7 +127,7 @@ func TestServeRefusesDriftedAlembicDatabase(t *testing.T) {
 	if err == nil {
 		t.Fatal("prepareDatabase accepted a schema without customers.website")
 	}
-	if !strings.Contains(err.Error(), "auto-adopt refused") || !strings.Contains(err.Error(), "customers.website") {
+	if !strings.Contains(err.Error(), "auto-adopt failed, nothing was written") || !strings.Contains(err.Error(), "customers.website") {
 		t.Errorf("error %q does not say the adopt was refused and name the drifted column", err)
 	}
 	if gooseExists(t, url) {

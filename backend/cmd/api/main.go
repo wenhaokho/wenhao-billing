@@ -366,7 +366,7 @@ func prepareDatabase(ctx context.Context, url string, logger *slog.Logger) error
 	defer pool.Close()
 	adopted, err := migrations.AutoAdopt(ctx, pool)
 	if err != nil {
-		return fmt.Errorf("auto-adopt refused, nothing was written (fix the schema or restore the backup): %w", err)
+		return fmt.Errorf("auto-adopt failed, nothing was written: %w", err)
 	}
 	if adopted {
 		logger.Info("adopt: the Alembic database is now owned by goose at the baseline", "alembic_head", migrations.AlembicHead)
