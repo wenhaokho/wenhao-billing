@@ -13,6 +13,10 @@
 //	api issue-session <email>
 //	                 print a session token for the admin (8 hours; writes
 //	                 nothing), for scripts against a running API
+//	api backpost-ledger [--apply]
+//	                 post the issue entries of documents issued before
+//	                 accrual posting (PORT-NOTES 166); a dry run unless
+//	                 --apply. Exit 0 done or dry run, 1 refused, 2 error
 package main
 
 import (
@@ -39,6 +43,7 @@ import (
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/accounts"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/auth"
+	"github.com/wenhaokho/wenhao-billing/backend/internal/backpost"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/bills"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/business"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/customers"
@@ -199,6 +204,8 @@ func main() {
 			}
 			slog.Info("adopt-baseline: goose now owns the database at the baseline; the next serve applies the later migrations")
 			os.Exit(0)
+		case "backpost-ledger":
+			os.Exit(backpostLedger(os.Args[2:]))
 		case "set-password", "issue-session":
 			if len(os.Args) != 3 {
 				slog.Error("usage: api set-password|issue-session <email>")
@@ -445,4 +452,48 @@ func issueSessionCmd(ctx context.Context, pool *pgxpool.Pool, s platform.Session
 	}
 	_, err = fmt.Fprintln(stdout, token)
 	return err
+}
+
+// backpostLedger runs backpost-ledger against DATABASE_URL in the
+// configured base currency.
+func backpostLedger(args []string) int {
+	cfg, err := platform.LoadConfig()
+	if err != nil {
+		slog.Error("backpost-ledger: config", "err", err)
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	pool, err := db.Open(ctx, db.PoolConfig{URL: cfg.DatabaseURL})
+	if err != nil {
+		slog.Error("backpost-ledger: database", "err", err)
+		return 2
+	}
+	defer pool.Close()
+	return backpostCmd(ctx, pool, cfg.BaseCurrency, args, os.Stdout)
+}
+
+// backpostCmd is `api backpost-ledger [--apply]` (PORT-NOTES 166): 0 when
+// done or a dry run, 1 when refused (missing rates or bad accounts; nothing
+// written), 2 on a usage error or any other error.
+func backpostCmd(ctx context.Context, pool *pgxpool.Pool, base string, args []string, w io.Writer) int {
+	apply := false
+	switch {
+	case len(args) == 0:
+	case len(args) == 1 && args[0] == "--apply":
+		apply = true
+	default:
+		_, _ = fmt.Fprintln(w, "usage: api backpost-ledger [--apply]")
+		return 2
+	}
+	_, err := backpost.Run(ctx, pool, base, apply, w)
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, backpost.ErrRefused):
+		return 1
+	default:
+		_, _ = fmt.Fprintf(w, "backpost-ledger failed: %v\n", err)
+		return 2
+	}
 }

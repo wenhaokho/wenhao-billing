@@ -77,3 +77,8 @@ SELECT COALESCE(SUM(l.credit - l.debit), 0)::numeric AS face,
  WHERE a.code = '2000'
    AND ((e.source_type = 'BILL' AND e.source_id = sqlc.arg(bill_id)::uuid)
      OR (e.source_type = 'BILL_PAYMENT' AND e.source_id IN (SELECT p.bill_payment_id FROM bill_payments p WHERE p.bill_id = sqlc.arg(bill_id)::uuid)));
+
+-- name: SetEntryMemo :exec
+-- The back-post's restated payment entries carry the original's memo with a
+-- suffix (plan 12 Task 7); nothing else changes an entry's memo.
+UPDATE journal_entries SET memo = sqlc.arg(memo)::text WHERE entry_id = sqlc.arg(entry_id);

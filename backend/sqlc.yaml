@@ -288,3 +288,14 @@ sql:
         emit_enum_valid_method: true
         emit_pointers_for_null_types: true
         overrides: *go_overrides
+  - engine: postgresql
+    schema: migrations
+    queries: internal/backpost/queries.sql
+    gen:
+      go:
+        package: backpostdb
+        out: internal/backpost/backpostdb
+        sql_package: pgx/v5
+        emit_enum_valid_method: true
+        emit_pointers_for_null_types: true
+        overrides: *go_overrides
