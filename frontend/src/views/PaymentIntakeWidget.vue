@@ -28,11 +28,10 @@ import {
   type OverviewResponse,
   type Period,
   type ReceivablesResponse,
+  type CurrencyAmount,
 } from "@/components/dashboard/types";
 import { decIsZero, deltaOf, formatCompact, formatShare } from "@/components/dashboard/format";
 
-interface CurrencyAmount { currency: string; amount: string }
-interface CurrencyBaseAmount { currency: string; base_amount: string }
 interface UpcomingInvoiceItem {
   invoice_id: string;
   customer_id: string | null;
@@ -63,20 +62,13 @@ interface ActivityItem {
   customer_name: string | null;
   actor_name: string | null;
 }
+// The part of GET /stats/dashboard this view reads.
 interface DashboardStats {
   awaiting_review_count: number;
   draft_count: number;
-  sent_count: number;
-  customer_count: number;
-  auto_cleared_last_30d: number;
   open_ar_by_currency: CurrencyAmount[];
   open_quotation_count: number;
-  open_quotation_pipeline: CurrencyAmount[];
   recent_activity: ActivityItem[];
-  mrr_by_currency: CurrencyAmount[];
-  base_currency: string;
-  open_ar_base_by_currency: CurrencyBaseAmount[];
-  open_ar_unconverted: string[];
   upcoming_invoices: UpcomingInvoiceItem[];
 }
 const router = useRouter();
@@ -388,6 +380,7 @@ function timeAgo(iso: string) {
       <AgingCard
         v-else
         :data="receivables"
+        :open-ar-by-currency="stats?.open_ar_by_currency"
         :days-to-pay="overview?.days_to_pay"
         :period-words="PERIOD_WORDS[shownPeriod]"
       />
@@ -397,7 +390,14 @@ function timeAgo(iso: string) {
          included) that column is too narrow to pair them, and stacked they ran
          far below the revenue card. A row of their own keeps them side by side. -->
     <div class="grid-2">
-      <CashInCard v-if="receivables" :data="receivables" />
+      <div v-if="receivablesError && !receivables" class="card card-pad error">
+        Failed to load expected cash in.
+        <Button label="Retry" text @click="refetchReceivables()" />
+      </div>
+      <div v-else-if="!receivables" class="card loading">
+        <ProgressSpinner style="width: 40px; height: 40px" />
+      </div>
+      <CashInCard v-else :data="receivables" />
       <div v-if="overviewError && !overview" class="card card-pad error">
         Failed to load reconciliation.
         <Button label="Retry" text @click="refetchOverview()" />
@@ -598,15 +598,12 @@ function timeAgo(iso: string) {
   margin: 0;
 }
 .card-sub { margin: 4px 0 0; color: var(--wb-muted); font-size: 13px; line-height: 1.5; }
-.card-note { margin: 0 28px 20px; color: var(--wb-muted-soft); font-size: 12px; }
-.head-tag { flex: none; white-space: nowrap; }
 .empty-state .app-icon { margin-left: auto; margin-right: auto; }
 .head-link { font-size: 13px; white-space: nowrap; text-decoration: none; }
 .head-link:hover { text-decoration: underline; }
 @media (max-width: 640px) {
   .dash-card-head { padding: 20px 18px 0; }
   .dash-card-head.ruled { padding: 18px 18px 14px; }
-  .card-note { margin: 0 18px 16px; }
 }
 
 /* ---------- list cards ---------- */

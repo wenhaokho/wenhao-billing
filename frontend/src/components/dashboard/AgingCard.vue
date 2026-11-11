@@ -5,11 +5,13 @@
 import { computed, ref } from "vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { formatAmount } from "@/utils/money";
-import { decIsZero } from "./format";
-import type { AgingKey, DaysToPay, ReceivablesResponse } from "./types";
+import { decIsZero, formatShare } from "./format";
+import type { AgingKey, CurrencyAmount, DaysToPay, ReceivablesResponse } from "./types";
 
 const props = defineProps<{
   data: ReceivablesResponse;
+  /** Native open AR per currency; undefined while /stats/dashboard loads. */
+  openArByCurrency?: CurrencyAmount[];
   /** From the overview; undefined while it loads. */
   daysToPay?: DaysToPay;
   /** "90 d", "12 mo": the period the days-to-pay average covers. */
@@ -23,12 +25,15 @@ const LABELS: Record<AgingKey, string> = {
   d61_90: "61–90 days",
   d90_plus: "90+ days",
 };
+// Severity rises with age: amber, soft red, red, deep red. Deep red stays the
+// darkest step in both themes (--wb-ink, the mockup's 90+ colour, turns
+// near-white in dark mode).
 const COLORS: Record<AgingKey, string> = {
   not_due: "var(--wb-green-fg)",
-  d1_30: "var(--wb-red)",
+  d1_30: "var(--wb-amber-fg)",
   d31_60: "var(--wb-red-soft)",
-  d61_90: "var(--wb-amber-fg)",
-  d90_plus: "var(--wb-ink)",
+  d61_90: "var(--wb-red)",
+  d90_plus: "var(--wb-red-deep)",
 };
 
 const base = computed(() => props.data.base_currency);
@@ -64,11 +69,14 @@ const summary = computed(() => {
   return `${inv} · ${cus}`;
 });
 
-const pastDue = computed(() => {
-  const p = props.data.past_due_share;
-  if (p === null) return null;
-  return p > 0 && p < 1 ? "<1%" : `${Math.round(p)}%`;
-});
+const pastDue = computed(() => (props.data.past_due_share === null ? null : formatShare(props.data.past_due_share)));
+
+// Native open AR per currency (from /stats/dashboard), sorted base first.
+const byCurrency = computed(() =>
+  [...(props.openArByCurrency ?? [])]
+    .filter((r) => !decIsZero(r.amount))
+    .sort((a, b) => Number(b.currency === base.value) - Number(a.currency === base.value) || a.currency.localeCompare(b.currency)),
+);
 
 // Days to pay: fewer days is better, so a drop reads green.
 const dtp = computed(() => {
@@ -111,7 +119,8 @@ const dtp = computed(() => {
             :key="b.key"
             class="seg"
             :class="{ dim: hovered && hovered !== b.key }"
-            :style="{ flex: b.flex, minWidth: b.zero ? '3px' : '0', background: b.color }"
+            v-show="!b.zero"
+            :style="{ flex: b.flex, background: b.color }"
             @mouseenter="hovered = b.key"
             @mouseleave="hovered = null"
           />
@@ -134,6 +143,15 @@ const dtp = computed(() => {
           <span class="aging-amt num" :class="{ bad: b.overdue }">{{ b.amount }}</span>
         </li>
       </ul>
+      <div v-if="byCurrency.length" class="by-ccy" data-testid="aging-by-currency">
+        <div class="dc-label">By currency · native</div>
+        <ul>
+          <li v-for="r in byCurrency" :key="r.currency" :data-ccy="r.currency">
+            <span class="by-ccy-code">{{ r.currency }}</span>
+            <span class="num">{{ formatAmount(r.amount, r.currency) }}</span>
+          </li>
+        </ul>
+      </div>
       <p v-if="data.unconverted.length" class="dc-note">
         Not converted: {{ data.unconverted.join(", ") }} (no FX rate)
       </p>
@@ -172,6 +190,10 @@ const dtp = computed(() => {
 .aging-count { color: var(--wb-muted-soft); font-size: 12px; white-space: nowrap; }
 .aging-amt { text-align: right; min-width: 90px; color: var(--wb-ink); white-space: nowrap; }
 .aging-amt.bad { color: var(--wb-red-fg); }
+.by-ccy { margin-top: 18px; }
+.by-ccy ul { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; }
+.by-ccy li { display: inline-flex; gap: 6px; white-space: nowrap; color: var(--wb-ink); }
+.by-ccy-code { color: var(--wb-muted-soft); font-weight: 500; letter-spacing: 0.5px; }
 .dtp {
   margin-top: auto;
   padding-top: 20px;

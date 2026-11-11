@@ -121,6 +121,12 @@ export interface MonthlyRevenueResponse {
   footer: RevenueFooter;
 }
 
+/** A native amount in its currency (GET /stats/dashboard open_ar_by_currency). */
+export interface CurrencyAmount {
+  currency: string;
+  amount: string;
+}
+
 /** GET /stats/receivables (point in time, no period). */
 export type AgingKey = "not_due" | "d1_30" | "d31_60" | "d61_90" | "d90_plus";
 export interface AgingBucket {
