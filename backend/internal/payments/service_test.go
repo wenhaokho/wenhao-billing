@@ -280,12 +280,20 @@ func (je jentry) nets() (net, base decimal.Decimal) {
 	return net, base
 }
 
-// entries are the journal entries whose source is the payment, oldest first.
+// entries are the journal entries whose source is the payment, each clearing
+// followed by its reversal, the active clearing last. A clearing is posted on
+// the payment date and its reversal at the clearing's posted_at (PORT-NOTES
+// 167), so posted_at ties every entry of one payment: pairs of one date come
+// in entry_id order, not the order they were recorded.
 func (e *env) entries(t *testing.T, paymentID uuid.UUID) []jentry {
 	t.Helper()
 	ctx := context.Background()
-	rows, err := e.pool.Query(ctx, `SELECT entry_id, reversed_by_entry_id, COALESCE(memo, '') FROM journal_entries
-WHERE source_id = $1 ORDER BY posted_at, entry_id`, paymentID)
+	rows, err := e.pool.Query(ctx, `SELECT e.entry_id, e.reversed_by_entry_id, COALESCE(e.memo, '')
+FROM journal_entries e LEFT JOIN journal_entries o ON o.reversed_by_entry_id = e.entry_id
+WHERE e.source_id = $1
+ORDER BY COALESCE(o.posted_at, e.posted_at),
+  (o.entry_id IS NULL AND e.reversed_by_entry_id IS NULL),
+  COALESCE(o.entry_id, e.entry_id), o.entry_id IS NOT NULL`, paymentID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -872,12 +880,23 @@ func TestApproveReverseTwiceUndoesLatestClearing(t *testing.T) {
 	for _, je := range es {
 		byID[je.id] = je
 	}
-	// Oldest first: clearing, its reversal, clearing, its reversal.
-	wantMemo := []string{"Payment ", "Reversal: first", "Payment ", "Reversal: second"}
+	// Clearing, its reversal, clearing, its reversal. Each reversal is dated
+	// its clearing's posted_at (PORT-NOTES 167), so all four tie on posted_at
+	// and the two pairs come in either order: each reversal reverses its own
+	// clearing, and the reversals are "first" and "second".
+	reversals := map[string]bool{}
 	for i, je := range es {
-		if !strings.HasPrefix(je.memo, wantMemo[i]) {
-			t.Errorf("entry %d memo %q, want %q…", i, je.memo, wantMemo[i])
+		want := "Payment "
+		if i%2 == 1 {
+			want = "Reversal: "
+			reversals[je.memo] = true
 		}
+		if !strings.HasPrefix(je.memo, want) {
+			t.Errorf("entry %d memo %q, want %q…", i, je.memo, want)
+		}
+	}
+	if !reversals["Reversal: first"] || !reversals["Reversal: second"] {
+		t.Errorf("reversal memos %v, want Reversal: first and Reversal: second", reversals)
 	}
 	for _, i := range []int{0, 2} {
 		if es[i].reversedBy == nil || *es[i].reversedBy != es[i+1].id {

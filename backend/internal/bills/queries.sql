@@ -36,6 +36,15 @@ LIMIT sqlc.narg(row_limit);
 -- second lock.
 DELETE FROM bills WHERE bill_id = $1 AND status = 'DRAFT';
 
+-- name: BillHasHistory :one
+-- True when the bill has a payment row (any status) or a journal entry of its
+-- own (source BILL) or of its payments (source BILL_PAYMENT): a delete would
+-- orphan them.
+SELECT (EXISTS (SELECT 1 FROM bill_payments bp WHERE bp.bill_id = @bill_id::uuid)
+    OR EXISTS (SELECT 1 FROM journal_entries je WHERE je.source_type = 'BILL' AND je.source_id = @bill_id::uuid)
+    OR EXISTS (SELECT 1 FROM journal_entries e JOIN bill_payments p ON p.bill_payment_id = e.source_id
+               WHERE e.source_type = 'BILL_PAYMENT' AND p.bill_id = @bill_id::uuid))::boolean AS has_history;
+
 -- name: InsertBill :exec
 INSERT INTO bills (
     bill_id, vendor_id, project_id, bill_number, po_number, currency, subtotal,

@@ -13,6 +13,23 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const billHasHistory = `-- name: BillHasHistory :one
+SELECT (EXISTS (SELECT 1 FROM bill_payments bp WHERE bp.bill_id = $1::uuid)
+    OR EXISTS (SELECT 1 FROM journal_entries je WHERE je.source_type = 'BILL' AND je.source_id = $1::uuid)
+    OR EXISTS (SELECT 1 FROM journal_entries e JOIN bill_payments p ON p.bill_payment_id = e.source_id
+               WHERE e.source_type = 'BILL_PAYMENT' AND p.bill_id = $1::uuid))::boolean AS has_history
+`
+
+// True when the bill has a payment row (any status) or a journal entry of its
+// own (source BILL) or of its payments (source BILL_PAYMENT): a delete would
+// orphan them.
+func (q *Queries) BillHasHistory(ctx context.Context, billID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, billHasHistory, billID)
+	var has_history bool
+	err := row.Scan(&has_history)
+	return has_history, err
+}
+
 const countActiveBillPayments = `-- name: CountActiveBillPayments :one
 SELECT count(*) FROM bill_payments WHERE bill_id = $1 AND status = 'CLEARED'
 `

@@ -248,6 +248,23 @@ func PostReversalAt(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *
 	return postReversal(ctx, tx, originalID, memo, &postedAt)
 }
 
+// ReversePayment reverses a payment's entry (an invoice payment's or a bill
+// payment's) with memo, posted at the original entry's posted_at, not now: a
+// payment reversal is a correction (the payment never applied), so the
+// reports as of any date never show a reversed payment, and a payment
+// cleared, reversed and cleared again counts once (PORT-NOTES 167). Voids
+// and edits are business events and reverse at now (ReverseIssued).
+func ReversePayment(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *string) (Entry, error) {
+	at, err := ledgerdb.New(tx).EntryPostedAt(ctx, originalID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Entry{}, refuse("entry %s not found", originalID)
+	}
+	if err != nil {
+		return Entry{}, fmt.Errorf("ledger: entry posted_at: %w", err)
+	}
+	return PostReversalAt(ctx, tx, originalID, memo, at)
+}
+
 func postReversal(ctx context.Context, tx pgx.Tx, originalID uuid.UUID, memo *string, postedAt *time.Time) (Entry, error) {
 	q := ledgerdb.New(tx)
 	orig, err := q.LockEntry(ctx, originalID)
@@ -370,6 +387,12 @@ func checkBalanced(lines []Line) error {
 		return refuse("journal entry unbalanced in %s: net=%s", lines[0].Currency, platform.PyDecimalStr(net))
 	}
 	return nil
+}
+
+// Midnight is d's calendar day at 00:00 UTC: the posted_at of an entry dated
+// on a document's date (an issue date, a payment date; PORT-NOTES 162, 167).
+func Midnight(d time.Time) time.Time {
+	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // insert writes e, posted at postedAt (nil = now; never later than now).

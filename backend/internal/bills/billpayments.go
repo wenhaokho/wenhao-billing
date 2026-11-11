@@ -150,10 +150,18 @@ func payBill(ctx context.Context, tx pgx.Tx, base string, cur billsdb.Bill, p ne
 	if err != nil {
 		return err
 	}
-	if _, err := ledger.PostBillPayment(ctx, tx, base, ledger.BillPayment{
+	bp := ledger.BillPayment{
 		ID: row.BillPaymentID, Amount: row.Amount, Currency: row.Currency, Date: dateOf(row.PaymentDate),
 		Memo: "Payment " + row.BillPaymentID.String() + " of bill " + billLabel(cur),
-	}, cur.BillID); err != nil {
+	}
+	// Posted on the payment date (never later than now), the date the bank
+	// and FX lines convert on; no date posts at now (PORT-NOTES 167).
+	if row.PaymentDate.Valid {
+		_, err = ledger.PostBillPaymentAt(ctx, tx, base, bp, cur.BillID, ledger.Midnight(row.PaymentDate.Time))
+	} else {
+		_, err = ledger.PostBillPayment(ctx, tx, base, bp, cur.BillID)
+	}
+	if err != nil {
 		return err
 	}
 	balance, status := cur.BalanceDue.Sub(p.amount), "PARTIAL"
@@ -189,12 +197,17 @@ func reverseBillPayment(ctx context.Context, tx pgx.Tx, id, pid uuid.UUID, reaso
 	if p.Status != "CLEARED" {
 		return BillPaymentOut{}, refuse("bill_payment_not_reversible", "bill payment is %s and cannot be reversed", p.Status)
 	}
-	reversed, err := ledger.ReverseIssued(ctx, tx, ledger.SourceBillPayment, pid, "Reversal: "+reason)
+	entryID, posted, err := ledger.ActiveEntryFor(ctx, tx, ledger.SourceBillPayment, pid)
 	if err != nil {
 		return BillPaymentOut{}, err
 	}
-	if !reversed {
+	if !posted {
 		return BillPaymentOut{}, ledger.Refuse("bill payment %s has no ledger entry — run api backpost-ledger", pid)
+	}
+	// Dated at the payment entry's posted_at: a correction (PORT-NOTES 167).
+	memo := "Reversal of payment on bill " + billLabel(cur) + ": " + reason
+	if _, err := ledger.ReversePayment(ctx, tx, entryID, &memo); err != nil {
+		return BillPaymentOut{}, err
 	}
 	row, err := q.ReverseBillPayment(ctx, billsdb.ReverseBillPaymentParams{BillPaymentID: pid, Reason: &reason})
 	if err != nil {

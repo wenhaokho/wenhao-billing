@@ -37,6 +37,10 @@ SELECT account_id, debit, credit, currency, base_amount_debit, base_amount_credi
 -- name: SetReversedBy :exec
 UPDATE journal_entries SET reversed_by_entry_id = sqlc.arg(reversed_by)::uuid WHERE entry_id = sqlc.arg(entry_id);
 
+-- name: EntryPostedAt :one
+-- An entry's posted_at: a payment reversal is dated at its original's.
+SELECT posted_at FROM journal_entries WHERE entry_id = $1;
+
 -- name: ActiveEntryFor :one
 -- The newest entry for a source that is neither reversed nor itself a reversal
 -- (no entry's reversed_by_entry_id points at it). A reversal shares the

@@ -348,7 +348,8 @@ func (s Service) Reverse(ctx context.Context, tx pgx.Tx, paymentID uuid.UUID, ac
 	}
 
 	memo := "Reversal: " + reason
-	if _, err := ledger.PostReversal(ctx, tx, s.BaseCurrency, entryID, &memo); err != nil {
+	// Dated at the clearing's posted_at: a correction (PORT-NOTES 167).
+	if _, err := ledger.ReversePayment(ctx, tx, entryID, &memo); err != nil {
 		return paymentsdb.Payment{}, err
 	}
 	if err := q.SetPaymentStatus(ctx, paymentsdb.SetPaymentStatusParams{PaymentID: p.PaymentID, Status: matching.StatusFlagged}); err != nil {
