@@ -40,8 +40,10 @@
 #
 # The webhook body is signed with the shared local WEBHOOK_HMAC_SECRET in the
 # X-Signature header. The webhook pays the invoice-lifecycle invoice's amount;
-# after reverse-payment that invoice is OPEN again, and approve-intake applies
-# the intake payment to it.
+# on Go, reverse-payment leaves that invoice OPEN again, and approve-intake
+# applies the intake payment to it. On Python reverse-payment is refused (see
+# the invoice-lifecycle scenario), so the invoice stays PAID there and
+# approve-intake applies the payment to a PAID invoice.
 #
 # None of these steps has run against the real backends yet (plan 11 Task 4
 # fix round 1): the first real run may still find a body field to adjust.
@@ -173,8 +175,14 @@ scenarios:
         path: /api/v1/accounting/fx-rates/{rate_id}
 
   # --- invoice lifecycle --------------------------------------------------
-  # The invoice ends OPEN again (reverse-payment reopens it); webhook-intake
-  # pays it.
+  # record-payment posts the manual payment's journal entry on Go only
+  # (PORT-NOTES 161), so journal_entries and journal_lines differ here.
+  # reverse-payment then succeeds on Go (the payment is FLAGGED, the reversing
+  # entry is posted and the invoice ends OPEN again) where Python refuses it,
+  # 400 "no active journal entry to reverse for payment <id>", leaving the
+  # invoice PAID. Both differences are Go's change, classified under PN 161 in
+  # Task 6; allowed-diffs.yaml cannot express table rows or a whole answer
+  # narrowly. webhook-intake then pays the invoice.
   - id: invoice-lifecycle
     tables:
       - invoices
@@ -212,6 +220,7 @@ scenarios:
       - id: list-payments
         method: GET
         path: /api/v1/invoices/{invoice_id}/payments
+      # Go 200 (FLAGGED, reversed), Python 400 no_active_entry: PN 161.
       - id: reverse-payment
         method: POST
         path: /api/v1/payments/{payment_id}/reverse
@@ -315,7 +324,8 @@ scenarios:
   # The intake payment goes to manual review (the payer name is not the
   # customer's, so the confidence stays under 95); approve-intake applies it to
   # the invoice-lifecycle invoice, {invoice_id}, which reverse-payment left
-  # OPEN. {intake_payment_id} never overwrites {payment_id}.
+  # OPEN on Go and PAID on Python (PN 161). {intake_payment_id} never
+  # overwrites {payment_id}.
   - id: webhook-intake
     classify: PN 6
     tables:

@@ -330,6 +330,33 @@ func TestRefusesNonPositiveAmount(t *testing.T) {
 	}
 }
 
+// A manual withholding-only payment (PORT-NOTES 161): amount 0, withheld
+// above 0, one currency, books Prepaid Tax against the receivable.
+func TestWithholdingOnlyPostsPrepaidTaxAgainstReceivable(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	e := post(t, pool, cleared("0", "USD"), invoice("USD", "20"), "20")
+	checkLines(t, pool, e, []want{
+		{PrepaidTaxCode, "20", "0", "USD", "320000.0000", "0", "16000"},
+		{ReceivableCode, "0", "20", "USD", "0", "320000.0000", "16000"},
+	})
+}
+
+// Amount 0 with withholding across currencies is still a plain error.
+func TestWithholdingOnlyAcrossCurrenciesRefused(t *testing.T) {
+	t.Parallel()
+	pool := newPool(t)
+	tx := begin(t, pool)
+	p := cleared("0", "IDR")
+	_, err := PostPaymentCleared(context.Background(), tx, base, p, invoice("USD", "20"), dec("20"))
+	if err == nil || errors.Is(err, ErrLedger) {
+		t.Fatalf("err = %v, want a plain error", err)
+	}
+	if e, l := countRows(t, tx); e != 0 || l != 0 {
+		t.Errorf("%d entries and %d lines written, want none", e, l)
+	}
+}
+
 func TestRateMissingPassesThrough(t *testing.T) {
 	t.Parallel()
 	pool := newPool(t)

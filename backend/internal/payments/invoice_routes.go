@@ -81,7 +81,8 @@ func (r routes) registerInvoice(api huma.API) {
 		Summary: "Record a payment received against an invoice",
 		Description: "A CLEARED MANUAL payment in the invoice's currency. The balance falls by the amount plus the withheld amount: to 0 is PAID, " +
 			"otherwise PARTIAL. A DRAFT or VOID invoice, both amounts 0, more than the balance, or more withholding than is outstanding is refused. " +
-			"Nothing is posted to the ledger, so such a payment cannot be reversed.",
+			"The payment's journal entry is posted as an approved payment's is, so it can be reversed; a ledger refusal or a missing FX rate is refused " +
+			"and nothing is kept.",
 		DefaultStatus: http.StatusCreated,
 		Errors:        []int{http.StatusBadRequest, http.StatusNotFound},
 	}), r.recordPayment)
@@ -126,7 +127,9 @@ func (r routes) recordPayment(ctx context.Context, in *recordIn) (*paymentBody, 
 		return err
 	})
 	if err != nil {
-		return nil, clientError(err)
+		// A ledger refusal or a missing rate is 400 with its sentence, as
+		// approval answers; the transaction has rolled back.
+		return nil, refusalError(clientError(err))
 	}
 	r.svc.AfterCommit(ctx, p)
 	return &paymentBody{Body: PaymentOutFrom(p)}, nil
@@ -153,8 +156,12 @@ type manualPayment struct {
 // once see each other's balance (Python lost an update). Refusals, in order:
 // unknown invoice (404), DRAFT or VOID, both amounts 0, more than the
 // balance, more withholding than is outstanding. A PAID invoice has balance 0
-// and so falls to the balance sentence. Nothing is posted to the ledger. The
-// payment is CLEARED, MANUAL and in the invoice's currency; a PAID result
+// and so falls to the balance sentence. The payment is CLEARED, MANUAL and in
+// the invoice's currency. Unlike Python (PORT-NOTES 161), its journal entry
+// is posted here with postCleared, the posting intake and approval use, so
+// Reverse can undo it; a ledger refusal or a missing rate comes back
+// unchanged (errors.Is ledger.ErrLedger or fx.ErrRateMissing) and the caller
+// rolls back, leaving no payment, log row or entry. A PAID result
 // stamps Hosting (the route calls AfterCommit once committed). A CLEARED log
 // row names the actor and holds the reasons "manual-entry" and the notes'
 // first 200 characters. The caller rolls back on any error.
@@ -204,6 +211,11 @@ func (s Service) recordManual(ctx context.Context, tx pgx.Tx, m manualPayment) (
 	})
 	if err != nil {
 		return paymentsdb.Payment{}, fmt.Errorf("payments: insert manual payment: %w", err)
+	}
+	// Go's change (PORT-NOTES 161): the same posting as an approved payment,
+	// under the invoice lock and against the balance before this payment.
+	if err := s.postCleared(ctx, tx, p, inv, wht); err != nil {
+		return paymentsdb.Payment{}, err
 	}
 
 	inv.BalanceDue = inv.BalanceDue.Sub(settled)
