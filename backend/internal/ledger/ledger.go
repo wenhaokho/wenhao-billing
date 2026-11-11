@@ -420,8 +420,11 @@ func insert(ctx context.Context, q *ledgerdb.Queries, e Entry, postedAt *time.Ti
 	return nil
 }
 
-// ActiveEntryFor returns the newest entry for the source that is neither
-// reversed nor itself a reversal, or false when there is none. A reversal
+// ActiveEntryFor returns the entry for the source that is neither reversed nor
+// itself a reversal, or false when there is none. A PAYMENT or BILL_PAYMENT
+// source has at most one such entry (clear refuses an already-CLEARED payment
+// under the lock; a bill payment posts once), so the ORDER BY only matters for
+// re-posted INVOICE and BILL entries; the NOT EXISTS is the guard. A reversal
 // shares its original's source and has reversed_by_entry_id NULL, so that
 // test alone would pick it; the original's reversed_by_entry_id points at the
 // reversal, so an entry some other entry points at is a reversal and is

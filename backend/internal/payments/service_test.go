@@ -868,9 +868,40 @@ func TestApproveReverseTwiceUndoesLatestClearing(t *testing.T) {
 	p := e.incoming(t, payload(amount("999")))
 	e.mustApprove(t, p.PaymentID, invID)
 	checkInvoice(t, e, invID, "1", "0", "PARTIAL")
+	// active returns the payment's active entry (the one a reverse targets).
+	type activeEntry struct {
+		id uuid.UUID
+		ok bool
+	}
+	active := func() activeEntry {
+		t.Helper()
+		a, err := inTx(t, e, func(tx pgx.Tx) (activeEntry, error) {
+			id, ok, err := ledger.ActiveEntryFor(context.Background(), tx, "PAYMENT", p.PaymentID)
+			return activeEntry{id, ok}, err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	c1 := active()
+	if !c1.ok {
+		t.Fatal("no active entry after the first approve")
+	}
 	e.mustReverse(t, p.PaymentID, "first")
+	// A reversal is never the active entry: nothing is active until the next clearing.
+	if a := active(); a.ok {
+		t.Fatalf("active entry %s after reverse, want none (a reversal must not be active)", a.id)
+	}
 	e.mustApprove(t, p.PaymentID, invID)
+	c2 := active()
+	if !c2.ok || c2.id == c1.id {
+		t.Fatalf("active entry after the second approve %v, want a new clearing (first was %s)", c2, c1.id)
+	}
 	e.mustReverse(t, p.PaymentID, "second")
+	if a := active(); a.ok {
+		t.Fatalf("active entry %s after the second reverse, want none", a.id)
+	}
 
 	es := e.entries(t, p.PaymentID)
 	if len(es) != 4 {
@@ -897,6 +928,17 @@ func TestApproveReverseTwiceUndoesLatestClearing(t *testing.T) {
 	}
 	if !reversals["Reversal: first"] || !reversals["Reversal: second"] {
 		t.Errorf("reversal memos %v, want Reversal: first and Reversal: second", reversals)
+	}
+	// The reverses hit the then-active clearings, by entry id, not by order.
+	reversedBy := map[uuid.UUID]*uuid.UUID{}
+	for _, je := range es {
+		reversedBy[je.id] = je.reversedBy
+	}
+	for name, c := range map[string]uuid.UUID{"first": c1.id, "second": c2.id} {
+		rid := reversedBy[c]
+		if rid == nil || byID[*rid].memo != "Reversal: "+name {
+			t.Errorf("clearing %s reversed by %v, want the %q reversal", c, rid, name)
+		}
 	}
 	for _, i := range []int{0, 2} {
 		if es[i].reversedBy == nil || *es[i].reversedBy != es[i+1].id {
