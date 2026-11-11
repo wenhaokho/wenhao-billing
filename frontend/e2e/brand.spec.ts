@@ -79,6 +79,8 @@ test("every status gets a defined tone", () => {
   expect(statusTone("Partially paid")).toBe("amber");
   expect(statusTone("Pending manual review")).toBe("amber");
   expect(statusTone("Awaiting finalization")).toBe("amber");
+  // Ruling R11: held = waiting on a person, so amber like Manual Review.
+  expect(statusTone("HELD")).toBe("amber");
   expect(statusTone("Inactive")).toBe("neutral");
 });
 
@@ -519,4 +521,67 @@ test("dashboard charts are named images under the page heading", async ({ page }
   }
   // At least the revenue chart must be there to check (the dev database has IDR revenue).
   await expect(main.getByTestId("revenue-chart").locator("canvas")).toHaveAttribute("role", "img");
+});
+
+// WCAG 2.4.7: the keyboard focus ring must be visible on every control. The
+// global ring is inset 1px (spec) and sits on the control's own border, which
+// vanishes on filled buttons and checked toggles, so those take an outside ring.
+test("keyboard focus ring is visible on buttons, checkbox and toggle, light and dark", async ({ page }) => {
+  const name = `E2E Focus Customer ${uniq()}`;
+  await apiPost(page.request, "/customers", { name, default_currency: "IDR" });
+  const ring = (el: Locator) =>
+    el.evaluate((n) => {
+      const cs = getComputedStyle(n);
+      return { style: cs.outlineStyle, width: parseFloat(cs.outlineWidth), offset: parseFloat(cs.outlineOffset), color: cs.outlineColor };
+    });
+  const expectOutside = async (el: Locator, what: string) => {
+    await expect(el, what).toBeVisible();
+    const r = await ring(el);
+    expect(r.style, `${what}: outline style (${JSON.stringify(r)})`).not.toBe("none");
+    expect(r.width, `${what}: outline width`).toBeGreaterThanOrEqual(2);
+    expect(r.offset, `${what}: outline offset`).toBeGreaterThan(0);
+  };
+  for (const theme of ["light", "dark"] as const) {
+    await page.goto("/invoices");
+    if (theme === "dark") await page.getByRole("button", { name: "Switch to dark theme" }).click();
+    // A key press first so :focus-visible applies to the focus() below.
+    await page.keyboard.press("Tab");
+    const primary = page.getByRole("button", { name: "New invoice" });
+    await primary.focus();
+    await expectOutside(primary, `${theme}: primary button`);
+
+    await page.goto("/customers");
+    await page.locator("tbody tr", { hasText: name }).getByTitle("Deactivate").click();
+    const dialog = page.getByRole("alertdialog", { name: "Deactivate customer" });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Tab");
+    const danger = dialog.getByRole("button", { name: "Deactivate" });
+    await danger.focus();
+    await expectOutside(danger, `${theme}: danger button`);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+
+    const toggle = page.getByRole("switch");
+    await toggle.check();
+    await page.keyboard.press("Tab");
+    await toggle.focus();
+    await expectOutside(page.locator(".p-toggleswitch-slider").first(), `${theme}: checked toggle switch`);
+
+    await page.goto("/items/new");
+    await page.keyboard.press("Tab");
+    const check = page.getByRole("checkbox", { name: "I sell this item" });
+    await expect(check).toBeChecked();
+    await check.focus();
+    await expectOutside(page.locator(".p-checkbox-box").first(), `${theme}: checked checkbox`);
+  }
+});
+
+// Ruling R12: "Change password" in the user menu opens the Security tab.
+test("user menu Change password opens the security tab with the password form", async ({ page }) => {
+  await page.goto("/dashboard");
+  await page.getByRole("button", { name: "Open account menu" }).click();
+  await page.getByRole("menuitem", { name: "Change password" }).click();
+  await expect(page).toHaveURL(/\/account\?tab=security/);
+  await expect(page.getByRole("tab", { name: "Password & Session" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("main#main-content").locator("input[type=password]").first()).toBeVisible();
 });

@@ -26,12 +26,13 @@ const TONES: Record<string, StatusTone> = {
   EXPIRED: "amber",
   PAUSED: "amber",
   ON_HOLD: "amber",
+  // waiting on a person, like Manual Review (ruling R11)
+  HELD: "amber",
   SUSPEND_PENDING: "amber",
   // stopped / wrong
   OVERDUE: "red",
   REJECTED: "red",
   DECLINED: "red",
-  HELD: "red",
   FLAGGED: "red",
   SUSPENDED: "red",
   MISCONFIGURED: "red",

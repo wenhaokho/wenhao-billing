@@ -105,6 +105,14 @@ const toneTextButtons = {
   },
 };
 
+// Fields and tabs keep the spec's inset 1px ring (semantic.focusRing). On
+// buttons, checkboxes, radios and toggles that ring would sit on the control's
+// own border, in the control's own colour, and vanish (WCAG 2.4.7), so they
+// draw a 2px ring outside a 2px gap. The colour is each control's own focus
+// colour (the fill for buttons, the primary for toggles), visible against the
+// page through the gap.
+const outsideRing = { width: "2px", style: "solid", offset: "2px" };
+
 export const AppPreset = definePreset(Aura, {
   semantic: {
     primary: brandRed,
@@ -165,7 +173,7 @@ export const AppPreset = definePreset(Aura, {
   },
   components: {
     button: {
-      root: { borderRadius: "30px", roundedBorderRadius: "30px", iconOnlyWidth: "42px", paddingX: "1.25rem" },
+      root: { borderRadius: "30px", roundedBorderRadius: "30px", iconOnlyWidth: "42px", paddingX: "1.25rem", focusRing: outsideRing },
       colorScheme: {
         light: {
           root: {
@@ -204,6 +212,9 @@ export const AppPreset = definePreset(Aura, {
         },
       },
     },
+    checkbox: { root: { focusRing: outsideRing } },
+    radiobutton: { root: { focusRing: outsideRing } },
+    toggleswitch: { root: { focusRing: outsideRing } },
     card: { root: { borderRadius: "0", shadow: "none" } },
     // Chips: the tone pairs come from the --wb-* variables in app.css, which
     // already switch with .app-dark.

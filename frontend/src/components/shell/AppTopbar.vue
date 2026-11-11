@@ -29,7 +29,7 @@ const userMenuItems = computed<MenuItem[]>(() => [
       {
         label: "Change password",
         icon: "key-round",
-        command: () => router.push("/account?tab=password"),
+        command: () => router.push("/account?tab=security"),
       },
       { separator: true },
       {
