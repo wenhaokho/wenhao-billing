@@ -12,6 +12,12 @@ Single-tenant agency accounting system.
 
 ## Common commands
 
+Follow the global Codex Docker Compose storage instructions: reuse this repository's
+existing Compose project for routine work. Use a separate named project only when
+isolation is needed, and clean up its disposable containers and generated caches
+afterward. Preserve database, upload and unidentified anonymous volumes unless the
+user explicitly authorizes deletion of the specific data.
+
 Run the full stack (from repo root):
 ```
 docker compose up --build
