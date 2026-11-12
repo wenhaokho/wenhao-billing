@@ -33,7 +33,7 @@ Admin commands of the API binary (in the dev stack: `docker compose run --rm -T 
 - `issue-session <email>` prints a session cookie value for an existing admin, for scripts.
 - `adopt-baseline`, `backpost-ledger [--apply]`, `healthcheck`, `openapi`: see `backend/README.md`.
 
-There is no command or seed that creates the first user: both commands above need the user to exist already. A dev database built by the Python backend keeps its users; a fresh one has none (a known gap).
+- `create-admin <email>` creates an admin with the password on stdin (one line). It makes the first user of an empty database (both commands above need the user to exist) and refuses an existing email.
 
 Frontend (inside `frontend/`):
 - Dev: `npm run dev`

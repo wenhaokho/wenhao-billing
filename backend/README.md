@@ -68,6 +68,9 @@ The FX settings are optional: `BASE_CURRENCY` (default `IDR`; set but blank is r
   session epoch, signing out existing sessions.
 - `api issue-session <email>` prints a session cookie value for an admin, for scripts
   against a running API.
+- `api create-admin <email>` creates an admin with the password read from stdin (one
+  line, 6 to 128 characters). It is how the first user of an empty database is made;
+  it refuses an email that already exists (use `set-password` for that user).
 - `api healthcheck` and `api openapi` are for the container healthcheck and `./dev openapi`.
 
 The dev stack's `backend` service (root `docker-compose.yml`) is this binary, serving the
@@ -79,7 +82,12 @@ printf '%s
 ' 'new password' | docker compose run --rm -T backend set-password admin@example.com
 ```
 
-Both need the user to exist: there is no command or seed that creates the first user.
+`set-password` and `issue-session` need the user to exist; on an empty database create
+one first with `create-admin` (`-i` instead of `-T` to type the password):
+
+```
+docker compose run --rm -i backend create-admin owner@example.com
+```
 
 ## The baseline
 

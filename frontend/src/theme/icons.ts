@@ -64,7 +64,7 @@ import {
   Users,
   Wallet,
   X,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 
 // Every icon the app uses, keyed by its Lucide name. Named imports keep the
 // bundle to just these glyphs; add a name here before using it in <AppIcon>.

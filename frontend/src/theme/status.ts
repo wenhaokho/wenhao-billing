@@ -68,9 +68,26 @@ export function statusLabel(status: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-// Reconciliation-log reason codes (backend payments.ReasonCode). Their own
-// map: AMBIGUOUS or OTHER mean something else as an invoice status.
-const REASON_TONES: Record<string, StatusTone> = {
+/**
+ * Reconciliation-log reason codes: the `reason_codes` enum in
+ * backend/openapi.json (backend payments.AllReasonCodes). Keep the two in step.
+ */
+export type ReasonCode =
+  | "NO_CANDIDATE"
+  | "CURRENCY_MISMATCH"
+  | "AMOUNT_MISMATCH"
+  | "LOW_CONFIDENCE"
+  | "AMBIGUOUS"
+  | "CLEAR_FAILED"
+  | "EXACT_MATCH"
+  | "MANUAL_ENTRY"
+  | "MANUAL_APPROVAL"
+  | "ALIAS_MATCH"
+  | "OTHER";
+
+// Their own map (a Record over every code, so a new one fails the build):
+// AMBIGUOUS or OTHER mean something else as an invoice status.
+const REASON_TONES: Record<ReasonCode, StatusTone> = {
   // why it was held
   NO_CANDIDATE: "red",
   CURRENCY_MISMATCH: "red",
@@ -87,12 +104,12 @@ const REASON_TONES: Record<string, StatusTone> = {
   OTHER: "neutral",
 };
 
-/** Tone of a reason code; an unknown code is neutral. */
-export function reasonTone(reasonCode: string): StatusTone {
-  return REASON_TONES[code(reasonCode)] ?? "neutral";
+/** Tone of a reason code; one from a newer server is neutral. */
+export function reasonTone(reasonCode: ReasonCode): StatusTone {
+  return REASON_TONES[reasonCode] ?? "neutral";
 }
 
 /** Sentence-case label of a reason code ("Amount mismatch"). */
-export function reasonLabel(reasonCode: string): string {
+export function reasonLabel(reasonCode: ReasonCode): string {
   return statusLabel(reasonCode);
 }

@@ -229,6 +229,19 @@
           "reason_codes": {
             "description": "The code of each reason, in the same order (payments.ReasonCode).",
             "items": {
+              "enum": [
+                "NO_CANDIDATE",
+                "CURRENCY_MISMATCH",
+                "AMOUNT_MISMATCH",
+                "LOW_CONFIDENCE",
+                "AMBIGUOUS",
+                "CLEAR_FAILED",
+                "EXACT_MATCH",
+                "MANUAL_ENTRY",
+                "MANUAL_APPROVAL",
+                "ALIAS_MATCH",
+                "OTHER"
+              ],
               "type": "string"
             },
             "type": "array"
@@ -579,6 +592,19 @@
           "reason_codes": {
             "description": "The code of each reason, in the same order (payments.ReasonCode).",
             "items": {
+              "enum": [
+                "NO_CANDIDATE",
+                "CURRENCY_MISMATCH",
+                "AMOUNT_MISMATCH",
+                "LOW_CONFIDENCE",
+                "AMBIGUOUS",
+                "CLEAR_FAILED",
+                "EXACT_MATCH",
+                "MANUAL_ENTRY",
+                "MANUAL_APPROVAL",
+                "ALIAS_MATCH",
+                "OTHER"
+              ],
               "type": "string"
             },
             "type": "array"
@@ -4606,6 +4632,19 @@
           "reason_codes": {
             "description": "The code of each reason, in the same order (payments.ReasonCode).",
             "items": {
+              "enum": [
+                "NO_CANDIDATE",
+                "CURRENCY_MISMATCH",
+                "AMOUNT_MISMATCH",
+                "LOW_CONFIDENCE",
+                "AMBIGUOUS",
+                "CLEAR_FAILED",
+                "EXACT_MATCH",
+                "MANUAL_ENTRY",
+                "MANUAL_APPROVAL",
+                "ALIAS_MATCH",
+                "OTHER"
+              ],
               "type": "string"
             },
             "type": "array"

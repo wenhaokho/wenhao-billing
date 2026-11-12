@@ -20,6 +20,15 @@ const (
 	ReasonOther            = "OTHER"
 )
 
+// AllReasonCodes lists every code. The response structs publish the same list
+// as an enum tag (a tag cannot use this slice); TestReasonCodesEnumInSchema
+// fails when the two differ.
+var AllReasonCodes = []string{
+	ReasonNoCandidate, ReasonCurrencyMismatch, ReasonAmountMismatch, ReasonLowConfidence,
+	ReasonAmbiguous, ReasonClearFailed, ReasonExactMatch, ReasonManualEntry,
+	ReasonManualApproval, ReasonAliasMatch, ReasonOther,
+}
+
 // The held sentence clearIncoming writes when the invoice changed between
 // matching and clearing: "invoice <id> changed before clearing".
 const (

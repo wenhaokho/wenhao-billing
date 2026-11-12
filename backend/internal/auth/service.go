@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -107,6 +108,32 @@ func SetPassword(ctx context.Context, pool *pgxpool.Pool, email, password string
 		return err
 	}
 	_, err = q.SetPassword(ctx, authdb.SetPasswordParams{UserID: u.UserID, PasswordHash: hash})
+	return err
+}
+
+// CreateAdmin adds an admin with email and an argon2id password: the
+// create-admin command, the way the first user of an empty database is made
+// (every other path needs an admin already). An existing email is refused —
+// set-password changes that user's password instead.
+func CreateAdmin(ctx context.Context, pool *pgxpool.Pool, email, password string) error {
+	addr := normalizeEmail(strings.TrimSpace(email))
+	if at := strings.LastIndexByte(addr, '@'); at <= 0 || at == len(addr)-1 {
+		return fmt.Errorf("%q is not an email address", email)
+	}
+	if n := utf8.RuneCountInString(password); n < minPassword || n > maxPassword {
+		return fmt.Errorf("the password must be %d to %d characters", minPassword, maxPassword)
+	}
+	q := authdb.New(pool)
+	if _, err := q.UserByEmail(ctx, addr); err == nil {
+		return fmt.Errorf("a user with email %q already exists: use set-password", addr)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	hash, err := hashPassword(ctx, password)
+	if err != nil {
+		return err
+	}
+	_, err = q.CreateUser(ctx, authdb.CreateUserParams{UserID: uuid.New(), Email: addr, PasswordHash: hash, Role: "admin"})
 	return err
 }
 
