@@ -109,6 +109,16 @@ type InvoiceOut struct {
 	ExpectedCash platform.Dec4 `json:"expected_cash" doc:"balance_due less the withholding not yet booked, never below zero."`
 }
 
+// InvoiceDetail is GET /invoices/{invoice_id}: InvoiceOut and who cleared a
+// PAID invoice. The list, create, update and lifecycle routes (and the MCP
+// tools) answer InvoiceOut alone, so they stay one query cheaper and their
+// field order is unchanged.
+type InvoiceDetail struct {
+	InvoiceOut
+	ClearedAt *platform.Time `json:"cleared_at" doc:"When the newest CLEARED or OVERRIDDEN reconciliation of one of the invoice's still-CLEARED payments was logged; null unless the invoice is PAID or when none was logged."`
+	ClearedBy *string        `json:"cleared_by" doc:"Display name, else email, of the user behind that log row; null when the matching engine cleared it (or cleared_at is null)."`
+}
+
 // TransformSchema describes billing_cycle_ref, which Huma sees as any value
 // (json.RawMessage), as the object or null it always is.
 func (InvoiceOut) TransformSchema(_ huma.Registry, s *huma.Schema) *huma.Schema {

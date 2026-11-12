@@ -125,10 +125,14 @@ SELECT * FROM reconciliation_log
 -- midnight and to_date runs to the end of its day. Python had no tie-break.
 SELECT l.log_id, l.payment_id, l.action, l.reasons, l.reason_codes, l.actor_user_id, l.created_at,
        p.payer_name, p.amount, p.currency, p.invoice_id, p.intake_source,
-       u.email AS actor_email
+       u.email AS actor_email,
+       p.payment_date, p.confidence_score, i.invoice_number,
+       c.name AS customer_name, u.display_name AS actor_display_name
   FROM reconciliation_log l
   LEFT JOIN payments p ON p.payment_id = l.payment_id
   LEFT JOIN users u ON u.user_id = l.actor_user_id
+  LEFT JOIN invoices i ON i.invoice_id = p.invoice_id
+  LEFT JOIN customers c ON c.customer_id = COALESCE(p.customer_id, i.customer_id)
  WHERE (sqlc.narg(action)::text IS NULL OR l.action = sqlc.narg(action)::text)
    AND (sqlc.narg(payer)::text IS NULL OR p.payer_name ILIKE '%' || sqlc.narg(payer)::text || '%' ESCAPE '\')
    AND (sqlc.narg(from_date)::date IS NULL OR l.created_at >= sqlc.narg(from_date)::date)

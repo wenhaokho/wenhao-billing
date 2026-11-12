@@ -17,10 +17,14 @@ import (
 const auditLog = `-- name: AuditLog :many
 SELECT l.log_id, l.payment_id, l.action, l.reasons, l.reason_codes, l.actor_user_id, l.created_at,
        p.payer_name, p.amount, p.currency, p.invoice_id, p.intake_source,
-       u.email AS actor_email
+       u.email AS actor_email,
+       p.payment_date, p.confidence_score, i.invoice_number,
+       c.name AS customer_name, u.display_name AS actor_display_name
   FROM reconciliation_log l
   LEFT JOIN payments p ON p.payment_id = l.payment_id
   LEFT JOIN users u ON u.user_id = l.actor_user_id
+  LEFT JOIN invoices i ON i.invoice_id = p.invoice_id
+  LEFT JOIN customers c ON c.customer_id = COALESCE(p.customer_id, i.customer_id)
  WHERE ($1::text IS NULL OR l.action = $1::text)
    AND ($2::text IS NULL OR p.payer_name ILIKE '%' || $2::text || '%' ESCAPE '\')
    AND ($3::date IS NULL OR l.created_at >= $3::date)
@@ -38,19 +42,24 @@ type AuditLogParams struct {
 }
 
 type AuditLogRow struct {
-	LogID        uuid.UUID
-	PaymentID    uuid.UUID
-	Action       string
-	Reasons      []string
-	ReasonCodes  []string
-	ActorUserID  pgtype.UUID
-	CreatedAt    *time.Time
-	PayerName    *string
-	Amount       decimal.NullDecimal
-	Currency     *string
-	InvoiceID    pgtype.UUID
-	IntakeSource *string
-	ActorEmail   *string
+	LogID            uuid.UUID
+	PaymentID        uuid.UUID
+	Action           string
+	Reasons          []string
+	ReasonCodes      []string
+	ActorUserID      pgtype.UUID
+	CreatedAt        *time.Time
+	PayerName        *string
+	Amount           decimal.NullDecimal
+	Currency         *string
+	InvoiceID        pgtype.UUID
+	IntakeSource     *string
+	ActorEmail       *string
+	PaymentDate      pgtype.Date
+	ConfidenceScore  decimal.NullDecimal
+	InvoiceNumber    *string
+	CustomerName     *string
+	ActorDisplayName *string
 }
 
 // The log joined to its payment and actor. payer is a substring already
@@ -85,6 +94,11 @@ func (q *Queries) AuditLog(ctx context.Context, arg AuditLogParams) ([]AuditLogR
 			&i.InvoiceID,
 			&i.IntakeSource,
 			&i.ActorEmail,
+			&i.PaymentDate,
+			&i.ConfidenceScore,
+			&i.InvoiceNumber,
+			&i.CustomerName,
+			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}

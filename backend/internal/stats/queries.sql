@@ -92,8 +92,10 @@ SELECT to_char(issue_date, 'YYYY-MM')::text AS month, currency,
 
 -- name: OverdueByCurrency :many
 -- The open-AR rule (OPEN, SENT, PARTIAL, no template, positive balance) with
--- a due date before today.
-SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+-- a due date before today. invoices counts them and oldest_due is the
+-- earliest due date (the invoices tiles' second lines).
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount,
+       COUNT(*)::int AS invoices, MIN(due_date)::date AS oldest_due
   FROM invoices
  WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
    AND due_date IS NOT NULL AND due_date < @today::date
@@ -101,8 +103,9 @@ SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
  ORDER BY currency;
 
 -- name: DueWithinByCurrency :many
--- The open-AR rule with a due date from today to until, both inclusive.
-SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount
+-- The open-AR rule with a due date from today to until, both inclusive;
+-- invoices counts them.
+SELECT currency, COALESCE(SUM(balance_due), 0)::numeric AS amount, COUNT(*)::int AS invoices
   FROM invoices
  WHERE status IN ('OPEN', 'SENT', 'PARTIAL') AND is_template = false AND balance_due > 0
    AND due_date IS NOT NULL AND due_date >= @today::date AND due_date <= @until::date

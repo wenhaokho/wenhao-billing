@@ -39,6 +39,8 @@ export interface KPIRecurring {
   /** Percent billed in a currency other than the base; null when there is no MRR or an MRR currency has no FX rate. */
   foreign_share: number | null;
   top_foreign_currency: string | null;
+  /** Sorted MRR currencies with no FX rate, left out of amount. */
+  unconverted: string[];
 }
 export interface OverviewKPIs {
   invoiced: KPIFlow;

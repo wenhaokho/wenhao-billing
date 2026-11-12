@@ -1739,6 +1739,66 @@
         ],
         "type": "object"
       },
+      "CurrencySummary": {
+        "additionalProperties": true,
+        "properties": {
+          "change_pct": {
+            "description": "(latest - previous) / previous x 100, rounded to 4 places; null when there is no previous rate.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "latest_as_of": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "latest_rate": {
+            "examples": [
+              "16000.50000000"
+            ],
+            "pattern": "^-?[0-9]{1,11}\\.[0-9]{8}$",
+            "type": "string"
+          },
+          "previous_as_of": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "previous_rate": {
+            "description": "The rate of the newest earlier date; null when there is none.",
+            "examples": [
+              "16000.50000000"
+            ],
+            "pattern": "^-?[0-9]{1,11}\\.[0-9]{8}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "currency",
+          "latest_rate",
+          "latest_as_of",
+          "previous_rate",
+          "previous_as_of",
+          "change_pct"
+        ],
+        "type": "object"
+      },
       "CustomerBalanceRow": {
         "additionalProperties": true,
         "properties": {
@@ -2992,6 +3052,285 @@
         ],
         "type": "object"
       },
+      "InvoiceDetail": {
+        "additionalProperties": true,
+        "properties": {
+          "amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "balance_due": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "billing_cycle_ref": {
+            "additionalProperties": true,
+            "description": "The schedule of a recurring template, the template and cycle of a generated invoice, the milestone reference, or the usage lock; null when unset.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "cleared_at": {
+            "description": "When the newest CLEARED or OVERRIDDEN reconciliation of one of the invoice's still-CLEARED payments was logged; null unless the invoice is PAID or when none was logged.",
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cleared_by": {
+            "description": "Display name, else email, of the user behind that log row; null when the matching engine cleared it (or cleared_at is null).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coverage_end": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coverage_start": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount_value": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "due_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_cash": {
+            "description": "balance_due less the withholding not yet booked, never below zero.",
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "footer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "internal_note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_id": {
+            "type": "string"
+          },
+          "invoice_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_type": {
+            "type": "string"
+          },
+          "is_template": {
+            "type": "boolean"
+          },
+          "issue_date": {
+            "examples": [
+              "2026-03-09"
+            ],
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line_items": {
+            "items": {
+              "$ref": "#/components/schemas/LineItemOut"
+            },
+            "type": "array"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_terms": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "po_so_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_quote_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "subtotal": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wht_amount": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "wht_base": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wht_booked": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": "string"
+          },
+          "wht_gross_up": {
+            "type": "boolean"
+          },
+          "wht_rate": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wht_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cleared_at",
+          "cleared_by",
+          "invoice_id",
+          "customer_id",
+          "project_id",
+          "source_quote_id",
+          "invoice_type",
+          "invoice_number",
+          "po_so_number",
+          "currency",
+          "subtotal",
+          "discount_type",
+          "discount_value",
+          "wht_type",
+          "wht_rate",
+          "wht_gross_up",
+          "wht_base",
+          "wht_amount",
+          "wht_booked",
+          "amount",
+          "balance_due",
+          "status",
+          "billing_cycle_ref",
+          "issue_date",
+          "due_date",
+          "coverage_start",
+          "coverage_end",
+          "payment_terms",
+          "notes",
+          "footer",
+          "internal_note",
+          "is_template",
+          "created_at",
+          "line_items",
+          "expected_cash"
+        ],
+        "type": "object"
+      },
       "InvoiceOut": {
         "additionalProperties": true,
         "properties": {
@@ -3435,18 +3774,39 @@
             },
             "type": "array"
           },
+          "due_30d_count": {
+            "description": "How many invoices make up due_30d, over every currency.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "oldest_overdue_days": {
+            "description": "Days the oldest overdue invoice is past its due date (today minus its due date); null when nothing is overdue.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "overdue": {
             "description": "Open balance per currency of invoices due before today, by currency.",
             "items": {
               "$ref": "#/components/schemas/CurrencyAmount"
             },
             "type": "array"
+          },
+          "overdue_count": {
+            "description": "How many invoices make up overdue, over every currency.",
+            "format": "int64",
+            "type": "integer"
           }
         },
         "required": [
           "overdue",
           "due_30d",
-          "avg_days_to_pay"
+          "avg_days_to_pay",
+          "overdue_count",
+          "due_30d_count",
+          "oldest_overdue_days"
         ],
         "type": "object"
       },
@@ -4049,12 +4409,48 @@
               "string",
               "null"
             ]
+          },
+          "unconverted": {
+            "description": "Sorted MRR currencies with no FX rate, left out of amount (a subset of the overview's unconverted).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
           "amount",
           "foreign_share",
-          "top_foreign_currency"
+          "top_foreign_currency",
+          "unconverted"
+        ],
+        "type": "object"
+      },
+      "LastSyncOut": {
+        "additionalProperties": true,
+        "properties": {
+          "ran_at": {
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "SCHEDULED",
+              "MANUAL"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "ran_at",
+          "trigger",
+          "source"
         ],
         "type": "object"
       },
@@ -4414,6 +4810,31 @@
           "unconverted",
           "months",
           "footer"
+        ],
+        "type": "object"
+      },
+      "NextBatchOut": {
+        "additionalProperties": true,
+        "properties": {
+          "next_batch_at": {
+            "description": "The recurring scan's next daily slot (02:00 UTC) strictly after now; null when the scheduler is off.",
+            "examples": [
+              "2026-01-01T03:00:00.123456Z"
+            ],
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scheduler_enabled": {
+            "description": "Whether this API runs the scheduled jobs (SCHEDULER_ENABLED).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scheduler_enabled",
+          "next_batch_at"
         ],
         "type": "object"
       },
@@ -6707,6 +7128,38 @@
         ],
         "type": "object"
       },
+      "SummaryOut": {
+        "additionalProperties": true,
+        "properties": {
+          "base_currency": {
+            "type": "string"
+          },
+          "currencies": {
+            "description": "One entry per currency with any rate to the base currency, sorted by currency.",
+            "items": {
+              "$ref": "#/components/schemas/CurrencySummary"
+            },
+            "type": "array"
+          },
+          "last_sync": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastSyncOut",
+                "description": "The newest successful provider sync; null when none has run."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "base_currency",
+          "currencies",
+          "last_sync"
+        ],
+        "type": "object"
+      },
       "SyncResult": {
         "additionalProperties": true,
         "properties": {
@@ -6850,7 +7303,17 @@
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "type": "string"
           },
+          "balanced": {
+            "type": "boolean"
+          },
           "base_currency": {
+            "type": "string"
+          },
+          "difference": {
+            "examples": [
+              "1500000.0000"
+            ],
+            "pattern": "^-?[0-9]{1,15}\\.[0-9]{4}$",
             "type": "string"
           },
           "rows": {
@@ -6882,7 +7345,9 @@
           "base_currency",
           "rows",
           "total_debit_base",
-          "total_credit_base"
+          "total_credit_base",
+          "balanced",
+          "difference"
         ],
         "type": "object"
       },
@@ -7901,6 +8366,37 @@
           }
         },
         "summary": "The newest rate of a pair, optionally on or before a date",
+        "tags": [
+          "accounting"
+        ]
+      }
+    },
+    "/api/v1/accounting/fx-rates/summary": {
+      "get": {
+        "operationId": "fx-rates-summary",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Each currency's newest rate to the base currency, its change, and the last sync",
         "tags": [
           "accounting"
         ]
@@ -9960,6 +10456,37 @@
         ]
       }
     },
+    "/api/v1/invoices/next-batch": {
+      "get": {
+        "operationId": "invoices-next-batch",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextBatchOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "When the scheduler next generates recurring drafts",
+        "tags": [
+          "invoices"
+        ]
+      }
+    },
     "/api/v1/invoices/recurring-template": {
       "post": {
         "operationId": "invoices-create-recurring-template",
@@ -10541,7 +11068,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InvoiceOut"
+                  "$ref": "#/components/schemas/InvoiceDetail"
                 }
               }
             },
@@ -11825,6 +12352,92 @@
           }
         },
         "summary": "Reconciliation log entries with their payment and actor, newest first",
+        "tags": [
+          "payments"
+        ]
+      }
+    },
+    "/api/v1/payments/audit-log.csv": {
+      "get": {
+        "description": "The same filters as the list, without limit; at most 50000 rows. A cell that starts with =, +, -, @, tab, CR or LF in a text column is prefixed with a single quote so a spreadsheet does not run it as a formula. The file starts with a UTF-8 BOM so Excel reads it as UTF-8.",
+        "operationId": "payments-audit-log-csv",
+        "parameters": [
+          {
+            "description": "Exact action; empty is no filter.",
+            "explode": false,
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "description": "Exact action; empty is no filter.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Substring of the payer name; empty is no filter.",
+            "explode": false,
+            "in": "query",
+            "name": "payer",
+            "schema": {
+              "description": "Substring of the payer name; empty is no filter.",
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "from_date",
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "to_date",
+            "schema": {
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "contentMediaType": "application/octet-stream",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The CSV",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The audit log as a CSV download, newest first",
         "tags": [
           "payments"
         ]

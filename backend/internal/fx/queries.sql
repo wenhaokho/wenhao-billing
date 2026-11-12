@@ -41,3 +41,30 @@ ON CONFLICT ON CONSTRAINT uq_fx_rates_triple DO UPDATE
    SET rate = EXCLUDED.rate, source = 'FRANKFURTER'
  WHERE fx_rates.rate <> EXCLUDED.rate OR fx_rates.source <> 'FRANKFURTER'
 RETURNING (xmax = 0) AS inserted;
+
+-- name: InsertSyncRun :exec
+-- A successful provider sync (fx_sync_runs), in the transaction of its rates.
+INSERT INTO fx_sync_runs (source, trigger, created, updated, actor_user_id)
+VALUES (sqlc.arg(source), sqlc.arg(trigger), sqlc.arg(created), sqlc.arg(updated), sqlc.narg(actor_user_id));
+
+-- name: LastSyncRun :one
+SELECT ran_at, trigger, source FROM fx_sync_runs
+ ORDER BY ran_at DESC, run_id DESC
+ LIMIT 1;
+
+-- name: RateSummary :many
+-- Per currency with a rate to base: its newest rate and, when there is one,
+-- the rate of the newest earlier date (as_of_date is unique per pair, so the
+-- second row is it). Sorted by currency.
+WITH ranked AS (
+  SELECT from_currency, rate, as_of_date,
+         row_number() OVER (PARTITION BY from_currency ORDER BY as_of_date DESC) AS n
+    FROM fx_rates
+   WHERE to_currency = sqlc.arg(base)::text AND from_currency <> sqlc.arg(base)::text
+)
+SELECT l.from_currency AS currency, l.rate AS latest_rate, l.as_of_date AS latest_as_of,
+       p.rate AS previous_rate, p.as_of_date AS previous_as_of
+  FROM ranked l
+  LEFT JOIN ranked p ON p.from_currency = l.from_currency AND p.n = 2
+ WHERE l.n = 1
+ ORDER BY l.from_currency;

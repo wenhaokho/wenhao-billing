@@ -52,6 +52,8 @@ type tbReport struct {
 	Rows            []tbRow `json:"rows"`
 	TotalDebitBase  string  `json:"total_debit_base"`
 	TotalCreditBase string  `json:"total_credit_base"`
+	Balanced        bool    `json:"balanced"`
+	Difference      string  `json:"difference"`
 }
 
 type bsLine struct {
@@ -430,5 +432,27 @@ func TestBalanceSheetCutoffInclusiveOfDay(t *testing.T) {
 	}
 	if got := bs(t, a, "?as_of=2026-01-11").AssetsTotalBase; got != "1010.0000" {
 		t.Errorf("next day: assets %s, want 1010.0000", got)
+	}
+}
+
+func TestTrialBalanceBalancedFlag(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	post(t, a, day(2026, 1, 5), dr(bank, "100", "IDR", "100"), cr(income, "100", "IDR", "100"))
+	got := tb(t, a, "")
+	if !got.Balanced || got.Difference != "0.0000" {
+		t.Errorf("balanced ledger: balanced=%v difference=%s", got.Balanced, got.Difference)
+	}
+}
+
+func TestTrialBalanceOutOfBalance(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	post(t, a, day(2026, 1, 5), dr(bank, "100", "IDR", "100"), cr(income, "100", "IDR", "100"))
+	// A hand-inserted one-sided entry: debit with no credit.
+	post(t, a, day(2026, 1, 6), dr(bank, "25.5", "IDR", "25.5"))
+	got := tb(t, a, "")
+	if got.Balanced || got.Difference != "25.5000" {
+		t.Errorf("unbalanced ledger: balanced=%v difference=%s", got.Balanced, got.Difference)
 	}
 }

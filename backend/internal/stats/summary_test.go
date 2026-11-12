@@ -351,3 +351,47 @@ func TestInvoicesSummaryRequiresAdmin(t *testing.T) {
 	t.Parallel()
 	requireAdmin(t, sumPath)
 }
+
+func TestSummaryCountsAndOldestOverdueDays(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "Acme Corp")
+	sentDue(ago(sumDay, -3), "100").insert(t, a, c)
+	sgd := sentDue(ago(sumDay, -12), "200")
+	sgd.cur = "SGD"
+	sgd.insert(t, a, c)
+	sentDue(d(sumDay), "300").insert(t, a, c)
+	sentDue(ago(sumDay, 30), "400").insert(t, a, c)
+	sentDue(ago(sumDay, 31), "500").insert(t, a, c)
+	paid := sentDue(ago(sumDay, -40), "600")
+	paid.status = "PAID"
+	paid.insert(t, a, c)
+	s := summary(t, a)
+	if s.OverdueCount != 2 || s.Due30dCount != 2 {
+		t.Fatalf("overdue_count = %d, due_30d_count = %d, want 2 and 2", s.OverdueCount, s.Due30dCount)
+	}
+	if s.OldestOverdueDays == nil || *s.OldestOverdueDays != 12 {
+		t.Fatalf("oldest_overdue_days = %v, want 12", s.OldestOverdueDays)
+	}
+}
+
+func TestSummaryNothingOverdueHasZeroCountsAndNullOldest(t *testing.T) {
+	t.Parallel()
+	s := summary(t, newApp(t))
+	if s.OverdueCount != 0 || s.Due30dCount != 0 || s.OldestOverdueDays != nil {
+		t.Fatalf("counts = %d/%d, oldest = %v", s.OverdueCount, s.Due30dCount, s.OldestOverdueDays)
+	}
+}
+
+func TestInvoicesSummaryRouteExposesCounts(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	sentDue(ago(today(a), -4), "100").insert(t, a, newCustomer(t, a, "Acme Corp"))
+	rec := a.Do(t, http.MethodGet, sumPath, nil)
+	b := strings.ReplaceAll(rec.Body.String(), " ", "")
+	for _, want := range []string{`"overdue_count":1`, `"due_30d_count":0`, `"oldest_overdue_days":4`} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("missing %s in %s", want, b)
+		}
+	}
+}

@@ -51,6 +51,9 @@ interface InvoicesSummary {
   overdue: CurrencyAmount[];
   due_30d: CurrencyAmount[];
   avg_days_to_pay: number | null;
+  overdue_count: number;
+  due_30d_count: number;
+  oldest_overdue_days: number | null;
 }
 
 const router = useRouter();
@@ -113,6 +116,24 @@ const avgDaysDisplay = computed(() => {
   return `${v.toFixed(1)} days`;
 });
 const hasOverdue = computed(() => (summary.value?.overdue?.length ?? 0) > 0);
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+// The tiles' second lines (mockup): how many invoices make up each amount,
+// and how late the oldest overdue one is.
+const overdueSub = computed(() => {
+  const s = summary.value;
+  if (!s) return "";
+  if (s.overdue_count === 0) return "Nothing past due";
+  const head = `${plural(s.overdue_count, "invoice", "invoices")} past due`;
+  return s.oldest_overdue_days === null ? head : `${head} · oldest ${plural(s.oldest_overdue_days, "day", "days")} overdue`;
+});
+const due30dSub = computed(() => {
+  const s = summary.value;
+  if (!s) return "";
+  return s.due_30d_count === 0 ? "No invoices" : plural(s.due_30d_count, "invoice", "invoices");
+});
 
 const customerNameById = computed(() => {
   const map: Record<string, string> = {};
@@ -225,14 +246,17 @@ function canRecordPayment(row: Invoice): boolean {
       <div class="tile" :class="{ alert: hasOverdue }">
         <div class="tile-label">Overdue</div>
         <div class="tile-value">{{ overdueDisplay }}</div>
+        <div class="tile-sub" data-testid="overdue-sub">{{ overdueSub }}</div>
       </div>
       <div class="tile">
         <div class="tile-label">Due within 30 days</div>
         <div class="tile-value">{{ due30dDisplay }}</div>
+        <div class="tile-sub" data-testid="due30d-sub">{{ due30dSub }}</div>
       </div>
       <div class="tile">
         <div class="tile-label">Avg. time to get paid</div>
         <div class="tile-value">{{ avgDaysDisplay }}</div>
+        <div class="tile-sub">Last 90 days</div>
       </div>
     </div>
 
@@ -350,6 +374,7 @@ function canRecordPayment(row: Invoice): boolean {
   text-overflow: ellipsis;
 }
 .tile.alert .tile-value { color: var(--wb-red); }
+.tile-sub { font-size: 13px; color: var(--wb-muted); margin-top: 4px; min-height: 1.4em; }
 @media (max-width: 720px) {
   .tile { padding: 16px 18px; }
   .tile-value { font-size: 24px; }

@@ -2,7 +2,8 @@
 // Page header from the mockup: red uppercase eyebrow (the nav group, e.g.
 // "02 / Sales"), 40px Manrope H1, optional status chip beside it (#status
 // slot, as on the mockup's invoice page), optional lede (#lede slot), actions
-// on the right (default slot).
+// on the right (default slot). The #title slot replaces the H1's text when it
+// needs markup (the invoice page's italic number); title stays its plain text.
 defineProps<{ eyebrow?: string; title: string }>();
 </script>
 
@@ -11,10 +12,10 @@ defineProps<{ eyebrow?: string; title: string }>();
     <div class="page-heading">
       <div v-if="eyebrow" class="page-eyebrow">{{ eyebrow }}</div>
       <div v-if="$slots.status" class="page-title-row">
-        <h1>{{ title }}</h1>
+        <h1><slot name="title">{{ title }}</slot></h1>
         <slot name="status" />
       </div>
-      <h1 v-else>{{ title }}</h1>
+      <h1 v-else><slot name="title">{{ title }}</slot></h1>
       <p v-if="$slots.lede" class="page-lede"><slot name="lede" /></p>
     </div>
     <div v-if="$slots.default" class="page-head-actions">

@@ -1,6 +1,8 @@
 package fx
 
 import (
+	"github.com/shopspring/decimal"
+
 	"github.com/wenhaokho/wenhao-billing/backend/internal/fx/fxdb"
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
@@ -48,4 +50,51 @@ type SyncResult struct {
 // BaseCurrencyOut is the ledger's functional currency.
 type BaseCurrencyOut struct {
 	BaseCurrency string `json:"base_currency"`
+}
+
+// SummaryOut is the FX Rates page's cards: each currency's newest rate to the
+// base currency, and the last successful provider sync (null before any).
+type SummaryOut struct {
+	BaseCurrency string            `json:"base_currency"`
+	Currencies   []CurrencySummary `json:"currencies" nullable:"false" doc:"One entry per currency with any rate to the base currency, sorted by currency."`
+	LastSync     *LastSyncOut      `json:"last_sync" doc:"The newest successful provider sync; null when none has run."`
+}
+
+// CurrencySummary is one currency's newest rate to the base currency and the
+// rate of the newest earlier date.
+type CurrencySummary struct {
+	Currency     string         `json:"currency"`
+	LatestRate   platform.Dec8  `json:"latest_rate"`
+	LatestAsOf   platform.Date  `json:"latest_as_of"`
+	PreviousRate *platform.Dec8 `json:"previous_rate" doc:"The rate of the newest earlier date; null when there is none."`
+	PreviousAsOf *platform.Date `json:"previous_as_of"`
+	//nolint:forbidigo // a percentage change for display, not money
+	ChangePct *float64 `json:"change_pct" doc:"(latest - previous) / previous x 100, rounded to 4 places; null when there is no previous rate."`
+}
+
+// LastSyncOut is a recorded provider sync: when, SCHEDULED or MANUAL, and the
+// provider.
+type LastSyncOut struct {
+	RanAt   platform.Time `json:"ran_at"`
+	Trigger string        `json:"trigger" enum:"SCHEDULED,MANUAL"`
+	Source  string        `json:"source"`
+}
+
+var hundred = decimal.NewFromInt(100)
+
+func currencySummary(r fxdb.RateSummaryRow) CurrencySummary {
+	out := CurrencySummary{
+		Currency: r.Currency, LatestRate: platform.NewDec8(r.LatestRate),
+		LatestAsOf: platform.Date{Time: r.LatestAsOf.Time},
+	}
+	if r.PreviousRate.Valid && r.PreviousAsOf.Valid {
+		prev := platform.NewDec8(r.PreviousRate.Decimal)
+		out.PreviousRate = &prev
+		out.PreviousAsOf = &platform.Date{Time: r.PreviousAsOf.Time}
+		if !r.PreviousRate.Decimal.IsZero() {
+			pct := r.LatestRate.Sub(r.PreviousRate.Decimal).Mul(hundred).Div(r.PreviousRate.Decimal).Round(4).InexactFloat64()
+			out.ChangePct = &pct
+		}
+	}
+	return out
 }

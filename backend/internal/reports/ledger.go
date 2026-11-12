@@ -29,6 +29,8 @@ func trialBalance(asOf time.Time, base string, rows []reportsdb.TrialBalanceRows
 		totalCredit = totalCredit.Add(r.BaseCredit)
 	}
 	out.TotalDebitBase, out.TotalCreditBase = platform.NewDec4(totalDebit), platform.NewDec4(totalCredit)
+	diff := totalDebit.Sub(totalCredit)
+	out.Balanced, out.Difference = diff.IsZero(), platform.NewDec4(diff)
 	return out
 }
 

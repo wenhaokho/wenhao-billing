@@ -7,11 +7,15 @@ import AppIcon from "@/components/AppIcon.vue";
 import AppSidebar from "@/components/shell/AppSidebar.vue";
 import AppTopbar from "@/components/shell/AppTopbar.vue";
 import type { IconName } from "@/theme/icons";
+import { pageTitleOverride } from "@/composables/usePageTitle";
 
 const auth = useAuthStore();
 const route = useRoute();
 
+// A view may override the route's title (an issued invoice is "Invoice",
+// not "Edit invoice"); see usePageTitle.
 const pageTitle = computed(() => {
+  if (pageTitleOverride.value) return pageTitleOverride.value;
   const map: Record<string, string> = {
     dashboard: "Dashboard",
     customers: "Customers",

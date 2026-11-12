@@ -34,6 +34,16 @@ func (r routes) registerRecon(api huma.API) {
 			"from_date and to_date cover their whole days.",
 	}), r.auditLog)
 	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "payments-audit-log-csv", Method: http.MethodGet, Path: prefix + "/audit-log.csv", Tags: tags,
+		Summary: "The audit log as a CSV download, newest first",
+		Description: "The same filters as the list, without limit; at most 50000 rows. A cell that starts with =, +, -, @, tab, CR or LF " +
+			"in a text column is prefixed with a single quote so a spreadsheet does not run it as a formula. " +
+			"The file starts with a UTF-8 BOM so Excel reads it as UTF-8.",
+		Responses: map[string]*huma.Response{"200": {Description: "The CSV", Content: map[string]*huma.MediaType{
+			"text/csv": {Schema: &huma.Schema{Type: "string", Format: "binary"}},
+		}}},
+	}), r.auditLogCSV)
+	huma.Register(api, platform.Admin(huma.Operation{
 		OperationID: "payments-awaiting-review", Method: http.MethodGet, Path: prefix + "/awaiting-review", Tags: tags,
 		Summary: "Payments held for manual review, newest first",
 	}), r.awaitingReview)
@@ -98,18 +108,28 @@ func dateParam(p platform.OptionalParam[time.Time]) pgtype.Date {
 }
 
 func (r routes) auditLog(ctx context.Context, in *auditIn) (*auditOut, error) {
-	arg := paymentsdb.AuditLogParams{FromDate: dateParam(in.FromDate), ToDate: dateParam(in.ToDate), RowLimit: in.Limit}
-	if in.Action != "" {
-		arg.Action = &in.Action
-	}
-	if in.Payer != "" {
-		p := platform.LikeEscape(in.Payer)
-		arg.Payer = &p
-	}
+	arg := auditParams(in.Action, in.Payer, in.FromDate, in.ToDate, in.Limit)
 	rows, err := r.q.AuditLog(ctx, arg)
 	if err != nil {
 		return nil, err
 	}
+	return &auditOut{Body: auditRows(rows)}, nil
+}
+
+// auditParams are the AuditLog query's arguments for the filters both routes take.
+func auditParams(action, payer string, from, to platform.OptionalParam[time.Time], limit int32) paymentsdb.AuditLogParams {
+	arg := paymentsdb.AuditLogParams{FromDate: dateParam(from), ToDate: dateParam(to), RowLimit: limit}
+	if action != "" {
+		arg.Action = &action
+	}
+	if payer != "" {
+		p := platform.LikeEscape(payer)
+		arg.Payer = &p
+	}
+	return arg
+}
+
+func auditRows(rows []paymentsdb.AuditLogRow) []AuditRow {
 	out := make([]AuditRow, 0, len(rows))
 	for _, l := range rows {
 		row := AuditRow{
@@ -126,7 +146,7 @@ func (r routes) auditLog(ctx context.Context, in *auditIn) (*auditOut, error) {
 		}
 		out = append(out, row)
 	}
-	return &auditOut{Body: out}, nil
+	return out
 }
 
 func nonNil(s []string) []string {

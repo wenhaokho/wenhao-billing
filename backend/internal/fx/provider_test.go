@@ -385,12 +385,12 @@ func TestSyncDirect(t *testing.T) {
 	f := newFrankfurter(t, map[string]answer{"USD": quote("USD", "16250.5", "2026-01-09")})
 	cfg := fxConfig(f.URL+"/v1", "USD")
 	a := newApp(t, cfg)
-	got, err := fx.Sync(context.Background(), a.Pool, cfg, &http.Client{Timeout: time.Second})
+	got, err := fx.Sync(context.Background(), a.Pool, cfg, &http.Client{Timeout: time.Second}, fx.TriggerScheduled, nil)
 	if err != nil || got.Created != 1 || got.Fetched != 1 || !slices.Equal(got.Pairs, []string{"USD->IDR"}) || got.Source != "FRANKFURTER" {
 		t.Errorf("%+v, %v", got, err)
 	}
 	f.Close()
-	_, err = fx.Sync(context.Background(), a.Pool, cfg, &http.Client{Timeout: time.Second})
+	_, err = fx.Sync(context.Background(), a.Pool, cfg, &http.Client{Timeout: time.Second}, fx.TriggerScheduled, nil)
 	if err == nil || !strings.HasPrefix(err.Error(), "fx provider request failed for USD->IDR: ") {
 		t.Errorf("err %v", err)
 	}

@@ -53,6 +53,9 @@ func TestOverviewEmpty(t *testing.T) {
 	if k.Collected.ShareOfInvoiced != nil || k.Overdue.ShareOfOpenAR != nil || k.MonthlyRecurring.ForeignShare != nil || k.MonthlyRecurring.TopForeignCurrency != nil {
 		t.Errorf("shares not nil: %+v", k)
 	}
+	if mu := k.MonthlyRecurring.Unconverted; len(mu) != 0 || mu == nil {
+		t.Errorf("mrr unconverted = %v, want []", mu)
+	}
 	if len(r.Unconverted) != 0 || r.Unconverted == nil {
 		t.Errorf("unconverted = %v, want empty non-nil", r.Unconverted)
 	}
@@ -179,6 +182,24 @@ func TestOverviewRecurringForeignShareUnconverted(t *testing.T) {
 		t.Errorf("share = %v, want nil: AUD MRR has no rate", *k.MonthlyRecurring.ForeignShare)
 	}
 	eq(t, "unconverted", r.Unconverted, []string{"AUD"})
+}
+
+// The MRR tile tells "no recurring invoices" from "recurring only in currencies
+// with no FX rate" by monthly_recurring.unconverted, which names only the MRR
+// currencies, not one left out of another figure.
+func TestOverviewRecurringUnconvertedNamesOnlyMRRCurrencies(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	c := newCustomer(t, a, "Acme")
+	template(t, a, c, "AUD", "5", monthly())                      // no AUD rate
+	inv{cur: "EUR", amount: "100", due: d(ovDay)}.insert(t, a, c) // no EUR rate, not recurring
+	r := overview(t, a)
+	k := r.KPIs
+	if got := k.MonthlyRecurring.Amount.Decimal().StringFixed(4); got != "0.0000" {
+		t.Errorf("mrr = %s, want 0.0000", got)
+	}
+	eq(t, "mrr unconverted", k.MonthlyRecurring.Unconverted, []string{"AUD"})
+	eq(t, "unconverted", r.Unconverted, []string{"AUD", "EUR"})
 }
 
 func TestOverviewDueTodayIsNotOverdue(t *testing.T) {

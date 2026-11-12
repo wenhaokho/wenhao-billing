@@ -154,6 +154,24 @@ test("edit routes name themselves like their page heading", async ({ page }) => 
   }
 });
 
+test("an issued invoice's topbar says Invoice, not Edit invoice", async ({ page }) => {
+  const c = await apiPost<{ customer_id: string }>(page.request, "/customers", { name: `E2E Issued Title ${Date.now()}`, default_currency: "IDR" });
+  const inv = await apiPost<{ invoice_id: string }>(page.request, "/invoices", {
+    customer_id: c.customer_id,
+    currency: "IDR",
+    line_items: [{ description: "E2E issued title line", quantity: "1", unit_price: "1000" }],
+  });
+  const fin = await page.request.post(`/api/v1/invoices/${inv.invoice_id}/finalize`);
+  expect(fin.ok(), `finalize: ${fin.status()} ${await fin.text()}`).toBe(true);
+  await page.goto(`/invoices/${inv.invoice_id}/edit`);
+  await expect(page.locator("main").getByRole("heading", { level: 1 }).first()).toHaveText(/^\s*Invoice \S+/);
+  await expect(page.locator("header.topbar .topbar-title")).toHaveText("Invoice");
+  // Leaving the invoice in-app drops the override: the next page names itself.
+  await sidebar(page).getByRole("link", { name: "Invoices", exact: true }).click();
+  await expect(page).toHaveURL(/\/invoices(\?|$)/);
+  await expect(page.locator("header.topbar .topbar-title")).toHaveText("Invoices");
+});
+
 test("manual review empty state fits its card at 375", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   // Nothing held, whatever the dev database holds.

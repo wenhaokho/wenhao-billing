@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import AppIcon from "@/components/AppIcon.vue";
 import PageHeader from "@/components/PageHeader.vue";
+import StatusTag from "@/components/StatusTag.vue";
+import type { StatusTone } from "@/theme/status";
 import type { IconName } from "@/theme/icons";
 import { computed, ref } from "vue";
 
@@ -63,11 +65,19 @@ const gated: Capability[] = [
   { icon: "trash-2", label: "Deletions", detail: "Any delete is previewed and requires your explicit confirmation." },
 ];
 
-// The three capability cards (mockup): a tone chip, the mode, then the items.
-const capabilityGroups: { tag: string; tone: "blue" | "green" | "amber"; mode: string; items: Capability[] }[] = [
-  { tag: "Reads", tone: "blue", mode: "No confirmation", items: reads },
-  { tag: "Writes", tone: "green", mode: "Automatic", items: writes },
-  { tag: "Confirm first", tone: "amber", mode: "You approve", items: gated },
+// The three capability cards (mockup): a tone badge, the mode with its
+// glyph, then the items, each with its own decorative icon.
+const capabilityGroups: {
+  code: string;
+  tag: string;
+  tone: StatusTone;
+  mode: string;
+  modeIcon: IconName;
+  items: Capability[];
+}[] = [
+  { code: "READS", tag: "Reads", tone: "blue", mode: "No confirmation", modeIcon: "eye", items: reads },
+  { code: "WRITES", tag: "Writes", tone: "green", mode: "Automatic", modeIcon: "sparkles", items: writes },
+  { code: "CONFIRM_FIRST", tag: "Confirm first", tone: "amber", mode: "You approve", modeIcon: "shield", items: gated },
 ];
 
 const securityPoints = computed<{ icon: IconName; title: string; body: string }[]>(() => [
@@ -161,14 +171,17 @@ const securityPoints = computed<{ icon: IconName; title: string; body: string }[
 
     <!-- What it can do -->
     <section class="capabilities">
-      <div v-for="g in capabilityGroups" :key="g.tag" class="cap-col card">
+      <div v-for="g in capabilityGroups" :key="g.tag" class="cap-col card" data-testid="ai-capability">
         <div class="cap-head">
-          <span class="cap-tag" :class="`tone-${g.tone}`">{{ g.tag }}</span>
-          <span class="cap-note">{{ g.mode }}</span>
+          <StatusTag :status="g.code" :tone="g.tone" :label="g.tag" />
+          <span class="cap-note"><AppIcon :name="g.modeIcon" :size="13" />{{ g.mode }}</span>
         </div>
         <div v-for="c in g.items" :key="c.label" class="cap-item">
-          <div class="cap-label">{{ c.label }}</div>
-          <div class="cap-detail">{{ c.detail }}</div>
+          <span class="cap-icon" :class="`tone-${g.tone}`"><AppIcon :name="c.icon" :size="16" /></span>
+          <div>
+            <div class="cap-label">{{ c.label }}</div>
+            <div class="cap-detail">{{ c.detail }}</div>
+          </div>
         </div>
       </div>
     </section>
@@ -319,24 +332,20 @@ const securityPoints = computed<{ icon: IconName; title: string; body: string }[
 }
 .cap-col { padding: 28px; }
 .cap-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.cap-tag {
-  display: inline-block;
-  padding: 5px 9px;
-  font: 500 11px/1 var(--wb-font-sans);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  border-radius: 2px;
-}
 .tone-blue { background: var(--wb-blue-bg); color: var(--wb-blue-fg); }
 .tone-green { background: var(--wb-green-bg); color: var(--wb-green-fg); }
 .tone-amber { background: var(--wb-amber-bg); color: var(--wb-amber-fg); }
 .cap-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font: 500 11px var(--wb-font-sans);
   letter-spacing: 1.2px;
   text-transform: uppercase;
   color: var(--wb-muted-soft);
 }
-.cap-item { margin-top: 22px; }
+.cap-item { margin-top: 22px; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 14px; align-items: start; }
+.cap-icon { width: 32px; height: 32px; display: grid; place-items: center; }
 .cap-label { font-weight: 500; font-size: 16px; color: var(--wb-ink); }
 .cap-detail { color: var(--wb-muted); font-size: 14px; line-height: 1.55; margin-top: 4px; }
 

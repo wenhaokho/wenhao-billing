@@ -13,6 +13,7 @@ import Tag from "primevue/tag";
 import Message from "primevue/message";
 import PageHeader from "@/components/PageHeader.vue";
 import EmptyState from "@/components/EmptyState.vue";
+import StatusTag from "@/components/StatusTag.vue";
 import { api } from "@/api/client";
 import { formatAmount } from "@/utils/money";
 import { toLocalIsoDate } from "@/utils/date";
@@ -36,6 +37,8 @@ interface TrialBalanceReport {
   rows: TrialBalanceRow[];
   total_debit_base: string;
   total_credit_base: string;
+  balanced: boolean;
+  difference: string;
 }
 
 interface BalanceSheetLine {
@@ -203,6 +206,20 @@ function typeSeverity(t: string) {
           <span>Base currency <strong>{{ trialBalance.data.value.base_currency }}</strong></span>
           <span>Total debit <strong class="num">{{ formatAmount(trialBalance.data.value.total_debit_base, trialBalance.data.value.base_currency) }}</strong></span>
           <span>Total credit <strong class="num">{{ formatAmount(trialBalance.data.value.total_credit_base, trialBalance.data.value.base_currency) }}</strong></span>
+          <StatusTag
+            v-if="trialBalance.data.value.balanced"
+            status="BALANCED"
+            tone="green"
+            label="Balanced"
+            data-testid="tb-balance"
+          />
+          <StatusTag
+            v-else
+            status="OUT_OF_BALANCE"
+            tone="red"
+            :label="`Out of balance by ${formatAmount(trialBalance.data.value.difference, trialBalance.data.value.base_currency)}`"
+            data-testid="tb-balance"
+          />
         </div>
         <DataTable
           :value="trialBalance.data.value?.rows ?? []"

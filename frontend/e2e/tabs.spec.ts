@@ -222,3 +222,10 @@ for (const kind of ["customers", "vendors"] as const) {
     expect(errors()).toEqual([]);
   });
 }
+
+test("Trial balance shows Balanced on the dev ledger", async ({ page }) => {
+  await page.goto("/reports");
+  const tag = page.getByTestId("tb-balance");
+  await expect(tag).toBeVisible();
+  await expect(tag).toHaveText("Balanced");
+});

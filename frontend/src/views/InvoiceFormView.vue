@@ -34,6 +34,8 @@ import SendInvoiceDialog from "@/components/SendInvoiceDialog.vue";
 import SendReceiptDialog, { type ReceiptPayment } from "@/components/SendReceiptDialog.vue";
 import InvoiceReminders from "@/components/InvoiceReminders.vue";
 import { useReturnTo } from "@/composables/useReturnTo";
+import { usePageTitle } from "@/composables/usePageTitle";
+import { formatLocalDay } from "@/utils/date";
 
 const props = defineProps<{ id?: string }>();
 const router = useRouter();
@@ -136,6 +138,10 @@ interface InvoiceOut {
   footer: string | null;
   internal_note: string | null;
   is_template: boolean;
+  // GET /invoices/{id} only (InvoiceDetail): the newest clearing of a PAID
+  // invoice's payments; cleared_by null is the matching engine.
+  cleared_at?: string | null;
+  cleared_by?: string | null;
   line_items: {
     line_item_id: string;
     item_id: string | null;
@@ -370,6 +376,20 @@ const templateEnded = computed(
 const readOnly = computed(
   () => templateEnded.value || !!(existing.value?.status && existing.value.status !== "DRAFT"),
 );
+
+// The H1's italic invoice number (mockup) on an issued, read-only invoice; a
+// DRAFT being edited keeps "Edit invoice", the topbar's title for this route.
+const titleNumber = computed(
+  () => (!isRecurring.value && readOnly.value && existing.value?.invoice_number) || null,
+);
+// The topbar: an issued (read-only) invoice is "Invoice", not "Edit invoice".
+usePageTitle(computed(() => (!isRecurring.value && readOnly.value && existing.value ? "Invoice" : null)));
+// "Paid · cleared by X on <date>" for a PAID invoice with a logged clearing.
+const clearedLine = computed(() => {
+  const inv = existing.value;
+  if (inv?.status !== "PAID" || !inv.cleared_at) return null;
+  return `Paid · cleared by ${inv.cleared_by ?? "the matching engine"} on ${formatLocalDay(inv.cleared_at)}.`;
+});
 
 const queryClient = useQueryClient();
 const showPaymentDialog = ref(false);
@@ -790,19 +810,23 @@ const canSave = computed(() => {
       eyebrow="02 / Sales"
       :title="isRecurring
         ? (templateEnded ? 'Recurring invoice' : isEdit ? 'Edit recurring invoice' : 'New recurring invoice')
-        : (isEdit ? 'Edit invoice' : 'New invoice')"
+        : titleNumber ? `Invoice ${titleNumber}` : (isEdit ? 'Edit invoice' : 'New invoice')"
     >
+      <template v-if="titleNumber" #title>
+        Invoice <span class="title-number">{{ titleNumber }}</span>
+      </template>
       <template v-if="templateEnded || existing?.status" #status>
         <StatusTag v-if="templateEnded" status="ENDED" />
         <StatusTag v-else-if="existing?.status" :status="existing.status" />
       </template>
-      <template v-if="templateEnded || readOnly || (existing?.coverage_start && existing?.coverage_end)" #lede>
+      <template v-if="templateEnded || readOnly || clearedLine || (existing?.coverage_start && existing?.coverage_end)" #lede>
         <span v-if="templateEnded" class="readonly-note">
           View only — this recurring template has ended and no longer generates invoices.
         </span>
         <span v-else-if="readOnly" class="readonly-note">
           Read-only — {{ existing?.status }} invoices cannot be edited.
         </span>
+        <span v-if="clearedLine" class="readonly-note" data-testid="cleared-line">{{ clearedLine }}</span>
         <span
           v-if="existing?.coverage_start && existing?.coverage_end"
           class="readonly-note"
@@ -1222,7 +1246,10 @@ const canSave = computed(() => {
 
     <div class="notes-grid">
       <div class="card notes-card">
-        <label class="section-label">Notes / Terms</label>
+        <div>
+          <label class="section-label">Notes / Terms</label>
+          <div class="section-sublabel">Printed on the PDF.</div>
+        </div>
         <Textarea
           v-model="notes"
           rows="5"
@@ -1233,11 +1260,14 @@ const canSave = computed(() => {
       </div>
 
       <div class="card notes-card">
-        <label class="section-label">Internal note</label>
+        <div>
+          <label class="section-label">Internal note</label>
+          <div class="section-sublabel">Visible to your team only.</div>
+        </div>
         <Textarea
           v-model="internalNote"
           rows="3"
-          placeholder="Visible to your team only. Not shown to the customer or on the PDF."
+          placeholder="Nothing noted yet."
           class="notes-textarea"
           :disabled="readOnly"
         />
@@ -1663,8 +1693,15 @@ const canSave = computed(() => {
   letter-spacing: -0.4px;
   color: var(--wb-ink);
 }
+.section-sublabel { font-size: 13px; color: var(--wb-muted); margin-top: 4px; }
 .notes-textarea {
   width: 100%;
+}
+/* The H1's invoice number (mockup): Georgia italic in brand red. */
+.title-number {
+  font: italic 400 1em Georgia, "Times New Roman", serif;
+  letter-spacing: -1px;
+  color: var(--wb-red);
 }
 
 @media (max-width: 900px) {

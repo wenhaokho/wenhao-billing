@@ -7,6 +7,7 @@ package fxdb
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
@@ -81,6 +82,50 @@ func (q *Queries) GetRate(ctx context.Context, arg GetRateParams) (decimal.Decim
 	return rate, err
 }
 
+const insertSyncRun = `-- name: InsertSyncRun :exec
+INSERT INTO fx_sync_runs (source, trigger, created, updated, actor_user_id)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type InsertSyncRunParams struct {
+	Source      string
+	Trigger     string
+	Created     int32
+	Updated     int32
+	ActorUserID pgtype.UUID
+}
+
+// A successful provider sync (fx_sync_runs), in the transaction of its rates.
+func (q *Queries) InsertSyncRun(ctx context.Context, arg InsertSyncRunParams) error {
+	_, err := q.db.Exec(ctx, insertSyncRun,
+		arg.Source,
+		arg.Trigger,
+		arg.Created,
+		arg.Updated,
+		arg.ActorUserID,
+	)
+	return err
+}
+
+const lastSyncRun = `-- name: LastSyncRun :one
+SELECT ran_at, trigger, source FROM fx_sync_runs
+ ORDER BY ran_at DESC, run_id DESC
+ LIMIT 1
+`
+
+type LastSyncRunRow struct {
+	RanAt   time.Time
+	Trigger string
+	Source  string
+}
+
+func (q *Queries) LastSyncRun(ctx context.Context) (LastSyncRunRow, error) {
+	row := q.db.QueryRow(ctx, lastSyncRun)
+	var i LastSyncRunRow
+	err := row.Scan(&i.RanAt, &i.Trigger, &i.Source)
+	return i, err
+}
+
 const latestRate = `-- name: LatestRate :one
 SELECT rate_id, from_currency, to_currency, rate, as_of_date, source, created_at FROM fx_rates
  WHERE from_currency = $1 AND to_currency = $2
@@ -142,6 +187,58 @@ func (q *Queries) ListRates(ctx context.Context, arg ListRatesParams) ([]FxRate,
 			&i.AsOfDate,
 			&i.Source,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const rateSummary = `-- name: RateSummary :many
+WITH ranked AS (
+  SELECT from_currency, rate, as_of_date,
+         row_number() OVER (PARTITION BY from_currency ORDER BY as_of_date DESC) AS n
+    FROM fx_rates
+   WHERE to_currency = $1::text AND from_currency <> $1::text
+)
+SELECT l.from_currency AS currency, l.rate AS latest_rate, l.as_of_date AS latest_as_of,
+       p.rate AS previous_rate, p.as_of_date AS previous_as_of
+  FROM ranked l
+  LEFT JOIN ranked p ON p.from_currency = l.from_currency AND p.n = 2
+ WHERE l.n = 1
+ ORDER BY l.from_currency
+`
+
+type RateSummaryRow struct {
+	Currency     string
+	LatestRate   decimal.Decimal
+	LatestAsOf   pgtype.Date
+	PreviousRate decimal.NullDecimal
+	PreviousAsOf pgtype.Date
+}
+
+// Per currency with a rate to base: its newest rate and, when there is one,
+// the rate of the newest earlier date (as_of_date is unique per pair, so the
+// second row is it). Sorted by currency.
+func (q *Queries) RateSummary(ctx context.Context, base string) ([]RateSummaryRow, error) {
+	rows, err := q.db.Query(ctx, rateSummary, base)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RateSummaryRow
+	for rows.Next() {
+		var i RateSummaryRow
+		if err := rows.Scan(
+			&i.Currency,
+			&i.LatestRate,
+			&i.LatestAsOf,
+			&i.PreviousRate,
+			&i.PreviousAsOf,
 		); err != nil {
 			return nil, err
 		}

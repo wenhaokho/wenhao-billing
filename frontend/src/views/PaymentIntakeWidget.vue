@@ -186,6 +186,10 @@ const kpiTiles = computed<Tile[]>(() => {
     mrrSub = `billed in foreign ccy, mostly ${mrr.top_foreign_currency}`;
   } else if (mrr.foreign_share === null && !decIsZero(mrr.amount)) {
     mrrSub = "excl. currencies with no FX rate";
+  } else if (mrr.unconverted?.length) {
+    // Every recurring invoice is in a currency with no FX rate: there is
+    // recurring revenue, it just cannot be shown in the base currency.
+    mrrSub = `Recurring in ${mrr.unconverted.join(", ")} not converted (no FX rate)`;
   } else {
     mrrSub = mrr.foreign_share === 0 ? `all billed in ${base}` : "no active recurring invoices";
   }
