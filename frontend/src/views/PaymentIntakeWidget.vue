@@ -395,10 +395,41 @@ function timeAgo(iso: string) {
       />
     </div>
 
-    <!-- The mockup stacks these two under aging; at this app's widths (sidebar
-         included) that column is too narrow to pair them, and stacked they ran
-         far below the revenue card. A row of their own keeps them side by side. -->
-    <div class="grid-2">
+    <!-- Two rows of three: upcoming | cash in | reconciliation, then
+         top customers | needs attention | recent activity. -->
+    <div class="grid-3">
+      <div v-if="isError && !stats" class="card card-pad error">
+        Failed to load upcoming invoices.
+        <Button label="Retry" text @click="refetch()" />
+      </div>
+      <div v-else-if="!stats" class="card loading">
+        <ProgressSpinner style="width: 40px; height: 40px" />
+      </div>
+      <div v-else class="card dash-card list-card upcoming-card">
+        <div class="dash-card-head ruled">
+          <div>
+            <h2 class="card-title">Upcoming invoices</h2>
+            <p class="card-sub">Recurring &amp; usage invoices generating in the next 90 days.</p>
+          </div>
+        </div>
+        <div v-if="!stats.upcoming_invoices.length" class="empty-state">
+          <AppIcon name="calendar" />
+          <div>Nothing scheduled in the next 90 days.</div>
+        </div>
+        <ul v-else class="rows upcoming-list">
+          <li v-for="u in stats.upcoming_invoices" :key="u.invoice_id" class="row">
+            <Tag :value="u.mode === 'USAGE' ? 'Usage' : 'Recurring'" :severity="modeSeverity(u.mode)" />
+            <div class="row-main">
+              <div class="row-title">{{ u.customer_name ?? '—' }}</div>
+              <div class="row-amt num">
+                {{ formatAmount(u.amount, u.currency) }} {{ u.currency }}<template v-if="u.amount_is_estimate"> · est.</template>
+              </div>
+            </div>
+            <span class="row-time">{{ formatDate(u.next_date) }}</span>
+          </li>
+        </ul>
+      </div>
+
       <div v-if="receivablesError && !receivables" class="card card-pad error">
         Failed to load expected cash in.
         <Button label="Retry" text @click="refetchReceivables()" />
@@ -417,7 +448,7 @@ function timeAgo(iso: string) {
       <ReconDonut v-else :data="overview.reconciliation" :period-words="PERIOD_PHRASE[shownPeriod]" />
     </div>
 
-    <div class="grid-2">
+    <div class="grid-3">
       <div v-if="overviewError && !overview" class="card card-pad error">
         Failed to load top customers.
         <Button label="Retry" text @click="refetchOverview()" />
@@ -443,81 +474,52 @@ function timeAgo(iso: string) {
       <NeedsAttentionCard v-else :rows="receivables.needs_attention" />
 
       <div v-if="isError && !stats" class="card card-pad error">
-        Failed to load dashboard stats.
+        Failed to load recent activity.
         <Button label="Retry" text @click="refetch()" />
       </div>
       <div v-else-if="!stats" class="card loading">
         <ProgressSpinner style="width: 40px; height: 40px" />
       </div>
-      <template v-else>
-        <!-- Upcoming -->
-        <div class="card dash-card list-card upcoming-card">
-          <div class="dash-card-head ruled">
-            <div>
-              <h2 class="card-title">Upcoming invoices</h2>
-              <p class="card-sub">Recurring &amp; usage invoices generating in the next 90 days.</p>
-            </div>
+      <div v-else class="card dash-card list-card">
+        <div class="dash-card-head ruled">
+          <div>
+            <h2 class="card-title">Recent reconciliation activity</h2>
+            <p class="card-sub">Latest 10 engine decisions and manual actions.</p>
           </div>
-          <div v-if="!stats.upcoming_invoices.length" class="empty-state">
-            <AppIcon name="calendar" />
-            <div>Nothing scheduled in the next 90 days.</div>
-          </div>
-          <ul v-else class="rows upcoming-list">
-            <li v-for="u in stats.upcoming_invoices" :key="u.invoice_id" class="row">
-              <Tag :value="u.mode === 'USAGE' ? 'Usage' : 'Recurring'" :severity="modeSeverity(u.mode)" />
-              <div class="row-main">
-                <div class="row-title">{{ u.customer_name ?? '—' }}</div>
-                <div class="row-amt num">
-                  {{ formatAmount(u.amount, u.currency) }} {{ u.currency }}<template v-if="u.amount_is_estimate"> · est.</template>
-                </div>
-              </div>
-              <span class="row-time">{{ formatDate(u.next_date) }}</span>
-            </li>
-          </ul>
+          <RouterLink to="/audit-log" class="head-link">Audit log ↗</RouterLink>
         </div>
-
-        <!-- Recent activity -->
-        <div class="card dash-card list-card">
-          <div class="dash-card-head ruled">
-            <div>
-              <h2 class="card-title">Recent reconciliation activity</h2>
-              <p class="card-sub">Latest 10 engine decisions and manual actions.</p>
-            </div>
-            <RouterLink to="/audit-log" class="head-link">Audit log ↗</RouterLink>
-          </div>
-          <div v-if="!stats.recent_activity.length" class="empty-state">
-            <AppIcon name="clock" />
-            <div>No activity yet. POST a payment to the intake endpoints to see events here.</div>
-          </div>
-          <ul v-else class="rows">
-            <li v-for="a in stats.recent_activity" :key="a.log_id" class="row">
-              <StatusTag :status="a.action" />
-              <div class="row-main">
-                <div class="row-title">{{ a.payer_name ?? 'unknown payer' }}</div>
-                <div class="row-amt num">{{ formatAmount(a.amount, a.currency) }} {{ a.currency ?? '' }}</div>
-              </div>
-              <span class="row-time">{{ timeAgo(a.created_at) }}</span>
-              <div class="row-details">
-                <RouterLink
-                  v-if="a.invoice_id"
-                  :to="{ path: `/invoices/${a.invoice_id}/edit`, query: { from: '/dashboard' } }"
-                  class="doc-no"
-                >Invoice {{ a.invoice_number ?? '(no number)' }}</RouterLink>
-                <span v-if="a.customer_name">{{ a.customer_name }}</span>
-                <span v-if="a.payment_date" class="nowrap">Paid {{ formatDate(a.payment_date) }}</span>
-                <span v-if="Number(a.wht_amount)" class="nowrap num">WHT {{ formatAmount(a.wht_amount, a.currency) }} {{ a.currency }}</span>
-                <span v-if="a.payer_reference">Ref {{ a.payer_reference }}</span>
-                <span v-if="a.confidence_score !== null" class="nowrap">Confidence {{ Number(a.confidence_score) }}%</span>
-                <span v-if="intakeSourceLabel(a.intake_source)">Via {{ intakeSourceLabel(a.intake_source) }}</span>
-                <span v-if="a.actor_name">By {{ a.actor_name }}</span>
-              </div>
-              <div v-if="a.reasons.length" class="row-reasons">
-                <span v-for="r in a.reasons" :key="r" class="reason-chip">{{ r }}</span>
-              </div>
-            </li>
-          </ul>
+        <div v-if="!stats.recent_activity.length" class="empty-state">
+          <AppIcon name="clock" />
+          <div>No activity yet. POST a payment to the intake endpoints to see events here.</div>
         </div>
-      </template>
+        <ul v-else class="rows">
+          <li v-for="a in stats.recent_activity" :key="a.log_id" class="row">
+            <StatusTag :status="a.action" />
+            <div class="row-main">
+              <div class="row-title">{{ a.payer_name ?? 'unknown payer' }}</div>
+              <div class="row-amt num">{{ formatAmount(a.amount, a.currency) }} {{ a.currency ?? '' }}</div>
+            </div>
+            <span class="row-time">{{ timeAgo(a.created_at) }}</span>
+            <div class="row-details">
+              <RouterLink
+                v-if="a.invoice_id"
+                :to="{ path: `/invoices/${a.invoice_id}/edit`, query: { from: '/dashboard' } }"
+                class="doc-no"
+              >Invoice {{ a.invoice_number ?? '(no number)' }}</RouterLink>
+              <span v-if="a.customer_name">{{ a.customer_name }}</span>
+              <span v-if="a.payment_date" class="nowrap">Paid {{ formatDate(a.payment_date) }}</span>
+              <span v-if="Number(a.wht_amount)" class="nowrap num">WHT {{ formatAmount(a.wht_amount, a.currency) }} {{ a.currency }}</span>
+              <span v-if="a.payer_reference">Ref {{ a.payer_reference }}</span>
+              <span v-if="a.confidence_score !== null" class="nowrap">Confidence {{ Number(a.confidence_score) }}%</span>
+              <span v-if="intakeSourceLabel(a.intake_source)">Via {{ intakeSourceLabel(a.intake_source) }}</span>
+              <span v-if="a.actor_name">By {{ a.actor_name }}</span>
+            </div>
+            <div v-if="a.reasons.length" class="row-reasons">
+              <span v-for="r in a.reasons" :key="r" class="reason-chip">{{ r }}</span>
+            </div>
+          </li>
+        </ul>
+      </div>
     </div>
   </section>
 </template>
@@ -581,14 +583,15 @@ function timeAgo(iso: string) {
   gap: 24px;
 }
 @media (max-width: 1000px) { .chart-row { grid-template-columns: minmax(0, 1fr); } }
-/* Cash in | reconciliation; top customers | needs attention; upcoming | recent activity. */
-.grid-2 {
+/* Upcoming | cash in | reconciliation; top customers | needs attention | recent activity. */
+.grid-3 {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 24px;
   align-items: stretch;
 }
-@media (max-width: 1000px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1200px) { .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1000px) { .grid-3 { grid-template-columns: minmax(0, 1fr); } }
 
 .dash-card { display: flex; flex-direction: column; min-width: 0; }
 .dash-card-head {
@@ -651,7 +654,7 @@ function timeAgo(iso: string) {
   .row-reasons { grid-column: 1 / -1; }
 }
 
-/* Upcoming list: fill the card, whose height follows the activity card beside it,
+/* Upcoming list: fill the card, whose height follows the cards beside it,
    then scroll. height: 0 stops a long list from stretching the row; ~5 rows minimum. */
 .upcoming-list { flex: 1 1 0; height: 0; min-height: 22rem; overflow-y: auto; }
 @media (max-width: 1000px) { .upcoming-list { flex: none; height: auto; max-height: 28rem; min-height: 0; } }
