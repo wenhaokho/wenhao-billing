@@ -304,7 +304,7 @@ const footerSpan = computed(() => {
 
     <div class="rev-foot">
       <div>
-        <div class="foot-label" :title="`Invoiced in ${footerSpan}, ${base} equivalent`">Invoiced · {{ footerSpan }}</div>
+        <div class="foot-label" :title="`Invoiced in ${footerSpan}, ${base} equivalent`">Invoiced · {{ footerSpan }} · {{ base }} eq.</div>
         <div class="foot-value num">{{ formatCompact(footer.invoiced_base) }}</div>
       </div>
       <div>

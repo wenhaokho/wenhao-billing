@@ -187,6 +187,16 @@ function openCreate() {
       {{ syncMessage.text }}
     </Message>
 
+    <Message
+      v-if="summary.isError.value"
+      class="sync-message"
+      severity="warn"
+      role="status"
+      data-testid="fx-summary-error"
+    >
+      Couldn't load the latest rates and last sync. The rates table below may still be current; reload to try again.
+    </Message>
+
     <div v-if="summary.data.value" class="fx-summary" data-testid="fx-summary">
       <div v-for="c in summary.data.value.currencies" :key="c.currency" class="fx-cell" data-testid="fx-card">
         <div class="fx-label">{{ c.currency }} <span class="arrow">→</span> {{ summary.data.value.base_currency }} · latest</div>

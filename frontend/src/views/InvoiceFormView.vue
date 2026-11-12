@@ -34,6 +34,7 @@ import SendInvoiceDialog from "@/components/SendInvoiceDialog.vue";
 import SendReceiptDialog, { type ReceiptPayment } from "@/components/SendReceiptDialog.vue";
 import InvoiceReminders from "@/components/InvoiceReminders.vue";
 import { useReturnTo } from "@/composables/useReturnTo";
+import { usePageTitle } from "@/composables/usePageTitle";
 import { formatLocalDay } from "@/utils/date";
 
 const props = defineProps<{ id?: string }>();
@@ -381,6 +382,8 @@ const readOnly = computed(
 const titleNumber = computed(
   () => (!isRecurring.value && readOnly.value && existing.value?.invoice_number) || null,
 );
+// The topbar: an issued (read-only) invoice is "Invoice", not "Edit invoice".
+usePageTitle(computed(() => (!isRecurring.value && readOnly.value && existing.value ? "Invoice" : null)));
 // "Paid · cleared by X on <date>" for a PAID invoice with a logged clearing.
 const clearedLine = computed(() => {
   const inv = existing.value;
