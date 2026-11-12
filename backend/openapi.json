@@ -4409,12 +4409,20 @@
               "string",
               "null"
             ]
+          },
+          "unconverted": {
+            "description": "Sorted MRR currencies with no FX rate, left out of amount (a subset of the overview's unconverted).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
           "amount",
           "foreign_share",
-          "top_foreign_currency"
+          "top_foreign_currency",
+          "unconverted"
         ],
         "type": "object"
       },

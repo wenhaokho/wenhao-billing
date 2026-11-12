@@ -53,6 +53,7 @@ type KPIRecurring struct {
 	//nolint:forbidigo // a percentage is a JSON number, not money
 	ForeignShare       *float64 `json:"foreign_share" doc:"Percent not in the base currency; null when there is no MRR or when an MRR currency has no FX rate (it is then in unconverted)."`
 	TopForeignCurrency *string  `json:"top_foreign_currency"`
+	Unconverted        []string `json:"unconverted" nullable:"false" doc:"Sorted MRR currencies with no FX rate, left out of amount (a subset of the overview's unconverted)."`
 }
 
 // OverviewKPIs are the dashboard's headline figures in the base currency.
@@ -205,14 +206,14 @@ func Overview(ctx context.Context, db statsdb.DBTX, base string, today time.Time
 	}
 	total, foreign, topAmount := decimal.Zero, decimal.Zero, decimal.Zero
 	var top string
-	mrrUnconverted := false
+	mrrSkipped := map[string]bool{}
 	for _, m := range mrr {
 		v, cs, err := toBase(ctx, db, base, today, []invoices.CurrencyAmount{m})
 		if err != nil {
 			return OverviewResponse{}, err
 		}
 		for _, c := range cs {
-			skipped[c], mrrUnconverted = true, true
+			skipped[c], mrrSkipped[c] = true, true
 		}
 		total = total.Add(v)
 		if m.Currency != base {
@@ -223,13 +224,18 @@ func Overview(ctx context.Context, db statsdb.DBTX, base string, today time.Time
 		}
 	}
 	out.KPIs.MonthlyRecurring.Amount = platform.NewDec4(total)
-	if !mrrUnconverted {
+	if len(mrrSkipped) == 0 {
 		// With a currency left out the share would be of a partial total.
 		out.KPIs.MonthlyRecurring.ForeignShare = percent(foreign, total)
 	}
 	if top != "" {
 		out.KPIs.MonthlyRecurring.TopForeignCurrency = &top
 	}
+	out.KPIs.MonthlyRecurring.Unconverted = make([]string, 0, len(mrrSkipped))
+	for c := range mrrSkipped {
+		out.KPIs.MonthlyRecurring.Unconverted = append(out.KPIs.MonthlyRecurring.Unconverted, c)
+	}
+	slices.Sort(out.KPIs.MonthlyRecurring.Unconverted)
 
 	if out.DaysToPay, err = daysToPay(ctx, q, w); err != nil {
 		return OverviewResponse{}, err
