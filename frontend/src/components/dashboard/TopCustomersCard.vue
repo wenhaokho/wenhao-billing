@@ -95,7 +95,9 @@ const risky = computed(() => (props.data.top3_share ?? 0) >= CONCENTRATION_RISK)
 
 <style scoped src="./dash-card.css"></style>
 <style scoped>
-.top-rows { list-style: none; padding: 0; margin: 20px 0 0; display: flex; flex-direction: column; gap: 10px; flex: 1; justify-content: space-around; }
+/* "safe" keeps the first rows reachable when the list overflows and scrolls; the
+   8px side padding holds the rows' -8px hover margin inside the scroll box. */
+.top-rows { list-style: none; padding: 0 8px; margin: 20px -8px 0; display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; justify-content: safe space-around; }
 .top-row {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;

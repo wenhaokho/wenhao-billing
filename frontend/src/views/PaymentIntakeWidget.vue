@@ -10,7 +10,7 @@ import CashInCard from "@/components/dashboard/CashInCard.vue";
 import ReconDonut from "@/components/dashboard/ReconDonut.vue";
 import TopCustomersCard from "@/components/dashboard/TopCustomersCard.vue";
 import NeedsAttentionCard from "@/components/dashboard/NeedsAttentionCard.vue";
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { keepPreviousData, useQuery } from "@tanstack/vue-query";
 import { useRoute, useRouter } from "vue-router";
 import Tag from "primevue/tag";
@@ -89,6 +89,36 @@ const { data, isError, refetch } = useQuery<DashboardStats>({
 });
 
 const stats = computed(() => data.value);
+
+// The second card row (top customers | needs attention | recent activity) is
+// capped at the height where recent activity shows its eighth row; past that,
+// each card's list scrolls. Rows wrap differently at each width, so the cap is
+// measured, not fixed, and re-measured when the list resizes or reloads.
+const ACTIVITY_ROWS_SHOWN = 8;
+const activityList = ref<HTMLElement | null>(null);
+const rowCap = ref("none");
+function measureRowCap() {
+  const ul = activityList.value;
+  const card = ul?.parentElement;
+  const last = ul?.children[ACTIVITY_ROWS_SHOWN - 1] as HTMLElement | undefined;
+  if (!ul || !card || !last || ul.children.length <= ACTIVITY_ROWS_SHOWN) {
+    rowCap.value = "none";
+    return;
+  }
+  const ulTop = ul.getBoundingClientRect().top;
+  const listOffset = ulTop - card.getBoundingClientRect().top;
+  const rowsBottom = last.getBoundingClientRect().bottom - ulTop + ul.scrollTop;
+  const border = parseFloat(getComputedStyle(card).borderBottomWidth) || 0;
+  rowCap.value = `${Math.ceil(listOffset + rowsBottom + border)}px`;
+}
+const activityObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measureRowCap);
+watch(activityList, (el, old) => {
+  if (old) activityObserver?.unobserve(old);
+  if (el) activityObserver?.observe(el);
+  measureRowCap();
+});
+watch(() => stats.value?.recent_activity, () => nextTick(measureRowCap));
+onBeforeUnmount(() => activityObserver?.disconnect());
 
 const {
   data: overview,
@@ -448,7 +478,7 @@ function timeAgo(iso: string) {
       <ReconDonut v-else :data="overview.reconciliation" :period-words="PERIOD_PHRASE[shownPeriod]" />
     </div>
 
-    <div class="grid-3">
+    <div class="grid-3 grid-capped" :style="{ '--row-cap': rowCap }">
       <div v-if="overviewError && !overview" class="card card-pad error">
         Failed to load top customers.
         <Button label="Retry" text @click="refetchOverview()" />
@@ -492,7 +522,7 @@ function timeAgo(iso: string) {
           <AppIcon name="clock" />
           <div>No activity yet. POST a payment to the intake endpoints to see events here.</div>
         </div>
-        <ul v-else class="rows">
+        <ul v-else ref="activityList" class="rows activity-list">
           <li v-for="a in stats.recent_activity" :key="a.log_id" class="row">
             <StatusTag :status="a.action" />
             <div class="row-main">
@@ -592,6 +622,9 @@ function timeAgo(iso: string) {
 }
 @media (max-width: 1200px) { .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 1000px) { .grid-3 { grid-template-columns: minmax(0, 1fr); } }
+/* Top customers | needs attention | recent activity: capped at eight activity
+   rows (--row-cap, measured in the script); each card's list scrolls past that. */
+.grid-capped > * { max-height: var(--row-cap, none); }
 
 .dash-card { display: flex; flex-direction: column; min-width: 0; }
 .dash-card-head {
@@ -657,5 +690,6 @@ function timeAgo(iso: string) {
 /* Upcoming list: fill the card, whose height follows the cards beside it,
    then scroll. height: 0 stops a long list from stretching the row; ~5 rows minimum. */
 .upcoming-list { flex: 1 1 0; height: 0; min-height: 22rem; overflow-y: auto; }
+.activity-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 @media (max-width: 1000px) { .upcoming-list { flex: none; height: auto; max-height: 28rem; min-height: 0; } }
 </style>
