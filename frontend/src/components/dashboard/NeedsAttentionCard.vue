@@ -129,7 +129,7 @@ function differs(r: AttentionRow): boolean {
   padding: 24px 28px 18px;
   border-bottom: 1px solid var(--wb-line);
 }
-.na-rows { list-style: none; padding: 0; margin: 0; }
+.na-rows { list-style: none; padding: 0; margin: 0; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .na-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
