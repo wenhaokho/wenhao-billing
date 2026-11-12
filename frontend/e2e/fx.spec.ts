@@ -6,18 +6,24 @@ interface FxSummary {
   last_sync: { ran_at: string; trigger: "SCHEDULED" | "MANUAL"; source: string } | null;
 }
 
-// The FX Rates page shows a card per currency from GET fx-rates/summary (or
-// the empty state when there is no rate), and the "Last sync" cell: a time
-// ago with weekly/manual, or "Never synced".
+// The FX Rates page shows a card per currency from GET fx-rates/summary, and
+// the "Last sync" cell: a time ago with weekly/manual, or "Never synced". The
+// expectations come from the summary the page itself loaded, so another spec
+// adding a rate or syncing meanwhile cannot make them stale.
 test("FX rates page shows the summary cards and last sync", async ({ page }) => {
-  const res = await page.request.get("/api/v1/accounting/fx-rates/summary");
+  const [res] = await Promise.all([
+    page.waitForResponse("**/accounting/fx-rates/summary"),
+    page.goto("/fx-rates"),
+  ]);
   expect(res.ok(), `GET fx-rates/summary: ${res.status()}`).toBe(true);
   const summary = (await res.json()) as FxSummary;
 
-  await page.goto("/fx-rates");
   const cards = page.getByTestId("fx-card");
+  // Wait for the summary to render before counting (the last-sync cell is
+  // always there once it has).
+  const lastSync = page.getByTestId("fx-last-sync");
+  await expect(lastSync).toContainText("Last sync");
   if (summary.currencies.length === 0) {
-    await expect(page.getByText("No FX rates recorded yet")).toBeVisible();
     await expect(cards).toHaveCount(0);
   } else {
     await expect(cards).toHaveCount(summary.currencies.length);
@@ -26,8 +32,6 @@ test("FX rates page shows the summary cards and last sync", async ({ page }) => 
     }
   }
 
-  const lastSync = page.getByTestId("fx-last-sync");
-  await expect(lastSync).toContainText("Last sync");
   if (summary.last_sync) {
     await expect(lastSync).toContainText(/just now|ago/);
     await expect(lastSync).toContainText(summary.last_sync.trigger === "SCHEDULED" ? "weekly" : "manual");

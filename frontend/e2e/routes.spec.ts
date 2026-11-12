@@ -148,7 +148,10 @@ test("audit log Export CSV link returns the filtered CSV", async ({ page }) => {
   expect(res.status()).toBe(200);
   expect(res.headers()["content-type"]).toContain("text/csv");
   expect(res.headers()["content-disposition"]).toMatch(/^attachment; filename="audit-log-\d{4}-\d{2}-\d{2}\.csv"$/);
-  expect((await res.text()).split("\n")[0]).toBe(
+  // A UTF-8 BOM leads the file (Excel), then the header.
+  const body = await res.body();
+  expect([...body.subarray(0, 3)], "UTF-8 BOM").toEqual([0xef, 0xbb, 0xbf]);
+  expect(body.subarray(3).toString("utf8").split("\n")[0]).toBe(
     "created_at,action,reason_codes,reasons,payer_name,amount,currency,payment_date,invoice_number,customer_name,actor_name,intake_source,confidence_score",
   );
 });
