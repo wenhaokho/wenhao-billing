@@ -209,9 +209,9 @@ func main() {
 			os.Exit(0)
 		case "backpost-ledger":
 			os.Exit(backpostLedger(os.Args[2:]))
-		case "set-password", "issue-session":
+		case "set-password", "issue-session", "create-admin":
 			if len(os.Args) != 3 {
-				slog.Error("usage: api set-password|issue-session <email>")
+				slog.Error("usage: api set-password|issue-session|create-admin <email>")
 				os.Exit(2)
 			}
 			if err := runCommand(os.Args[1], os.Args[2]); err != nil {
@@ -487,6 +487,13 @@ func runCommand(name, addr string) error {
 		slog.Info("set-password: password set; every session of the user is signed out", "email", addr)
 		return nil
 	}
+	if name == "create-admin" {
+		if err := createAdminCmd(ctx, pool, addr, os.Stdin); err != nil {
+			return err
+		}
+		slog.Info("create-admin: admin created; log in with the password given on stdin", "email", addr)
+		return nil
+	}
 	return issueSessionCmd(ctx, pool, platform.NewSessions(cfg), addr, os.Stdout)
 }
 
@@ -498,6 +505,16 @@ func setPasswordCmd(ctx context.Context, pool *pgxpool.Pool, addr string, stdin 
 		return err
 	}
 	return auth.SetPassword(ctx, pool, addr, strings.TrimRight(line, "\r\n"))
+}
+
+// createAdminCmd reads one line from stdin (the password, as setPasswordCmd
+// reads it) and creates the admin addr with it.
+func createAdminCmd(ctx context.Context, pool *pgxpool.Pool, addr string, stdin io.Reader) error {
+	line, err := bufio.NewReader(stdin).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return auth.CreateAdmin(ctx, pool, addr, strings.TrimRight(line, "\r\n"))
 }
 
 // issueSessionCmd prints a session token for the admin addr.

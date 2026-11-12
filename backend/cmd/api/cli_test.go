@@ -90,6 +90,45 @@ func TestSetPasswordThenLogin(t *testing.T) {
 	}
 }
 
+// create-admin makes the first user of an empty database, who can then log
+// in; it refuses an existing email (set-password is for that), a short
+// password and an address with no @.
+func TestCreateAdminThenLogin(t *testing.T) {
+	t.Parallel()
+	a := newCLIApp(t)
+	if err := createAdminCmd(context.Background(), a.pool, "Owner@Example.com", strings.NewReader("a-first-password\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	var role, addr string
+	if err := a.pool.QueryRow(context.Background(), `SELECT role, email FROM users`).Scan(&role, &addr); err != nil {
+		t.Fatal(err)
+	}
+	if role != "admin" || addr != "Owner@example.com" {
+		t.Errorf("created role %q email %q, want admin Owner@example.com", role, addr)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"Owner@example.com","password":"a-first-password"}`))
+	req.Header.Set("Content-Type", "application/json")
+	if rec := a.serve(req); rec.Code != http.StatusOK {
+		t.Errorf("login: %d %s", rec.Code, rec.Body)
+	}
+	for _, c := range []struct{ name, addr, stdin string }{
+		{"existing email", "Owner@EXAMPLE.COM", "another-password\n"}, // same address: only the domain's case differs
+		{"short password", "second@example.com", "short\n"},
+		{"no @", "not-an-email", "a-fine-password\n"},
+	} {
+		if err := createAdminCmd(context.Background(), a.pool, c.addr, strings.NewReader(c.stdin)); err == nil {
+			t.Errorf("%s: create-admin succeeded", c.name)
+		}
+	}
+	var n int
+	if err := a.pool.QueryRow(context.Background(), `SELECT count(*) FROM users`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("%d users after the refused calls, want 1", n)
+	}
+}
+
 func TestSetPasswordBumpsEpoch(t *testing.T) {
 	t.Parallel()
 	a := newCLIApp(t)
