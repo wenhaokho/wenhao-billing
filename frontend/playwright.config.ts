@@ -1,9 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 import { STORAGE_STATE } from "./e2e/helpers";
 
-// Run through `bash scripts/e2e.sh` (repo root): it starts the dev stack,
-// provides BASE_URL, E2E_EMAIL and E2E_PASSWORD, and runs this in the
-// Playwright image on the stack's network.
+// Run through `bash scripts/e2e.sh` (repo root): it starts the e2e stack on a
+// fresh billing_e2e database, provides BASE_URL, E2E_EMAIL and E2E_PASSWORD,
+// and runs this in the Playwright image on the stack's network.
 const baseURL = process.env.BASE_URL;
 if (!baseURL) throw new Error("BASE_URL is not set; run the suite through scripts/e2e.sh");
 
