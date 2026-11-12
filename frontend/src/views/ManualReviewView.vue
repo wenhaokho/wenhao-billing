@@ -15,7 +15,7 @@ import Message from "primevue/message";
 import { api } from "@/api/client";
 import { formatAmount, formatMoney } from "@/utils/money";
 import InvoicePicker from "@/components/review/InvoicePicker.vue";
-import { reasonLabel, reasonTone } from "@/theme/status";
+import { reasonLabel, reasonTone, type ReasonCode } from "@/theme/status";
 
 interface Payment {
   payment_id: string;
@@ -37,7 +37,7 @@ interface LogEntry {
   log_id: string;
   action: string;
   reasons: string[] | null;
-  reason_codes: string[];
+  reason_codes: ReasonCode[];
   created_at: string;
 }
 

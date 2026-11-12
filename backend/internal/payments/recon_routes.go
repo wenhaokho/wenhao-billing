@@ -87,7 +87,7 @@ type AuditRow struct {
 	PaymentID    uuid.UUID      `json:"payment_id"`
 	Action       string         `json:"action"`
 	Reasons      []string       `json:"reasons"`
-	ReasonCodes  []string       `json:"reason_codes" nullable:"false" doc:"The code of each reason, in the same order (payments.ReasonCode)."`
+	ReasonCodes  []string       `json:"reason_codes" nullable:"false" enum:"NO_CANDIDATE,CURRENCY_MISMATCH,AMOUNT_MISMATCH,LOW_CONFIDENCE,AMBIGUOUS,CLEAR_FAILED,EXACT_MATCH,MANUAL_ENTRY,MANUAL_APPROVAL,ALIAS_MATCH,OTHER" doc:"The code of each reason, in the same order (payments.ReasonCode)."`
 	ActorUserID  *uuid.UUID     `json:"actor_user_id"`
 	ActorEmail   *string        `json:"actor_email"`
 	CreatedAt    *platform.Time `json:"created_at"`
@@ -188,7 +188,7 @@ type LogEntry struct {
 	LogID       uuid.UUID      `json:"log_id"`
 	Action      string         `json:"action"`
 	Reasons     []string       `json:"reasons"`
-	ReasonCodes []string       `json:"reason_codes" nullable:"false" doc:"The code of each reason, in the same order (payments.ReasonCode)."`
+	ReasonCodes []string       `json:"reason_codes" nullable:"false" enum:"NO_CANDIDATE,CURRENCY_MISMATCH,AMOUNT_MISMATCH,LOW_CONFIDENCE,AMBIGUOUS,CLEAR_FAILED,EXACT_MATCH,MANUAL_ENTRY,MANUAL_APPROVAL,ALIAS_MATCH,OTHER" doc:"The code of each reason, in the same order (payments.ReasonCode)."`
 	ActorUserID *uuid.UUID     `json:"actor_user_id"`
 	CreatedAt   *platform.Time `json:"created_at"`
 }
