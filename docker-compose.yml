@@ -30,7 +30,7 @@ services:
   backend:
     build:
       context: ./backend
-    environment:
+    environment: &backend-env
       ENVIRONMENT: development
       DATABASE_URL: postgresql://billing:billing@db:5432/billing
       SESSION_SECRET: dev-session-secret-change-me-32-bytes-min
@@ -84,6 +84,48 @@ services:
       # Named volume for node_modules — keeps the container's install intact
       # and avoids the host overlay clobbering it.
       - frontend_node_modules:/app/node_modules
+
+  # The Playwright suite's own API and SPA (profile e2e, started by
+  # scripts/e2e.sh), so the suite never writes to the dev `billing` database.
+  # backend-e2e is the backend above on the `billing_e2e` database, which
+  # scripts/e2e.sh drops and recreates before every run (the baseline
+  # migration seeds the business profile, chart of accounts and an FX rate);
+  # frontend-e2e is the vite dev server proxying to it. No published ports:
+  # Playwright reaches them on the stack's network. Scheduler always off.
+  backend-e2e:
+    profiles: ["e2e"]
+    build:
+      context: ./backend
+    environment:
+      <<: *backend-env
+      DATABASE_URL: postgresql://billing:billing@db:5432/billing_e2e
+      SCHEDULER_ENABLED: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/api", "healthcheck"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  frontend-e2e:
+    profiles: ["e2e"]
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_PROXY_TARGET: http://backend-e2e:8000
+    depends_on:
+      backend-e2e:
+        condition: service_healthy
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      # Its own install and vite cache, apart from the dev frontend's.
+      - frontend_e2e_node_modules:/app/node_modules
 
   # Go toolchain for backend/ (run via backend/dev). Uses this file's network,
   # so no extra Compose project or network is created.
@@ -140,3 +182,4 @@ volumes:
   gomod:
   gobuild:
   frontend_node_modules:
+  frontend_e2e_node_modules:

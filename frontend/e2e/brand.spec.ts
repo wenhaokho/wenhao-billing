@@ -99,7 +99,27 @@ async function chartValue(canvas: Locator, pick: string): Promise<unknown> {
   }, pick);
 }
 
+/**
+ * Seeds an issued (finalized) IDR invoice dated today for a new customer and
+ * returns the customer's name, so a test that needs one does not depend on
+ * what else the database holds.
+ */
+async function issuedBrandInvoice(api: APIRequestContext): Promise<string> {
+  const name = `E2E Brand Issued ${uniq()}`;
+  const c = await apiPost<{ customer_id: string }>(api, "/customers", { name, default_currency: "IDR" });
+  const inv = await apiPost<{ invoice_id: string }>(api, "/invoices", {
+    customer_id: c.customer_id,
+    currency: "IDR",
+    line_items: [{ description: "E2E brand issued line", quantity: "1", unit_price: "100000" }],
+  });
+  const fin = await api.post(`/api/v1/invoices/${inv.invoice_id}/finalize`);
+  expect(fin.ok(), `finalize: ${fin.status()}`).toBe(true);
+  return name;
+}
+
 test("dashboard charts use brand colours and follow theme", async ({ page }) => {
+  // The revenue chart draws only when an invoice was issued in the last 12 months.
+  await issuedBrandInvoice(page.request);
   await page.goto("/dashboard");
   await page.evaluate(() => localStorage.setItem("wb:theme", "light"));
   await page.reload();
@@ -160,14 +180,16 @@ test("list pages use the page header", async ({ page }) => {
 });
 
 test("table dates stay on one line", async ({ page }) => {
+  const customer = await issuedBrandInvoice(page.request);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/invoices?tab=all");
   const main = page.locator("main#main-content");
-  await expect(main.locator("tbody tr").first()).toBeVisible();
+  const row = main.locator("tbody tr", { hasText: customer });
+  await expect(row).toBeVisible();
   const headers = (await main.locator("thead th").allInnerTexts()).map((t) => t.trim().toLowerCase());
   const col = headers.indexOf("issued");
   expect(col, "Issued column").toBeGreaterThanOrEqual(0);
-  const cell = main.locator("tbody tr").first().locator("td").nth(col);
+  const cell = row.locator("td").nth(col);
   await expect(cell).toHaveText(/^\d{4}-\d{2}-\d{2}/);
   const { height, line } = await cell.evaluate((td) => {
     const range = document.createRange();
