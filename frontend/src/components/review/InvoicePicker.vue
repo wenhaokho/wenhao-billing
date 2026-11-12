@@ -20,6 +20,8 @@ interface OpenInvoice {
   customer_id: string;
   currency: string;
   balance_due: string;
+  // Balance less withholding (PPh) not yet booked: what the customer pays.
+  expected_cash: string;
   due_date: string | null;
   status: string;
 }
@@ -97,10 +99,18 @@ function invoiceLabel(inv: OpenInvoice): string {
 
 const currencyMismatch = computed(() => !!selected.value && selected.value.currency !== props.currency);
 // Compared only in one currency: across currencies the amounts do not compare.
+// The customer pays the expected cash (balance less PPh), so that is the
+// ceiling when the invoice has withholding, else the balance due.
+const withholding = computed(() => {
+  const inv = selected.value;
+  return inv ? decSub(inv.balance_due, inv.expected_cash) : "0";
+});
+const hasWithholding = computed(() => !decIsZero(withholding.value));
 const overBalance = computed(() => {
   const inv = selected.value;
   if (!inv || currencyMismatch.value) return false;
-  const diff = decSub(props.amount, inv.balance_due);
+  const ceiling = hasWithholding.value ? inv.expected_cash : inv.balance_due;
+  const diff = decSub(props.amount, ceiling);
   return !decIsZero(diff) && !diff.startsWith("-");
 });
 </script>
@@ -146,8 +156,16 @@ const overBalance = computed(() => {
       This invoice is in {{ selected!.currency }}; the payment is in {{ currency }}. Approving does not convert it.
     </Message>
     <Message v-if="overBalance" severity="warn" :closable="false" data-testid="warn-over-balance">
-      The payment ({{ formatMoney(amount, currency) }}) is more than the balance due
-      ({{ formatMoney(selected!.balance_due, selected!.currency) }}).
+      <template v-if="hasWithholding">
+        The payment ({{ formatMoney(amount, currency) }}) is more than the expected cash
+        ({{ formatMoney(selected!.expected_cash, selected!.currency) }}: balance
+        {{ formatMoney(selected!.balance_due, selected!.currency) }} less PPh
+        {{ formatMoney(withholding, selected!.currency) }}).
+      </template>
+      <template v-else>
+        The payment ({{ formatMoney(amount, currency) }}) is more than the balance due
+        ({{ formatMoney(selected!.balance_due, selected!.currency) }}).
+      </template>
     </Message>
   </div>
 </template>
