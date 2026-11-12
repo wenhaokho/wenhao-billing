@@ -336,6 +336,7 @@ function canRecordPayment(row: Invoice): boolean {
       :customer-email="paymentCustomerEmail"
       :customer-cc="paymentCustomer?.billing_cc_emails ?? null"
       mode="AR"
+      :invoice-id="paymentTarget.invoice_id"
       :loading="recordPayment.isPending.value"
       :error="paymentError"
       @update:visible="(v) => (paymentDialogVisible = v)"

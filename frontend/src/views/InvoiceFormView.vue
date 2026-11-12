@@ -1298,6 +1298,7 @@ const canSave = computed(() => {
       :wht-outstanding="invoiceWhtOutstanding"
       :currency="existing.currency"
       mode="AR"
+      :invoice-id="props.id ?? null"
       :customer-email="selectedCustomer?.contact_email ?? null"
       :customer-cc="selectedCustomer?.billing_cc_emails ?? null"
       :loading="recordPayment.isPending.value"

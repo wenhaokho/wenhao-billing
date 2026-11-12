@@ -92,6 +92,19 @@ SELECT * FROM payments
  WHERE invoice_id = $1 AND status = 'CLEARED'
  ORDER BY payment_date DESC, created_at DESC, payment_id DESC;
 
+-- name: LastCustomerPayer :many
+-- The payer name of the newest CLEARED payment from the invoice's customer,
+-- on any of its invoices: what the record-payment form suggests. A manual
+-- payment that named no payer holds the placeholder and is skipped. At most
+-- one row; none when the customer has no named payment yet.
+SELECT p.payer_name
+  FROM invoices i
+  JOIN payments p ON p.customer_id = i.customer_id
+ WHERE i.invoice_id = $1 AND p.status = 'CLEARED'
+   AND btrim(p.payer_name) <> '' AND p.payer_name <> @manual_payer::text
+ ORDER BY p.payment_date DESC, p.created_at DESC, p.payment_id DESC
+ LIMIT 1;
+
 -- name: ListInvoiceClearTimes :many
 -- When each payment of an invoice was last cleared: its newest CLEARED
 -- (auto-clear, manual entry) or OVERRIDDEN (manual approval) log row. The

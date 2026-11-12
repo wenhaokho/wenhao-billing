@@ -91,6 +91,13 @@ func (r routes) registerInvoice(api huma.API) {
 		Summary: "The invoice's CLEARED payments, newest first",
 		Errors:  []int{http.StatusNotFound},
 	}), r.listForInvoice)
+	huma.Register(api, platform.Admin(huma.Operation{
+		OperationID: "invoices-last-payer", Method: http.MethodGet, Path: prefix + "/last-payer", Tags: tags,
+		Summary: "The payer name the customer last paid under",
+		Description: "The payer name of the newest CLEARED payment from this invoice's customer, on any invoice; null when there is none. " +
+			"Manual payments that named no payer are skipped. The record-payment form prefills it.",
+		Errors: []int{http.StatusNotFound},
+	}), r.lastPayer)
 }
 
 func invoiceNotFound() error {
@@ -261,6 +268,32 @@ type listIn struct {
 }
 
 type listOut struct{ Body []PaymentOut }
+
+// LastPayerOut is the payer name the record-payment form suggests.
+type LastPayerOut struct {
+	PayerName *string `json:"payer_name" doc:"Null when the customer has no named CLEARED payment."`
+}
+
+type lastPayerOut struct{ Body LastPayerOut }
+
+func (r routes) lastPayer(ctx context.Context, in *listIn) (*lastPayerOut, error) {
+	exists, err := r.q.InvoiceExists(ctx, in.InvoiceID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, clientError(invoiceNotFound())
+	}
+	names, err := r.q.LastCustomerPayer(ctx, paymentsdb.LastCustomerPayerParams{InvoiceID: in.InvoiceID, ManualPayer: manualPayer})
+	if err != nil {
+		return nil, err
+	}
+	out := LastPayerOut{}
+	if len(names) > 0 {
+		out.PayerName = &names[0]
+	}
+	return &lastPayerOut{Body: out}, nil
+}
 
 func (r routes) listForInvoice(ctx context.Context, in *listIn) (*listOut, error) {
 	exists, err := r.q.InvoiceExists(ctx, in.InvoiceID)

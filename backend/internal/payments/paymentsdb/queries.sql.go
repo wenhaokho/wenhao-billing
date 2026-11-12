@@ -305,6 +305,45 @@ func (q *Queries) InvoiceExists(ctx context.Context, invoiceID uuid.UUID) (bool,
 	return exists, err
 }
 
+const lastCustomerPayer = `-- name: LastCustomerPayer :many
+SELECT p.payer_name
+  FROM invoices i
+  JOIN payments p ON p.customer_id = i.customer_id
+ WHERE i.invoice_id = $1 AND p.status = 'CLEARED'
+   AND btrim(p.payer_name) <> '' AND p.payer_name <> $2::text
+ ORDER BY p.payment_date DESC, p.created_at DESC, p.payment_id DESC
+ LIMIT 1
+`
+
+type LastCustomerPayerParams struct {
+	InvoiceID   uuid.UUID
+	ManualPayer string
+}
+
+// The payer name of the newest CLEARED payment from the invoice's customer,
+// on any of its invoices: what the record-payment form suggests. A manual
+// payment that named no payer holds the placeholder and is skipped. At most
+// one row; none when the customer has no named payment yet.
+func (q *Queries) LastCustomerPayer(ctx context.Context, arg LastCustomerPayerParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, lastCustomerPayer, arg.InvoiceID, arg.ManualPayer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var payer_name string
+		if err := rows.Scan(&payer_name); err != nil {
+			return nil, err
+		}
+		items = append(items, payer_name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAwaitingReview = `-- name: ListAwaitingReview :many
 SELECT payment_id, invoice_id, customer_id, amount, currency, payer_name, payer_reference, payment_date, intake_source, external_ref, status, adjustment_type, confidence_score, created_at, wht_amount FROM payments
  WHERE status = 'PENDING_MANUAL_REVIEW'
