@@ -13,6 +13,8 @@ import Checkbox from "primevue/checkbox";
 import { formatAmount } from "@/utils/money";
 import { toLocalIsoDate } from "@/utils/date";
 import { useAuthStore } from "@/stores/auth";
+import { useQuery } from "@tanstack/vue-query";
+import { api } from "@/api/client";
 
 interface Props {
   visible: boolean;
@@ -26,6 +28,8 @@ interface Props {
   error?: string | null;
   customerEmail?: string | null;
   customerCc?: string[] | null;
+  // AR only: prefills the payer name with the customer's last one.
+  invoiceId?: string | null;
 }
 
 const props = defineProps<Props>();
@@ -53,6 +57,23 @@ const auth = useAuthStore();
 const sendReceipt = ref(false);
 const receiptTo = ref<string>("");
 const receiptCc = ref<string>("");
+
+// The customer's last payer name, refetched each time the dialog opens. It
+// fills the field only until the user types in it.
+const payerTouched = ref(false);
+const { data: lastPayer } = useQuery({
+  queryKey: computed(() => ["invoice-last-payer", props.invoiceId]),
+  queryFn: async () =>
+    (await api.get<{ payer_name: string | null }>(`/invoices/${props.invoiceId}/last-payer`)).data,
+  enabled: () => props.visible && props.mode === "AR" && !!props.invoiceId,
+});
+
+function prefillPayer() {
+  const name = lastPayer.value?.payer_name;
+  if (props.visible && !payerTouched.value && name) payerName.value = name;
+}
+
+watch(lastPayer, prefillPayer);
 
 const balanceNum = computed(() => Number(props.balanceDue || 0));
 const whtOutstandingNum = computed(() => {
@@ -86,6 +107,8 @@ watch(
       amount.value = fullCash.value;
       paymentDate.value = new Date();
       payerName.value = "";
+      payerTouched.value = false;
+      prefillPayer();
       payerReference.value = "";
       notes.value = "";
       sendReceipt.value = props.mode === "AR";
@@ -192,7 +215,7 @@ function submit() {
       </label>
       <label v-if="mode === 'AR'" class="field">
         <span>Payer name <span class="muted">(optional)</span></span>
-        <InputText v-model="payerName" placeholder="e.g. ACME Corp" />
+        <InputText v-model="payerName" placeholder="e.g. ACME Corp" @input="payerTouched = true" />
       </label>
       <label class="field">
         <span>Reference <span class="muted">(optional)</span></span>
