@@ -37,6 +37,34 @@ if (sentryDsn) {
     tracePropagationTargets: [/^\/api\//],
   });
 }
+// After a deploy, an open tab still asks for the previous build's hashed chunks,
+// which no longer exist: "Failed to fetch dynamically imported module"
+// (WENHAO-BILLING-D). Reload once to pick up the new build; the sessionStorage
+// guard stops a reload loop when the chunk is really missing.
+const CHUNK_RELOAD_KEY = "chunk-reload-at";
+function reloadForNewBuild(path?: string): boolean {
+  try {
+    const last = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY) ?? 0);
+    if (Date.now() - last < 10_000) return false;
+    sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+  } catch {
+    // Storage blocked: reload anyway, the browser fetches the new index.html.
+  }
+  if (path) window.location.assign(path);
+  else window.location.reload();
+  return true;
+}
+window.addEventListener("vite:preloadError", (event) => {
+  if (reloadForNewBuild()) event.preventDefault();
+});
+const CHUNK_ERROR =
+  /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i;
+router.onError((err, to) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  // Land on the route the user was going to, not the one they left.
+  if (CHUNK_ERROR.test(msg)) reloadForNewBuild(to.fullPath);
+});
+
 app.use(createPinia());
 app.use(router);
 app.use(VueQueryPlugin);
