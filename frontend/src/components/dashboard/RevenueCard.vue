@@ -9,7 +9,7 @@ import { formatAmount } from "@/utils/money";
 import { currencySlot, withAlpha, type ChartColors } from "@/theme/chartColors";
 import { formatCompact, formatShare, monthLong, monthShort } from "./format";
 import { decIsZero, decSub, decSum } from "@/utils/decimal";
-import type { MonthlyRevenueResponse } from "./types";
+import type { MonthlyRevenueResponse, RevenueFooter } from "./types";
 
 const Chart = defineAsyncComponent(() => import("primevue/chart"));
 
@@ -230,7 +230,10 @@ const chartLabel = computed(() =>
 );
 
 const foreignCurrencies = computed(() => props.data.currencies.filter((c) => c !== base.value));
-const footer = computed(() => props.data.footer);
+// A response without a footer (an older API, or a stale dev backend) must not
+// crash the dashboard render; show zeros instead (WENHAO-BILLING-B).
+const EMPTY_FOOTER: RevenueFooter = { invoiced_base: "0", foreign_share: null, best_month: null, fx_exposure: "0" };
+const footer = computed(() => props.data.footer ?? EMPTY_FOOTER);
 // The footer total covers the twelve calendar months shown, not the KPI row's
 // rolling year, so name its span: "Dec 2025 – Nov 2026".
 const footerSpan = computed(() => {
