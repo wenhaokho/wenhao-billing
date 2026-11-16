@@ -91,10 +91,10 @@ const { data, isError, refetch } = useQuery<DashboardStats>({
 const stats = computed(() => data.value);
 
 // The second card row (top customers | needs attention | recent activity) is
-// capped at the height where recent activity shows its eighth row; past that,
+// capped at the height where recent activity shows its fifth row; past that,
 // each card's list scrolls. Rows wrap differently at each width, so the cap is
 // measured, not fixed, and re-measured when the list resizes or reloads.
-const ACTIVITY_ROWS_SHOWN = 8;
+const ACTIVITY_ROWS_SHOWN = 5;
 const activityList = ref<HTMLElement | null>(null);
 const rowCap = ref("none");
 function measureRowCap() {
@@ -622,7 +622,7 @@ function timeAgo(iso: string) {
 }
 @media (max-width: 1200px) { .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 1000px) { .grid-3 { grid-template-columns: minmax(0, 1fr); } }
-/* Top customers | needs attention | recent activity: capped at eight activity
+/* Top customers | needs attention | recent activity: capped at five activity
    rows (--row-cap, measured in the script); each card's list scrolls past that. */
 .grid-capped > * { max-height: var(--row-cap, none); }
 
