@@ -23,7 +23,7 @@ ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN \
 RUN npm run build
 
 # ---------- stage 2: serve ----------
-FROM nginx:1.27-alpine
+FROM nginx:1.30.7-alpine
 
 # host:port of the API container on the compose network.
 ENV BACKEND_UPSTREAM=backend:8000
