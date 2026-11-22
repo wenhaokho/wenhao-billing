@@ -26,8 +26,11 @@ const (
 	UsageLockScanHour = 3
 	// HostingEnforcementHour is the hour of the hosting enforcement.
 	HostingEnforcementHour = 4
-	// FXRatesSyncHour is the hour of the weekly FX sync.
-	FXRatesSyncHour = 5
+	// FXRatesSyncHour is the hour of the weekly FX sync. It is after the ECB
+	// publishes the day's reference rates (about 16:00 CET; Frankfurter serves
+	// them), so the Monday sync stores the Monday's rate, not the Friday's.
+	// Python ran it at 05:00.
+	FXRatesSyncHour = 16
 )
 
 // RecurringScan is scan_and_generate (workers/tasks/recurring.py:47-72): the
