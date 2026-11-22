@@ -30,7 +30,7 @@ func TestJobIdsAndSlots(t *testing.T) {
 		{RecurringScanID, DailySlot(2), time.Date(2026, 11, 10, 2, 0, 0, 0, time.UTC)},
 		{UsageLockScanID, DailySlot(3), time.Date(2026, 11, 10, 3, 0, 0, 0, time.UTC)},
 		{HostingEnforcementID, DailySlot(4), time.Date(2026, 11, 10, 4, 0, 0, 0, time.UTC)},
-		{FXRatesSyncID, WeeklySlot(time.Monday, 5), time.Date(2026, 11, 9, 5, 0, 0, 0, time.UTC)},
+		{FXRatesSyncID, WeeklySlot(time.Monday, FXRatesSyncHour), time.Date(2026, 11, 9, 16, 0, 0, 0, time.UTC)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
@@ -62,6 +62,31 @@ func TestTheJobsCarryPythonIds(t *testing.T) {
 	hosting := HostingEnforcement(func(context.Context, time.Time) error { return nil })
 	if hosting.ID != "hosting-overdue-enforcement" {
 		t.Errorf("the hosting job's id = %q", hosting.ID)
+	}
+}
+
+// TestFXSyncRunsAfterTheECBPublishes: the FX job's slot is Monday 16:00 UTC,
+// after the ECB publishes the day's reference rates (about 16:00 CET), so a
+// sync stores the Monday's rate rather than the Friday's.
+func TestFXSyncRunsAfterTheECBPublishes(t *testing.T) {
+	t.Parallel()
+	due := FXRatesSync(nil, platformConfig(), nil).Due
+	monday := time.Date(2026, 11, 23, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		now  time.Time
+		want time.Time
+	}{
+		{"before the slot", monday.Add(15*time.Hour + 59*time.Minute), monday.AddDate(0, 0, -7).Add(16 * time.Hour)},
+		{"at the slot", monday.Add(16 * time.Hour), monday.Add(16 * time.Hour)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := due(tc.now); !got.Equal(tc.want) {
+				t.Errorf("slot = %s, want %s", got, tc.want)
+			}
+		})
 	}
 }
 
