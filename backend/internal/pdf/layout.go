@@ -12,39 +12,30 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/johnfercher/go-tree/node"
-	"github.com/johnfercher/maroto/v2/pkg/components/col"
-	"github.com/johnfercher/maroto/v2/pkg/components/row"
-	"github.com/johnfercher/maroto/v2/pkg/consts/align"
-	"github.com/johnfercher/maroto/v2/pkg/consts/border"
-	"github.com/johnfercher/maroto/v2/pkg/consts/breakline"
-	"github.com/johnfercher/maroto/v2/pkg/consts/extension"
-	"github.com/johnfercher/maroto/v2/pkg/consts/fontstyle"
-	"github.com/johnfercher/maroto/v2/pkg/consts/linestyle"
-	"github.com/johnfercher/maroto/v2/pkg/consts/orientation"
-	"github.com/johnfercher/maroto/v2/pkg/core"
-	"github.com/johnfercher/maroto/v2/pkg/core/entity"
-	"github.com/johnfercher/maroto/v2/pkg/props"
-	"github.com/phpdave11/gofpdf"
+	"github.com/go-pdf/fpdf"
 
 	"github.com/wenhaokho/wenhao-billing/backend/internal/platform"
 )
 
-// The page is A4 with no margins; the grid has one unit per millimetre, so
-// column sizes are widths in mm. Sizes below are the mockup's (mm and pt).
+// The page is A4 with no margins, in millimetres; column widths are in mm.
+// Sizes below are the mockup's (mm and pt).
 const (
-	gridSize = 210
-	padX     = 18 // the mockup's side padding
+	gridSize = 210 // the page's width
+	pageH    = 297 // the page's height
+	padX     = 18  // the mockup's side padding
 	contentW = gridSize - 2*padX
 	hair     = 0.26 // a CSS 1px rule, in mm
 )
 
-func hexColor(s string) *props.Color {
+// rgb is a colour.
+type rgb struct{ r, g, b int }
+
+func hexColor(s string) *rgb {
 	v, err := strconv.ParseUint(s, 16, 32)
 	if err != nil {
 		panic(fmt.Sprintf("pdf: bad colour %q", s))
 	}
-	return &props.Color{Red: int(v >> 16 & 0xff), Green: int(v >> 8 & 0xff), Blue: int(v & 0xff)}
+	return &rgb{r: int(v >> 16 & 0xff), g: int(v >> 8 & 0xff), b: int(v & 0xff)}
 }
 
 // The brand palette and the few literal colours around it.
@@ -67,7 +58,7 @@ var (
 
 // chipColours is a status chip's text and fill per badge class; an unknown
 // class gets draft's neutral pair.
-func chipColours(class string) (fg, bg *props.Color) {
+func chipColours(class string) (fg, bg *rgb) {
 	switch class {
 	case "paid":
 		return cPaidFg, cPaidBg
@@ -82,7 +73,7 @@ func chipColours(class string) (fg, bg *props.Color) {
 }
 
 // summaryColour is a summary value's colour per row class.
-var summaryColour = map[string]*props.Color{
+var summaryColour = map[string]*rgb{
 	"discount": cPaidFg,
 	"grossup":  cPaidFg,
 	"wht":      cRed,
@@ -91,54 +82,203 @@ var summaryColour = map[string]*props.Color{
 	"subtotal": cInk,
 }
 
+type alignment int
+
+const (
+	alignLeft alignment = iota
+	alignRight
+)
+
+// textProp is a text style and where it sits in its cell: Top is the space
+// above the first line, Left and Right inset it.
+type textProp struct {
+	Family           string
+	Style            string // "" or "B": the family's lighter or heavier weight
+	Size             float64
+	Color            *rgb
+	Align            alignment
+	Top, Left, Right float64
+}
+
 // style is a text style: family, bold (the family's heavier weight), size in
 // pt, colour.
-func style(family string, bold bool, size float64, c *props.Color) props.Text {
-	st := fontstyle.Normal
+func style(family string, bold bool, size float64, c *rgb) textProp {
+	st := ""
 	if bold {
-		st = fontstyle.Bold
+		st = "B"
 	}
-	return props.Text{Family: family, Style: st, Size: size, Color: c, Align: align.Left, BreakLineStrategy: breakline.EmptySpaceStrategy}
+	return textProp{Family: family, Style: st, Size: size, Color: c}
 }
 
 func upper(s string) string { return platform.PyUpper(s) }
 
 // --- drawing ---------------------------------------------------------------
 
-func line(p core.Provider, x, y, length float64, o orientation.Type, thick float64, c *props.Color) {
-	cell := &entity.Cell{X: x, Y: y, Width: length}
-	if o == orientation.Vertical {
-		cell.Width, cell.Height = 0, length
-	}
-	p.AddLine(cell, &props.Line{Color: c, Style: linestyle.Solid, Thickness: thick, Orientation: o, SizePercent: 100})
+// area is a box on the page, in mm from the top left.
+type area struct{ X, Y, Width, Height float64 }
+
+// canvas draws on one fpdf document.
+type canvas struct {
+	pdf    *fpdf.Fpdf
+	images int // names the registered images
 }
 
-// fillRect paints a rectangle (a horizontal line as thick as the box: gofpdf
-// draws butt caps, so it is exactly the box).
-func fillRect(p core.Provider, x, y, w, h float64, c *props.Color) {
-	line(p, x, y+h/2, w, orientation.Horizontal, h, c)
+// fontHeight is t's font size in mm: the height of a line before leading.
+func fontHeight(t textProp) float64 { return t.Size / (72.0 / 25.4) }
+
+func (p *canvas) line(x1, y1, x2, y2, thick float64, c *rgb) {
+	p.pdf.SetDrawColor(c.r, c.g, c.b)
+	p.pdf.SetLineWidth(thick)
+	p.pdf.Line(x1, y1, x2, y2)
+}
+
+func (p *canvas) hline(x, y, length, thick float64, c *rgb) { p.line(x, y, x+length, y, thick, c) }
+
+func (p *canvas) fillRect(x, y, w, h float64, c *rgb) {
+	p.pdf.SetFillColor(c.r, c.g, c.b)
+	p.pdf.Rect(x, y, w, h, "F")
 }
 
 // strokeRect outlines a rectangle; the stroke is centred on its edges.
-func strokeRect(p core.Provider, x, y, w, h, thick float64, c *props.Color) {
-	line(p, x, y, w, orientation.Horizontal, thick, c)
-	line(p, x, y+h, w, orientation.Horizontal, thick, c)
-	line(p, x, y, h, orientation.Vertical, thick, c)
-	line(p, x+w, y, h, orientation.Vertical, thick, c)
+func (p *canvas) strokeRect(x, y, w, h, thick float64, c *rgb) {
+	p.pdf.SetDrawColor(c.r, c.g, c.b)
+	p.pdf.SetLineWidth(thick)
+	p.pdf.Rect(x, y, w, h, "D")
 }
 
-// measurer is a gofpdf document holding the embedded fonts, used only to
-// measure text: Maroto's provider cannot say how wide a string is, and the
-// status chip and the strip's title are sized by their text. Maroto writes
-// with gofpdf and the same fonts, so the widths agree.
-var measurer = sync.OnceValues(func() (*gofpdf.Fpdf, error) {
-	f := gofpdf.New("P", "mm", "A4", "")
-	for _, ff := range fontFiles {
-		b, err := fontFS.ReadFile("fonts/" + ff.file)
-		if err != nil {
-			return nil, err
+// roundedRect paints a rectangle with round corners of radius r, filled
+// with fill and outlined with stroke (either may be nil).
+func (p *canvas) roundedRect(x, y, w, h, r, thick float64, fill, stroke *rgb) {
+	op := ""
+	if fill != nil {
+		p.pdf.SetFillColor(fill.r, fill.g, fill.b)
+		op += "F"
+	}
+	if stroke != nil {
+		p.pdf.SetDrawColor(stroke.r, stroke.g, stroke.b)
+		p.pdf.SetLineWidth(thick)
+		op += "D"
+	}
+	p.pdf.RoundedRect(x, y, w, h, r, "1234", op)
+}
+
+func (p *canvas) circle(x, y, r float64, c *rgb) {
+	p.pdf.SetFillColor(c.r, c.g, c.b)
+	p.pdf.Circle(x, y, r, "F")
+}
+
+// cellStyle is a row's or column's background and the rule on one of its
+// edges.
+type cellStyle struct {
+	bg          *rgb
+	border      byte // 'T' for a rule on the top edge, 'B' on the bottom, 0 none
+	borderColor *rgb
+	thick       float64
+}
+
+func (p *canvas) box(x, y, w, h float64, s *cellStyle) {
+	if s == nil {
+		return
+	}
+	if s.bg != nil {
+		p.fillRect(x, y, w, h, s.bg)
+	}
+	switch s.border {
+	case 'T':
+		p.hline(x, y, w, s.thick, s.borderColor)
+	case 'B':
+		p.hline(x, y+h, w, s.thick, s.borderColor)
+	}
+}
+
+// text prints s in c: its first baseline one font height under c's top
+// plus t.Top, aligned in c's width less t's insets. A line too wide for that
+// breaks at spaces, a font height apart; the components wrap their text
+// themselves first (wrapText), so this is only a backstop.
+func (p *canvas) text(s string, c *area, t textProp) {
+	fh := fontHeight(t)
+	top, left, right := min(t.Top, c.Height), min(t.Left, c.Width), min(t.Right, c.Width)
+	width := max(c.Width-left-right, 0)
+	x, y := c.X+left, c.Y+top+fh
+	p.pdf.SetFont(t.Family, t.Style, t.Size)
+	if t.Color != nil {
+		p.pdf.SetTextColor(t.Color.r, t.Color.g, t.Color.b)
+	}
+	lines := []string{s}
+	if p.pdf.GetStringWidth(s) > width {
+		lines = p.breakAtSpaces(s, width)
+	}
+	for i, l := range lines {
+		dx := 0.0
+		if t.Align == alignRight {
+			dx = width - p.pdf.GetStringWidth(l)
 		}
-		f.AddUTF8FontFromBytes(ff.family, string(ff.style), b)
+		p.pdf.Text(x+dx, y+float64(i)*fh, l)
+	}
+}
+
+// breakAtSpaces splits s into lines of at most width at its spaces; a word
+// wider than width is a line of its own.
+func (p *canvas) breakAtSpaces(s string, width float64) []string {
+	var lines []string
+	size := 0.0
+	for _, w := range strings.Split(s, " ") {
+		if w == "" {
+			continue
+		}
+		piece, sep := " "+w, " "
+		if len(lines) == 0 || lines[len(lines)-1] == "" {
+			piece, sep = w, ""
+		}
+		pw := p.pdf.GetStringWidth(piece)
+		if size+pw <= width {
+			if len(lines) == 0 {
+				lines = append(lines, "")
+			}
+			lines[len(lines)-1] += sep + w
+			size += pw
+			continue
+		}
+		lines = append(lines, w)
+		size = p.pdf.GetStringWidth(w)
+	}
+	return lines
+}
+
+// image prints a PNG or JPEG as large as fits c, centred in it. An image
+// fpdf cannot read leaves c empty.
+func (p *canvas) image(b []byte, jpeg bool, c *area) {
+	typ := "PNG"
+	if jpeg {
+		typ = "JPG"
+	}
+	p.images++
+	name := "img" + strconv.Itoa(p.images)
+	opts := fpdf.ImageOptions{ImageType: typ}
+	info := p.pdf.RegisterImageOptionsReader(name, opts, bytes.NewReader(b))
+	if info == nil || p.pdf.Err() {
+		p.pdf.ClearError()
+		return
+	}
+	iw, ih := info.Width(), info.Height()
+	if iw <= 0 || ih <= 0 {
+		return
+	}
+	w := c.Width
+	if ih/iw > c.Height/c.Width {
+		w = c.Height / (ih / iw)
+	}
+	h := w * ih / iw
+	p.pdf.ImageOptions(name, c.X+(c.Width-w)/2, c.Y+(c.Height-h)/2, w, h, false, opts, 0, "")
+}
+
+// measurer is an fpdf document holding the embedded fonts, used only to
+// measure text: the status chip and the strip's title are sized by their
+// text, and text wraps in its column.
+var measurer = sync.OnceValues(func() (*fpdf.Fpdf, error) {
+	f := fpdf.New("P", "mm", "A4", "")
+	if err := addFonts(f); err != nil {
+		return nil, err
 	}
 	return f, f.Error()
 })
@@ -146,26 +286,26 @@ var measurer = sync.OnceValues(func() (*gofpdf.Fpdf, error) {
 var measureMu sync.Mutex
 
 // textWidth is the printed width of s in mm, in t's family, style and size.
-func textWidth(t props.Text, s string) float64 {
+func textWidth(t textProp, s string) float64 {
 	f, err := measurer()
 	if err != nil {
-		// Unreachable: render's customFonts loads the same embedded files
-		// first and returns their error, so no document reaches layout
-		// (nor this) with fonts that fail to load. Panicking beats
-		// measuring every string as 0 wide.
+		// Unreachable: render loads the same embedded files first and
+		// returns their error, so no document reaches layout (nor this)
+		// with fonts that fail to load. Panicking beats measuring every
+		// string as 0 wide.
 		panic(fmt.Sprintf("pdf: fonts: %v", err))
 	}
 	measureMu.Lock()
 	defer measureMu.Unlock()
-	f.SetFont(t.Family, string(t.Style), t.Size)
+	f.SetFont(t.Family, t.Style, t.Size)
 	return f.GetStringWidth(s)
 }
 
 // wrapText is one paragraph's printed lines in width: it breaks at spaces,
-// as Maroto does, and breaks a word wider than the whole line (a long email
-// or reference) between characters, so nothing runs past its column. A
-// blank paragraph is one empty line.
-func wrapText(t props.Text, s string, width float64) []string {
+// and breaks a word wider than the whole line (a long email or reference)
+// between characters, so nothing runs past its column. A blank paragraph
+// is one empty line.
+func wrapText(t textProp, s string, width float64) []string {
 	if strings.TrimSpace(s) == "" || width <= 0 || textWidth(t, s) <= width {
 		return []string{s}
 	}
@@ -198,7 +338,7 @@ func wrapText(t props.Text, s string, width float64) []string {
 // fitPrefix is the byte length of w's longest leading run of characters
 // that fits width: at least one character, so a column narrower than a
 // letter still moves on.
-func fitPrefix(t props.Text, w string, width float64) int {
+func fitPrefix(t textProp, w string, width float64) int {
 	n := 0
 	for i, r := range w {
 		end := i + utf8.RuneLen(r)
@@ -210,7 +350,82 @@ func fitPrefix(t props.Text, w string, width float64) int {
 	return n
 }
 
-// --- custom components -----------------------------------------------------
+// --- rows, columns, components ---------------------------------------------
+
+// component is something printed in a column's cell. height is what it
+// needs in c's width; render draws it in c.
+type component interface {
+	height(c *area) float64
+	render(p *canvas, c *area)
+}
+
+// column is a slice of a row, w mm wide; its components print over each
+// other in its cell.
+type column struct {
+	w     float64
+	style *cellStyle
+	comps []component
+}
+
+func col(w int) *column { return &column{w: float64(w)} }
+
+func (c *column) add(comps ...component) *column {
+	c.comps = append(c.comps, comps...)
+	return c
+}
+
+func (c *column) with(s *cellStyle) *column {
+	c.style = s
+	return c
+}
+
+func (c *column) height() float64 {
+	h := 0.0
+	for _, comp := range c.comps {
+		h = max(h, comp.height(&area{Width: c.w, Height: pageH}))
+	}
+	return h
+}
+
+// row is columns side by side across the page, as tall as its tallest
+// column, or fixed tall. A row never splits across pages.
+type row struct {
+	cols  []*column
+	style *cellStyle // when set, it paints the whole row and the columns' own are ignored
+	fixed float64    // the height, when above 0
+}
+
+func newRow(cols ...*column) *row { return &row{cols: cols} }
+
+func (r *row) height() float64 {
+	if r.fixed > 0 {
+		return r.fixed
+	}
+	h := 0.0
+	for _, c := range r.cols {
+		h = max(h, c.height())
+	}
+	return h
+}
+
+// render draws the row with its top at y.
+func (r *row) render(p *canvas, y float64) {
+	h := r.height()
+	if r.style != nil {
+		p.box(0, y, gridSize, h, r.style)
+	}
+	x := 0.0
+	for _, c := range r.cols {
+		if r.style == nil {
+			p.box(x, y, c.w, h, c.style)
+		}
+		cl := area{X: x, Y: y, Width: c.w, Height: h}
+		for _, comp := range c.comps {
+			comp.render(p, &cl)
+		}
+		x += c.w
+	}
+}
 
 // leading is the space under each printed line, as a share of the font
 // height (CSS line-height about 1.4).
@@ -220,14 +435,13 @@ const leading = 0.4
 // spaces, and a blank line keeps its height (white-space: pre-line).
 type block struct {
 	lines []string
-	prop  props.Text // Top is space above the block; Left and Right inset it
+	prop  textProp // Top is space above the block; Left and Right inset it
 	// after is the space under the block.
 	after float64
 }
 
 // stack prints blocks one under the other in its cell; its height is what
-// they need, so a row holding it grows with wrapped text. Maroto's own text
-// component prints one paragraph only.
+// they need, so a row holding it grows with wrapped text.
 type stack struct {
 	blocks      []block
 	top, bottom float64
@@ -237,110 +451,77 @@ func newStack(top, bottom float64, blocks ...block) *stack {
 	return &stack{blocks: blocks, top: top, bottom: bottom}
 }
 
-func fontHeight(p core.Provider, t *props.Text) float64 {
-	return p.GetFontHeight(&props.Font{Family: t.Family, Style: t.Style, Size: t.Size, Color: t.Color})
-}
-
 // printLines prints one paragraph wrapped in the cell's width less t's
 // insets, from top, a line every fh*(1+leading); it returns the height the
-// lines take. Each printed line fits, so Maroto never wraps (or overruns)
-// one itself.
-func printLines(p core.Provider, cell *entity.Cell, t props.Text, s string, top float64, draw bool) float64 {
-	step := fontHeight(p, &t) * (1 + leading)
-	lines := wrapText(t, s, cell.Width-t.Left-t.Right)
-	if draw {
+// lines take. p is nil when only measuring.
+func printLines(p *canvas, c *area, t textProp, s string, top float64) float64 {
+	step := fontHeight(t) * (1 + leading)
+	lines := wrapText(t, s, c.Width-t.Left-t.Right)
+	if p != nil {
 		for i, l := range lines {
 			if strings.TrimSpace(l) == "" {
 				continue
 			}
 			lp := t
 			lp.Top = top + float64(i)*step
-			p.AddText(l, cell, &lp)
+			p.text(l, c, lp)
 		}
 	}
 	return float64(len(lines)) * step
 }
 
-func (s *stack) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
+// walk lays s out in c, drawing on p unless p is nil, and returns its
+// height. The other components' walks work the same way.
+func (s *stack) walk(p *canvas, c *area) float64 {
 	y := s.top
 	for _, b := range s.blocks {
 		y += b.prop.Top
 		for _, line := range b.lines {
-			y += printLines(p, cell, b.prop, line, y, draw)
+			y += printLines(p, c, b.prop, line, y)
 		}
 		y += b.after
 	}
 	return y + s.bottom
 }
 
-func (s *stack) GetHeight(p core.Provider, cell *entity.Cell) float64 { return s.walk(p, cell, false) }
-func (s *stack) Render(p core.Provider, cell *entity.Cell)            { s.walk(p, cell, true) }
-
-func (s *stack) SetConfig(cfg *entity.Config) {
-	for i := range s.blocks {
-		s.blocks[i].prop.MakeValid(cfg.DefaultFont)
-	}
-}
-
-func (s *stack) GetStructure() *node.Node[core.Structure] {
-	var lines []string
-	for _, b := range s.blocks {
-		lines = append(lines, b.lines...)
-	}
-	return node.New(core.Structure{Type: "stack", Value: strings.Join(lines, "\n")})
-}
+func (s *stack) height(c *area) float64    { return s.walk(nil, c) }
+func (s *stack) render(p *canvas, c *area) { s.walk(p, c) }
 
 // seq prints components one under the other, each in the cell's width.
-type seq []core.Component
+type seq []component
 
-func (s seq) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
+func (s seq) walk(p *canvas, c *area) float64 {
 	y := 0.0
-	for _, c := range s {
-		if c == nil {
+	for _, comp := range s {
+		if comp == nil {
 			continue
 		}
-		sub := *cell
+		sub := *c
 		sub.Y += y
-		h := c.GetHeight(p, &sub)
-		if draw {
+		h := comp.height(&sub)
+		if p != nil {
 			sub.Height = h
-			c.Render(p, &sub)
+			comp.render(p, &sub)
 		}
 		y += h
 	}
 	return y
 }
 
-func (s seq) GetHeight(p core.Provider, cell *entity.Cell) float64 { return s.walk(p, cell, false) }
-func (s seq) Render(p core.Provider, cell *entity.Cell)            { s.walk(p, cell, true) }
-
-func (s seq) SetConfig(cfg *entity.Config) {
-	for _, c := range s {
-		if c != nil {
-			c.SetConfig(cfg)
-		}
-	}
-}
-
-func (s seq) GetStructure() *node.Node[core.Structure] {
-	return node.New(core.Structure{Type: "seq"})
-}
+func (s seq) height(c *area) float64    { return s.walk(nil, c) }
+func (s seq) render(p *canvas, c *area) { s.walk(p, c) }
 
 // gap is empty vertical space inside a seq.
 type gap float64
 
-func (g gap) GetHeight(core.Provider, *entity.Cell) float64 { return float64(g) }
-func (g gap) Render(core.Provider, *entity.Cell)            {}
-func (g gap) SetConfig(*entity.Config)                      {}
-func (g gap) GetStructure() *node.Node[core.Structure] {
-	return node.New(core.Structure{Type: "gap"})
-}
+func (g gap) height(*area) float64  { return float64(g) }
+func (g gap) render(*canvas, *area) {}
 
 // kv is key/value lines: keys in one column as wide as the widest, values
 // beside them, wrapping in what is left.
 type kv struct {
 	rows   []MetaCell
-	kp, vp props.Text
+	kp, vp textProp
 	gap    float64 // between the columns
 	rowGap float64 // between the lines
 	// mono is the key whose value is a reference, printed in the
@@ -348,7 +529,7 @@ type kv struct {
 	mono string
 }
 
-func (k *kv) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
+func (k *kv) walk(p *canvas, c *area) float64 {
 	keyW := 0.0
 	for _, r := range k.rows {
 		keyW = max(keyW, textWidth(k.kp, r.Key))
@@ -364,128 +545,109 @@ func (k *kv) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
 			vp.Family = fontMono
 		}
 		vp.Left = keyW + k.gap
-		if draw {
+		if p != nil {
 			kp.Top = y
-			p.AddText(r.Key, cell, &kp)
+			p.text(r.Key, c, kp)
 		}
-		y += printLines(p, cell, vp, r.Value, y, draw)
+		y += printLines(p, c, vp, r.Value, y)
 	}
 	return y
 }
 
-func (k *kv) GetHeight(p core.Provider, cell *entity.Cell) float64 { return k.walk(p, cell, false) }
-func (k *kv) Render(p core.Provider, cell *entity.Cell)            { k.walk(p, cell, true) }
-
-func (k *kv) SetConfig(cfg *entity.Config) {
-	k.kp.MakeValid(cfg.DefaultFont)
-	k.vp.MakeValid(cfg.DefaultFont)
-}
-
-func (k *kv) GetStructure() *node.Node[core.Structure] {
-	return node.New(core.Structure{Type: "kv"})
-}
-
-// probe takes no space; measuring it hands over Maroto's provider, which
-// the pager needs to measure rows before adding them.
-type probe struct{ provider core.Provider }
-
-func (pr *probe) GetHeight(p core.Provider, _ *entity.Cell) float64 { pr.provider = p; return 0 }
-func (pr *probe) Render(core.Provider, *entity.Cell)                {}
-func (pr *probe) SetConfig(*entity.Config)                          {}
-func (pr *probe) GetStructure() *node.Node[core.Structure] {
-	return node.New(core.Structure{Type: "probe"})
-}
+func (k *kv) height(c *area) float64    { return k.walk(nil, c) }
+func (k *kv) render(p *canvas, c *area) { k.walk(p, c) }
 
 // --- paging ----------------------------------------------------------------
 
-// pager adds rows to Maroto while keeping its arithmetic: Maroto moves a row
-// that does not fit to a new page whole (rows never split) and repeats the
-// registered footer on every page. The pager mirrors that sum so it knows
-// where a page breaks: it ends the page itself and starts the next with the
-// continuation strip (page 1 has the full header band instead), repeats the
-// items table's header row, keeps a section's rows together, and counts the
-// pages for "Page X of Y".
+// pager prints rows down the page and breaks pages: a row that does not fit
+// above the footer starts a new page (rows never split), which begins with
+// the continuation strip (page 1 has the full header band instead); it
+// repeats the items table's header row, keeps a section's rows together,
+// and counts the pages for "Page X of Y". With no canvas it only counts.
 type pager struct {
-	m     core.Maroto
-	cfg   *entity.Config
-	probe *probe
-	root  entity.Cell
+	p *canvas
 	// header is the top of every page after the first.
-	header []core.Row
-	footH  float64
+	header []*row
+	footer *row
 	used   float64
 	pages  int
 }
 
-func (p *pager) height(r core.Row) float64 {
-	r.SetConfig(p.cfg)
-	return r.GetHeight(p.probe.provider, &p.root)
-}
+func (pg *pager) footH() float64 { return pg.footer.height() }
 
-func (p *pager) headerHeight() float64 {
+func (pg *pager) headerHeight() float64 {
 	h := 0.0
-	for _, r := range p.header {
-		h += p.height(r)
+	for _, r := range pg.header {
+		h += r.height()
 	}
 	return h
 }
 
-// fits is Maroto's own test (maroto.go addRow), term for term.
-func (p *pager) fits(h float64) bool { return h+p.used+p.footH <= p.root.Height }
+func (pg *pager) fits(h float64) bool { return h+pg.used+pg.footH() <= pageH }
 
-func (p *pager) add(rows ...core.Row) {
+func (pg *pager) put(r *row) {
+	if pg.p != nil {
+		r.render(pg.p, pg.used)
+	}
+	pg.used += r.height()
+}
+
+func (pg *pager) add(rows ...*row) {
 	for _, r := range rows {
-		h := p.height(r)
-		if !p.fits(h) {
-			p.newPage()
+		if !pg.fits(r.height()) {
+			pg.newPage()
 		}
-		p.used += h
-		p.m.AddRows(r)
+		pg.put(r)
 	}
 }
 
-// newPage fills what is left of the page and starts the next with the
-// continuation header: the filler leaves less room than the header needs, so
-// Maroto moves the header to a new page.
-func (p *pager) newPage() {
-	if space := p.root.Height - p.used - p.footH - 1e-6; space > 0 {
-		p.m.AddRows(row.New(space).Add(col.New()))
+// endPage prints the footer at the foot of the page.
+func (pg *pager) endPage() {
+	if pg.p != nil {
+		pg.footer.render(pg.p, pageH-pg.footH())
 	}
-	p.m.AddRows(p.header...)
-	p.used = p.headerHeight()
-	p.pages++
+}
+
+// newPage ends the page and starts the next with the continuation header.
+func (pg *pager) newPage() {
+	pg.endPage()
+	if pg.p != nil {
+		pg.p.pdf.AddPage()
+	}
+	pg.pages++
+	pg.used = 0
+	for _, r := range pg.header {
+		pg.put(r)
+	}
 }
 
 // keep adds rows on one page: if they do not fit what is left but fit a
 // fresh page, they start one.
-func (p *pager) keep(rows ...core.Row) {
+func (pg *pager) keep(rows ...*row) {
 	total := 0.0
 	for _, r := range rows {
-		total += p.height(r)
+		total += r.height()
 	}
-	if !p.fits(total) && total+p.headerHeight()+p.footH <= p.root.Height {
-		p.newPage()
+	if !pg.fits(total) && total+pg.headerHeight()+pg.footH() <= pageH {
+		pg.newPage()
 	}
-	p.add(rows...)
+	pg.add(rows...)
 }
 
 // --- layout ----------------------------------------------------------------
 
-func pad(n int) core.Col { return col.New(n) }
+func pad(w int) *column { return col(w) }
 
 // band is a full-width row: side padding and content between.
-func band(style *props.Cell, cols ...core.Col) core.Row {
-	r := row.New()
-	r.Add(pad(padX))
-	r.Add(cols...)
-	r.Add(pad(padX))
-	if style != nil {
-		r.WithStyle(style)
-	}
+func band(s *cellStyle, cols ...*column) *row {
+	r := newRow(pad(padX))
+	r.cols = append(r.cols, cols...)
+	r.cols = append(r.cols, pad(padX))
+	r.style = s
 	return r
 }
 
-func spacer(h float64) core.Row { return row.New(h).Add(col.New()) }
+func spacer(h float64) *row { return &row{cols: []*column{col(gridSize)}, fixed: h} }
 
 // Vertical rhythm, in mm.
 const (
@@ -497,21 +659,14 @@ const (
 // layout builds the document: on page 1 the header band and the parties
 // band, then the items, the summary with the payment panel, and the notes;
 // later pages start with the continuation strip, and the footer is on every
-// page.
-func layout(m core.Maroto, cfg *entity.Config, d Document, logo []byte) error {
-	pr := &probe{}
-	pages := &pageCount{}
-	footer := []core.Row{row.New().Add(col.New().Add(pr)), footerBand(d, pages)}
-	if err := m.RegisterFooter(footer...); err != nil {
-		return err
-	}
+// page. It draws on c, already on its first page, and returns the page
+// count; with c nil it only counts. total is the page count for "Page X of
+// Y" (a first run with c nil finds it).
+func layout(c *canvas, d Document, logo []byte, total int) int {
 	p := &pager{
-		m: m, cfg: cfg, probe: pr, pages: 1,
-		header: []core.Row{continuationStrip(d), spacer(stripGap)},
-		root:   entity.NewRootCell(cfg.Dimensions.Width, cfg.Dimensions.Height, *cfg.Margins),
-	}
-	for _, r := range footer {
-		p.footH += p.height(r)
+		p: c, pages: 1,
+		header: []*row{continuationStrip(d), spacer(stripGap)},
+		footer: footerBand(d, &pageCount{total: total}),
 	}
 
 	p.add(headerBand(d, logo), partiesBand(documentParties(d)))
@@ -524,8 +679,8 @@ func layout(m core.Maroto, cfg *entity.Config, d Document, logo []byte) error {
 		p.keep(summaryBox(d, paymentPanel(d)))
 		notes(p, d)
 	}
-	pages.total = p.pages
-	return nil
+	p.endPage()
+	return p.pages
 }
 
 // --- header ----------------------------------------------------------------
@@ -543,11 +698,11 @@ const (
 // headerBand is page 1's top: full-bleed red; on the left a white box
 // holding the logo, the business name and the gold location line; on the
 // right the document title, its number, the dates and the status chip.
-func headerBand(d Document, logo []byte) core.Row {
+func headerBand(d Document, logo []byte) *row {
 	title := style(fontBody, true, 7.5, cGold)
-	title.Align = align.Right
+	title.Align = alignRight
 	number := style(fontDisplay, false, 22, colWhite)
-	number.Align, number.Top = align.Right, 1
+	number.Align, number.Top = alignRight, 1
 	right := seq{
 		gap(bandTop),
 		newStack(0, 0, block{lines: []string{d.DocTitle}, prop: title}, block{lines: []string{d.Ref}, prop: number}),
@@ -555,9 +710,9 @@ func headerBand(d Document, logo []byte) core.Row {
 		gap(bandBottom),
 	}
 	left := seq{gap(bandTop), &brand{logo: logo, name: d.FootName, location: d.Location}, gap(bandBottom)}
-	return band(&props.Cell{BackgroundColor: cRed},
-		col.New(headLeftW).Add(left),
-		col.New(contentW-headLeftW).Add(right),
+	return band(&cellStyle{bg: cRed},
+		col(headLeftW).add(left),
+		col(contentW-headLeftW).add(right),
 	)
 }
 
@@ -594,20 +749,16 @@ type brand struct {
 	name, location string
 }
 
-// box is the logo box's width and the logo's extension (ok false when the
-// logo cannot be read).
-func (b *brand) box() (w float64, ext extension.Type, ok bool) {
+// box is the logo box's width and whether the logo is a JPEG (else a PNG);
+// ok is false when the logo cannot be read.
+func (b *brand) box() (w float64, jpeg, ok bool) {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(b.logo))
 	if err != nil || cfg.Width == 0 || cfg.Height == 0 {
-		return 0, "", false
+		return 0, false, false
 	}
 	inner := logoBoxH - 2*logoInset
 	w = min(max(inner*float64(cfg.Width)/float64(cfg.Height), inner), logoMaxW-2*logoInset) + 2*logoInset
-	ext = extension.Png
-	if logoIsJPEG(b.logo) {
-		ext = extension.Jpg
-	}
-	return w, ext, true
+	return w, logoIsJPEG(b.logo), true
 }
 
 // The business name prints at nameMaxSize, smaller when a word would not fit
@@ -646,7 +797,7 @@ func (b *brand) text(width float64) *stack {
 	return newStack(0, 0, blocks...)
 }
 
-func (b *brand) textCell(cell *entity.Cell) entity.Cell {
+func (b *brand) textCell(cell *area) area {
 	w, _, ok := b.box()
 	sub := *cell
 	if ok {
@@ -656,35 +807,30 @@ func (b *brand) textCell(cell *entity.Cell) entity.Cell {
 	return sub
 }
 
-func (b *brand) GetHeight(p core.Provider, cell *entity.Cell) float64 {
+func (b *brand) height(cell *area) float64 {
 	sub := b.textCell(cell)
-	return max(b.text(sub.Width).GetHeight(p, &sub), logoBoxH)
+	return max(b.text(sub.Width).height(&sub), logoBoxH)
 }
 
-func (b *brand) Render(p core.Provider, cell *entity.Cell) {
-	if w, ext, ok := b.box(); ok {
-		fillRect(p, cell.X, cell.Y, w, logoBoxH, colWhite)
-		in := entity.Cell{X: cell.X + logoInset, Y: cell.Y + logoInset, Width: w - 2*logoInset, Height: logoBoxH - 2*logoInset}
-		p.AddImageFromBytes(b.logo, &in, &props.Rect{Center: true, Percent: 100}, ext)
+func (b *brand) render(p *canvas, cell *area) {
+	if w, jpeg, ok := b.box(); ok {
+		p.fillRect(cell.X, cell.Y, w, logoBoxH, colWhite)
+		in := area{X: cell.X + logoInset, Y: cell.Y + logoInset, Width: w - 2*logoInset, Height: logoBoxH - 2*logoInset}
+		p.image(b.logo, jpeg, &in)
 	}
 	sub := b.textCell(cell)
 	t := b.text(sub.Width)
-	if h := t.GetHeight(p, &sub); h < logoBoxH {
+	if h := t.height(&sub); h < logoBoxH {
 		sub.Y += (logoBoxH - h) / 2
 	}
-	t.Render(p, &sub)
-}
-
-func (b *brand) SetConfig(*entity.Config) {}
-func (b *brand) GetStructure() *node.Node[core.Structure] {
-	return node.New(core.Structure{Type: "brand", Value: b.name})
+	t.render(p, &sub)
 }
 
 // chip is an outlined status chip: its label in capitals, in the colours of
 // its status class.
 type chip struct {
 	label  string
-	fg, bg *props.Color
+	fg, bg *rgb
 }
 
 // statusChip is the header's chip for the document's status.
@@ -695,15 +841,15 @@ func statusChip(d Document) chip {
 
 const chipPadX, chipPadY = 2.5, 1
 
-func (c chip) prop() props.Text {
+func (c chip) prop() textProp {
 	t := style(fontBody, true, 7, c.fg)
 	t.Left = chipPadX
 	return t
 }
 
-func (c chip) size(p core.Provider) (w, h float64) {
+func (c chip) size() (w, h float64) {
 	t := c.prop()
-	return textWidth(t, c.label) + 2*chipPadX, fontHeight(p, &t) + 2*chipPadY
+	return textWidth(t, c.label) + 2*chipPadX, fontHeight(t) + 2*chipPadY
 }
 
 // datesChip is the date line with the status chip at its right end.
@@ -713,9 +859,9 @@ type datesChip struct {
 	top   float64
 }
 
-func (dc *datesChip) datesProp() props.Text {
+func (dc *datesChip) datesProp() textProp {
 	t := style(fontBody, false, 9, cBandText)
-	t.Align = align.Right
+	t.Align = alignRight
 	return t
 }
 
@@ -724,10 +870,10 @@ const chipGap = 3 // between the dates and the chip
 // place is where the dates and the chip go: on one line when they fit the
 // cell, else the chip on its own line under the dates. y values are from the
 // component's top.
-func (dc *datesChip) place(p core.Provider, cell *entity.Cell) (datesY, datesRight, chipY, h float64) {
-	cw, ch := dc.chip.size(p)
+func (dc *datesChip) place(cell *area) (datesY, datesRight, chipY, h float64) {
+	cw, ch := dc.chip.size()
 	dp := dc.datesProp()
-	dh := fontHeight(p, &dp)
+	dh := fontHeight(dp)
 	if dc.chip.label == "" {
 		return dc.top, 0, 0, dc.top + dh
 	}
@@ -739,44 +885,39 @@ func (dc *datesChip) place(p core.Provider, cell *entity.Cell) (datesY, datesRig
 	return dc.top, 0, chipY, chipY + ch
 }
 
-func (dc *datesChip) GetHeight(p core.Provider, cell *entity.Cell) float64 {
-	_, _, _, h := dc.place(p, cell)
+func (dc *datesChip) height(cell *area) float64 {
+	_, _, _, h := dc.place(cell)
 	return h
 }
 
-func (dc *datesChip) Render(p core.Provider, cell *entity.Cell) {
-	datesY, datesRight, chipY, _ := dc.place(p, cell)
+func (dc *datesChip) render(p *canvas, cell *area) {
+	datesY, datesRight, chipY, _ := dc.place(cell)
 	if dc.chip.label != "" {
-		cw, ch := dc.chip.size(p)
+		cw, ch := dc.chip.size()
 		x, y := cell.X+cell.Width-cw, cell.Y+chipY
-		fillRect(p, x, y, cw, ch, dc.chip.bg)
-		strokeRect(p, x, y, cw, ch, hair, dc.chip.fg)
+		// A pill, as the mockup's badge (border-radius: 999px).
+		p.roundedRect(x, y, cw, ch, ch/2, hair, dc.chip.bg, dc.chip.fg)
 		cp := dc.chip.prop()
 		cp.Top = chipPadY
-		p.AddText(dc.chip.label, &entity.Cell{X: x, Y: y, Width: cw, Height: ch}, &cp)
+		p.text(dc.chip.label, &area{X: x, Y: y, Width: cw, Height: ch}, cp)
 	}
 	dp := dc.datesProp()
 	dp.Top, dp.Right = datesY, datesRight
-	p.AddText(dc.dates, cell, &dp)
-}
-
-func (dc *datesChip) SetConfig(*entity.Config) {}
-func (dc *datesChip) GetStructure() *node.Node[core.Structure] {
-	return node.New(core.Structure{Type: "datesChip", Value: dc.dates})
+	p.text(dc.dates, cell, dp)
 }
 
 // continuationStrip tops every page after the first: a compact red strip,
 // the business name left, the document title and number right.
-func continuationStrip(d Document) core.Row {
+func continuationStrip(d Document) *row {
 	const top, bottom = 4, 4
 	name := style(fontDisplay, true, 10, colWhite)
 	number := style(fontDisplay, false, 10, colWhite)
-	number.Align = align.Right
+	number.Align = alignRight
 	title := style(fontBody, true, 7.5, cGold)
-	title.Align, title.Right, title.Top = align.Right, textWidth(number, d.Ref)+3, 0.9
-	return band(&props.Cell{BackgroundColor: cRed},
-		col.New(contentW/2).Add(newStack(top, bottom, block{lines: []string{d.FootName}, prop: name})),
-		col.New(contentW-contentW/2).Add(
+	title.Align, title.Right, title.Top = alignRight, textWidth(number, d.Ref)+3, 0.9
+	return band(&cellStyle{bg: cRed},
+		col(contentW/2).add(newStack(top, bottom, block{lines: []string{d.FootName}, prop: name})),
+		col(contentW-contentW/2).add(
 			newStack(top, bottom, block{lines: []string{d.Ref}, prop: number}),
 			newStack(top, bottom, block{lines: []string{d.DocTitle}, prop: title}),
 		),
@@ -823,24 +964,24 @@ func documentParties(d Document) [3]partyCol {
 
 // partiesBand is the red band under the header, three columns under a faint
 // rule.
-func partiesBand(cols [3]partyCol) core.Row {
+func partiesBand(cols [3]partyCol) *row {
 	const colGap = 8
 	widths := [3]int{53, 52, 53} // with two gaps, contentW
-	var out []core.Col
+	var out []*column
 	for i, c := range cols {
 		if i > 0 {
 			out = append(out, pad(colGap))
 		}
-		cc := col.New(widths[i])
+		cc := col(widths[i])
 		if !c.empty() {
-			cc.Add(partyComponent(c))
+			cc.add(partyComponent(c))
 		}
 		out = append(out, cc)
 	}
-	return band(&props.Cell{BackgroundColor: cRed, BorderType: border.Top, BorderColor: cBandRule, BorderThickness: hair}, out...)
+	return band(&cellStyle{bg: cRed, border: 'T', borderColor: cBandRule, thick: hair}, out...)
 }
 
-func partyComponent(c partyCol) core.Component {
+func partyComponent(c partyCol) component {
 	label := style(fontBody, true, 7, cBandLabel)
 	blocks := []block{{lines: []string{c.Label}, prop: label}}
 	if c.Name != "" {
@@ -875,24 +1016,24 @@ const colDesc = contentW - colNo - colQty - colRate - colAmount
 
 // tableHeader is the items table's header row; it repeats on every page the
 // table runs onto.
-func tableHeader(d Document) core.Row {
-	rule := &props.Cell{BorderType: border.Bottom, BorderColor: cInk, BorderThickness: hair}
-	cell := func(w int, label string, a align.Type) core.Col {
+func tableHeader(d Document) *row {
+	rule := &cellStyle{border: 'B', borderColor: cInk, thick: hair}
+	cell := func(w int, label string, a alignment) *column {
 		p := style(fontBody, true, 7, cMutedSoft)
 		p.Align = a
-		return col.New(w).WithStyle(rule).Add(newStack(0, 2.5, block{lines: []string{upper(label)}, prop: p}))
+		return col(w).with(rule).add(newStack(0, 2.5, block{lines: []string{upper(label)}, prop: p}))
 	}
 	return band(nil,
-		cell(colNo, "#", align.Left), cell(colDesc, "Description", align.Left),
-		cell(colQty, "Qty", align.Right), cell(colRate, "Rate", align.Right),
-		cell(colAmount, "Amount · "+d.Currency, align.Right),
+		cell(colNo, "#", alignLeft), cell(colDesc, "Description", alignLeft),
+		cell(colQty, "Qty", alignRight), cell(colRate, "Rate", alignRight),
+		cell(colAmount, "Amount · "+d.Currency, alignRight),
 	)
 }
 
-// itemRow is one row of the items table; it is one Maroto row, so it never
+// itemRow is one row of the items table; it is one row, so it never
 // splits across pages.
-func itemRow(i int, it Item) core.Row {
-	rule := &props.Cell{BorderType: border.Bottom, BorderColor: cLine, BorderThickness: hair}
+func itemRow(i int, it Item) *row {
+	rule := &cellStyle{border: 'B', borderColor: cLine, thick: hair}
 	// The last line's leading already sits under it, so the bottom pad is
 	// the mockup's 2.2 mm less that.
 	const top, bottom = 2.2, 1.0
@@ -903,10 +1044,10 @@ func itemRow(i int, it Item) core.Row {
 	sub := style(fontBody, false, 8.5, cMuted)
 	sub.Right, sub.Top = 4, 0.3
 	fig := style(fontDisplay, false, 9, cInk)
-	fig.Align = align.Right
+	fig.Align = alignRight
 
-	one := func(w int, s string, p props.Text) core.Col {
-		return col.New(w).WithStyle(rule).Add(newStack(top, bottom, block{lines: []string{s}, prop: p}))
+	one := func(w int, s string, p textProp) *column {
+		return col(w).with(rule).add(newStack(top, bottom, block{lines: []string{s}, prop: p}))
 	}
 	blocks := []block{{lines: splitLines(strings.ReplaceAll(it.Desc, "\r\n", "\n")), prop: desc}}
 	if it.Sub != "" {
@@ -914,7 +1055,7 @@ func itemRow(i int, it Item) core.Row {
 	}
 	return band(nil,
 		one(colNo, rowNumber(i+1), no),
-		col.New(colDesc).WithStyle(rule).Add(newStack(top, bottom, blocks...)),
+		col(colDesc).with(rule).add(newStack(top, bottom, blocks...)),
 		one(colQty, it.Qty, fig), one(colRate, it.Rate, fig), one(colAmount, it.Amount, fig),
 	)
 }
@@ -932,7 +1073,7 @@ func items(p *pager, d Document) {
 			p.keep(head, r)
 			continue
 		}
-		if !p.fits(p.height(r)) {
+		if !p.fits(r.height()) {
 			p.newPage()
 			p.add(head)
 		}
@@ -949,7 +1090,7 @@ const (
 
 // paymentPanel is the payment instructions and the NPWP line, or nil when
 // the document has neither.
-func paymentPanel(d Document) core.Component {
+func paymentPanel(d Document) component {
 	if d.PaymentInstructions == "" && d.NPWP == "" {
 		return nil
 	}
@@ -969,12 +1110,12 @@ func paymentPanel(d Document) core.Component {
 // summaryBox is the lower block: left (the payment panel, or nil) beside the
 // boxed summary rows, which end in the red bar with the hero label and
 // amount. It is one row, kept on one page.
-func summaryBox(d Document, left core.Component) core.Row {
-	lc := col.New(contentW - summaryW - lowerGap)
+func summaryBox(d Document, left component) *row {
+	lc := col(contentW - summaryW - lowerGap)
 	if left != nil {
-		lc.Add(left)
+		lc.add(left)
 	}
-	return band(nil, lc, pad(lowerGap), col.New(summaryW).Add(newSumBox(d)))
+	return band(nil, lc, pad(lowerGap), col(summaryW).add(newSumBox(d)))
 }
 
 // sumBox draws the summary: label/value rows in a ruled box, then the bar.
@@ -999,7 +1140,7 @@ func newSumBox(d Document) *sumBox {
 
 const sumPadX, sumPadY, sumRowGap, barPadY = 6, 4, 2, 4
 
-func (s *sumBox) rowProps(r SummaryRow) (lp, vp props.Text) {
+func (s *sumBox) rowProps(r SummaryRow) (lp, vp textProp) {
 	lp = style(fontBody, r.Class == "total", 9.5, cMuted)
 	if r.Class == "note" {
 		lp = style(fontBody, false, 8.5, cMutedSoft)
@@ -1010,19 +1151,19 @@ func (s *sumBox) rowProps(r SummaryRow) (lp, vp props.Text) {
 		c = cInk
 	}
 	vp = style(fontDisplay, false, 9.5, c)
-	vp.Align, vp.Right = align.Right, sumPadX
+	vp.Align, vp.Right = alignRight, sumPadX
 	return lp, vp
 }
 
-func (s *sumBox) barProps() (lp, vp props.Text) {
+func (s *sumBox) barProps() (lp, vp textProp) {
 	lp = style(fontBody, true, 7.5, cBandLabel)
 	lp.Left = sumPadX
 	vp = style(fontDisplay, false, 15, colWhite)
-	vp.Align, vp.Right = align.Right, sumPadX
+	vp.Align, vp.Right = alignRight, sumPadX
 	return lp, vp
 }
 
-func (s *sumBox) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
+func (s *sumBox) walk(p *canvas, cell *area) float64 {
 	y := 0.0
 	if len(s.rows) > 0 {
 		y = sumPadY
@@ -1031,40 +1172,36 @@ func (s *sumBox) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
 				y += sumRowGap
 			}
 			lp, vp := s.rowProps(r)
-			lh, vh := fontHeight(p, &lp), fontHeight(p, &vp)
+			lh, vh := fontHeight(lp), fontHeight(vp)
 			h := max(lh, vh)
-			if draw {
+			if p != nil {
 				lp.Top, vp.Top = y+h-lh, y+h-vh // one baseline
-				p.AddText(r.Label, cell, &lp)
-				p.AddText(r.Value, cell, &vp)
+				p.text(r.Label, cell, lp)
+				p.text(r.Value, cell, vp)
 			}
 			y += h
 		}
 		y += sumPadY
-		if draw {
-			strokeRect(p, cell.X, cell.Y, cell.Width, y, hair, cLine)
+		if p != nil {
+			p.strokeRect(cell.X, cell.Y, cell.Width, y, hair, cLine)
 		}
 	}
 	lp, vp := s.barProps()
-	lh, vh := fontHeight(p, &lp), fontHeight(p, &vp)
+	lh, vh := fontHeight(lp), fontHeight(vp)
 	barH := vh + 2*barPadY
-	if draw {
-		fillRect(p, cell.X, cell.Y+y, cell.Width, barH, cRed)
-		bar := entity.Cell{X: cell.X, Y: cell.Y + y, Width: cell.Width, Height: barH}
+	if p != nil {
+		p.fillRect(cell.X, cell.Y+y, cell.Width, barH, cRed)
+		bar := area{X: cell.X, Y: cell.Y + y, Width: cell.Width, Height: barH}
 		vp.Top = barPadY
 		lp.Top = barPadY + vh - lh // one baseline
-		p.AddText(s.label, &bar, &lp)
-		p.AddText(s.amount, &bar, &vp)
+		p.text(s.label, &bar, lp)
+		p.text(s.amount, &bar, vp)
 	}
 	return y + barH
 }
 
-func (s *sumBox) GetHeight(p core.Provider, cell *entity.Cell) float64 { return s.walk(p, cell, false) }
-func (s *sumBox) Render(p core.Provider, cell *entity.Cell)            { s.walk(p, cell, true) }
-func (s *sumBox) SetConfig(*entity.Config)                             {}
-func (s *sumBox) GetStructure() *node.Node[core.Structure] {
-	return node.New(core.Structure{Type: "summary"})
-}
+func (s *sumBox) height(cell *area) float64    { return s.walk(nil, cell) }
+func (s *sumBox) render(p *canvas, cell *area) { s.walk(p, cell) }
 
 // --- notes -----------------------------------------------------------------
 
@@ -1084,11 +1221,11 @@ func notes(p *pager, d Document) {
 	half := (contentW - colGap) / 2
 	label := style(fontBody, true, 7.5, cRed)
 	text := style(fontBody, false, 8.5, cMuted)
-	line := func(top float64, l, r []string, prop props.Text) core.Row {
-		cols := []core.Col{col.New(half).Add(newStack(top, 0, block{lines: l, prop: prop}))}
-		rc := col.New(contentW - colGap - half)
+	line := func(top float64, l, r []string, prop textProp) *row {
+		cols := []*column{col(half).add(newStack(top, 0, block{lines: l, prop: prop}))}
+		rc := col(contentW - colGap - half)
 		if len(r) > 0 {
-			rc.Add(newStack(top, 0, block{lines: r, prop: prop}))
+			rc.add(newStack(top, 0, block{lines: r, prop: prop}))
 		}
 		return band(nil, append(cols, pad(colGap), rc)...)
 	}
@@ -1123,7 +1260,7 @@ func notes(p *pager, d Document) {
 // invoice it is applied to, and the summary box ending in the balance due,
 // with the withholding and balance notes beside it.
 func receiptBody(p *pager, d Document) {
-	p.add(spacer(8), band(nil, col.New(contentW).Add(&received{d: d})), spacer(6))
+	p.add(spacer(8), band(nil, col(contentW).add(&received{d: d})), spacer(6))
 	p.keep(appliedHeader(d), appliedRow(d))
 	p.add(spacer(8))
 	p.keep(summaryBox(d, receiptNotes(d)))
@@ -1157,51 +1294,46 @@ func (rc *received) text() *stack {
 	)
 }
 
-func pillProp() props.Text { return style(fontBody, true, 8, cPaidFg) }
+func pillProp() textProp { return style(fontBody, true, 8, cPaidFg) }
 
 var pillLabel = upper("Paid in full")
 
 // pill is the pill's size, zero when the invoice is not paid in full.
-func (rc *received) pill(p core.Provider) (w, h float64) {
+func (rc *received) pill() (w, h float64) {
 	if !rc.d.Receipt.PaidInFull {
 		return 0, 0
 	}
 	t := pillProp()
-	return pillPadX + pillDot + pillGap + textWidth(t, pillLabel) + pillPadX, fontHeight(p, &t) + 2*pillPadY
+	return pillPadX + pillDot + pillGap + textWidth(t, pillLabel) + pillPadX, fontHeight(t) + 2*pillPadY
 }
 
-func (rc *received) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
-	pw, ph := rc.pill(p)
+func (rc *received) walk(p *canvas, cell *area) float64 {
+	pw, ph := rc.pill()
 	sub := *cell
 	if pw > 0 {
 		sub.Width -= pw + pillSpace
 	}
 	t := rc.text()
-	h := max(t.GetHeight(p, &sub), ph+receivedBottom)
-	if draw {
-		t.Render(p, &sub)
+	h := max(t.height(&sub), ph+receivedBottom)
+	if p != nil {
+		t.render(p, &sub)
 		if pw > 0 {
 			// Bottom-aligned with the words.
 			x, y := cell.X+cell.Width-pw, cell.Y+h-receivedBottom-ph
-			fillRect(p, x, y, pw, ph, cPaidBg)
-			fillRect(p, x+pillPadX, y+(ph-pillDot)/2, pillDot, pillDot, cPaidFg)
+			// A pill with a round dot, as the mockup's badge.
+			p.roundedRect(x, y, pw, ph, ph/2, 0, cPaidBg, nil)
+			p.circle(x+pillPadX+pillDot/2, y+ph/2, pillDot/2, cPaidFg)
 			lp := pillProp()
 			lp.Left, lp.Top = pillPadX+pillDot+pillGap, pillPadY
-			p.AddText(pillLabel, &entity.Cell{X: x, Y: y, Width: pw, Height: ph}, &lp)
+			p.text(pillLabel, &area{X: x, Y: y, Width: pw, Height: ph}, lp)
 		}
-		line(p, cell.X, cell.Y+h, cell.Width, orientation.Horizontal, hair, cInk)
+		p.hline(cell.X, cell.Y+h, cell.Width, hair, cInk)
 	}
 	return h
 }
 
-func (rc *received) GetHeight(p core.Provider, cell *entity.Cell) float64 {
-	return rc.walk(p, cell, false)
-}
-func (rc *received) Render(p core.Provider, cell *entity.Cell) { rc.walk(p, cell, true) }
-func (rc *received) SetConfig(*entity.Config)                  {}
-func (rc *received) GetStructure() *node.Node[core.Structure] {
-	return node.New(core.Structure{Type: "received", Value: rc.d.HeroAmount})
-}
+func (rc *received) height(cell *area) float64    { return rc.walk(nil, cell) }
+func (rc *received) render(p *canvas, cell *area) { rc.walk(p, cell) }
 
 // Column widths of the "Applied to" table, in mm.
 const (
@@ -1213,34 +1345,34 @@ const (
 
 // appliedHeader is the "Applied to" table's header; the two amount columns
 // name their currencies, which differ on a cross-currency payment.
-func appliedHeader(d Document) core.Row {
-	rule := &props.Cell{BorderType: border.Bottom, BorderColor: cLine, BorderThickness: hair}
-	cell := func(w int, label string, a align.Type) core.Col {
+func appliedHeader(d Document) *row {
+	rule := &cellStyle{border: 'B', borderColor: cLine, thick: hair}
+	cell := func(w int, label string, a alignment) *column {
 		p := style(fontBody, true, 7.5, cMutedSoft)
 		p.Align = a
-		return col.New(w).WithStyle(rule).Add(newStack(0, 2.5, block{lines: []string{upper(label)}, prop: p}))
+		return col(w).with(rule).add(newStack(0, 2.5, block{lines: []string{upper(label)}, prop: p}))
 	}
 	return band(nil,
-		cell(colApplied, "Applied to", align.Left),
-		cell(colIssued, "Issued", align.Left),
-		cell(colAppTotal, "Invoice total · "+d.Receipt.InvoiceCurrency, align.Right),
-		cell(colAppPay, "This payment · "+d.Currency, align.Right),
+		cell(colApplied, "Applied to", alignLeft),
+		cell(colIssued, "Issued", alignLeft),
+		cell(colAppTotal, "Invoice total · "+d.Receipt.InvoiceCurrency, alignRight),
+		cell(colAppPay, "This payment · "+d.Currency, alignRight),
 	)
 }
 
 // appliedRow is the invoice the payment is applied to: its number, issue
 // date and total, and this payment (cash plus the withholding it settles).
-func appliedRow(d Document) core.Row {
-	rule := &props.Cell{BorderType: border.Bottom, BorderColor: cLine, BorderThickness: hair}
+func appliedRow(d Document) *row {
+	rule := &cellStyle{border: 'B', borderColor: cLine, thick: hair}
 	const top, bottom = 4, 2.6
 	fig := style(fontDisplay, false, 9.5, cInk)
-	fig.Align = align.Right
+	fig.Align = alignRight
 	date := style(fontBody, false, 9.5, cMuted)
-	one := func(w int, s string, p props.Text) core.Col {
-		return col.New(w).WithStyle(rule).Add(newStack(top, bottom, block{lines: []string{s}, prop: p}))
+	one := func(w int, s string, p textProp) *column {
+		return col(w).with(rule).add(newStack(top, bottom, block{lines: []string{s}, prop: p}))
 	}
 	return band(nil,
-		col.New(colApplied).WithStyle(rule).Add(&refLine{prefix: "Invoice", ref: d.Receipt.Invoice, top: top, bottom: bottom}),
+		col(colApplied).with(rule).add(&refLine{prefix: "Invoice", ref: d.Receipt.Invoice, top: top, bottom: bottom}),
 		one(colIssued, d.Receipt.Issued, date),
 		one(colAppTotal, d.Receipt.InvoiceTotal, fig),
 		one(colAppPay, d.Receipt.ThisPayment, fig),
@@ -1254,7 +1386,7 @@ type refLine struct {
 	top, bottom float64
 }
 
-func (r *refLine) props() (word, ref props.Text) {
+func (r *refLine) props() (word, ref textProp) {
 	word = style(fontBody, true, 9.5, cInk)
 	ref = style(fontMono, false, 9, cInk)
 	ref.Left = textWidth(word, r.prefix+" ")
@@ -1262,31 +1394,25 @@ func (r *refLine) props() (word, ref props.Text) {
 	return word, ref
 }
 
-func (r *refLine) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
+func (r *refLine) walk(p *canvas, cell *area) float64 {
 	word, ref := r.props()
-	wh, rh := fontHeight(p, &word), fontHeight(p, &ref)
+	wh, rh := fontHeight(word), fontHeight(ref)
 	ref.Top = r.top + wh - rh // one baseline
-	if draw {
+	if p != nil {
 		word.Top = r.top
-		p.AddText(r.prefix, cell, &word)
+		p.text(r.prefix, cell, word)
 	}
-	h := printLines(p, cell, ref, r.ref, ref.Top, draw)
+	h := printLines(p, cell, ref, r.ref, ref.Top)
 	return max(ref.Top+h, r.top+wh*(1+leading)) + r.bottom
 }
 
-func (r *refLine) GetHeight(p core.Provider, cell *entity.Cell) float64 {
-	return r.walk(p, cell, false)
-}
-func (r *refLine) Render(p core.Provider, cell *entity.Cell) { r.walk(p, cell, true) }
-func (r *refLine) SetConfig(*entity.Config)                  {}
-func (r *refLine) GetStructure() *node.Node[core.Structure] {
-	return node.New(core.Structure{Type: "refLine", Value: r.prefix + " " + r.ref})
-}
+func (r *refLine) height(cell *area) float64    { return r.walk(nil, cell) }
+func (r *refLine) render(p *canvas, cell *area) { r.walk(p, cell) }
 
 // receiptNotes is the left of the receipt's summary: the withholding note
 // asking for the bukti potong (only when the payment carries withholding),
 // then the balance note and the thanks.
-func receiptNotes(d Document) core.Component {
+func receiptNotes(d Document) component {
 	label := style(fontBody, true, 7.5, cRed)
 	text := style(fontBody, false, 9, cMuted)
 	text.Top = 1.5
@@ -1315,8 +1441,8 @@ type pageCount struct{ current, total int }
 // footerBand is the footer on every page: the document's footer text, a
 // rule, and under it the business and its contacts left, the document and
 // "Page X of Y" right.
-func footerBand(d Document, pages *pageCount) core.Row {
-	return row.New().Add(col.New(gridSize).Add(&foot{d: d, pages: pages}))
+func footerBand(d Document, pages *pageCount) *row {
+	return newRow(col(gridSize).add(&foot{d: d, pages: pages}))
 }
 
 type foot struct {
@@ -1335,11 +1461,11 @@ func (f *foot) text() *stack {
 	return newStack(0, footTextGap, block{lines: splitLines(f.d.Footer), prop: t})
 }
 
-func (f *foot) lineProps() (l, r props.Text) {
+func (f *foot) lineProps() (l, r textProp) {
 	l = style(fontBody, false, 7.5, cMutedSoft)
 	l.Left = padX
 	r = l
-	r.Left, r.Right, r.Align = 0, padX, align.Right
+	r.Left, r.Right, r.Align = 0, padX, alignRight
 	return l, r
 }
 
@@ -1350,32 +1476,28 @@ func (f *foot) right(n, total int) string {
 
 // walk lays the footer out. The contact line on the left wraps in the room
 // the right side leaves at its widest ("Page 999 of 999"), so the footer is
-// as tall on every page as when Maroto registered it, and a long business
+// as tall on every page whatever its page number, and a long business
 // name or contact line takes more lines instead of running off the page.
-func (f *foot) walk(p core.Provider, cell *entity.Cell, draw bool) float64 {
+func (f *foot) walk(p *canvas, cell *area) float64 {
 	t := f.text()
-	y := t.GetHeight(p, cell)
+	y := t.height(cell)
 	l, r := f.lineProps()
 	l.Right = padX + textWidth(r, f.right(999, 999)) + 6
 	left := strings.Join(append([]string{f.d.FootName}, f.d.FootMeta...), " · ")
 	if f.d.FootName == "" {
 		left = strings.Join(f.d.FootMeta, " · ")
 	}
-	if draw {
-		t.Render(p, cell)
-		line(p, cell.X, cell.Y+y, cell.Width, orientation.Horizontal, hair, cLine)
+	if p != nil {
+		t.render(p, cell)
+		p.hline(cell.X, cell.Y+y, cell.Width, hair, cLine)
 		f.pages.current++
 		r.Top = y + footPadY
-		p.AddText(f.right(f.pages.current, f.pages.total), cell, &r)
+		p.text(f.right(f.pages.current, f.pages.total), cell, r)
 	}
 	// The last line's leading is the bottom padding's business.
-	lines := printLines(p, cell, l, left, y+footPadY, draw) - fontHeight(p, &l)*leading
+	lines := printLines(p, cell, l, left, y+footPadY) - fontHeight(l)*leading
 	return y + footPadY + lines + footPadY
 }
 
-func (f *foot) GetHeight(p core.Provider, cell *entity.Cell) float64 { return f.walk(p, cell, false) }
-func (f *foot) Render(p core.Provider, cell *entity.Cell)            { f.walk(p, cell, true) }
-func (f *foot) SetConfig(*entity.Config)                             {}
-func (f *foot) GetStructure() *node.Node[core.Structure] {
-	return node.New(core.Structure{Type: "footer"})
-}
+func (f *foot) height(cell *area) float64    { return f.walk(nil, cell) }
+func (f *foot) render(p *canvas, cell *area) { f.walk(p, cell) }

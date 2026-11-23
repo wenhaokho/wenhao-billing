@@ -532,15 +532,15 @@ func TestOnlyLogoUrlIsFetched(t *testing.T) {
 
 func TestFontsEmbedAllFamilies(t *testing.T) {
 	t.Parallel()
-	fonts, err := customFonts()
-	if err != nil {
-		t.Fatal(err)
-	}
 	families := map[string]int{}
-	for _, f := range fonts {
-		families[f.GetFamily()]++
-		if !bytes.HasPrefix(f.GetBytes(), []byte{0, 1, 0, 0}) {
-			t.Errorf("%s %q is not a TrueType font", f.GetFamily(), f.GetStyle())
+	for _, f := range fontFiles {
+		families[f.family]++
+		b, err := fontFS.ReadFile("fonts/" + f.file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.HasPrefix(b, []byte{0, 1, 0, 0}) {
+			t.Errorf("%s %q is not a TrueType font", f.family, f.style)
 		}
 	}
 	eq(t, "families", families, map[string]int{"dmsans": 2, "manrope": 2, "mono": 2})

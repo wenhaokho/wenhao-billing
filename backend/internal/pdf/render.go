@@ -6,34 +6,18 @@ import (
 	"embed"
 	_ "embed" // the default logo
 	"fmt"
-	"sync"
 	"time"
 
-	"github.com/johnfercher/maroto/v2"
-	"github.com/johnfercher/maroto/v2/pkg/config"
-	"github.com/johnfercher/maroto/v2/pkg/consts/fontstyle"
-	"github.com/johnfercher/maroto/v2/pkg/consts/pagesize"
-	"github.com/johnfercher/maroto/v2/pkg/core/entity"
-	"github.com/johnfercher/maroto/v2/pkg/fontrepository"
-	"github.com/johnfercher/maroto/v2/pkg/props"
-	"github.com/phpdave11/gofpdf"
+	"github.com/go-pdf/fpdf"
 )
 
 // reproEpoch is the creation date of a Document without one, and every PDF's
 // modification date: a document renders to the same bytes every time.
 var reproEpoch = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// gofpdf (Maroto's writer) stamps the modification date with the clock and
-// writes its catalogs in map order unless told otherwise; Maroto exposes
-// neither, so the package defaults are set once, before any render.
-func init() {
-	gofpdf.SetDefaultModificationDate(reproEpoch)
-	gofpdf.SetDefaultCatalogSort(true)
-}
-
 // The three families of the design (inventory §2.5), static TTF instances of
-// Google Fonts' OFL releases (licences beside them in fonts/). Maroto has a
-// normal and a bold style per family, so each family maps two weights.
+// Google Fonts' OFL releases (licences beside them in fonts/). Each family
+// has a normal and a bold style ("B"), mapped to two weights.
 const (
 	fontBody    = "dmsans"  // DM Sans 400 / 500
 	fontDisplay = "manrope" // Manrope 500 / 700
@@ -48,31 +32,30 @@ var defaultLogo []byte
 
 var fontFiles = []struct {
 	family string
-	style  fontstyle.Type
+	style  string
 	file   string
 }{
-	{fontBody, fontstyle.Normal, "DMSans-Regular.ttf"},
-	{fontBody, fontstyle.Bold, "DMSans-Medium.ttf"},
+	{fontBody, "", "DMSans-Regular.ttf"},
+	{fontBody, "B", "DMSans-Medium.ttf"},
 	// Manrope-Medium.ttf is a static instance (wght 500) of Google Fonts'
 	// variable Manrope, cut with fontTools' instancer.
-	{fontDisplay, fontstyle.Normal, "Manrope-Medium.ttf"},
-	{fontDisplay, fontstyle.Bold, "Manrope-Bold.ttf"},
-	{fontMono, fontstyle.Normal, "JetBrainsMono-Regular.ttf"},
-	{fontMono, fontstyle.Bold, "JetBrainsMono-SemiBold.ttf"},
+	{fontDisplay, "", "Manrope-Medium.ttf"},
+	{fontDisplay, "B", "Manrope-Bold.ttf"},
+	{fontMono, "", "JetBrainsMono-Regular.ttf"},
+	{fontMono, "B", "JetBrainsMono-SemiBold.ttf"},
 }
 
-// customFonts are the embedded fonts, read once.
-var customFonts = sync.OnceValues(func() ([]entity.CustomFont, error) {
-	repo := fontrepository.New()
-	for _, f := range fontFiles {
-		b, err := fontFS.ReadFile("fonts/" + f.file)
+// addFonts adds the embedded fonts to f.
+func addFonts(f *fpdf.Fpdf) error {
+	for _, ff := range fontFiles {
+		b, err := fontFS.ReadFile("fonts/" + ff.file)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		repo = repo.AddUTF8FontFromBytes(f.family, f.style, b)
+		f.AddUTF8FontFromBytes(ff.family, ff.style, b)
 	}
-	return repo.Load()
-})
+	return f.Error()
+}
 
 // DefaultLogo is a copy of the bundled logo (a PNG), printed when the
 // business has none or it cannot be used.
@@ -96,34 +79,30 @@ func RenderReceipt(ctx context.Context, d Document) ([]byte, error) {
 // render lays out any of the three documents: they differ only in their
 // Document (labels, a simple table, rows present or not).
 func render(ctx context.Context, d Document, logos *LogoResolver) ([]byte, error) {
-	fonts, err := customFonts()
-	if err != nil {
-		return nil, fmt.Errorf("pdf fonts: %w", err)
-	}
 	logoURL := d.LogoURL
 	logo := logos.Resolve(ctx, &logoURL)
 	created := d.Date
 	if created.IsZero() {
 		created = reproEpoch
 	}
-	cfg := config.NewBuilder().
-		WithPageSize(pagesize.A4).
-		WithLeftMargin(0).WithTopMargin(0).WithRightMargin(0).WithBottomMargin(0).
-		WithMaxGridSize(gridSize).
-		WithCustomFonts(fonts).
-		WithDefaultFont(&props.Font{Family: fontBody, Size: 10, Color: cInk}).
-		// The template's "{{ doc_title|title }} {{ ref }}".
-		WithTitle(pyTitle(d.DocTitle)+" "+d.Ref, true).
-		WithCompression(true).
-		WithCreationDate(created).
-		Build()
-	m := maroto.New(cfg)
-	if err := layout(m, cfg, d, logo); err != nil {
-		return nil, fmt.Errorf("pdf layout: %w", err)
+	f := fpdf.New("P", "mm", "A4", "")
+	if err := addFonts(f); err != nil {
+		return nil, fmt.Errorf("pdf fonts: %w", err)
 	}
-	doc, err := m.Generate()
-	if err != nil {
+	f.SetMargins(0, 0, 0)
+	f.SetAutoPageBreak(false, 0)
+	f.SetCompression(true)
+	f.SetCatalogSort(true)
+	f.SetCreationDate(created)
+	f.SetModificationDate(reproEpoch)
+	// The template's "{{ doc_title|title }} {{ ref }}".
+	f.SetTitle(pyTitle(d.DocTitle)+" "+d.Ref, true)
+	f.AddPage()
+	// A first run counts the pages for the footer's "Page X of Y".
+	layout(&canvas{pdf: f}, d, logo, layout(nil, d, logo, 0))
+	var b bytes.Buffer
+	if err := f.Output(&b); err != nil {
 		return nil, fmt.Errorf("pdf generate: %w", err)
 	}
-	return doc.GetBytes(), nil
+	return b.Bytes(), nil
 }
