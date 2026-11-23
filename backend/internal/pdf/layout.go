@@ -301,6 +301,24 @@ func textWidth(t textProp, s string) float64 {
 	return f.GetStringWidth(s)
 }
 
+// capHeight is the height of a capital letter in t's font, in mm.
+func capHeight(t textProp) float64 {
+	f, err := measurer()
+	if err != nil {
+		panic(fmt.Sprintf("pdf: fonts: %v", err)) // unreachable, as in textWidth
+	}
+	measureMu.Lock()
+	defer measureMu.Unlock()
+	return float64(f.GetFontDesc(t.Family, t.Style).CapHeight) / 1000 * fontHeight(t)
+}
+
+// centredTop is the Top that centres t's capitals in a box h tall: the
+// labels in the chip and the pill are all capitals, so the font's full
+// height (with room for accents above them) would sit them low.
+func centredTop(t textProp, h float64) float64 {
+	return (h+capHeight(t))/2 - fontHeight(t)
+}
+
 // wrapText is one paragraph's printed lines in width: it breaks at spaces,
 // and breaks a word wider than the whole line (a long email or reference)
 // between characters, so nothing runs past its column. A blank paragraph
@@ -898,7 +916,7 @@ func (dc *datesChip) render(p *canvas, cell *area) {
 		// A pill, as the mockup's badge (border-radius: 999px).
 		p.roundedRect(x, y, cw, ch, ch/2, hair, dc.chip.bg, dc.chip.fg)
 		cp := dc.chip.prop()
-		cp.Top = chipPadY
+		cp.Top = centredTop(cp, ch)
 		p.text(dc.chip.label, &area{X: x, Y: y, Width: cw, Height: ch}, cp)
 	}
 	dp := dc.datesProp()
@@ -1324,7 +1342,7 @@ func (rc *received) walk(p *canvas, cell *area) float64 {
 			p.roundedRect(x, y, pw, ph, ph/2, 0, cPaidBg, nil)
 			p.circle(x+pillPadX+pillDot/2, y+ph/2, pillDot/2, cPaidFg)
 			lp := pillProp()
-			lp.Left, lp.Top = pillPadX+pillDot+pillGap, pillPadY
+			lp.Left, lp.Top = pillPadX+pillDot+pillGap, centredTop(lp, ph)
 			p.text(pillLabel, &area{X: x, Y: y, Width: pw, Height: ph}, lp)
 		}
 		p.hline(cell.X, cell.Y+h, cell.Width, hair, cInk)

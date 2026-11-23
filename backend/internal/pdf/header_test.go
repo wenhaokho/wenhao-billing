@@ -67,3 +67,28 @@ func TestHeaderNameSizeHasAFloor(t *testing.T) {
 	}
 	eq(t, "impossible column stops at the floor", b.nameSize(2), nameMinSize)
 }
+
+// The chip's and the pill's capitals sit in the middle of their box: as much
+// room above the capitals as under the baseline.
+func TestChipAndPillLabelsAreCentred(t *testing.T) {
+	t.Parallel()
+	for _, f := range fontFiles {
+		tp := style(f.family, f.style == "B", 10, cInk)
+		if r := capHeight(tp) / fontHeight(tp); r < 0.6 || r > 0.8 {
+			t.Errorf("%s %q: cap height %.2f of the font size, want a real cap height", f.family, f.style, r)
+		}
+	}
+	c := chip{label: "PARTIALLY PAID", fg: cInk}
+	_, ch := c.size()
+	pill := pillProp()
+	for name, b := range map[string]struct {
+		t textProp
+		h float64
+	}{"chip": {c.prop(), ch}, "pill": {pill, fontHeight(pill) + 2*pillPadY}} {
+		baseline := centredTop(b.t, b.h) + fontHeight(b.t)
+		above, below := baseline-capHeight(b.t), b.h-baseline
+		if d := above - below; d > 1e-9 || d < -1e-9 {
+			t.Errorf("%s: %.3f mm above the capitals, %.3f mm under them", name, above, below)
+		}
+	}
+}
