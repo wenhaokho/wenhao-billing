@@ -118,7 +118,7 @@ func TestHTTPFetchSuccess(t *testing.T) {
 
 func TestHTTPFetchJPEG(t *testing.T) {
 	t.Parallel()
-	// Maroto embeds PNG and JPEG; a JPEG is kept as it is.
+	// fpdf embeds PNG and JPEG; a JPEG is kept as it is.
 	var b bytes.Buffer
 	if err := jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, 6, 2)), nil); err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestLogoTypeIsSniffedFromTheBytes(t *testing.T) {
 	u := srv.URL + "/logo"
 	eq(t, "size", size(t, (&LogoResolver{}).Resolve(t.Context(), &u)), image.Pt(9, 2))
 
-	// A GIF is an image Maroto cannot embed.
+	// A GIF is an image fpdf cannot embed.
 	var g bytes.Buffer
 	if err := gif.Encode(&g, image.NewPaletted(image.Rect(0, 0, 2, 2), []color.Color{color.Black}), nil); err != nil {
 		t.Fatal(err)

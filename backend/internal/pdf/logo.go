@@ -49,8 +49,8 @@ var logoClient = &http.Client{Timeout: logoTimeout, CheckRedirect: noRedirect}
 // noRedirect stops at a redirect: the 3xx is the response, and not a logo.
 func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
-// LogoResolver turns a business's logo_url into PNG or JPEG bytes Maroto can
-// embed (Maroto takes png, jpg and jpeg only). A data: URI is decoded; an
+// LogoResolver turns a business's logo_url into PNG or JPEG bytes fpdf can
+// embed (fpdf takes PNG and JPEG here). A data: URI is decoded; an
 // http(s) URL is fetched with a 5 s timeout and a 2 MB cap; the type is
 // sniffed from the bytes, never taken from a header. No logo_url, anything
 // else, or any failure is the bundled default logo, logged. Resolved logos
@@ -272,7 +272,7 @@ func checkPixels(cfg image.Config) error {
 	return nil
 }
 
-// logoIsJPEG tells an embeddable logo's Maroto type: JPEG, else PNG.
+// logoIsJPEG tells an embeddable logo's fpdf type: JPEG, else PNG.
 func logoIsJPEG(logo []byte) bool { return http.DetectContentType(logo) == "image/jpeg" }
 
 func hasPrefixFold(s, prefix string) bool {

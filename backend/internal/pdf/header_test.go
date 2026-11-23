@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/johnfercher/maroto/v2/pkg/core/entity"
 )
 
 // widePNG is a PNG about 4.3 times as wide as it is tall, the shape of the
@@ -44,7 +42,7 @@ func TestHeaderNameKeepsWholeWordsBesideAWideLogo(t *testing.T) {
 				t.Fatal("wide logo does not decode")
 			}
 			eq(t, "logo box takes its widest size", w, float64(logoMaxW))
-			width := b.textCell(&entity.Cell{Width: headLeftW}).Width
+			width := b.textCell(&area{Width: headLeftW}).Width
 			lines := wrapText(style(fontDisplay, true, b.nameSize(width), colWhite), name, width)
 			words := strings.Fields(name)
 			for _, line := range lines {
