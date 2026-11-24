@@ -1,4 +1,4 @@
-# Production deployment for Coolify — two containers on one domain:
+# Production deployment for Coolify — three containers, one public domain:
 #   wenhao-billing-web  nginx serving the built SPA; it is the only public service
 #                       and proxies /api, /mcp, /oauth, /.well-known, /docs,
 #                       /redoc and /openapi.json to the API, so the browser sees
@@ -7,8 +7,12 @@
 #                       replaced the Python API (backend-python/, no longer
 #                       deployed) on 2026-11-11, keeping the service name so
 #                       nginx's upstream and depends_on are unchanged.
-# Uses a SHARED Postgres (managed separately in Coolify); this stack only ships
-# the app. Periodic jobs (recurring invoices, usage lock, hosting enforcement,
+#   wenhao-billing-postgres  this stack's own PostgreSQL 18 (not published;
+#                       only the stack's containers reach it). It replaced the
+#                       shared Coolify Postgres; docs/runbooks/own-postgres.md
+#                       moves the data across. Coolify's database backups do
+#                       not cover it: the runbook sets up a pg_dump task.
+# Periodic jobs (recurring invoices, usage lock, hosting enforcement,
 # FX sync) run on an in-process scheduler inside the API — there is no worker
 # or Redis. It is off until GO_SCHEDULER_ENABLED=true (see
 # docs/runbooks/go-cutover.md).
@@ -20,14 +24,35 @@
 # In Coolify: New Resource -> Docker Compose (Build Pack), point it at this file.
 # Coolify auto-fills the SERVICE_* "magic" variables: it provisions the public
 # domain + Traefik route from SERVICE_FQDN_WEB_80 and generates every
-# SERVICE_BASE64_* secret once, then persists them.
-#
-# Set DATABASE_URL to the shared Postgres connection string
-# (Coolify UI, or .env for a run outside Coolify — see .env.coolify.example).
-# The shared Postgres must be attached to the same Docker network as this
-# resource so the API can reach it by hostname.
+# SERVICE_BASE64_* secret and SERVICE_PASSWORD_POSTGRES once, then persists them.
+
+x-restart: &restart
+  restart: unless-stopped
 
 services:
+  # This stack's own database. 18 like the dev stack: the 18 image keeps PGDATA
+  # in /var/lib/postgresql/18/docker, so the volume mounts at /var/lib/postgresql.
+  wenhao-billing-postgres:
+    image: postgres:18-alpine
+    cpus: ${BILLING_POSTGRES_CPUS:-1.0}
+    mem_limit: ${BILLING_POSTGRES_MEMORY:-1g}
+    memswap_limit: ${BILLING_POSTGRES_MEMORY:-1g}
+    <<: *restart
+    environment:
+      POSTGRES_USER: billing
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      POSTGRES_DB: billing
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - wenhao-billing-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billing -d billing"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   # Every variable has the value the Python service had, so sessions, MCP
   # tokens and the database line up. ENVIRONMENT is deliberately unset: Go
   # defaults to production, so the session cookie is Secure and a blank or
@@ -38,11 +63,14 @@ services:
       dockerfile: Dockerfile
     # The Go image: ENTRYPOINT /api (serve; adopts, then migrates).
     image: wenhao-billing-api:coolify-go
+    <<: *restart
+    depends_on:
+      wenhao-billing-postgres:
+        condition: service_healthy
     environment:
-      # Shared Postgres — full connection string you provide. The
-      # postgresql+psycopg:// form Coolify holds is accepted: Go rewrites the
-      # driver prefix for pgx.
-      DATABASE_URL: ${DATABASE_URL}
+      # The stack's own Postgres. The password is Coolify-generated (no URL
+      # special characters), so it goes into the URL unescaped.
+      DATABASE_URL: postgresql://billing:${SERVICE_PASSWORD_POSTGRES}@wenhao-billing-postgres:5432/billing?sslmode=disable
       # Secrets — Coolify generates 64-char values once and persists them.
       SESSION_SECRET: ${SERVICE_BASE64_64_SESSION}
       WEBHOOK_HMAC_SECRET: ${SERVICE_BASE64_64_WEBHOOK}
@@ -91,6 +119,7 @@ services:
         VITE_SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
         VITE_SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
     image: wenhao-billing-web:coolify
+    <<: *restart
     environment:
       # Presence of this key tells Coolify to generate the public FQDN for this
       # service on container port 80 and wire up the Traefik route + TLS.
@@ -108,3 +137,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
+
+volumes:
+  wenhao-billing-postgres-data:
