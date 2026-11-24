@@ -17,24 +17,37 @@ Coolify host, never paste a secret into a command, and stop at any `STOP` line.
 
 ## 1. Freeze and dump the shared database (before the deploy)
 
+The billing database on the shared Postgres is `000_wenhao_billing` (from the
+old `DATABASE_URL`). The dump is a Coolify database backup, so a copy also lands
+in R2 ("Cloudflare R2 Wenhao", bucket `wenhao`).
+
 1. In Coolify, **stop** the `#000 - Wenhao - Billing` resource (no more writes).
-2. Dump the billing database from the shared Postgres:
+2. Run the one-off backup on the shared Postgres: backup schedule
+   `lmjpm073kp5dpiuxbginnhbs` (disabled, `databases_to_backup=000_wenhao_billing`,
+   `dump_all=false`, saved to R2). In the Coolify UI: the `postgresql` database,
+   Backups, that schedule, **Backup Now**. Through the Coolify MCP:
+   `manage_backup update` with `data.backup_now=true`.
+3. Wait for its execution to show `success`, and note the file name
+   (`.../pg-dump-000_wenhao_billing-<ts>-<id>.dmp`, a `pg_dump -Fc` file).
+4. Record the row counts the restore is checked against:
 
 ```bash
 # host
 SHARED=$(docker ps --format '{{.Names}}' | grep -E '^lctxyyam2v2sxynlf0qkbvbm')
-SHARED_DB=billing   # the database name in the old DATABASE_URL; check it in Coolify
+SHARED_DB=000_wenhao_billing
 [ "$(printf '%s\n' "$SHARED" | grep -c .)" = 1 ] || echo "STOP: shared Postgres is not exactly one container"
-F=~/billing-$(date -u +%Y%m%dT%H%M%SZ).dump
-docker exec "$SHARED" pg_dump -U postgres -d "$SHARED_DB" -Fc --no-owner --no-acl > "$F"
+# The newest billing dump Coolify wrote on the host.
+F=$(ls -t /data/coolify/backups/databases/*/postgresql-lctxyyam2v2sxynlf0qkbvbm/pg-dump-000_wenhao_billing-*.dmp | head -n 1)
 ls -l "$F"
 docker exec "$SHARED" psql -U postgres -d "$SHARED_DB" -tA \
   -c "SELECT 'invoices', count(*) FROM invoices UNION ALL SELECT 'payments', count(*) FROM payments UNION ALL SELECT 'journal_entries', count(*) FROM journal_entries UNION ALL SELECT 'users', count(*) FROM users" \
   | tee ~/billing-counts-before.txt
 ```
 
-Expected: a dump file well over a few kB and the four counts. If a table name
-does not exist, drop it from the query; keep the rest.
+Expected: `$F` is the dump from step 3 (check the name and the time), and four
+counts. The counts are only comparable if the app stayed stopped since the dump.
+If the host copy is gone, download that file from R2 to the host and set `F`
+to it.
 
 ## 2. Deploy
 
@@ -93,5 +106,5 @@ must be kept.
 ## Afterwards
 
 Once the new database has run for a while and its backups are proven by a
-restore, drop the `billing` database (and its role) from the shared Postgres
+restore, drop the `000_wenhao_billing` database (and its role) from the shared Postgres
 and delete the `DATABASE_URL` variable from the Coolify resource.
